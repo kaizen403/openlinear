@@ -553,14 +553,19 @@ router.post('/github/connect/confirm', async (req: Request, res: Response) => {
       avatar_url: decodedGithub.githubAvatarUrl,
     };
 
-    await connectGitHubToUser(decodedAuth.userId, githubUser);
-    const user = await getUserById(decodedAuth.userId);
+     await connectGitHubToUser(decodedAuth.userId, githubUser);
+     const user = await getUserById(decodedAuth.userId);
 
-    const token = jwt.sign(
-      { userId: user!.id, username: user!.username },
-      getJwtSecret(),
-      { expiresIn: '7d', algorithm: 'HS256' }
-    );
+     if (!user) {
+       res.status(500).json({ error: 'Failed to retrieve user' });
+       return;
+     }
+
+     const token = jwt.sign(
+       { userId: user.id, username: user.username },
+       getJwtSecret(),
+       { expiresIn: '7d', algorithm: 'HS256' }
+     );
 
     const isDesktopClient = req.headers['x-openlinear-client'] === 'desktop';
     res.json({
