@@ -73,12 +73,18 @@ router.get('/public', async (_req: Request, res: Response) => {
 
 router.post('/:id/activate/public', async (req: Request, res: Response) => {
   try {
+    const id = req.params.id as string;
+    const repo = await prisma.repository.findUnique({ where: { id } });
+    if (!repo) {
+      res.status(404).json({ error: 'Repository not found' });
+      return;
+    }
+    
     await prisma.repository.updateMany({
       where: { userId: null },
       data: { isActive: false },
     });
     
-    const id = req.params.id as string;
     const project = await prisma.repository.update({
       where: { id },
       data: { isActive: true },
