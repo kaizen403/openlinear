@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { prisma } from '@openlinear/db';
 import { z } from 'zod';
 import { broadcast } from '../sse';
+import { requireAuth, AuthRequest } from '../middleware/auth';
 
 const router: Router = Router();
 
@@ -33,7 +34,7 @@ router.get('/', async (_req: Request, res: Response) => {
   }
 });
 
-router.post('/', async (req: Request, res: Response) => {
+router.post('/', requireAuth, async (req: AuthRequest, res: Response) => {
   try {
     const parsed = createLabelSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -57,7 +58,7 @@ router.post('/', async (req: Request, res: Response) => {
   }
 });
 
-router.patch('/:id', async (req: Request, res: Response) => {
+router.patch('/:id', requireAuth, async (req: AuthRequest, res: Response) => {
   try {
     const id = req.params.id as string;
     const parsed = updateLabelSchema.safeParse(req.body);
@@ -87,7 +88,7 @@ router.patch('/:id', async (req: Request, res: Response) => {
   }
 });
 
-router.delete('/:id', async (req: Request, res: Response) => {
+router.delete('/:id', requireAuth, async (req: AuthRequest, res: Response) => {
   try {
     const id = req.params.id as string;
 
