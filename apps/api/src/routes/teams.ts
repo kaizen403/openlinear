@@ -165,7 +165,7 @@ router.post('/join', requireAuth, async (req: AuthRequest, res: Response) => {
   }
 });
 
-router.patch('/:id', optionalAuth, async (req: AuthRequest, res: Response) => {
+router.patch('/:id', requireAuth, async (req: AuthRequest, res: Response) => {
   try {
     const id = req.params.id as string;
     const parsed = updateTeamSchema.safeParse(req.body);
@@ -206,7 +206,7 @@ router.patch('/:id', optionalAuth, async (req: AuthRequest, res: Response) => {
   }
 });
 
-router.delete('/:id', optionalAuth, async (req: AuthRequest, res: Response) => {
+router.delete('/:id', requireAuth, async (req: AuthRequest, res: Response) => {
   try {
     const id = req.params.id as string;
     await prisma.$transaction(async (tx) => {
@@ -326,7 +326,7 @@ router.post('/:id/members', requireAuth, async (req: AuthRequest, res: Response)
   }
 });
 
-router.delete('/:id/members/:userId', optionalAuth, async (req: AuthRequest, res: Response) => {
+router.delete('/:id/members/:userId', requireAuth, async (req: AuthRequest, res: Response) => {
   try {
     const id = req.params.id as string;
     const userId = req.params.userId as string;
