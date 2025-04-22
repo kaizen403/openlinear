@@ -222,7 +222,7 @@ export async function oauthCallback(
   method?: number
 ): Promise<void> {
   const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(), 40000);
+  const timeoutId = window.setTimeout(() => controller.abort(), 40000);
 
   let res: Response;
   try {
@@ -241,7 +241,7 @@ export async function oauthCallback(
     }
     throw error;
   } finally {
-    window.clearTimeout(timeout);
+    window.clearTimeout(timeoutId);
   }
 
   if (!res.ok) {
