@@ -32,11 +32,13 @@ export async function fetchInboxCount(): Promise<InboxCount> {
 }
 
 export async function markInboxRead(taskId: string): Promise<void> {
-  await fetch(`${API_URL}/api/inbox/read/${taskId}`, { method: 'PATCH', headers: getAuthHeader() })
+  const res = await fetch(`${API_URL}/api/inbox/read/${taskId}`, { method: 'PATCH', headers: getAuthHeader() })
+  if (!res.ok) throw new Error('Failed to mark inbox as read');
 }
 
 export async function markAllInboxRead(): Promise<void> {
-  await fetch(`${API_URL}/api/inbox/read-all`, { method: 'PATCH', headers: getAuthHeader() })
+  const res = await fetch(`${API_URL}/api/inbox/read-all`, { method: 'PATCH', headers: getAuthHeader() })
+  if (!res.ok) throw new Error('Failed to mark all inbox as read');
 }
 
 export async function refreshTaskPr(taskId: string): Promise<{ prUrl: string | null; refreshed: boolean; message?: string }> {
