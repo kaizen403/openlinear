@@ -73,6 +73,11 @@ router.get('/', optionalAuth, async (req: AuthRequest, res: Response) => {
 router.patch('/read/:id', async (req: AuthRequest, res: Response) => {
   try {
     const id = req.params.id as string;
+    const task = await prisma.task.findUnique({ where: { id } });
+    if (!task) {
+      res.status(404).json({ error: 'Task not found' });
+      return;
+    }
     await prisma.task.update({
       where: { id },
       data: { inboxRead: true },
