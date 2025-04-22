@@ -381,6 +381,7 @@ export function useSSE(
         clearTimeout(reconnectTimeoutRef.current)
       }
 
+      if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
       reconnectTimeoutRef.current = setTimeout(() => {
         connect()
       }, SSE_RECONNECT_DELAY)
