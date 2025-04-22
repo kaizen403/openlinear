@@ -72,13 +72,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             await storeGitHubAccessToken(res.githubAccessToken)
             localStorage.setItem('token', res.token);
             window.history.replaceState({}, '', window.location.pathname);
-            Promise.all([refreshUser(), refreshActiveRepository()]);
+            await Promise.all([refreshUser(), refreshActiveRepository()]);
           })
           .catch(err => {
             console.error('GitHub connect error:', err);
             toast.error(err instanceof Error ? err.message : 'GitHub connection failed');
           });
-      });
+      }).catch(err => console.error('Failed to load auth module:', err));
     } else if (token) {
       localStorage.setItem('token', token);
       window.history.replaceState({}, '', window.location.pathname);
