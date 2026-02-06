@@ -60,3 +60,34 @@ model Settings {
 
   @@map("settings")
 }
+
+model User {
+  id            String    @id @default(uuid())
+  githubId      Int       @unique
+  username      String
+  email         String?
+  avatarUrl     String?
+  accessToken   String
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  projects      Project[]
+
+  @@map("users")
+}
+
+model Project {
+  id            String   @id @default(uuid())
+  githubRepoId  Int
+  name          String
+  fullName      String   // e.g. "owner/repo"
+  cloneUrl      String
+  defaultBranch String   @default("main")
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  isActive      Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([userId, githubRepoId])
+  @@map("projects")
+}

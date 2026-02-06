@@ -2,7 +2,8 @@ import { Router, Request, Response } from 'express';
 import { prisma } from '@openlinear/db';
 import { z } from 'zod';
 import { broadcast } from '../sse';
-import { executeTask, cancelTask, isTaskRunning } from '../services/opencode';
+import { executeTask, cancelTask, isTaskRunning } from '../services/execution';
+import { requireAuth, AuthRequest } from '../middleware/auth';
 
 const PriorityEnum = z.enum(['low', 'medium', 'high']);
 const StatusEnum = z.enum(['todo', 'in_progress', 'done', 'cancelled']);
@@ -206,10 +207,10 @@ router.delete('/:id', async (req: Request, res: Response) => {
   }
 });
 
-router.post('/:id/execute', async (req: Request, res: Response) => {
+router.post('/:id/execute', requireAuth, async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
-    const result = await executeTask(id);
+    const result = await executeTask({ taskId: id, userId: req.userId! });
 
     if (!result.success) {
       res.status(400).json({ error: result.error });

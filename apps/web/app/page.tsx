@@ -5,10 +5,14 @@ import Link from "next/link"
 import { Layout, Home, Inbox, Layers, Settings, Search, Plus } from "lucide-react"
 import { KanbanBoard } from "@/components/board/kanban-board"
 import { TaskFormDialog } from "@/components/task-form"
+import { UserMenu } from "@/components/auth/user-menu"
+import { ProjectSelector } from "@/components/auth/project-selector"
+import { useAuth } from "@/hooks/use-auth"
 
 export default function HomePage() {
   const [isTaskFormOpen, setIsTaskFormOpen] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
+  const { isAuthenticated, activeProject } = useAuth()
 
   const handleTaskCreated = useCallback(() => {
     setRefreshKey((prev) => prev + 1)
@@ -25,6 +29,12 @@ export default function HomePage() {
             <span className="font-semibold">OpenLinear</span>
           </div>
         </div>
+
+        {isAuthenticated && (
+          <div className="p-3 border-b border-linear-border">
+            <ProjectSelector />
+          </div>
+        )}
 
         <nav className="flex-1 p-3">
           <ul className="space-y-1">
@@ -102,7 +112,9 @@ export default function HomePage() {
       <main className="flex-1 flex flex-col min-w-0">
         <header className="h-14 border-b border-linear-border flex items-center justify-between px-6 bg-linear-bg">
           <div className="flex items-center gap-4">
-            <h1 className="text-lg font-semibold">All Issues</h1>
+            <h1 className="text-lg font-semibold">
+              {activeProject ? activeProject.name : 'All Issues'}
+            </h1>
           </div>
           <div className="flex items-center gap-3">
             <div className="relative">
@@ -120,6 +132,7 @@ export default function HomePage() {
               <Plus className="w-4 h-4" />
               Create Task
             </button>
+            <UserMenu />
           </div>
         </header>
 

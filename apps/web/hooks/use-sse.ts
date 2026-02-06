@@ -30,6 +30,7 @@ export type SSEEventType =
   | 'label:updated'
   | 'label:deleted'
   | 'settings:updated'
+  | 'execution:progress'
 
 const SSE_RECONNECT_DELAY = 3000
 
@@ -132,6 +133,15 @@ export function useSSE(
         onEventRef.current('settings:updated', data)
       } catch (err) {
         console.error("[SSE] Failed to parse settings:updated:", err)
+      }
+    })
+
+    eventSource.addEventListener("execution:progress", (event) => {
+      try {
+        const data = JSON.parse((event as MessageEvent).data)
+        onEventRef.current('execution:progress', data)
+      } catch (err) {
+        console.error("[SSE] Failed to parse execution:progress:", err)
       }
     })
 

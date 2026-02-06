@@ -3,7 +3,7 @@
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Loader2 } from "lucide-react"
+import { Loader2, GitBranch, Code, GitPullRequest, Check, X, ExternalLink } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 interface Label {
@@ -25,10 +25,18 @@ interface Task {
   labels: Label[]
 }
 
+interface ExecutionProgress {
+  taskId: string
+  status: 'cloning' | 'executing' | 'committing' | 'creating_pr' | 'done' | 'cancelled' | 'error'
+  message: string
+  prUrl?: string
+}
+
 interface TaskCardProps {
   task: Task
   onExecute?: (taskId: string) => void
   onCancel?: (taskId: string) => void
+  executionProgress?: ExecutionProgress
 }
 
 const priorityColors = {
@@ -37,7 +45,17 @@ const priorityColors = {
   high: "bg-red-500",
 }
 
-export function TaskCard({ task, onExecute, onCancel }: TaskCardProps) {
+const progressConfig = {
+  cloning: { icon: GitBranch, label: 'Cloning', color: 'text-blue-400' },
+  executing: { icon: Code, label: 'Executing', color: 'text-linear-accent' },
+  committing: { icon: GitBranch, label: 'Committing', color: 'text-yellow-400' },
+  creating_pr: { icon: GitPullRequest, label: 'Creating PR', color: 'text-purple-400' },
+  done: { icon: Check, label: 'Done', color: 'text-green-400' },
+  cancelled: { icon: X, label: 'Cancelled', color: 'text-gray-400' },
+  error: { icon: X, label: 'Error', color: 'text-red-400' },
+}
+
+export function TaskCard({ task, onExecute, onCancel, executionProgress }: TaskCardProps) {
   const handleExecute = () => {
     if (onExecute) {
       onExecute(task.id)
@@ -49,6 +67,9 @@ export function TaskCard({ task, onExecute, onCancel }: TaskCardProps) {
       onCancel(task.id)
     }
   }
+
+  const showProgress = executionProgress && executionProgress.taskId === task.id
+  const isActiveProgress = showProgress && ['cloning', 'executing', 'committing', 'creating_pr'].includes(executionProgress.status)
 
   return (
     <Card className="bg-linear-bg border-linear-border hover:border-linear-border-hover transition-colors cursor-pointer group">
@@ -74,6 +95,36 @@ export function TaskCard({ task, onExecute, onCancel }: TaskCardProps) {
                 {label.name}
               </Badge>
             ))}
+          </div>
+        )}
+
+        {showProgress && (
+          <div className="mb-3 p-2 bg-linear-bg-tertiary rounded-md">
+            <div className="flex items-center gap-2">
+              {isActiveProgress ? (
+                <Loader2 className={cn('w-3 h-3 animate-spin', progressConfig[executionProgress.status].color)} />
+              ) : (
+                (() => {
+                  const Icon = progressConfig[executionProgress.status].icon
+                  return <Icon className={cn('w-3 h-3', progressConfig[executionProgress.status].color)} />
+                })()
+              )}
+              <span className="text-xs text-linear-text-secondary">
+                {executionProgress.message || progressConfig[executionProgress.status].label}
+              </span>
+            </div>
+            {executionProgress.prUrl && (
+              <a
+                href={executionProgress.prUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1 mt-2 text-xs text-linear-accent hover:underline"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <ExternalLink className="w-3 h-3" />
+                View PR
+              </a>
+            )}
           </div>
         )}
         

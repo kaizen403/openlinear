@@ -5,6 +5,7 @@ import { Column } from "./column"
 import { TaskCard } from "./task-card"
 import { Loader2, Layers } from "lucide-react"
 import { useSSE, SSEEventType, SSEEventData } from "@/hooks/use-sse"
+import { useAuth } from "@/hooks/use-auth"
 
 interface Label {
   id: string
@@ -25,6 +26,13 @@ interface Task {
   labels: Label[]
 }
 
+interface ExecutionProgress {
+  taskId: string
+  status: 'cloning' | 'executing' | 'committing' | 'creating_pr' | 'done' | 'cancelled' | 'error'
+  message: string
+  prUrl?: string
+}
+
 const COLUMNS = [
   { id: 'todo', title: 'Todo', status: 'todo' as const },
   { id: 'in_progress', title: 'In Progress', status: 'in_progress' as const },
@@ -32,13 +40,15 @@ const COLUMNS = [
   { id: 'cancelled', title: 'Cancelled', status: 'cancelled' as const },
 ]
 
-const API_BASE_URL = "http://localhost:3001/api"
-const SSE_URL = "http://localhost:3001/api/events"
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001"
+const SSE_URL = `${API_BASE_URL}/api/events`
 
 export function KanbanBoard() {
   const [tasks, setTasks] = useState<Task[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [executionProgress, setExecutionProgress] = useState<Record<string, ExecutionProgress>>({})
+  const { isAuthenticated, activeProject } = useAuth()
 
   const handleSSEEvent = useCallback((eventType: SSEEventType, data: SSEEventData) => {
     switch (eventType) {
@@ -86,6 +96,16 @@ export function KanbanBoard() {
         }
         break
 
+      case 'execution:progress':
+        const progressData = data as unknown as ExecutionProgress
+        if (progressData.taskId) {
+          setExecutionProgress((prev) => ({
+            ...prev,
+            [progressData.taskId]: progressData,
+          }))
+        }
+        break
+
       case 'connected':
         console.log("[SSE] Connected with clientId:", data.clientId)
         break
@@ -105,7 +125,7 @@ export function KanbanBoard() {
     try {
       setLoading(true)
       setError(null)
-      const response = await fetch(`${API_BASE_URL}/tasks`)
+      const response = await fetch(`${API_BASE_URL}/api/tasks`)
       if (!response.ok) {
         throw new Error(`Failed to fetch tasks: ${response.statusText}`)
       }
@@ -119,14 +139,28 @@ export function KanbanBoard() {
   }
 
   const handleExecute = async (taskId: string) => {
+    if (!isAuthenticated) {
+      console.error("Must be logged in to execute tasks")
+      return
+    }
+
+    if (!activeProject) {
+      console.error("No active project selected")
+      return
+    }
+
     try {
-      const response = await fetch(`${API_BASE_URL}/tasks/${taskId}/execute`, {
+      const token = localStorage.getItem('token')
+      const response = await fetch(`${API_BASE_URL}/api/tasks/${taskId}/execute`, {
         method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
       })
       if (!response.ok) {
-        throw new Error(`Failed to execute task: ${response.statusText}`)
+        const error = await response.json()
+        throw new Error(error.error || `Failed to execute task: ${response.statusText}`)
       }
-      fetchTasks()
     } catch (err) {
       console.error("Error executing task:", err)
     }
@@ -134,13 +168,14 @@ export function KanbanBoard() {
 
   const handleCancel = async (taskId: string) => {
     try {
-      const response = await fetch(`${API_BASE_URL}/tasks/${taskId}/cancel`, {
+      const token = localStorage.getItem('token')
+      const response = await fetch(`${API_BASE_URL}/api/tasks/${taskId}/cancel`, {
         method: "POST",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
       })
       if (!response.ok) {
         throw new Error(`Failed to cancel task: ${response.statusText}`)
       }
-      fetchTasks()
     } catch (err) {
       console.error("Error cancelling task:", err)
     }
@@ -196,8 +231,9 @@ export function KanbanBoard() {
                   <TaskCard
                     key={task.id}
                     task={task}
-                    onExecute={column.status === 'todo' ? handleExecute : undefined}
+                    onExecute={column.status === 'todo' && isAuthenticated && activeProject ? handleExecute : undefined}
                     onCancel={column.status === 'in_progress' ? handleCancel : undefined}
+                    executionProgress={executionProgress[task.id]}
                   />
                 ))
               )}
