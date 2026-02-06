@@ -14,9 +14,10 @@ OpenLinear is a Linear-like kanban board with OpenCode agent execution, built fo
 ## Tech Stack
 
 - Turborepo
-- Next.js (frontend)
-- Express (API)
-- PostgreSQL with Prisma
+- Tauri (desktop shell)
+- Next.js (desktop renderer)
+- Express (API sidecar)
+- PostgreSQL with Prisma (Docker)
 - shadcn/ui
 
 ## Quick Start
@@ -26,39 +27,43 @@ git clone <repo>
 cd openlinear
 pnpm install
 docker compose up -d
+export DATABASE_URL=postgresql://openlinear:openlinear@localhost:5432/openlinear
 pnpm db:push
-pnpm dev
+pnpm build:sidecar
+pnpm --filter @openlinear/desktop dev
 ```
 
-- Frontend: http://localhost:3000
-- API: http://localhost:3001
+- The desktop app window opens automatically.
+- Renderer dev server runs at http://localhost:3000 (used by Tauri in dev mode).
 
 ## Available Scripts
 
-- `pnpm dev` — run all apps in dev mode
+- `pnpm dev` — run all apps in dev mode (includes desktop renderer)
 - `pnpm build` — build all apps
 - `pnpm test` — run tests across the repo
 - `pnpm typecheck` — run TypeScript checks
 - `pnpm lint` — run linting across the repo
 - `pnpm db:push` — apply Prisma schema to the database
 - `pnpm db:studio` — open Prisma Studio
+- `pnpm build:sidecar` — build the API sidecar binary for the desktop app
+- `pnpm build:desktop` — build the Tauri desktop app
 
 ## Architecture Overview
 
-OpenLinear is a Turborepo monorepo with a Next.js UI and Express API. The API uses Prisma to
-manage a PostgreSQL database. The web app consumes API endpoints and listens for server-sent
-events to update the board in real time.
+OpenLinear is a Turborepo monorepo with a Tauri desktop shell, a Next.js renderer, and an Express
+API sidecar. The API uses Prisma to manage a PostgreSQL database. The desktop UI communicates
+with the sidecar API and listens for server-sent events to update the board in real time.
 
 ```
                  ┌──────────────────────┐
-                 │   Next.js Web App    │
-                 │  (apps/web, UI/SSE)  │
+                 │  Next.js Renderer   │
+                 │ (apps/desktop-ui)   │
                  └──────────┬───────────┘
-                            │ HTTP + SSE
+                            │ HTTP + SSE (sidecar)
                             ▼
                  ┌──────────────────────┐
                  │     Express API      │
-                 │     (apps/api)       │
+                 │  (apps/api sidecar)  │
                  └──────────┬───────────┘
                             │ Prisma
                             ▼
@@ -74,7 +79,8 @@ events to update the board in real time.
 openlinear/
 ├── apps/
 │   ├── api/          # Express API
-│   └── web/          # Next.js frontend
+│   ├── desktop/      # Tauri shell
+│   └── desktop-ui/   # Next.js renderer
 ├── packages/
 │   ├── db/           # Prisma schema
 │   └── types/        # Shared types

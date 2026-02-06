@@ -7,6 +7,8 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Database, Loader2, CheckCircle, XCircle, Eye, EyeOff } from "lucide-react"
 
+const DEFAULT_DATABASE_URL = "postgresql://openlinear:openlinear@localhost:5432/openlinear"
+
 interface ConnectionStatus {
   connected: boolean
   error: string | null
@@ -26,9 +28,7 @@ export function DatabaseSettings() {
         const { load } = await import("@tauri-apps/plugin-store")
         const store = await load("settings.json")
         const savedUrl = await store.get<string>("database_url")
-        if (savedUrl) {
-          setDatabaseUrl(savedUrl)
-        }
+        setDatabaseUrl(savedUrl || DEFAULT_DATABASE_URL)
         setIsTauri(true)
       } catch {
         setIsTauri(false)

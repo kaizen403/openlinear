@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "identifier": "com.openlinear.app",
   "build": {
-    "beforeDevCommand": "pnpm --filter @openlinear/web dev",
+    "beforeDevCommand": "pnpm --filter @openlinear/desktop-ui dev",
     "devUrl": "http://localhost:3000"
   },
   "app": {

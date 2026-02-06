@@ -101,7 +101,7 @@ importers:
         specifier: ^2.0.0
         version: 2.10.0
 
-  apps/web:
+  apps/desktop-ui:
     dependencies:
       '@hookform/resolvers':
         specifier: ^5.2.2
