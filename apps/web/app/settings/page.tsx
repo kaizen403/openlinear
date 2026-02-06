@@ -7,6 +7,7 @@ import { Slider } from "@/components/ui/slider"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { toast, Toaster } from "sonner"
+import { DatabaseSettings } from "@/components/desktop/database-settings"
 
 export default function SettingsPage() {
   const [parallelLimit, setParallelLimit] = useState(3)
@@ -140,6 +141,8 @@ export default function SettingsPage() {
             )}
           </CardContent>
         </Card>
+
+        <DatabaseSettings />
       </main>
     </div>
   )
