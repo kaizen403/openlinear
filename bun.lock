@@ -4,10 +4,8 @@
   "workspaces": {
     "": {
       "name": "openlinear",
-      "dependencies": {
-        "@opencode-ai/sdk": "^1.1.51",
-      },
       "devDependencies": {
+        "@opencode-ai/sdk": "^1.1.51",
         "turbo": "^2.3.0",
         "typescript": "^5.4.0",
       },
