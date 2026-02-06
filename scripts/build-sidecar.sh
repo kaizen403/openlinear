@@ -9,9 +9,24 @@ BINARIES_DIR="$ROOT_DIR/apps/desktop/src-tauri/binaries"
 echo "==> Building TypeScript..."
 pnpm --filter @openlinear/api build
 
-echo "==> Building binaries with pkg..."
+echo "==> Bundling with esbuild (ESM -> CJS)..."
 cd "$API_DIR"
-pnpm run build:pkg
+npx esbuild src/index.ts --bundle --platform=node --target=node18 --outfile=dist/bundle.cjs --format=cjs
+
+echo "==> Copying Prisma engine and schema..."
+PRISMA_CLIENT="$ROOT_DIR/node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/.prisma/client"
+if [ -f "$PRISMA_CLIENT/libquery_engine-debian-openssl-1.1.x.so.node" ]; then
+  cp "$PRISMA_CLIENT/libquery_engine-debian-openssl-1.1.x.so.node" dist/
+fi
+if [ -f "$PRISMA_CLIENT/schema.prisma" ]; then
+  cp "$PRISMA_CLIENT/schema.prisma" dist/
+fi
+
+echo "==> Building binaries with pkg..."
+npx @yao-pkg/pkg dist/bundle.cjs --target node18-macos-x64 --output dist/api-macos-x64
+npx @yao-pkg/pkg dist/bundle.cjs --target node18-macos-arm64 --output dist/api-macos-arm64
+npx @yao-pkg/pkg dist/bundle.cjs --target node18-linux-x64 --output dist/api-linux-x64
+
 cd "$ROOT_DIR"
 
 echo "==> Creating binaries directory..."

@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "main": "./src/index.ts",
+  "bin": "./dist/index.js",
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
@@ -29,21 +30,26 @@
     "@types/node": "^20.14.0",
     "@types/supertest": "^6.0.3",
     "@yao-pkg/pkg": "^5.12.0",
+    "esbuild": "^0.27.3",
     "supertest": "^7.2.2",
     "tsx": "^4.19.0",
     "typescript": "^5.4.0",
     "vitest": "^4.0.18"
   },
   "pkg": {
-    "outputPath": "dist",
-    "targets": [
-      "node20-macos-x64",
-      "node20-macos-arm64",
-      "node20-linux-x64"
+    "scripts": [
+      "dist/**/*.js"
     ],
     "assets": [
       "node_modules/.prisma/**/*",
-      "node_modules/@prisma/client/**/*"
-    ]
+      "node_modules/@prisma/client/**/*",
+      "../db/src/**/*"
+    ],
+    "targets": [
+      "node18-macos-x64",
+      "node18-macos-arm64",
+      "node18-linux-x64"
+    ],
+    "outputPath": "dist"
   }
 }
