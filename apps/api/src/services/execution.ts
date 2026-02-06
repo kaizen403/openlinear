@@ -1,20 +1,15 @@
-import { exec, spawn } from 'child_process';
+import { exec } from 'child_process';
 import { promisify } from 'util';
 import { existsSync, mkdirSync, rmSync } from 'fs';
 import { join } from 'path';
-import { createOpencodeClient } from '@opencode-ai/sdk';
 import { prisma } from '@openlinear/db';
 import { broadcast } from '../sse';
+import { getClient } from './opencode';
 
 const execAsync = promisify(exec);
 
 const REPOS_DIR = process.env.REPOS_DIR || '/tmp/openlinear-repos';
-const OPENCODE_BASE_URL = process.env.OPENCODE_URL || 'http://localhost:4096';
 const TASK_TIMEOUT_MS = 30 * 60 * 1000;
-
-const client = createOpencodeClient({
-  baseUrl: OPENCODE_BASE_URL,
-});
 
 interface ExecutionState {
   taskId: string;
@@ -22,8 +17,8 @@ interface ExecutionState {
   sessionId: string;
   repoPath: string;
   branchName: string;
-  userId: string;
-  accessToken: string;
+  userId: string | null;
+  accessToken: string | null;
   timeoutId: NodeJS.Timeout;
   status: 'cloning' | 'executing' | 'committing' | 'creating_pr' | 'done' | 'error';
 }
@@ -81,7 +76,7 @@ async function cleanupExecution(taskId: string): Promise<void> {
 async function cloneRepository(
   cloneUrl: string,
   repoPath: string,
-  accessToken: string,
+  accessToken: string | null,
   defaultBranch: string
 ): Promise<void> {
   if (!existsSync(REPOS_DIR)) {
@@ -92,8 +87,10 @@ async function cloneRepository(
     rmSync(repoPath, { recursive: true, force: true });
   }
 
-  const authUrl = cloneUrl.replace('https://', `https://oauth2:${accessToken}@`);
-  await execAsync(`git clone --depth 1 --branch ${defaultBranch} ${authUrl} ${repoPath}`);
+  const url = accessToken 
+    ? cloneUrl.replace('https://', `https://oauth2:${accessToken}@`)
+    : cloneUrl;
+  await execAsync(`git clone --depth 1 --branch ${defaultBranch} ${url} ${repoPath}`);
 }
 
 async function createBranch(repoPath: string, branchName: string): Promise<void> {
@@ -258,7 +255,7 @@ export async function initEventSubscription(): Promise<void> {
   if (eventSubscriptionActive) return;
 
   try {
-    const events = await client.event.subscribe();
+    const events = await getClient().event.subscribe();
     eventSubscriptionActive = true;
     console.log('[Execution] Event subscription initialized');
 
@@ -281,7 +278,7 @@ export async function initEventSubscription(): Promise<void> {
 
 interface ExecuteTaskParams {
   taskId: string;
-  userId: string;
+  userId?: string;
 }
 
 export async function executeTask({ taskId, userId }: ExecuteTaskParams): Promise<{ success: boolean; error?: string }> {
@@ -296,18 +293,24 @@ export async function executeTask({ taskId, userId }: ExecuteTaskParams): Promis
     return { success: false, error: `Parallel limit reached (${parallelLimit} tasks max)` };
   }
 
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { accessToken: true },
-  });
+  let accessToken: string | null = null;
+  let project;
 
-  if (!user) {
-    return { success: false, error: 'User not found' };
+  if (userId) {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { accessToken: true },
+    });
+    accessToken = user?.accessToken ?? null;
+
+    project = await prisma.project.findFirst({
+      where: { userId, isActive: true },
+    });
+  } else {
+    project = await prisma.project.findFirst({
+      where: { userId: null, isActive: true },
+    });
   }
-
-  const project = await prisma.project.findFirst({
-    where: { userId, isActive: true },
-  });
 
   if (!project) {
     return { success: false, error: 'No active project selected' };
@@ -327,12 +330,12 @@ export async function executeTask({ taskId, userId }: ExecuteTaskParams): Promis
 
   try {
     broadcastProgress(taskId, 'cloning', 'Cloning repository...');
-    await cloneRepository(project.cloneUrl, repoPath, user.accessToken, project.defaultBranch);
+    await cloneRepository(project.cloneUrl, repoPath, accessToken, project.defaultBranch);
     await createBranch(repoPath, branchName);
 
     broadcastProgress(taskId, 'executing', 'Starting OpenCode agent...');
 
-    const sessionResponse = await client.session.create({
+    const sessionResponse = await getClient().session.create({
       body: { 
         title: task.title,
       },
@@ -357,8 +360,8 @@ export async function executeTask({ taskId, userId }: ExecuteTaskParams): Promis
       sessionId,
       repoPath,
       branchName,
-      userId,
-      accessToken: user.accessToken,
+      userId: userId ?? null,
+      accessToken,
       timeoutId,
       status: 'executing',
     });
@@ -374,11 +377,11 @@ export async function executeTask({ taskId, userId }: ExecuteTaskParams): Promis
       prompt += `\n\nLabels: ${labelNames}`;
     }
 
-    client.session.prompt({
+    getClient().session.prompt({
       path: { id: sessionId },
       body: { parts: [{ type: 'text', text: prompt }] },
-    }).catch((error) => {
-      console.error(`[Execution] Prompt error for task ${taskId}:`, error);
+    }).catch((err: Error) => {
+      console.error(`[Execution] Prompt error for task ${taskId}:`, err);
     });
 
     console.log(`[Execution] Started for task ${taskId} in ${repoPath}`);
@@ -398,7 +401,7 @@ export async function cancelTask(taskId: string): Promise<{ success: boolean; er
   }
 
   try {
-    await client.session.abort({ path: { id: execution.sessionId } });
+    await getClient().session.abort({ path: { id: execution.sessionId } });
     broadcastProgress(taskId, 'cancelled', 'Execution cancelled');
     await updateTaskStatus(taskId, 'cancelled', null);
     await cleanupExecution(taskId);
@@ -409,5 +412,3 @@ export async function cancelTask(taskId: string): Promise<{ success: boolean; er
     return { success: true, error: error instanceof Error ? error.message : 'Abort may have failed' };
   }
 }
-
-initEventSubscription();

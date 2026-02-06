@@ -79,11 +79,11 @@ model Project {
   id            String   @id @default(uuid())
   githubRepoId  Int
   name          String
-  fullName      String   // e.g. "owner/repo"
+  fullName      String
   cloneUrl      String
   defaultBranch String   @default("main")
-  userId        String
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId        String?
+  user          User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
   isActive      Boolean  @default(false)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt

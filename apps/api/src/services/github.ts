@@ -21,6 +21,87 @@ export interface GitHubRepo {
   description: string | null;
 }
 
+export function parseGitHubUrl(url: string): { owner: string; repo: string } | null {
+  const patterns = [
+    /^https?:\/\/github\.com\/([^\/]+)\/([^\/]+?)(\.git)?$/,
+    /^git@github\.com:([^\/]+)\/([^\/]+?)(\.git)?$/,
+    /^([^\/]+)\/([^\/]+)$/,
+  ];
+  
+  for (const pattern of patterns) {
+    const match = url.trim().match(pattern);
+    if (match) {
+      return { owner: match[1], repo: match[2].replace(/\.git$/, '') };
+    }
+  }
+  return null;
+}
+
+export async function fetchPublicRepo(owner: string, repo: string): Promise<GitHubRepo> {
+  const response = await fetch(`https://api.github.com/repos/${owner}/${repo}`, {
+    headers: {
+      Accept: 'application/vnd.github.v3+json',
+      'User-Agent': 'OpenLinear',
+    },
+  });
+
+  if (!response.ok) {
+    if (response.status === 404) {
+      throw new Error(`Repository ${owner}/${repo} not found or is private`);
+    }
+    throw new Error(`Failed to fetch repository: ${response.statusText}`);
+  }
+
+  return (await response.json()) as GitHubRepo;
+}
+
+export async function addProjectByUrl(url: string): Promise<{
+  id: string;
+  name: string;
+  fullName: string;
+  cloneUrl: string;
+  defaultBranch: string;
+  isActive: boolean;
+}> {
+  const parsed = parseGitHubUrl(url);
+  if (!parsed) {
+    throw new Error('Invalid GitHub URL format');
+  }
+
+  const repo = await fetchPublicRepo(parsed.owner, parsed.repo);
+  
+  if (repo.private) {
+    throw new Error('Private repositories require authentication');
+  }
+
+  const existing = await prisma.project.findFirst({
+    where: { githubRepoId: repo.id, userId: null },
+  });
+
+  if (existing) {
+    return prisma.project.update({
+      where: { id: existing.id },
+      data: { isActive: true },
+    });
+  }
+
+  await prisma.project.updateMany({
+    where: { userId: null },
+    data: { isActive: false },
+  });
+
+  return prisma.project.create({
+    data: {
+      githubRepoId: repo.id,
+      name: repo.name,
+      fullName: repo.full_name,
+      cloneUrl: repo.clone_url,
+      defaultBranch: repo.default_branch,
+      isActive: true,
+    },
+  });
+}
+
 export function getAuthorizationUrl(state: string): string {
   const params = new URLSearchParams({
     client_id: GITHUB_CLIENT_ID,

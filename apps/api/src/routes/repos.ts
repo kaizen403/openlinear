@@ -8,6 +8,7 @@ import {
   getActiveProject,
   getUserProjects,
   GitHubRepo,
+  addProjectByUrl,
 } from '../services/github';
 
 const router: Router = Router();
@@ -34,6 +35,67 @@ async function getAuthUser(req: Request): Promise<AuthUser | null> {
     return null;
   }
 }
+
+router.post('/url', async (req: Request, res: Response) => {
+  const { url } = req.body as { url?: string };
+  
+  if (!url) {
+    res.status(400).json({ error: 'URL is required' });
+    return;
+  }
+
+  try {
+    const project = await addProjectByUrl(url);
+    res.json(project);
+  } catch (err) {
+    console.error('[Repos] Failed to add repo by URL:', err);
+    const message = err instanceof Error ? err.message : 'Failed to add repository';
+    res.status(400).json({ error: message });
+  }
+});
+
+router.get('/active/public', async (_req: Request, res: Response) => {
+  try {
+    const project = await prisma.project.findFirst({
+      where: { userId: null, isActive: true },
+    });
+    res.json(project);
+  } catch (err) {
+    console.error('[Repos] Failed to get active public project:', err);
+    res.status(500).json({ error: 'Failed to get active project' });
+  }
+});
+
+router.get('/public', async (_req: Request, res: Response) => {
+  try {
+    const projects = await prisma.project.findMany({
+      where: { userId: null },
+      orderBy: { updatedAt: 'desc' },
+    });
+    res.json(projects);
+  } catch (err) {
+    console.error('[Repos] Failed to get public projects:', err);
+    res.status(500).json({ error: 'Failed to get projects' });
+  }
+});
+
+router.post('/:id/activate/public', async (req: Request, res: Response) => {
+  try {
+    await prisma.project.updateMany({
+      where: { userId: null },
+      data: { isActive: false },
+    });
+    
+    const project = await prisma.project.update({
+      where: { id: req.params.id },
+      data: { isActive: true },
+    });
+    res.json(project);
+  } catch (err) {
+    console.error('[Repos] Failed to activate public project:', err);
+    res.status(500).json({ error: 'Failed to activate project' });
+  }
+});
 
 router.get('/', async (req: Request, res: Response) => {
   const user = await getAuthUser(req);
