@@ -14,7 +14,8 @@
   "bundle": {
     "active": true,
     "targets": ["dmg", "app", "appimage", "deb"],
-    "icon": ["icons/icon.png"]
+    "icon": ["icons/icon.png"],
+    "externalBin": ["binaries/openlinear-api"]
   },
   "plugins": {
     "shell": { "open": true },

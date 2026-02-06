@@ -1,4 +1,5 @@
 mod opencode;
+mod sidecar;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -7,7 +8,11 @@ pub fn run() {
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_store::Builder::default().build())
-        .invoke_handler(tauri::generate_handler![opencode::check_opencode])
+        .invoke_handler(tauri::generate_handler![
+            opencode::check_opencode,
+            sidecar::start_api_server,
+            sidecar::stop_api_server
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

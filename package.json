@@ -8,7 +8,8 @@
     "test": "turbo run test",
     "typecheck": "turbo run typecheck",
     "db:push": "pnpm --filter db db:push",
-    "db:studio": "pnpm --filter db db:studio"
+    "db:studio": "pnpm --filter db db:studio",
+    "build:sidecar": "./scripts/build-sidecar.sh"
   },
   "devDependencies": {
     "@opencode-ai/sdk": "^1.1.51",
