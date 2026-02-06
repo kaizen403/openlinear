@@ -127,8 +127,13 @@ async function createPullRequest(
   defaultBranch: string,
   taskTitle: string,
   taskDescription: string | null,
-  accessToken: string
+  accessToken: string | null
 ): Promise<{ url: string } | null> {
+  if (!accessToken) {
+    console.log('[Execution] No access token - skipping PR creation for public repo');
+    return null;
+  }
+
   const [owner, repo] = fullName.split('/');
   
   const body = {

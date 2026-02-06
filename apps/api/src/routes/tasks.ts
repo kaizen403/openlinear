@@ -207,10 +207,10 @@ router.delete('/:id', async (req: Request, res: Response) => {
   }
 });
 
-router.post('/:id/execute', requireAuth, async (req: AuthRequest, res: Response) => {
+router.post('/:id/execute', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const result = await executeTask({ taskId: id, userId: req.userId! });
+    const result = await executeTask({ taskId: id });
 
     if (!result.success) {
       res.status(400).json({ error: result.error });
