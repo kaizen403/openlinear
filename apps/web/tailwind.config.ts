@@ -63,8 +63,8 @@ const config: Config = {
           text: "#f5f5f5",
           "text-secondary": "#a0a0a0",
           "text-tertiary": "#6a6a6a",
-          accent: "#5e6ad2",
-          "accent-hover": "#4f5bc3",
+          accent: "#3b82f6",
+          "accent-hover": "#2563eb",
         },
       },
       borderRadius: {

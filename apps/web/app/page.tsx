@@ -22,12 +22,7 @@ export default function HomePage() {
     <div className="flex h-screen bg-linear-bg text-linear-text">
       <aside className="w-64 bg-linear-bg-secondary border-r border-linear-border flex flex-col">
         <div className="p-4 border-b border-linear-border">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-linear-accent flex items-center justify-center">
-              <Layout className="w-4 h-4 text-white" />
-            </div>
-            <span className="font-semibold">OpenLinear</span>
-          </div>
+          <span className="font-semibold">OpenLinear</span>
         </div>
 
         {isAuthenticated && (
@@ -67,35 +62,7 @@ export default function HomePage() {
             </li>
           </ul>
 
-          <div className="mt-6">
-            <div className="px-3 mb-2 text-xs font-semibold text-linear-text-tertiary uppercase tracking-wider">
-              Teams
-            </div>
-            <ul className="space-y-1">
-              <li>
-                <a
-                  href="#"
-                  className="flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium text-linear-text-secondary hover:text-linear-text hover:bg-linear-bg-tertiary transition-colors"
-                >
-                  <div className="w-4 h-4 rounded bg-linear-accent flex items-center justify-center text-[10px] font-bold">
-                    E
-                  </div>
-                  Engineering
-                </a>
-              </li>
-              <li>
-                <a
-                  href="#"
-                  className="flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium text-linear-text-secondary hover:text-linear-text hover:bg-linear-bg-tertiary transition-colors"
-                >
-                  <div className="w-4 h-4 rounded bg-emerald-500 flex items-center justify-center text-[10px] font-bold">
-                    D
-                  </div>
-                  Design
-                </a>
-              </li>
-            </ul>
-          </div>
+
         </nav>
 
         <div className="p-3 border-t border-linear-border">

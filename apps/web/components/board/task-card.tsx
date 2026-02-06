@@ -1,7 +1,6 @@
 "use client"
 
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Loader2, GitBranch, Code, GitPullRequest, Check, X, ExternalLink } from "lucide-react"
 import { cn } from "@/lib/utils"
@@ -84,16 +83,18 @@ export function TaskCard({ task, onExecute, onCancel, executionProgress }: TaskC
       </CardHeader>
       <CardContent className="p-3 pt-2">
         {task.labels.length > 0 && (
-          <div className="flex flex-wrap gap-1 mb-3">
+          <div className="flex flex-wrap gap-1.5 mb-3">
             {task.labels.map((label) => (
-              <Badge
+              <span
                 key={label.id}
-                variant="secondary"
-                className="text-[10px] px-1.5 py-0 h-4 bg-linear-bg-tertiary"
-                style={{ color: label.color }}
+                className="text-[11px] px-2 py-0.5 h-5 font-medium rounded-[4px] inline-flex items-center backdrop-blur-sm border border-white/10"
+                style={{ 
+                  backgroundColor: `${label.color}20`,
+                  color: label.color
+                }}
               >
                 {label.name}
-              </Badge>
+              </span>
             ))}
           </div>
         )}

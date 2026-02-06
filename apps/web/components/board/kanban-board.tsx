@@ -3,7 +3,8 @@
 import { useState, useEffect, useCallback } from "react"
 import { Column } from "./column"
 import { TaskCard } from "./task-card"
-import { Loader2, Layers } from "lucide-react"
+import { TaskFormDialog } from "@/components/task-form"
+import { Loader2, Layers, Plus } from "lucide-react"
 import { useSSE, SSEEventType, SSEEventData } from "@/hooks/use-sse"
 import { useAuth } from "@/hooks/use-auth"
 
@@ -48,7 +49,14 @@ export function KanbanBoard() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [executionProgress, setExecutionProgress] = useState<Record<string, ExecutionProgress>>({})
+  const [isTaskFormOpen, setIsTaskFormOpen] = useState(false)
+  const [defaultStatus, setDefaultStatus] = useState<Task['status']>('todo')
   const { isAuthenticated, activeProject } = useAuth()
+
+  const handleAddTask = (status: Task['status']) => {
+    setDefaultStatus(status)
+    setIsTaskFormOpen(true)
+  }
 
   const handleSSEEvent = useCallback((eventType: SSEEventType, data: SSEEventData) => {
     switch (eventType) {
@@ -220,12 +228,18 @@ export function KanbanBoard() {
               id={column.id}
               title={column.title}
               taskCount={columnTasks.length}
+              onAddTask={() => handleAddTask(column.status)}
             >
               {columnTasks.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-8 text-linear-text-tertiary">
-                  <Layers className="w-8 h-8 mb-2 opacity-50" />
-                  <span className="text-sm">No tasks</span>
-                </div>
+                <button
+                  onClick={() => handleAddTask(column.status)}
+                  className="w-full flex flex-col items-center justify-center py-8 text-linear-text-tertiary hover:text-linear-text-secondary hover:bg-linear-bg-tertiary/50 rounded-lg transition-all cursor-pointer group"
+                >
+                  <div className="w-10 h-10 rounded-full bg-linear-bg-tertiary flex items-center justify-center mb-3 group-hover:bg-linear-bg-tertiary group-hover:scale-110 transition-all">
+                    <Plus className="w-5 h-5" />
+                  </div>
+                  <span className="text-sm">Add task</span>
+                </button>
               ) : (
                 columnTasks.map((task) => (
                   <TaskCard
@@ -241,6 +255,11 @@ export function KanbanBoard() {
           )
         })}
       </div>
+
+      <TaskFormDialog
+        open={isTaskFormOpen}
+        onOpenChange={setIsTaskFormOpen}
+      />
     </div>
   )
 }
