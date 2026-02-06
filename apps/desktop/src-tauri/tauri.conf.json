@@ -15,7 +15,17 @@
     "active": true,
     "targets": ["dmg", "app", "appimage", "deb"],
     "icon": ["icons/icon.png"],
-    "externalBin": ["binaries/openlinear-api"]
+    "externalBin": ["binaries/openlinear-api"],
+    "macOS": {
+      "minimumSystemVersion": "10.15",
+      "dmg": {
+        "windowSize": { "width": 540, "height": 400 }
+      }
+    },
+    "linux": {
+      "appimage": { "bundleMediaFramework": false },
+      "deb": { "depends": [] }
+    }
   },
   "plugins": {
     "shell": { "open": true },

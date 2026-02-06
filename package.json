@@ -9,7 +9,8 @@
     "typecheck": "turbo run typecheck",
     "db:push": "pnpm --filter db db:push",
     "db:studio": "pnpm --filter db db:studio",
-    "build:sidecar": "./scripts/build-sidecar.sh"
+    "build:sidecar": "./scripts/build-sidecar.sh",
+    "build:desktop": "pnpm --filter @openlinear/desktop tauri build"
   },
   "devDependencies": {
     "@opencode-ai/sdk": "^1.1.51",

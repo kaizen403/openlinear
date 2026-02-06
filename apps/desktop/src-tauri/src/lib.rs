@@ -1,3 +1,4 @@
+mod deeplink;
 mod opencode;
 mod sidecar;
 
@@ -8,6 +9,10 @@ pub fn run() {
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_store::Builder::default().build())
+        .setup(|app| {
+            deeplink::setup_deep_link_handler(app);
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             opencode::check_opencode,
             sidecar::start_api_server,
