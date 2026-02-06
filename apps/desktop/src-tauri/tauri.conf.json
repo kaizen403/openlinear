@@ -9,7 +9,15 @@
   },
   "app": {
     "security": { "csp": null },
-    "windows": [{ "title": "OpenLinear", "width": 1200, "height": 800, "center": true }]
+    "windows": [
+      {
+        "title": "OpenLinear",
+        "width": 1200,
+        "height": 800,
+        "center": true,
+        "decorations": false
+      }
+    ]
   },
   "bundle": {
     "active": true,

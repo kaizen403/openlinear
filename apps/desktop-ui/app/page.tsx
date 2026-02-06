@@ -77,12 +77,13 @@ export default function HomePage() {
       </aside>
 
       <main className="flex-1 flex flex-col min-w-0">
-        <header className="h-14 border-b border-linear-border flex items-center justify-between px-6 bg-linear-bg">
-          <div className="flex items-center gap-4">
+        <header className="h-14 border-b border-linear-border flex items-center px-6 bg-linear-bg gap-4">
+          <div className="flex items-center gap-4 min-w-0">
             <h1 className="text-lg font-semibold">
               {activeProject ? activeProject.name : 'All Issues'}
             </h1>
           </div>
+          <div className="flex-1 h-full" data-tauri-drag-region />
           <div className="flex items-center gap-3">
             <div className="relative">
               <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-linear-text-tertiary" />

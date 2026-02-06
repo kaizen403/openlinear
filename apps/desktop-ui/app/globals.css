@@ -29,11 +29,33 @@
 }
 
 @layer base {
+  html {
+    font-family: var(--font-sans), ui-sans-serif, system-ui, -apple-system, "Segoe UI", "Noto Sans", "Ubuntu", "Cantarell", "Helvetica Neue", Arial, sans-serif;
+    font-feature-settings: "kern" 1, "liga" 1, "clig" 1, "calt" 1, "rlig" 1;
+    font-variant-ligatures: normal;
+    font-kerning: normal;
+    font-optical-sizing: auto;
+    font-synthesis: none;
+    text-rendering: optimizeLegibility;
+  }
   * {
     @apply border-border;
   }
   body {
     @apply bg-linear-bg text-linear-text;
-    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+  body,
+  button,
+  input,
+  textarea,
+  select {
+    font-family: inherit;
+    font-feature-settings: inherit;
+    font-variant-ligatures: inherit;
+    font-kerning: inherit;
+    font-optical-sizing: inherit;
+    font-synthesis: inherit;
+    letter-spacing: 0;
+    text-rendering: inherit;
   }
 }
