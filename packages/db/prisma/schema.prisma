@@ -1,0 +1,62 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Priority {
+  low
+  medium
+  high
+}
+
+enum Status {
+  todo
+  in_progress
+  done
+  cancelled
+}
+
+model Task {
+  id          String      @id @default(uuid())
+  title       String
+  description String?
+  priority    Priority    @default(medium)
+  status      Status      @default(todo)
+  sessionId   String?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  labels      TaskLabel[]
+
+  @@map("tasks")
+}
+
+model Label {
+  id       String      @id @default(uuid())
+  name     String      @unique
+  color    String
+  priority Int         @default(0)
+  tasks    TaskLabel[]
+
+  @@map("labels")
+}
+
+model TaskLabel {
+  taskId  String
+  labelId String
+  task    Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  label   Label  @relation(fields: [labelId], references: [id], onDelete: Cascade)
+
+  @@id([taskId, labelId])
+  @@map("task_labels")
+}
+
+model Settings {
+  id            String @id @default("default")
+  parallelLimit Int    @default(3)
+
+  @@map("settings")
+}
