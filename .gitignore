@@ -11,3 +11,4 @@ coverage
 .turbo
 .vercel
 *.tsbuildinfo
+package-lock.json
