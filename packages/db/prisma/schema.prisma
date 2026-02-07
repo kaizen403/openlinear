@@ -21,15 +21,23 @@ enum Status {
 }
 
 model Task {
-  id          String      @id @default(uuid())
-  title       String
-  description String?
-  priority    Priority    @default(medium)
-  status      Status      @default(todo)
-  sessionId   String?
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
-  labels      TaskLabel[]
+  id              String      @id @default(uuid())
+  title           String
+  description     String?
+  priority        Priority    @default(medium)
+  status          Status      @default(todo)
+  sessionId       String?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  labels          TaskLabel[]
+  
+  // Execution tracking
+  executionStartedAt  DateTime?
+  executionPausedAt   DateTime?
+  executionElapsedMs  Int       @default(0)
+  executionProgress   Int?      // 0-100 estimated progress
+  prUrl               String?
+  outcome             String?   // Summary of what was accomplished
 
   @@map("tasks")
 }

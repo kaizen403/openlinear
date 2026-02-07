@@ -37,6 +37,10 @@ interface ExecutionState {
   status: 'cloning' | 'executing' | 'committing' | 'creating_pr' | 'done' | 'error';
   logs: ExecutionLogEntry[];
   client: OpencodeClient;
+  startedAt: Date;
+  filesChanged: number;
+  toolsExecuted: number;
+  promptSent: boolean;
 }
 
 interface ExecutionLogEntry {
@@ -101,12 +105,24 @@ export function getExecutionLogs(taskId: string): ExecutionLogEntry[] {
 async function updateTaskStatus(
   taskId: string,
   status: 'in_progress' | 'done' | 'cancelled',
-  sessionId: string | null
+  sessionId: string | null,
+  executionData?: {
+    executionStartedAt?: Date;
+    executionPausedAt?: Date | null;
+    executionElapsedMs?: number;
+    executionProgress?: number | null;
+    prUrl?: string | null;
+    outcome?: string | null;
+  }
 ): Promise<void> {
   try {
     const task = await prisma.task.update({
       where: { id: taskId },
-      data: { status, sessionId },
+      data: { 
+        status, 
+        sessionId,
+        ...executionData,
+      },
       include: { labels: { include: { label: true } } },
     });
     
@@ -119,6 +135,14 @@ async function updateTaskStatus(
   } catch (error) {
     console.error(`[Execution] Failed to update task ${taskId}:`, error);
   }
+}
+
+function estimateProgress(execution: ExecutionState): number {
+  const baseProgress = Math.min(execution.toolsExecuted * 5, 40);
+  const fileProgress = Math.min(execution.filesChanged * 10, 30);
+  const elapsedMinutes = (Date.now() - execution.startedAt.getTime()) / 60000;
+  const timeProgress = Math.min(elapsedMinutes * 3, 20);
+  return Math.min(Math.round(baseProgress + fileProgress + timeProgress), 95);
 }
 
 async function cleanupExecution(taskId: string): Promise<void> {
@@ -271,6 +295,10 @@ async function handleSessionComplete(taskId: string): Promise<void> {
   const execution = activeExecutions.get(taskId);
   if (!execution) return;
 
+  const elapsedMs = Date.now() - execution.startedAt.getTime();
+  let prUrl: string | null = null;
+  let outcome: string | null = null;
+
   try {
     execution.status = 'committing';
     broadcastProgress(taskId, 'committing', 'Committing changes...');
@@ -302,6 +330,9 @@ async function handleSessionComplete(taskId: string): Promise<void> {
           execution.accessToken
         );
 
+        prUrl = result.url;
+        outcome = `${execution.filesChanged} file${execution.filesChanged !== 1 ? 's' : ''} changed, ${execution.toolsExecuted} tools executed`;
+
         if (result.type === 'pr') {
           addLogEntry(taskId, 'success', 'Pull request created', result.url);
           broadcastProgress(taskId, 'done', 'Pull request created', { prUrl: result.url, isCompareLink: false });
@@ -311,11 +342,17 @@ async function handleSessionComplete(taskId: string): Promise<void> {
         }
       }
     } else {
+      outcome = 'Completed with no changes';
       addLogEntry(taskId, 'info', 'Completed with no changes');
       broadcastProgress(taskId, 'done', 'Completed with no changes');
     }
 
-    await updateTaskStatus(taskId, 'done', null);
+    await updateTaskStatus(taskId, 'done', null, {
+      executionElapsedMs: elapsedMs,
+      executionProgress: 100,
+      prUrl,
+      outcome,
+    });
   } catch (error) {
     console.error('[Execution] Post-execution error:', error);
     addLogEntry(taskId, 'error', 'Post-execution failed');
@@ -366,6 +403,11 @@ async function handleOpenCodeEvent(event: { type: string; properties?: Record<st
     case 'session.idle':
     case 'session.completed':
       if (taskId) {
+        const execution = activeExecutions.get(taskId);
+        if (!execution?.promptSent) {
+          console.log(`[Execution] Ignoring early ${event.type} for task ${taskId.slice(0, 8)} (prompt not yet sent)`);
+          break;
+        }
         addLogEntry(taskId, 'success', 'Agent completed work');
         await handleSessionComplete(taskId);
       }
@@ -385,6 +427,8 @@ async function handleOpenCodeEvent(event: { type: string; properties?: Record<st
       if (!taskId) break;
       const status = event.properties?.status as { type?: string; message?: string };
       if (status?.type === 'busy') {
+        const execution = activeExecutions.get(taskId);
+        if (execution) execution.promptSent = true;
         addLogEntry(taskId, 'agent', 'Agent is thinking...');
         broadcastProgress(taskId, 'executing', 'Agent is thinking...');
       } else if (status?.type === 'retry') {
@@ -438,6 +482,8 @@ async function handleOpenCodeEvent(event: { type: string; properties?: Record<st
       const tool = event.properties?.tool as string;
       const output = event.properties?.output as string;
       if (tool) {
+        const execution = activeExecutions.get(taskId);
+        if (execution) execution.toolsExecuted++;
         addLogEntry(taskId, 'success', `Finished: ${tool}`, output?.slice(0, 100));
       }
       break;
@@ -447,6 +493,8 @@ async function handleOpenCodeEvent(event: { type: string; properties?: Record<st
       if (!taskId) break;
       const file = event.properties?.file as string;
       if (file) {
+        const execution = activeExecutions.get(taskId);
+        if (execution) execution.filesChanged++;
         addLogEntry(taskId, 'success', `Edited file: ${file}`);
       }
       break;
@@ -602,6 +650,10 @@ export async function executeTask({ taskId, userId }: ExecuteTaskParams): Promis
       status: 'executing',
       logs: [],
       client,
+      startedAt: new Date(),
+      filesChanged: 0,
+      toolsExecuted: 0,
+      promptSent: false,
     };
 
     activeExecutions.set(taskId, executionState);
@@ -612,7 +664,11 @@ export async function executeTask({ taskId, userId }: ExecuteTaskParams): Promis
     addLogEntry(taskId, 'info', `Branch created: ${branchName}`);
     addLogEntry(taskId, 'info', 'OpenCode agent started');
 
-    await updateTaskStatus(taskId, 'in_progress', sessionId);
+    await updateTaskStatus(taskId, 'in_progress', sessionId, {
+      executionStartedAt: executionState.startedAt,
+      executionPausedAt: null,
+      executionProgress: 0,
+    });
 
     // Build prompt
     let prompt = task.title;
@@ -632,6 +688,7 @@ export async function executeTask({ taskId, userId }: ExecuteTaskParams): Promis
       body: { parts: [{ type: 'text', text: prompt }] },
     }).then(() => {
       console.log(`[Execution] Prompt sent to session ${sessionId}`);
+      executionState.promptSent = true;
       addLogEntry(taskId, 'info', 'Task prompt sent to agent');
     }).catch((err: Error) => {
       console.error(`[Execution] Prompt error for task ${taskId}:`, err);
@@ -656,9 +713,23 @@ export async function cancelTask(taskId: string): Promise<{ success: boolean; er
 
   try {
     await execution.client.session.abort({ path: { id: execution.sessionId } });
+    
+    const now = new Date();
+    const elapsedMs = now.getTime() - execution.startedAt.getTime();
+    const estimatedProgress = estimateProgress(execution);
+    
     addLogEntry(taskId, 'info', 'Execution cancelled by user');
-    broadcastProgress(taskId, 'cancelled', 'Execution cancelled');
-    await updateTaskStatus(taskId, 'cancelled', null);
+    broadcastProgress(taskId, 'cancelled', 'Execution cancelled', { 
+      elapsedMs,
+      estimatedProgress,
+    });
+    
+    await updateTaskStatus(taskId, 'cancelled', null, {
+      executionPausedAt: now,
+      executionElapsedMs: elapsedMs,
+      executionProgress: estimatedProgress,
+    });
+    
     await cleanupExecution(taskId);
     return { success: true };
   } catch (error) {
