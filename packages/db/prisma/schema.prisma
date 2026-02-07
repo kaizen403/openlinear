@@ -63,8 +63,14 @@ model TaskLabel {
 }
 
 model Settings {
-  id            String @id @default("default")
-  parallelLimit Int    @default(3)
+  id               String  @id @default("default")
+  parallelLimit    Int     @default(3)
+
+  // Batch execution settings
+  maxBatchSize     Int     @default(3)
+  queueAutoApprove Boolean @default(false)
+  stopOnFailure    Boolean @default(false)
+  conflictBehavior String  @default("skip") // "skip" | "fail"
 
   @@map("settings")
 }
