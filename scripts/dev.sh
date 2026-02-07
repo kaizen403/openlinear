@@ -9,9 +9,13 @@ if ! docker ps --format '{{.Names}}' | grep -q 'openlinear-db'; then
   sleep 2
 fi
 
-echo "[dev] Starting API and UI..."
-echo "[dev] Open http://localhost:3000 in your browser"
+echo "[dev] Starting API and Desktop App..."
 
-(sleep 3 && xdg-open http://localhost:3000 2>/dev/null || open http://localhost:3000 2>/dev/null) &
+pnpm --filter @openlinear/api dev &
+API_PID=$!
 
-pnpm --filter @openlinear/api --filter @openlinear/desktop-ui dev
+sleep 2
+
+pnpm --filter @openlinear/desktop tauri dev
+
+kill $API_PID 2>/dev/null
