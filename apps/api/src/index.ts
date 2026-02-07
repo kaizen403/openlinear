@@ -1,3 +1,8 @@
+import { config } from 'dotenv';
+import { resolve } from 'path';
+
+config({ path: resolve(import.meta.dirname, '../../../.env') });
+
 import { createApp } from './app';
 import { broadcast, sendToClient, getClientCount } from './sse';
 import { ensureOpenCodeServer, registerShutdownHandlers, getOpenCodeStatus } from './services/opencode';

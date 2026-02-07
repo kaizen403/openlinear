@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { prisma } from '@openlinear/db';
 import { z } from 'zod';
 import { broadcast } from '../sse';
-import { executeTask, cancelTask, isTaskRunning } from '../services/execution';
+import { executeTask, cancelTask, isTaskRunning, getExecutionLogs } from '../services/execution';
 import { requireAuth } from '../middleware/auth';
 
 const PriorityEnum = z.enum(['low', 'medium', 'high']);
@@ -232,6 +232,17 @@ router.get('/:id/running', async (req: Request, res: Response) => {
     res.json({ running: isTaskRunning(id) });
   } catch (error) {
     res.status(500).json({ error: 'Failed to check task status' });
+  }
+});
+
+router.get('/:id/logs', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const logs = getExecutionLogs(id);
+    res.json({ logs });
+  } catch (error) {
+    console.error('[Tasks] Error getting execution logs:', error);
+    res.status(500).json({ error: 'Failed to get execution logs' });
   }
 });
 

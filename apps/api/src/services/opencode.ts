@@ -36,6 +36,20 @@ export function getClient(): OpencodeClient {
   return clientInstance;
 }
 
+/**
+ * Create a client scoped to a specific directory.
+ * This is critical for task execution because OpenCode SDK is project-scoped.
+ * Sessions created with a directory need a client that also references that directory
+ * for events and operations to work correctly.
+ */
+export function getClientForDirectory(directory: string): OpencodeClient {
+  const baseUrl = `http://${OPENCODE_HOST}:${OPENCODE_PORT}`;
+  return createOpencodeClient({ 
+    baseUrl,
+    directory,
+  });
+}
+
 async function checkHealth(): Promise<boolean> {
   if (!clientInstance) return false;
   

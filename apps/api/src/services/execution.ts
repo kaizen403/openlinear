@@ -4,7 +4,9 @@ import { existsSync, mkdirSync, rmSync } from 'fs';
 import { join } from 'path';
 import { prisma } from '@openlinear/db';
 import { broadcast } from '../sse';
-import { getClient } from './opencode';
+import { getClient, getClientForDirectory } from './opencode';
+
+import type { OpencodeClient } from '@opencode-ai/sdk';
 
 const execAsync = promisify(exec);
 
@@ -21,9 +23,23 @@ interface ExecutionState {
   accessToken: string | null;
   timeoutId: NodeJS.Timeout;
   status: 'cloning' | 'executing' | 'committing' | 'creating_pr' | 'done' | 'error';
+  logs: ExecutionLogEntry[];
+  client: OpencodeClient;
 }
 
+interface ExecutionLogEntry {
+  timestamp: string;
+  type: 'info' | 'agent' | 'tool' | 'error' | 'success';
+  message: string;
+  details?: string;
+}
+
+// Maps taskId -> ExecutionState
 const activeExecutions = new Map<string, ExecutionState>();
+
+// Maps sessionId -> taskId for fast lookup
+const sessionToTask = new Map<string, string>();
+
 let eventSubscriptionActive = false;
 
 export function getRunningTaskCount(): number {
@@ -41,6 +57,33 @@ export function getExecutionStatus(taskId: string): ExecutionState | undefined {
 function broadcastProgress(taskId: string, status: string, message: string, data?: Record<string, unknown>) {
   console.log(`[Execution] ${taskId.slice(0, 8)} → ${status}: ${message}`);
   broadcast('execution:progress', { taskId, status, message, ...data });
+}
+
+function addLogEntry(taskId: string, type: ExecutionLogEntry['type'], message: string, details?: string) {
+  const execution = activeExecutions.get(taskId);
+  if (!execution) {
+    console.log(`[Execution] Warning: No execution found for task ${taskId.slice(0, 8)} when adding log`);
+    return;
+  }
+
+  const entry: ExecutionLogEntry = {
+    timestamp: new Date().toISOString(),
+    type,
+    message,
+    details,
+  };
+
+  execution.logs.push(entry);
+
+  const emoji = type === 'success' ? '✓' : type === 'error' ? '✗' : type === 'tool' ? '🔧' : type === 'agent' ? '🤖' : '→';
+  console.log(`[Execution] ${taskId.slice(0, 8)} ${emoji} ${message}${details ? ` (${details.slice(0, 50)})` : ''}`);
+
+  broadcast('execution:log', { taskId, entry });
+}
+
+export function getExecutionLogs(taskId: string): ExecutionLogEntry[] {
+  const execution = activeExecutions.get(taskId);
+  return execution?.logs || [];
 }
 
 async function updateTaskStatus(
@@ -70,7 +113,9 @@ async function cleanupExecution(taskId: string): Promise<void> {
   const execution = activeExecutions.get(taskId);
   if (execution) {
     clearTimeout(execution.timeoutId);
+    sessionToTask.delete(execution.sessionId);
     activeExecutions.delete(taskId);
+    console.log(`[Execution] Cleaned up task ${taskId.slice(0, 8)}, remaining: ${activeExecutions.size}`);
   }
 }
 
@@ -187,9 +232,16 @@ async function createPullRequest(
 }
 
 function findTaskBySessionId(sessionId: string): string | undefined {
-  for (const [taskId, execution] of activeExecutions.entries()) {
+  // Fast path: use the lookup map
+  const taskId = sessionToTask.get(sessionId);
+  if (taskId) return taskId;
+  
+  // Fallback: scan activeExecutions (shouldn't be needed)
+  for (const [tid, execution] of activeExecutions.entries()) {
     if (execution.sessionId === sessionId) {
-      return taskId;
+      // Update the lookup map
+      sessionToTask.set(sessionId, tid);
+      return tid;
     }
   }
   return undefined;
@@ -202,6 +254,7 @@ async function handleSessionComplete(taskId: string): Promise<void> {
   try {
     execution.status = 'committing';
     broadcastProgress(taskId, 'committing', 'Committing changes...');
+    addLogEntry(taskId, 'info', 'Agent finished, committing changes...');
 
     const hasChanges = await commitAndPush(
       execution.repoPath,
@@ -212,6 +265,7 @@ async function handleSessionComplete(taskId: string): Promise<void> {
     if (hasChanges) {
       execution.status = 'creating_pr';
       broadcastProgress(taskId, 'creating_pr', 'Creating pull request...');
+      addLogEntry(taskId, 'info', 'Creating pull request...');
 
       const project = await prisma.project.findUnique({
         where: { id: execution.projectId },
@@ -229,18 +283,22 @@ async function handleSessionComplete(taskId: string): Promise<void> {
         );
 
         if (pr) {
+          addLogEntry(taskId, 'success', 'Pull request created', pr.url);
           broadcastProgress(taskId, 'done', 'Pull request created', { prUrl: pr.url });
         } else {
+          addLogEntry(taskId, 'info', 'Changes pushed, but PR creation failed');
           broadcastProgress(taskId, 'done', 'Changes pushed, but PR creation failed');
         }
       }
     } else {
+      addLogEntry(taskId, 'info', 'Completed with no changes');
       broadcastProgress(taskId, 'done', 'Completed with no changes');
     }
 
     await updateTaskStatus(taskId, 'done', null);
   } catch (error) {
     console.error('[Execution] Post-execution error:', error);
+    addLogEntry(taskId, 'error', 'Post-execution failed');
     broadcastProgress(taskId, 'error', 'Post-execution failed');
   } finally {
     await cleanupExecution(taskId);
@@ -252,26 +310,129 @@ async function getTaskTitle(taskId: string): Promise<string> {
   return task?.title || 'Task';
 }
 
-async function handleOpenCodeEvent(event: { type: string; properties: Record<string, unknown> }): Promise<void> {
-  const sessionId = (event.properties?.id as string) || (event.properties?.sessionID as string);
-  const taskId = findTaskBySessionId(sessionId);
+// Extract session ID from various OpenCode event structures
+function extractSessionId(event: { type: string; properties?: Record<string, unknown> }): string | undefined {
+  const props = event.properties || {};
+  
+  // Direct sessionID on properties
+  if (typeof props.sessionID === 'string') return props.sessionID;
+  
+  // Direct id on properties (for session.* events)
+  if (typeof props.id === 'string' && props.id.startsWith('ses_')) return props.id;
+  
+  // Nested in info object
+  const info = props.info as { id?: string; sessionID?: string } | undefined;
+  if (info?.sessionID) return info.sessionID;
+  if (info?.id && typeof info.id === 'string' && info.id.startsWith('ses_')) return info.id;
+  
+  // Nested in part object
+  const part = props.part as { sessionID?: string } | undefined;
+  if (part?.sessionID) return part.sessionID;
+  
+  // Nested in session object
+  const session = props.session as { id?: string } | undefined;
+  if (session?.id) return session.id;
+  
+  return undefined;
+}
 
-  console.log(`[Execution] OpenCode event: ${event.type}`, sessionId ? `(session: ${sessionId.slice(0, 8)})` : '');
-
-  if (!taskId) return;
+async function handleOpenCodeEvent(event: { type: string; properties?: Record<string, unknown> }): Promise<void> {
+  if (event.type === 'server.heartbeat') return;
+  
+  const sessionId = extractSessionId(event);
+  const taskId = sessionId ? findTaskBySessionId(sessionId) : undefined;
 
   switch (event.type) {
     case 'session.idle':
     case 'session.completed':
-      console.log(`[Execution] Session completed for task ${taskId.slice(0, 8)}`);
-      await handleSessionComplete(taskId);
+      if (taskId) {
+        addLogEntry(taskId, 'success', 'Agent completed work');
+        await handleSessionComplete(taskId);
+      }
       break;
 
     case 'session.error':
-      console.error(`[Execution] Session error for task ${taskId.slice(0, 8)}:`, event.properties);
-      broadcastProgress(taskId, 'error', 'Execution failed');
-      await updateTaskStatus(taskId, 'cancelled', null);
-      await cleanupExecution(taskId);
+      if (taskId) {
+        const errorMsg = (event.properties?.error as string) || 'Unknown error';
+        addLogEntry(taskId, 'error', 'Execution failed', errorMsg);
+        broadcastProgress(taskId, 'error', 'Execution failed');
+        await updateTaskStatus(taskId, 'cancelled', null);
+        await cleanupExecution(taskId);
+      }
+      break;
+
+    case 'session.status': {
+      if (!taskId) break;
+      const status = event.properties?.status as { type?: string; message?: string };
+      if (status?.type === 'busy') {
+        addLogEntry(taskId, 'agent', 'Agent is thinking...');
+        broadcastProgress(taskId, 'executing', 'Agent is thinking...');
+      } else if (status?.type === 'retry') {
+        addLogEntry(taskId, 'info', `Retrying: ${status.message || 'unknown reason'}`);
+      }
+      break;
+    }
+
+    case 'message.part.updated': {
+      if (!taskId) break;
+      const part = event.properties?.part as { type?: string; text?: string; tool?: string; state?: { status?: string; title?: string; output?: string } };
+      const delta = event.properties?.delta as string;
+
+      if (part?.type === 'text' && delta) {
+        const trimmed = delta.trim();
+        if (trimmed.length > 0 && trimmed.length < 200) {
+          addLogEntry(taskId, 'agent', trimmed);
+        }
+      } else if (part?.type === 'tool') {
+        const toolName = part.tool || 'unknown tool';
+        const state = part.state;
+        if (state?.status === 'running') {
+          addLogEntry(taskId, 'tool', `Running: ${state.title || toolName}`);
+          broadcastProgress(taskId, 'executing', `Running: ${state.title || toolName}`);
+        } else if (state?.status === 'completed') {
+          const output = state.output?.slice(0, 100) || '';
+          addLogEntry(taskId, 'success', `Completed: ${toolName}`, output);
+        } else if (state?.status === 'error') {
+          addLogEntry(taskId, 'error', `Failed: ${toolName}`, state.output);
+        }
+      } else if (part?.type === 'reasoning') {
+        const reasoning = delta || part.text || '';
+        if (reasoning.length > 10 && reasoning.length < 200) {
+          addLogEntry(taskId, 'agent', `Thinking: ${reasoning.slice(0, 100)}`);
+        }
+      }
+      break;
+    }
+
+    case 'tool.execute.before': {
+      if (!taskId) break;
+      const tool = event.properties?.tool as string;
+      if (tool) {
+        addLogEntry(taskId, 'tool', `Starting: ${tool}`);
+      }
+      break;
+    }
+
+    case 'tool.execute.after': {
+      if (!taskId) break;
+      const tool = event.properties?.tool as string;
+      const output = event.properties?.output as string;
+      if (tool) {
+        addLogEntry(taskId, 'success', `Finished: ${tool}`, output?.slice(0, 100));
+      }
+      break;
+    }
+
+    case 'file.edited': {
+      if (!taskId) break;
+      const file = event.properties?.file as string;
+      if (file) {
+        addLogEntry(taskId, 'success', `Edited file: ${file}`);
+      }
+      break;
+    }
+
+    default:
       break;
   }
 }
@@ -282,7 +443,7 @@ export async function initEventSubscription(): Promise<void> {
   try {
     const events = await getClient().event.subscribe();
     eventSubscriptionActive = true;
-    console.log('[Execution] Event subscription initialized');
+    console.log('[Execution] Global event subscription initialized');
 
     (async () => {
       try {
@@ -298,6 +459,28 @@ export async function initEventSubscription(): Promise<void> {
   } catch (error) {
     console.error('[Execution] Failed to initialize event subscription:', error);
     eventSubscriptionActive = false;
+  }
+}
+
+async function subscribeToSessionEvents(taskId: string, client: OpencodeClient, sessionId: string): Promise<void> {
+  try {
+    const events = await client.event.subscribe();
+    
+    (async () => {
+      try {
+        for await (const event of events.stream) {
+          const eventSessionId = extractSessionId(event);
+          if (eventSessionId === sessionId) {
+            await handleOpenCodeEvent(event);
+          }
+        }
+      } catch (error) {
+        console.error(`[Execution] Event stream error for task ${taskId.slice(0, 8)}:`, error);
+      }
+    })();
+  } catch (error) {
+    console.error(`[Execution] Failed to subscribe to events for task ${taskId.slice(0, 8)}:`, error);
+    addLogEntry(taskId, 'error', 'Failed to subscribe to agent events');
   }
 }
 
@@ -354,13 +537,16 @@ export async function executeTask({ taskId, userId }: ExecuteTaskParams): Promis
   const repoPath = join(REPOS_DIR, project.name, taskId.slice(0, 8));
 
   try {
+    // Step 1: Clone
     broadcastProgress(taskId, 'cloning', 'Cloning repository...');
     await cloneRepository(project.cloneUrl, repoPath, accessToken, project.defaultBranch);
     await createBranch(repoPath, branchName);
 
     broadcastProgress(taskId, 'executing', 'Starting OpenCode agent...');
 
-    const sessionResponse = await getClient().session.create({
+    const client = getClientForDirectory(repoPath);
+    
+    const sessionResponse = await client.session.create({
       body: { 
         title: task.title,
       },
@@ -371,15 +557,20 @@ export async function executeTask({ taskId, userId }: ExecuteTaskParams): Promis
 
     const sessionId = sessionResponse.data?.id;
     if (!sessionId) {
+      console.error(`[Execution] Failed to create session for task ${taskId.slice(0, 8)}`);
       return { success: false, error: 'Failed to create OpenCode session' };
     }
 
+    console.log(`[Execution] Session ${sessionId} created for task ${taskId.slice(0, 8)}`);
+
+    // Set up timeout
     const timeoutId = setTimeout(async () => {
       console.log(`[Execution] Task ${taskId} timed out`);
       await cancelTask(taskId);
     }, TASK_TIMEOUT_MS);
 
-    activeExecutions.set(taskId, {
+    // Register in both maps
+    const executionState: ExecutionState = {
       taskId,
       projectId: project.id,
       sessionId,
@@ -389,10 +580,21 @@ export async function executeTask({ taskId, userId }: ExecuteTaskParams): Promis
       accessToken,
       timeoutId,
       status: 'executing',
-    });
+      logs: [],
+      client,
+    };
+
+    activeExecutions.set(taskId, executionState);
+    sessionToTask.set(sessionId, taskId);
+
+    // Add initial log entries
+    addLogEntry(taskId, 'info', 'Repository cloned successfully');
+    addLogEntry(taskId, 'info', `Branch created: ${branchName}`);
+    addLogEntry(taskId, 'info', 'OpenCode agent started');
 
     await updateTaskStatus(taskId, 'in_progress', sessionId);
 
+    // Build prompt
     let prompt = task.title;
     if (task.description) {
       prompt += `\n\n${task.description}`;
@@ -402,11 +604,18 @@ export async function executeTask({ taskId, userId }: ExecuteTaskParams): Promis
       prompt += `\n\nLabels: ${labelNames}`;
     }
 
-    getClient().session.prompt({
+    // Step 3: Send prompt and subscribe to events using the scoped client
+    subscribeToSessionEvents(taskId, client, sessionId);
+    
+    client.session.prompt({
       path: { id: sessionId },
       body: { parts: [{ type: 'text', text: prompt }] },
+    }).then(() => {
+      console.log(`[Execution] Prompt sent to session ${sessionId}`);
+      addLogEntry(taskId, 'info', 'Task prompt sent to agent');
     }).catch((err: Error) => {
       console.error(`[Execution] Prompt error for task ${taskId}:`, err);
+      addLogEntry(taskId, 'error', 'Failed to send prompt to agent', err.message);
     });
 
     console.log(`[Execution] Started for task ${taskId} in ${repoPath}`);
@@ -426,7 +635,8 @@ export async function cancelTask(taskId: string): Promise<{ success: boolean; er
   }
 
   try {
-    await getClient().session.abort({ path: { id: execution.sessionId } });
+    await execution.client.session.abort({ path: { id: execution.sessionId } });
+    addLogEntry(taskId, 'info', 'Execution cancelled by user');
     broadcastProgress(taskId, 'cancelled', 'Execution cancelled');
     await updateTaskStatus(taskId, 'cancelled', null);
     await cleanupExecution(taskId);
