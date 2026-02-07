@@ -3,7 +3,7 @@ import { prisma } from '@openlinear/db';
 import { z } from 'zod';
 import { broadcast } from '../sse';
 import { executeTask, cancelTask, isTaskRunning, getExecutionLogs } from '../services/execution';
-import { requireAuth } from '../middleware/auth';
+import { optionalAuth, AuthRequest } from '../middleware/auth';
 
 const PriorityEnum = z.enum(['low', 'medium', 'high']);
 const StatusEnum = z.enum(['todo', 'in_progress', 'done', 'cancelled']);
@@ -207,11 +207,11 @@ router.delete('/:id', async (req: Request, res: Response) => {
   }
 });
 
-router.post('/:id/execute', async (req: Request, res: Response) => {
+router.post('/:id/execute', optionalAuth, async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
-    console.log(`[Tasks] Execute requested for task ${id.slice(0, 8)}`);
-    const result = await executeTask({ taskId: id });
+    console.log(`[Tasks] Execute requested for task ${id.slice(0, 8)} (userId: ${req.userId || 'anonymous'})`);
+    const result = await executeTask({ taskId: id, userId: req.userId });
 
     if (!result.success) {
       console.log(`[Tasks] Execute failed: ${result.error}`);
