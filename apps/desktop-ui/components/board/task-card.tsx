@@ -15,6 +15,9 @@ interface TaskCardProps {
   onMoveToInProgress?: (taskId: string) => void
   onTaskClick?: (taskId: string) => void
   executionProgress?: ExecutionProgress
+  selected?: boolean
+  onToggleSelect?: (taskId: string) => void
+  selectionMode?: boolean
 }
 
 const priorityColors = {
@@ -33,7 +36,7 @@ const progressConfig = {
   error: { icon: X, label: 'Error', color: 'text-red-400' },
 }
 
-export function TaskCard({ task, onExecute, onCancel, onDelete, onMoveToInProgress, onTaskClick, executionProgress }: TaskCardProps) {
+export function TaskCard({ task, onExecute, onCancel, onDelete, onMoveToInProgress, onTaskClick, executionProgress, selected, onToggleSelect, selectionMode }: TaskCardProps) {
   const [liveElapsedMs, setLiveElapsedMs] = useState<number>(0)
 
   useEffect(() => {
@@ -85,9 +88,28 @@ export function TaskCard({ task, onExecute, onCancel, onDelete, onMoveToInProgre
 
   return (
     <Card 
-      className="bg-linear-bg border-linear-border hover:border-linear-border-hover transition-colors cursor-pointer group"
+      className={cn(
+        "bg-linear-bg border-linear-border hover:border-linear-border-hover transition-colors cursor-pointer group relative",
+        selected && "border-linear-accent/50"
+      )}
       onClick={handleCardClick}
     >
+      <div 
+        className={cn(
+          "absolute top-2 left-2 z-10 transition-opacity",
+          selectionMode || selected ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+        )}
+        onClick={(e) => { e.stopPropagation(); onToggleSelect?.(task.id) }}
+      >
+        <div className={cn(
+          "w-4 h-4 rounded border flex items-center justify-center cursor-pointer transition-colors",
+          selected 
+            ? "bg-linear-accent border-linear-accent" 
+            : "border-linear-border-hover hover:border-linear-accent/50 bg-linear-bg"
+        )}>
+          {selected && <Check className="w-3 h-3 text-white" />}
+        </div>
+      </div>
       <CardHeader className="p-3 pb-0">
         <div className="flex items-start gap-2">
           <div className={cn("w-2 h-2 rounded-full mt-1.5 flex-shrink-0", priorityColors[task.priority])} />

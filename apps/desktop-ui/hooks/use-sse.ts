@@ -25,9 +25,17 @@ export interface SSEEventData {
   executionProgress?: number | null
   prUrl?: string | null
   outcome?: string | null
+  batchId?: string
+  taskId?: string
+  mode?: string
+  tasks?: Array<{
+    taskId: string
+    title: string
+    status: 'queued' | 'running' | 'completed' | 'failed' | 'skipped' | 'cancelled'
+  }>
 }
 
-export type SSEEventType = 
+export type SSEEventType =
   | 'connected'
   | 'task:created'
   | 'task:updated'
@@ -38,6 +46,17 @@ export type SSEEventType =
   | 'settings:updated'
   | 'execution:progress'
   | 'execution:log'
+  | 'batch:created'
+  | 'batch:started'
+  | 'batch:task:started'
+  | 'batch:task:completed'
+  | 'batch:task:failed'
+  | 'batch:task:skipped'
+  | 'batch:task:cancelled'
+  | 'batch:merging'
+  | 'batch:completed'
+  | 'batch:failed'
+  | 'batch:cancelled'
 
 const SSE_RECONNECT_DELAY = 3000
 
@@ -158,6 +177,105 @@ export function useSSE(
         onEventRef.current('execution:log', data)
       } catch (err) {
         console.error("[SSE] Failed to parse execution:log:", err)
+      }
+    })
+
+    eventSource.addEventListener("batch:created", (event) => {
+      try {
+        const data = JSON.parse((event as MessageEvent).data)
+        onEventRef.current('batch:created', data)
+      } catch (err) {
+        console.error("[SSE] Failed to parse batch:created:", err)
+      }
+    })
+
+    eventSource.addEventListener("batch:started", (event) => {
+      try {
+        const data = JSON.parse((event as MessageEvent).data)
+        onEventRef.current('batch:started', data)
+      } catch (err) {
+        console.error("[SSE] Failed to parse batch:started:", err)
+      }
+    })
+
+    eventSource.addEventListener("batch:task:started", (event) => {
+      try {
+        const data = JSON.parse((event as MessageEvent).data)
+        onEventRef.current('batch:task:started', data)
+      } catch (err) {
+        console.error("[SSE] Failed to parse batch:task:started:", err)
+      }
+    })
+
+    eventSource.addEventListener("batch:task:completed", (event) => {
+      try {
+        const data = JSON.parse((event as MessageEvent).data)
+        onEventRef.current('batch:task:completed', data)
+      } catch (err) {
+        console.error("[SSE] Failed to parse batch:task:completed:", err)
+      }
+    })
+
+    eventSource.addEventListener("batch:task:failed", (event) => {
+      try {
+        const data = JSON.parse((event as MessageEvent).data)
+        onEventRef.current('batch:task:failed', data)
+      } catch (err) {
+        console.error("[SSE] Failed to parse batch:task:failed:", err)
+      }
+    })
+
+    eventSource.addEventListener("batch:task:skipped", (event) => {
+      try {
+        const data = JSON.parse((event as MessageEvent).data)
+        onEventRef.current('batch:task:skipped', data)
+      } catch (err) {
+        console.error("[SSE] Failed to parse batch:task:skipped:", err)
+      }
+    })
+
+    eventSource.addEventListener("batch:task:cancelled", (event) => {
+      try {
+        const data = JSON.parse((event as MessageEvent).data)
+        onEventRef.current('batch:task:cancelled', data)
+      } catch (err) {
+        console.error("[SSE] Failed to parse batch:task:cancelled:", err)
+      }
+    })
+
+    eventSource.addEventListener("batch:merging", (event) => {
+      try {
+        const data = JSON.parse((event as MessageEvent).data)
+        onEventRef.current('batch:merging', data)
+      } catch (err) {
+        console.error("[SSE] Failed to parse batch:merging:", err)
+      }
+    })
+
+    eventSource.addEventListener("batch:completed", (event) => {
+      try {
+        const data = JSON.parse((event as MessageEvent).data)
+        onEventRef.current('batch:completed', data)
+      } catch (err) {
+        console.error("[SSE] Failed to parse batch:completed:", err)
+      }
+    })
+
+    eventSource.addEventListener("batch:failed", (event) => {
+      try {
+        const data = JSON.parse((event as MessageEvent).data)
+        onEventRef.current('batch:failed', data)
+      } catch (err) {
+        console.error("[SSE] Failed to parse batch:failed:", err)
+      }
+    })
+
+    eventSource.addEventListener("batch:cancelled", (event) => {
+      try {
+        const data = JSON.parse((event as MessageEvent).data)
+        onEventRef.current('batch:cancelled', data)
+      } catch (err) {
+        console.error("[SSE] Failed to parse batch:cancelled:", err)
       }
     })
 

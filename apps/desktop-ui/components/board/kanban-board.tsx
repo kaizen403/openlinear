@@ -4,6 +4,8 @@ import { useState, useEffect, useCallback } from "react"
 import { DragDropContext, Droppable, Draggable, DropResult } from "@hello-pangea/dnd"
 import { Column } from "./column"
 import { TaskCard } from "./task-card"
+import { BatchControls } from "./batch-controls"
+import { BatchProgress } from "./batch-progress"
 import { TaskFormDialog } from "@/components/task-form"
 import { TaskDetailView } from "@/components/task-detail-view"
 import { Loader2, Plus } from "lucide-react"
@@ -19,6 +21,17 @@ const COLUMNS = [
   { id: 'cancelled', title: 'Cancelled', status: 'cancelled' as const },
 ]
 
+interface ActiveBatch {
+  id: string
+  status: string
+  mode: string
+  tasks: Array<{
+    taskId: string
+    title: string
+    status: 'queued' | 'running' | 'completed' | 'failed' | 'skipped' | 'cancelled'
+  }>
+}
+
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001"
 const SSE_URL = `${API_BASE_URL}/api/events`
 
@@ -32,7 +45,55 @@ export function KanbanBoard() {
   const [publicProject, setPublicProject] = useState<PublicProject | null>(null)
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
   const [taskLogs, setTaskLogs] = useState<Record<string, ExecutionLogEntry[]>>({})
+  const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set())
+  const [activeBatch, setActiveBatch] = useState<ActiveBatch | null>(null)
   const { isAuthenticated, activeProject } = useAuth()
+
+  const selectionMode = selectedTaskIds.size > 0
+
+  const toggleTaskSelect = (taskId: string) => {
+    setSelectedTaskIds(prev => {
+      const next = new Set(prev)
+      if (next.has(taskId)) next.delete(taskId)
+      else next.add(taskId)
+      return next
+    })
+  }
+
+  const clearSelection = () => setSelectedTaskIds(new Set())
+
+  const handleBatchExecute = async (mode: 'parallel' | 'queue') => {
+    try {
+      const token = localStorage.getItem('token')
+      const response = await fetch(`${API_BASE_URL}/api/batches`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          taskIds: Array.from(selectedTaskIds),
+          mode,
+        }),
+      })
+      if (!response.ok) throw new Error('Failed to create batch')
+      clearSelection()
+    } catch (err) {
+      console.error('Error creating batch:', err)
+    }
+  }
+
+  const handleCancelBatch = async (batchId: string) => {
+    try {
+      const token = localStorage.getItem('token')
+      await fetch(`${API_BASE_URL}/api/batches/${batchId}/cancel`, {
+        method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      })
+    } catch (err) {
+      console.error('Error cancelling batch:', err)
+    }
+  }
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -121,6 +182,99 @@ export function KanbanBoard() {
 
       case 'connected':
         console.log("[SSE] Connected with clientId:", data.clientId)
+        break
+
+      case 'batch:created':
+      case 'batch:started':
+        if (data.batchId) {
+          setActiveBatch({
+            id: data.batchId as string,
+            status: data.status as string || 'running',
+            mode: data.mode as string || 'parallel',
+            tasks: (data.tasks as ActiveBatch['tasks']) || [],
+          })
+        }
+        break
+
+      case 'batch:task:started':
+        setActiveBatch(prev => {
+          if (!prev || prev.id !== data.batchId) return prev
+          return {
+            ...prev,
+            tasks: prev.tasks.map(t =>
+              t.taskId === data.taskId ? { ...t, status: 'running' } : t
+            ),
+          }
+        })
+        break
+
+      case 'batch:task:completed':
+        setActiveBatch(prev => {
+          if (!prev || prev.id !== data.batchId) return prev
+          return {
+            ...prev,
+            tasks: prev.tasks.map(t =>
+              t.taskId === data.taskId ? { ...t, status: 'completed' } : t
+            ),
+          }
+        })
+        break
+
+      case 'batch:task:failed':
+        setActiveBatch(prev => {
+          if (!prev || prev.id !== data.batchId) return prev
+          return {
+            ...prev,
+            tasks: prev.tasks.map(t =>
+              t.taskId === data.taskId ? { ...t, status: 'failed' } : t
+            ),
+          }
+        })
+        break
+
+      case 'batch:task:skipped':
+        setActiveBatch(prev => {
+          if (!prev || prev.id !== data.batchId) return prev
+          return {
+            ...prev,
+            tasks: prev.tasks.map(t =>
+              t.taskId === data.taskId ? { ...t, status: 'skipped' } : t
+            ),
+          }
+        })
+        break
+
+      case 'batch:task:cancelled':
+        setActiveBatch(prev => {
+          if (!prev || prev.id !== data.batchId) return prev
+          return {
+            ...prev,
+            tasks: prev.tasks.map(t =>
+              t.taskId === data.taskId ? { ...t, status: 'cancelled' } : t
+            ),
+          }
+        })
+        break
+
+      case 'batch:merging':
+        setActiveBatch(prev => {
+          if (prev?.id === data.batchId) {
+            return { ...prev, status: 'merging' } as ActiveBatch
+          }
+          return prev
+        })
+        break
+
+      case 'batch:completed':
+      case 'batch:failed':
+      case 'batch:cancelled':
+        setActiveBatch(prev => {
+          if (prev?.id === data.batchId) {
+            setTimeout(() => setActiveBatch(null), 5000)
+            return { ...prev, status: eventType.split(':')[1]! } as ActiveBatch
+          }
+          return prev
+        })
         break
 
       default:
@@ -304,6 +458,15 @@ export function KanbanBoard() {
   return (
     <DragDropContext onDragEnd={handleDragEnd}>
       <div className="flex-1 overflow-x-auto overflow-y-hidden relative">
+        {activeBatch && (
+          <BatchProgress
+            batchId={activeBatch.id}
+            status={activeBatch.status}
+            mode={activeBatch.mode}
+            tasks={activeBatch.tasks}
+            onCancel={handleCancelBatch}
+          />
+        )}
         <div className="flex gap-4 h-full p-6 min-w-max">
           {COLUMNS.map((column) => {
             const columnTasks = getTasksByStatus(column.status)
@@ -348,6 +511,9 @@ export function KanbanBoard() {
                                 onDelete={handleDelete}
                                 onTaskClick={handleTaskClick}
                                 executionProgress={executionProgress[task.id]}
+                                selected={selectedTaskIds.has(task.id)}
+                                onToggleSelect={toggleTaskSelect}
+                                selectionMode={selectionMode}
                               />
                             </div>
                           )}
@@ -377,6 +543,14 @@ export function KanbanBoard() {
           onCancel={handleCancel}
           onExecute={handleExecute}
           isExecuting={selectedTask?.status === 'in_progress'}
+        />
+
+        <BatchControls
+          selectedCount={selectedTaskIds.size}
+          onExecuteParallel={() => handleBatchExecute('parallel')}
+          onExecuteQueue={() => handleBatchExecute('queue')}
+          onClearSelection={clearSelection}
+          disabled={!canExecute}
         />
       </div>
     </DragDropContext>
