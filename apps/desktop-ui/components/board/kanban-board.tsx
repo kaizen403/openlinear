@@ -51,7 +51,10 @@ export function KanbanBoard() {
 
   const selectionMode = selectedTaskIds.size > 0
 
+  const batchTaskIds = activeBatch?.tasks.map(t => t.taskId) ?? []
+
   const toggleTaskSelect = (taskId: string) => {
+    if (batchTaskIds.includes(taskId)) return
     setSelectedTaskIds(prev => {
       const next = new Set(prev)
       if (next.has(taskId)) next.delete(taskId)
@@ -425,6 +428,25 @@ export function KanbanBoard() {
     }
   }
 
+  const handleUpdateTask = async (taskId: string, data: { title?: string; description?: string | null }) => {
+    try {
+      const token = localStorage.getItem('token')
+      const response = await fetch(`${API_BASE_URL}/api/tasks/${taskId}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify(data),
+      })
+      if (!response.ok) {
+        throw new Error(`Failed to update task: ${response.statusText}`)
+      }
+    } catch (err) {
+      console.error("Error updating task:", err)
+    }
+  }
+
   const selectedTask = selectedTaskId ? tasks.find((t) => t.id === selectedTaskId) || null : null
 
   const getTasksByStatus = (status: Task['status']) => {
@@ -542,6 +564,7 @@ export function KanbanBoard() {
           onDelete={handleDelete}
           onCancel={handleCancel}
           onExecute={handleExecute}
+          onUpdate={handleUpdateTask}
           isExecuting={selectedTask?.status === 'in_progress'}
         />
 

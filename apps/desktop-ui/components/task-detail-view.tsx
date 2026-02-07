@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef } from "react"
+import { useState, useEffect, useRef } from "react"
 import { X, ArrowLeft, Bot, Wrench, CheckCircle, AlertCircle, Info, Clock, AlertTriangle, Flag, Tag, Folder, Square, Trash2, GitMerge, ExternalLink, Play, Check } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
@@ -15,6 +15,7 @@ interface TaskDetailViewProps {
   onDelete?: (taskId: string) => void
   onCancel?: (taskId: string) => void
   onExecute?: (taskId: string) => void
+  onUpdate?: (taskId: string, data: { title?: string; description?: string | null }) => void
   isExecuting?: boolean
 }
 
@@ -66,8 +67,14 @@ function formatDate(timestamp: string): string {
   })
 }
 
-export function TaskDetailView({ task, logs, progress, open, onClose, onDelete, onCancel, onExecute, isExecuting }: TaskDetailViewProps) {
+export function TaskDetailView({ task, logs, progress, open, onClose, onDelete, onCancel, onExecute, onUpdate, isExecuting }: TaskDetailViewProps) {
   const logsContainerRef = useRef<HTMLDivElement>(null)
+  const titleInputRef = useRef<HTMLInputElement>(null)
+  const descriptionRef = useRef<HTMLTextAreaElement>(null)
+  const [editingTitle, setEditingTitle] = useState(false)
+  const [editingDescription, setEditingDescription] = useState(false)
+  const [titleDraft, setTitleDraft] = useState("")
+  const [descriptionDraft, setDescriptionDraft] = useState("")
 
   useEffect(() => {
     if (logsContainerRef.current && open && logs.length > 0) {
@@ -77,13 +84,58 @@ export function TaskDetailView({ task, logs, progress, open, onClose, onDelete, 
 
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && open) {
-        onClose()
+      if (e.key === 'Escape') {
+        if (editingTitle) {
+          setEditingTitle(false)
+          return
+        }
+        if (editingDescription) {
+          setEditingDescription(false)
+          return
+        }
+        if (open) {
+          onClose()
+        }
       }
     }
     window.addEventListener('keydown', handleEscape)
     return () => window.removeEventListener('keydown', handleEscape)
-  }, [open, onClose])
+  }, [open, onClose, editingTitle, editingDescription])
+
+  useEffect(() => {
+    if (editingTitle && titleInputRef.current) {
+      titleInputRef.current.focus()
+      titleInputRef.current.select()
+    }
+  }, [editingTitle])
+
+  useEffect(() => {
+    if (editingDescription && descriptionRef.current) {
+      descriptionRef.current.focus()
+    }
+  }, [editingDescription])
+
+  useEffect(() => {
+    setEditingTitle(false)
+    setEditingDescription(false)
+  }, [task?.id])
+
+  const saveTitle = () => {
+    const trimmed = titleDraft.trim()
+    if (trimmed && trimmed !== task?.title && onUpdate && task) {
+      onUpdate(task.id, { title: trimmed })
+    }
+    setEditingTitle(false)
+  }
+
+  const saveDescription = () => {
+    if (!task || !onUpdate) { setEditingDescription(false); return }
+    const value = descriptionDraft.trim() || null
+    if (value !== (task.description || null)) {
+      onUpdate(task.id, { description: value })
+    }
+    setEditingDescription(false)
+  }
 
   if (!open || !task) {
     return null
@@ -165,9 +217,29 @@ export function TaskDetailView({ task, logs, progress, open, onClose, onDelete, 
               <div className="max-w-3xl mx-auto">
                 <div className="flex items-start gap-3 mb-6">
                   <div className={cn("w-2.5 h-2.5 rounded-full mt-2 flex-shrink-0", priorityConfig[task.priority].color.replace('text-', 'bg-'))} />
-                  <h1 className="text-2xl font-semibold text-linear-text leading-tight">
-                    {task.title}
-                  </h1>
+                  {editingTitle ? (
+                    <input
+                      ref={titleInputRef}
+                      className="flex-1 text-2xl font-semibold text-linear-text leading-tight bg-transparent border-b border-linear-accent outline-none"
+                      value={titleDraft}
+                      onChange={(e) => setTitleDraft(e.target.value)}
+                      onBlur={saveTitle}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') saveTitle()
+                        if (e.key === 'Escape') setEditingTitle(false)
+                      }}
+                    />
+                  ) : (
+                    <h1
+                      className="text-2xl font-semibold text-linear-text leading-tight flex-1 cursor-text hover:text-linear-text-secondary"
+                      onClick={() => {
+                        setTitleDraft(task.title)
+                        setEditingTitle(true)
+                      }}
+                    >
+                      {task.title}
+                    </h1>
+                  )}
                 </div>
 
                 {task.status === 'done' && (
@@ -203,12 +275,36 @@ export function TaskDetailView({ task, logs, progress, open, onClose, onDelete, 
                 )}
 
                 <div className="mb-8">
-                  {task.description ? (
-                    <p className="text-sm text-linear-text-secondary leading-relaxed whitespace-pre-wrap">
+                  {editingDescription ? (
+                    <textarea
+                      ref={descriptionRef}
+                      className="w-full text-sm text-linear-text-secondary leading-relaxed bg-transparent border border-linear-border rounded-md p-2 outline-none focus:border-linear-accent resize-y min-h-[80px]"
+                      value={descriptionDraft}
+                      onChange={(e) => setDescriptionDraft(e.target.value)}
+                      onBlur={saveDescription}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Escape') setEditingDescription(false)
+                      }}
+                      rows={4}
+                    />
+                  ) : task.description ? (
+                    <p
+                      className="text-sm text-linear-text-secondary leading-relaxed whitespace-pre-wrap cursor-text hover:text-linear-text-secondary/80"
+                      onClick={() => {
+                        setDescriptionDraft(task.description || "")
+                        setEditingDescription(true)
+                      }}
+                    >
                       {task.description}
                     </p>
                   ) : (
-                    <button className="text-sm text-linear-text-tertiary hover:text-linear-text-secondary transition-colors">
+                    <button
+                      className="text-sm text-linear-text-tertiary hover:text-linear-text-secondary"
+                      onClick={() => {
+                        setDescriptionDraft("")
+                        setEditingDescription(true)
+                      }}
+                    >
                       Add description...
                     </button>
                   )}

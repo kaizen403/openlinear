@@ -63,7 +63,7 @@ export async function createWorktree(
 
     console.log(`[Worktree] Creating worktree for task ${taskId} on branch ${branchName}`);
     await execAsync(
-      `git -C ${mainRepoPath} worktree add ${worktreePath} -b ${branchName} origin/${defaultBranch}`
+      `git -C ${mainRepoPath} worktree add ${worktreePath} -b ${branchName} ${defaultBranch}`
     );
     console.log(`[Worktree] Worktree created at ${worktreePath}`);
 
@@ -218,8 +218,8 @@ export async function createBatchBranch(
   defaultBranch: string
 ): Promise<void> {
   const mainRepoPath = join(REPOS_DIR, projectId, '.main');
-  console.log(`[Worktree] Creating batch branch ${batchBranch} from origin/${defaultBranch}`);
-  await execAsync(`git -C ${mainRepoPath} branch ${batchBranch} origin/${defaultBranch}`);
+  console.log(`[Worktree] Creating batch branch ${batchBranch} from ${defaultBranch}`);
+  await execAsync(`git -C ${mainRepoPath} branch ${batchBranch} ${defaultBranch}`);
 }
 
 export async function pushBranch(

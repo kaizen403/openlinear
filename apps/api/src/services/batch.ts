@@ -51,7 +51,7 @@ export async function createBatch(params: CreateBatchParams): Promise<BatchState
     title: titleMap.get(taskId) || 'Untitled task',
     status: 'queued',
     worktreePath: null,
-    branch: `openlinear/${taskId.slice(0, 8)}`,
+    branch: `openlinear/${taskId}`,
     sessionId: null,
     error: null,
     startedAt: null,
@@ -142,6 +142,8 @@ async function startTask(batch: BatchState, taskIndex: number): Promise<void> {
 
     broadcastBatchEvent('batch:task:started', batch.id, { taskId: task.taskId, title: task.title });
 
+    emitBatchLog(task.taskId, 'info', `Batch task started in ${batch.mode} mode`);
+
     subscribeToTaskEvents(client, sessionId, batch.id, task.taskId);
 
     const taskRecord = await prisma.task.findUnique({
@@ -169,6 +171,7 @@ async function startTask(batch: BatchState, taskIndex: number): Promise<void> {
     task.error = errorMsg;
     task.completedAt = new Date();
     broadcastBatchEvent('batch:task:failed', batch.id, { taskId: task.taskId, error: errorMsg });
+    emitBatchLog(task.taskId, 'error', `Failed to start task: ${errorMsg}`);
 
     if (batch.settings.stopOnFailure) {
       await cancelBatch(batch.id);
@@ -179,28 +182,112 @@ async function startTask(batch: BatchState, taskIndex: number): Promise<void> {
   }
 }
 
+function emitBatchLog(taskId: string, type: 'info' | 'agent' | 'tool' | 'error' | 'success', message: string, details?: string): void {
+  broadcast('execution:log', {
+    taskId,
+    entry: { timestamp: new Date().toISOString(), type, message, ...(details ? { details } : {}) },
+  });
+}
+
 function subscribeToTaskEvents(
   client: OpencodeClient,
   sessionId: string,
   batchId: string,
   taskId: string
 ): void {
+  let promptSent = false;
+
   (async () => {
     try {
       const events = await client.event.subscribe();
 
       for await (const event of events.stream) {
         const type = event.type as string;
+        const props = (event.properties || {}) as Record<string, unknown>;
 
+        if (type === 'server.heartbeat') continue;
+
+        // Terminal events
         if (type === 'session.completed' || type === 'session.idle') {
+          if (!promptSent) continue; // Ignore pre-prompt idle
+          emitBatchLog(taskId, 'success', 'Agent completed work');
           await handleTaskComplete(batchId, taskId, true);
           break;
         }
 
         if (type === 'session.error') {
-          const errorMsg = String((event.properties as Record<string, unknown>)?.error || 'Session error');
+          const errorMsg = String(props.error || 'Session error');
+          emitBatchLog(taskId, 'error', 'Execution failed', errorMsg);
           await handleTaskComplete(batchId, taskId, false, errorMsg);
           break;
+        }
+
+        // Status events
+        if (type === 'session.status') {
+          const status = props.status as { type?: string; message?: string } | undefined;
+          if (status?.type === 'busy') {
+            promptSent = true;
+            emitBatchLog(taskId, 'agent', 'Agent is thinking...');
+          } else if (status?.type === 'retry') {
+            emitBatchLog(taskId, 'info', `Retrying: ${status.message || 'unknown reason'}`);
+          }
+          continue;
+        }
+
+        // Message part updates — agent text, tool calls, reasoning
+        if (type === 'message.part.updated') {
+          const part = props.part as { type?: string; text?: string; tool?: string; state?: { status?: string; title?: string; output?: string } } | undefined;
+          const delta = props.delta as string | undefined;
+
+          if (part?.type === 'text' && delta) {
+            const trimmed = delta.trim();
+            if (trimmed.length > 0 && trimmed.length < 200) {
+              emitBatchLog(taskId, 'agent', trimmed);
+            }
+          } else if (part?.type === 'tool') {
+            const toolName = part.tool || 'unknown tool';
+            const state = part.state;
+            if (state?.status === 'running') {
+              emitBatchLog(taskId, 'tool', `Running: ${state.title || toolName}`);
+            } else if (state?.status === 'completed') {
+              emitBatchLog(taskId, 'success', `Completed: ${toolName}`, state.output?.slice(0, 100));
+            } else if (state?.status === 'error') {
+              emitBatchLog(taskId, 'error', `Failed: ${toolName}`, state.output);
+            }
+          } else if (part?.type === 'reasoning') {
+            const reasoning = delta || part.text || '';
+            if (reasoning.length > 10 && reasoning.length < 200) {
+              emitBatchLog(taskId, 'agent', `Thinking: ${reasoning.slice(0, 100)}`);
+            }
+          }
+          continue;
+        }
+
+        // Tool execution events
+        if (type === 'tool.execute.before') {
+          const tool = props.tool as string | undefined;
+          if (tool) {
+            emitBatchLog(taskId, 'tool', `Starting: ${tool}`);
+          }
+          continue;
+        }
+
+        if (type === 'tool.execute.after') {
+          const tool = props.tool as string | undefined;
+          const output = props.output as string | undefined;
+          if (tool) {
+            emitBatchLog(taskId, 'success', `Finished: ${tool}`, output?.slice(0, 100));
+          }
+          continue;
+        }
+
+        // File edits
+        if (type === 'file.edited') {
+          const file = props.file as string | undefined;
+          if (file) {
+            emitBatchLog(taskId, 'success', `Edited file: ${file}`);
+          }
+          continue;
         }
       }
     } catch (error) {
@@ -242,10 +329,12 @@ async function handleTaskComplete(
 
     task.status = 'completed';
     broadcastBatchEvent('batch:task:completed', batchId, { taskId });
+    emitBatchLog(taskId, 'success', 'Batch task completed');
   } else {
     task.status = 'failed';
     task.error = error || 'Unknown error';
     broadcastBatchEvent('batch:task:failed', batchId, { taskId, error: task.error });
+    emitBatchLog(taskId, 'error', `Batch task failed: ${task.error}`);
   }
 
   task.completedAt = new Date();

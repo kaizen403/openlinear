@@ -5,17 +5,37 @@ import { AuthProvider } from "@/hooks/use-auth"
 import { Toaster } from "sonner"
 
 const geistSans = localFont({
-  src: "./fonts/Geist-Variable.woff2",
+  src: [
+    { path: "./fonts/Geist-Regular.otf", weight: "400", style: "normal" },
+    { path: "./fonts/Geist-Medium.otf", weight: "500", style: "normal" },
+    { path: "./fonts/Geist-SemiBold.otf", weight: "600", style: "normal" },
+    { path: "./fonts/Geist-Bold.otf", weight: "700", style: "normal" },
+  ],
   variable: "--font-geist-sans",
   display: "swap",
-  weight: "100 900",
+  fallback: ["Geist", "system-ui", "sans-serif"],
+  adjustFontFallback: false,
 })
 
 const geistMono = localFont({
-  src: "./fonts/GeistMono-Variable.woff2",
+  src: [
+    { path: "./fonts/GeistMono-Regular.woff2", weight: "400", style: "normal" },
+    { path: "./fonts/GeistMono-Medium.woff2", weight: "500", style: "normal" },
+    { path: "./fonts/GeistMono-SemiBold.woff2", weight: "600", style: "normal" },
+    { path: "./fonts/GeistMono-Bold.woff2", weight: "700", style: "normal" },
+  ],
   variable: "--font-geist-mono",
   display: "swap",
-  weight: "100 900",
+  fallback: [
+    "Geist Mono",
+    "ui-monospace",
+    "SFMono-Regular",
+    "Menlo",
+    "Monaco",
+    "Consolas",
+    "monospace",
+  ],
+  adjustFontFallback: false,
 })
 
 export const metadata: Metadata = {
