@@ -7,6 +7,7 @@ import { KanbanBoard } from "@/components/board/kanban-board"
 import { TaskFormDialog } from "@/components/task-form"
 import { UserMenu } from "@/components/auth/user-menu"
 import { ProjectSelector } from "@/components/auth/project-selector"
+import { RepoConnector } from "@/components/repo-connector"
 import { useAuth } from "@/hooks/use-auth"
 
 export default function HomePage() {
@@ -82,6 +83,7 @@ export default function HomePage() {
             <h1 className="text-lg font-semibold">
               {activeProject ? activeProject.name : 'All Issues'}
             </h1>
+            {!isAuthenticated && <RepoConnector />}
           </div>
           <div className="flex-1 h-full" data-tauri-drag-region />
           <div className="flex items-center gap-3">

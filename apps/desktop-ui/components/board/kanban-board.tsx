@@ -7,6 +7,7 @@ import { TaskFormDialog } from "@/components/task-form"
 import { Loader2, Layers, Plus } from "lucide-react"
 import { useSSE, SSEEventType, SSEEventData } from "@/hooks/use-sse"
 import { useAuth } from "@/hooks/use-auth"
+import { getActivePublicProject, PublicProject } from "@/lib/api"
 
 interface Label {
   id: string
@@ -51,7 +52,16 @@ export function KanbanBoard() {
   const [executionProgress, setExecutionProgress] = useState<Record<string, ExecutionProgress>>({})
   const [isTaskFormOpen, setIsTaskFormOpen] = useState(false)
   const [defaultStatus, setDefaultStatus] = useState<Task['status']>('todo')
+  const [publicProject, setPublicProject] = useState<PublicProject | null>(null)
   const { isAuthenticated, activeProject } = useAuth()
+
+  useEffect(() => {
+    if (!isAuthenticated) {
+      getActivePublicProject().then(setPublicProject).catch(() => setPublicProject(null))
+    }
+  }, [isAuthenticated])
+
+  const canExecute = isAuthenticated ? !!activeProject : !!publicProject
 
   const handleAddTask = (status: Task['status']) => {
     setDefaultStatus(status)
@@ -147,23 +157,17 @@ export function KanbanBoard() {
   }
 
   const handleExecute = async (taskId: string) => {
-    if (!isAuthenticated) {
-      console.error("Must be logged in to execute tasks")
-      return
-    }
-
-    if (!activeProject) {
-      console.error("No active project selected")
+    if (!canExecute) {
+      console.error("No active project - connect a repo first")
       return
     }
 
     try {
       const token = localStorage.getItem('token')
+      const headers: HeadersInit = token ? { Authorization: `Bearer ${token}` } : {}
       const response = await fetch(`${API_BASE_URL}/api/tasks/${taskId}/execute`, {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
+        headers,
       })
       if (!response.ok) {
         const error = await response.json()
@@ -245,7 +249,7 @@ export function KanbanBoard() {
                   <TaskCard
                     key={task.id}
                     task={task}
-                    onExecute={column.status === 'todo' && isAuthenticated && activeProject ? handleExecute : undefined}
+                    onExecute={column.status === 'todo' && canExecute ? handleExecute : undefined}
                     onCancel={column.status === 'in_progress' ? handleCancel : undefined}
                     executionProgress={executionProgress[task.id]}
                   />

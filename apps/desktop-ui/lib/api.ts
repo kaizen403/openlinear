@@ -110,3 +110,58 @@ export function logout(): void {
   localStorage.removeItem('token');
   window.location.href = '/';
 }
+
+// Public repo functions (no auth required)
+
+export interface PublicProject {
+  id: string;
+  githubRepoId: number;
+  name: string;
+  fullName: string;
+  cloneUrl: string;
+  defaultBranch: string;
+  isActive: boolean;
+  userId: string | null;
+}
+
+export async function addRepoByUrl(url: string): Promise<PublicProject> {
+  const res = await fetch(`${API_URL}/api/repos/url`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ url }),
+  });
+
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({ error: 'Failed to add repository' }));
+    throw new Error(error.error || 'Failed to add repository');
+  }
+  return res.json();
+}
+
+export async function getActivePublicProject(): Promise<PublicProject | null> {
+  const res = await fetch(`${API_URL}/api/repos/active/public`);
+  if (!res.ok) return null;
+  return res.json();
+}
+
+export async function activatePublicProject(projectId: string): Promise<PublicProject> {
+  const res = await fetch(`${API_URL}/api/repos/${projectId}/activate/public`, {
+    method: 'POST',
+  });
+
+  if (!res.ok) throw new Error('Failed to activate project');
+  return res.json();
+}
+
+export async function executeTaskPublic(taskId: string): Promise<void> {
+  const res = await fetch(`${API_URL}/api/tasks/${taskId}/execute`, {
+    method: 'POST',
+  });
+
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({ error: 'Failed to execute task' }));
+    throw new Error(error.error || 'Failed to execute task');
+  }
+}
