@@ -86,6 +86,7 @@ jobs:
         run: pnpm install
 
       - name: Publish CLI
-        run: pnpm --filter @kaizen403/openlinear-cli publish --access public --no-git-checks
+        working-directory: packages/openlinear-cli
+        run: npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
