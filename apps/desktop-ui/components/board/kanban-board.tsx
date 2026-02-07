@@ -5,37 +5,12 @@ import { DragDropContext, Droppable, Draggable, DropResult } from "@hello-pangea
 import { Column } from "./column"
 import { TaskCard } from "./task-card"
 import { TaskFormDialog } from "@/components/task-form"
-import { TaskDetailView, ExecutionLogEntry } from "@/components/task-detail-view"
+import { TaskDetailView } from "@/components/task-detail-view"
 import { Loader2, Plus } from "lucide-react"
 import { useSSE, SSEEventType, SSEEventData } from "@/hooks/use-sse"
 import { useAuth } from "@/hooks/use-auth"
 import { getActivePublicProject, PublicProject } from "@/lib/api"
-
-interface Label {
-  id: string
-  name: string
-  color: string
-  priority: number
-}
-
-interface Task {
-  id: string
-  title: string
-  description: string | null
-  priority: 'low' | 'medium' | 'high'
-  status: 'todo' | 'in_progress' | 'done' | 'cancelled'
-  sessionId: string | null
-  createdAt: string
-  updatedAt: string
-  labels: Label[]
-}
-
-interface ExecutionProgress {
-  taskId: string
-  status: 'cloning' | 'executing' | 'committing' | 'creating_pr' | 'done' | 'cancelled' | 'error'
-  message: string
-  prUrl?: string
-}
+import { Task, ExecutionProgress, ExecutionLogEntry } from "@/types/task"
 
 const COLUMNS = [
   { id: 'todo', title: 'Todo', status: 'todo' as const },
@@ -86,6 +61,12 @@ export function KanbanBoard() {
             createdAt: data.createdAt ?? new Date().toISOString(),
             updatedAt: data.updatedAt ?? new Date().toISOString(),
             labels: data.labels ?? [],
+            executionStartedAt: data.executionStartedAt ?? null,
+            executionPausedAt: data.executionPausedAt ?? null,
+            executionElapsedMs: data.executionElapsedMs ?? 0,
+            executionProgress: data.executionProgress ?? null,
+            prUrl: data.prUrl ?? null,
+            outcome: data.outcome ?? null,
           }
           setTasks((prev) => [...prev, newTask])
         }
@@ -322,7 +303,7 @@ export function KanbanBoard() {
 
   return (
     <DragDropContext onDragEnd={handleDragEnd}>
-      <div className="flex-1 overflow-x-auto overflow-y-hidden">
+      <div className="flex-1 overflow-x-auto overflow-y-hidden relative">
         <div className="flex gap-4 h-full p-6 min-w-max">
           {COLUMNS.map((column) => {
             const columnTasks = getTasksByStatus(column.status)
@@ -394,6 +375,7 @@ export function KanbanBoard() {
           onClose={handleDrawerClose}
           onDelete={handleDelete}
           onCancel={handleCancel}
+          onExecute={handleExecute}
           isExecuting={selectedTask?.status === 'in_progress'}
         />
       </div>

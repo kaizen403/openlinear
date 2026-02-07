@@ -1,43 +1,10 @@
 "use client"
 
 import { useEffect, useRef } from "react"
-import { X, ArrowLeft, Bot, Wrench, CheckCircle, AlertCircle, Info, Clock, AlertTriangle, Flag, Tag, Folder, Square, Trash2 } from "lucide-react"
+import { X, ArrowLeft, Bot, Wrench, CheckCircle, AlertCircle, Info, Clock, AlertTriangle, Flag, Tag, Folder, Square, Trash2, GitMerge, ExternalLink, Play, Check } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
-
-export interface ExecutionLogEntry {
-  timestamp: string
-  type: 'info' | 'agent' | 'tool' | 'error' | 'success'
-  message: string
-  details?: string
-}
-
-export interface ExecutionProgress {
-  taskId: string
-  status: 'cloning' | 'executing' | 'committing' | 'creating_pr' | 'done' | 'cancelled' | 'error'
-  message: string
-  prUrl?: string
-  isCompareLink?: boolean
-}
-
-interface Label {
-  id: string
-  name: string
-  color: string
-  priority: number
-}
-
-interface Task {
-  id: string
-  title: string
-  description: string | null
-  priority: 'low' | 'medium' | 'high'
-  status: 'todo' | 'in_progress' | 'done' | 'cancelled'
-  sessionId: string | null
-  createdAt: string
-  updatedAt: string
-  labels: Label[]
-}
+import { Task, ExecutionProgress, ExecutionLogEntry, formatDuration } from "@/types/task"
 
 interface TaskDetailViewProps {
   task: Task | null
@@ -47,6 +14,7 @@ interface TaskDetailViewProps {
   onClose: () => void
   onDelete?: (taskId: string) => void
   onCancel?: (taskId: string) => void
+  onExecute?: (taskId: string) => void
   isExecuting?: boolean
 }
 
@@ -98,7 +66,7 @@ function formatDate(timestamp: string): string {
   })
 }
 
-export function TaskDetailView({ task, logs, progress, open, onClose, onDelete, onCancel, isExecuting }: TaskDetailViewProps) {
+export function TaskDetailView({ task, logs, progress, open, onClose, onDelete, onCancel, onExecute, isExecuting }: TaskDetailViewProps) {
   const logsContainerRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -126,7 +94,7 @@ export function TaskDetailView({ task, logs, progress, open, onClose, onDelete, 
   const PriorityIcon = priorityInfo.icon
 
   return (
-    <div className="fixed inset-0 z-50 bg-linear-bg">
+    <div className="absolute inset-0 z-40 bg-linear-bg">
       <div className="flex flex-col h-full">
         <header className="flex items-center justify-between px-4 py-3 border-b border-linear-border">
           <div className="flex items-center gap-3">
@@ -144,16 +112,30 @@ export function TaskDetailView({ task, logs, progress, open, onClose, onDelete, 
             </span>
           </div>
           <div className="flex items-center gap-2">
-            {isExecuting && onCancel && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-8 px-3 text-linear-text-secondary hover:text-yellow-400 hover:bg-yellow-400/10"
-                onClick={() => onCancel(task.id)}
-              >
-                <Square className="h-3.5 w-3.5 mr-1.5 fill-current" />
-                Stop
-              </Button>
+            {isExecuting ? (
+              onCancel && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 px-3 text-linear-text-secondary hover:text-yellow-400 hover:bg-yellow-400/10"
+                  onClick={() => onCancel(task.id)}
+                >
+                  <Square className="h-3.5 w-3.5 mr-1.5 fill-current" />
+                  Stop
+                </Button>
+              )
+            ) : (
+              task.status !== 'done' && onExecute && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 px-3 text-linear-text-secondary hover:text-green-400 hover:bg-green-400/10"
+                  onClick={() => onExecute(task.id)}
+                >
+                  <Play className="h-3.5 w-3.5 mr-1.5 fill-current" />
+                  Execute
+                </Button>
+              )
             )}
             {onDelete && (
               <Button
@@ -179,7 +161,7 @@ export function TaskDetailView({ task, logs, progress, open, onClose, onDelete, 
 
         <div className="flex-1 overflow-hidden">
           <div className="flex h-full">
-            <main className="flex-1 overflow-y-auto p-6">
+            <main className="flex-1 min-w-0 overflow-y-auto p-6">
               <div className="max-w-3xl mx-auto">
                 <div className="flex items-start gap-3 mb-6">
                   <div className={cn("w-2.5 h-2.5 rounded-full mt-2 flex-shrink-0", priorityConfig[task.priority].color.replace('text-', 'bg-'))} />
@@ -187,6 +169,38 @@ export function TaskDetailView({ task, logs, progress, open, onClose, onDelete, 
                     {task.title}
                   </h1>
                 </div>
+
+                {task.status === 'done' && (
+                  <div className="mb-6 p-4 bg-linear-bg-secondary border border-linear-border rounded-lg">
+                    <div className="flex items-center gap-2 mb-2">
+                      <div className="w-6 h-6 rounded-full bg-green-500/20 flex items-center justify-center">
+                        <Check className="w-4 h-4 text-green-400" />
+                      </div>
+                      <span className="text-sm font-medium text-linear-text">Task Completed</span>
+                    </div>
+                    <div className="flex items-center gap-4 text-sm text-linear-text-secondary">
+                      <span className="flex items-center gap-1.5">
+                        <Clock className="w-3.5 h-3.5" />
+                        Total time: {formatDuration(task.executionElapsedMs)}
+                      </span>
+                    </div>
+                    {(task.prUrl || progress?.prUrl) && (
+                      <button
+                        onClick={() => window.open(task.prUrl || progress?.prUrl, '_blank')}
+                        className="mt-3 inline-flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-medium text-white bg-[#8957e5] hover:bg-[#7c4dcc] transition-colors"
+                      >
+                        <GitMerge className="w-3.5 h-3.5" />
+                        View Pull Request
+                        <ExternalLink className="w-3 h-3 opacity-70" />
+                      </button>
+                    )}
+                    {task.outcome && (
+                      <div className="mt-3 pt-3 border-t border-linear-border">
+                        <p className="text-sm text-linear-text-secondary">{task.outcome}</p>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 <div className="mb-8">
                   {task.description ? (
@@ -269,7 +283,7 @@ export function TaskDetailView({ task, logs, progress, open, onClose, onDelete, 
               </div>
             </main>
 
-            <aside className="w-72 border-l border-linear-border bg-linear-bg-secondary overflow-y-auto">
+            <aside className="w-72 flex-shrink-0 border-l border-linear-border bg-linear-bg-secondary overflow-y-auto">
               <div className="p-4 space-y-6">
                 <div>
                   <h3 className="text-xs font-medium text-linear-text-tertiary uppercase tracking-wider mb-3">

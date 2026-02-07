@@ -1,35 +1,11 @@
 "use client"
 
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Loader2, GitBranch, Code, GitPullRequest, Check, X, ExternalLink, Play, ArrowRight, Trash2 } from "lucide-react"
+import { Loader2, GitBranch, Code, GitPullRequest, Check, X, ExternalLink, Play, ArrowRight, Trash2, Clock } from "lucide-react"
 import { cn } from "@/lib/utils"
-
-interface Label {
-  id: string
-  name: string
-  color: string
-  priority: number
-}
-
-interface Task {
-  id: string
-  title: string
-  description: string | null
-  priority: 'low' | 'medium' | 'high'
-  status: 'todo' | 'in_progress' | 'done' | 'cancelled'
-  sessionId: string | null
-  createdAt: string
-  updatedAt: string
-  labels: Label[]
-}
-
-interface ExecutionProgress {
-  taskId: string
-  status: 'cloning' | 'executing' | 'committing' | 'creating_pr' | 'done' | 'cancelled' | 'error'
-  message: string
-  prUrl?: string
-}
+import { Task, ExecutionProgress, formatDuration } from "@/types/task"
 
 interface TaskCardProps {
   task: Task
@@ -58,6 +34,22 @@ const progressConfig = {
 }
 
 export function TaskCard({ task, onExecute, onCancel, onDelete, onMoveToInProgress, onTaskClick, executionProgress }: TaskCardProps) {
+  const [liveElapsedMs, setLiveElapsedMs] = useState<number>(0)
+
+  useEffect(() => {
+    if (task.status === 'in_progress' && task.executionStartedAt) {
+      const updateElapsed = () => {
+        const started = new Date(task.executionStartedAt!).getTime()
+        const elapsed = Date.now() - started
+        setLiveElapsedMs(elapsed)
+      }
+
+      updateElapsed()
+      const interval = setInterval(updateElapsed, 1000)
+      return () => clearInterval(interval)
+    }
+  }, [task.status, task.executionStartedAt])
+
   const handleExecute = () => {
     if (onExecute) {
       onExecute(task.id)
@@ -154,9 +146,19 @@ export function TaskCard({ task, onExecute, onCancel, onDelete, onMoveToInProgre
         )}
         
         <div className="flex items-center justify-between">
-          <span className="text-xs text-linear-text-tertiary">
-            {task.id.slice(0, 8)}
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-linear-text-tertiary">
+              {task.id.slice(0, 8)}
+            </span>
+            {(task.status === 'in_progress' || task.status === 'done' || task.status === 'cancelled') && (
+              <span className="text-xs text-linear-text-secondary flex items-center gap-1">
+                <Clock className="w-3 h-3" />
+                {task.status === 'in_progress' && task.executionStartedAt
+                  ? formatDuration(liveElapsedMs)
+                  : formatDuration(task.executionElapsedMs)}
+              </span>
+            )}
+          </div>
           
           <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
             {task.status === 'todo' && onMoveToInProgress && (

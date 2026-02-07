@@ -19,6 +19,12 @@ export interface SSEEventData {
     color: string
     priority: number
   }>
+  executionStartedAt?: string | null
+  executionPausedAt?: string | null
+  executionElapsedMs?: number
+  executionProgress?: number | null
+  prUrl?: string | null
+  outcome?: string | null
 }
 
 export type SSEEventType = 
