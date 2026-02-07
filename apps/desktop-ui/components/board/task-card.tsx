@@ -156,7 +156,7 @@ export function TaskCard({ task, onExecute, onCancel, onMoveToInProgress, execut
                 Start
               </Button>
             )}
-            {task.status === 'in_progress' && onExecute && (
+            {task.status === 'in_progress' && onExecute && !isActiveProgress && (
               <Button
                 size="sm"
                 variant="ghost"
@@ -170,7 +170,7 @@ export function TaskCard({ task, onExecute, onCancel, onMoveToInProgress, execut
                 Execute
               </Button>
             )}
-            {task.status === 'in_progress' && onCancel && (
+            {isActiveProgress && onCancel && (
               <Button
                 size="sm"
                 variant="ghost"

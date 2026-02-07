@@ -3,7 +3,7 @@ import { prisma } from '@openlinear/db';
 import { z } from 'zod';
 import { broadcast } from '../sse';
 import { executeTask, cancelTask, isTaskRunning } from '../services/execution';
-import { requireAuth, AuthRequest } from '../middleware/auth';
+import { requireAuth } from '../middleware/auth';
 
 const PriorityEnum = z.enum(['low', 'medium', 'high']);
 const StatusEnum = z.enum(['todo', 'in_progress', 'done', 'cancelled']);
@@ -210,9 +210,11 @@ router.delete('/:id', async (req: Request, res: Response) => {
 router.post('/:id/execute', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
+    console.log(`[Tasks] Execute requested for task ${id.slice(0, 8)}`);
     const result = await executeTask({ taskId: id });
 
     if (!result.success) {
+      console.log(`[Tasks] Execute failed: ${result.error}`);
       res.status(400).json({ error: result.error });
       return;
     }
@@ -224,11 +226,22 @@ router.post('/:id/execute', async (req: Request, res: Response) => {
   }
 });
 
+router.get('/:id/running', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    res.json({ running: isTaskRunning(id) });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to check task status' });
+  }
+});
+
 router.post('/:id/cancel', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
+    console.log(`[Tasks] Cancel requested for task ${id.slice(0, 8)}`);
 
     if (!isTaskRunning(id)) {
+      console.log(`[Tasks] Task ${id.slice(0, 8)} is not running, cannot cancel`);
       res.status(400).json({ error: 'Task is not running' });
       return;
     }
@@ -236,10 +249,12 @@ router.post('/:id/cancel', async (req: Request, res: Response) => {
     const result = await cancelTask(id);
 
     if (!result.success) {
+      console.log(`[Tasks] Cancel failed: ${result.error}`);
       res.status(400).json({ error: result.error });
       return;
     }
 
+    console.log(`[Tasks] Task ${id.slice(0, 8)} cancelled`);
     res.json({ message: 'Task cancelled' });
   } catch (error) {
     console.error('[Tasks] Error cancelling task:', error);
