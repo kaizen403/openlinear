@@ -94,6 +94,9 @@ export async function activateProject(projectId: string): Promise<Project> {
 }
 
 export async function getActiveProject(): Promise<Project | null> {
+  const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+  if (!token) return null;
+  
   const res = await fetch(`${API_URL}/api/repos/active`, {
     headers: getAuthHeader(),
   });

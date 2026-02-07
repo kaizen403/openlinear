@@ -39,6 +39,7 @@ export function getExecutionStatus(taskId: string): ExecutionState | undefined {
 }
 
 function broadcastProgress(taskId: string, status: string, message: string, data?: Record<string, unknown>) {
+  console.log(`[Execution] ${taskId.slice(0, 8)} → ${status}: ${message}`);
   broadcast('execution:progress', { taskId, status, message, ...data });
 }
 
@@ -79,22 +80,31 @@ async function cloneRepository(
   accessToken: string | null,
   defaultBranch: string
 ): Promise<void> {
+  console.log(`[Execution] Preparing to clone into ${repoPath}`);
+  
   if (!existsSync(REPOS_DIR)) {
     mkdirSync(REPOS_DIR, { recursive: true });
+    console.log(`[Execution] Created repos directory: ${REPOS_DIR}`);
   }
 
   if (existsSync(repoPath)) {
     rmSync(repoPath, { recursive: true, force: true });
+    console.log(`[Execution] Removed existing directory: ${repoPath}`);
   }
 
   const url = accessToken 
     ? cloneUrl.replace('https://', `https://oauth2:${accessToken}@`)
     : cloneUrl;
+  
+  console.log(`[Execution] Cloning ${cloneUrl} (branch: ${defaultBranch})...`);
   await execAsync(`git clone --depth 1 --branch ${defaultBranch} ${url} ${repoPath}`);
+  console.log(`[Execution] Clone complete`);
 }
 
 async function createBranch(repoPath: string, branchName: string): Promise<void> {
+  console.log(`[Execution] Creating branch: ${branchName}`);
   await execAsync(`git checkout -b ${branchName}`, { cwd: repoPath });
+  console.log(`[Execution] Branch created and checked out`);
 }
 
 async function commitAndPush(
@@ -103,16 +113,24 @@ async function commitAndPush(
   taskTitle: string
 ): Promise<boolean> {
   try {
+    console.log(`[Execution] Checking for changes in ${repoPath}`);
     const { stdout: status } = await execAsync('git status --porcelain', { cwd: repoPath });
     
     if (!status.trim()) {
+      console.log(`[Execution] No changes to commit`);
       return false;
     }
 
+    console.log(`[Execution] Changes detected, staging files...`);
     await execAsync('git add -A', { cwd: repoPath });
+    
     const commitMessage = `feat: ${taskTitle.toLowerCase().replace(/[^a-z0-9\s]/g, '').slice(0, 50)}`;
+    console.log(`[Execution] Committing: ${commitMessage}`);
     await execAsync(`git commit -m "${commitMessage}"`, { cwd: repoPath });
+    
+    console.log(`[Execution] Pushing to origin/${branchName}...`);
     await execAsync(`git push -u origin ${branchName}`, { cwd: repoPath });
+    console.log(`[Execution] Push complete`);
     
     return true;
   } catch (error) {
@@ -238,17 +256,19 @@ async function handleOpenCodeEvent(event: { type: string; properties: Record<str
   const sessionId = (event.properties?.id as string) || (event.properties?.sessionID as string);
   const taskId = findTaskBySessionId(sessionId);
 
+  console.log(`[Execution] OpenCode event: ${event.type}`, sessionId ? `(session: ${sessionId.slice(0, 8)})` : '');
+
   if (!taskId) return;
 
   switch (event.type) {
     case 'session.idle':
     case 'session.completed':
-      console.log(`[Execution] Session completed for task ${taskId}`);
+      console.log(`[Execution] Session completed for task ${taskId.slice(0, 8)}`);
       await handleSessionComplete(taskId);
       break;
 
     case 'session.error':
-      console.error(`[Execution] Session error for task ${taskId}:`, event.properties);
+      console.error(`[Execution] Session error for task ${taskId.slice(0, 8)}:`, event.properties);
       broadcastProgress(taskId, 'error', 'Execution failed');
       await updateTaskStatus(taskId, 'cancelled', null);
       await cleanupExecution(taskId);
