@@ -196,6 +196,11 @@ async function commitAndPush(
   }
 }
 
+interface PullRequestResult {
+  url: string;
+  type: 'pr' | 'compare';
+}
+
 async function createPullRequest(
   fullName: string,
   branchName: string,
@@ -203,14 +208,15 @@ async function createPullRequest(
   taskTitle: string,
   taskDescription: string | null,
   accessToken: string | null
-): Promise<{ url: string } | null> {
+): Promise<PullRequestResult> {
+  const [owner, repo] = fullName.split('/');
+  const compareUrl = `https://github.com/${owner}/${repo}/compare/${defaultBranch}...${branchName}`;
+
   if (!accessToken) {
-    console.log('[Execution] No access token - skipping PR creation for public repo');
-    return null;
+    console.log('[Execution] No access token - returning compare URL for manual PR creation');
+    return { url: compareUrl, type: 'compare' };
   }
 
-  const [owner, repo] = fullName.split('/');
-  
   const body = {
     title: taskTitle,
     head: branchName,
@@ -232,14 +238,16 @@ async function createPullRequest(
     if (!response.ok) {
       const error = await response.text();
       console.error('[Execution] PR creation failed:', error);
-      return null;
+      // Return compare URL as fallback when API fails
+      return { url: compareUrl, type: 'compare' };
     }
 
     const pr = (await response.json()) as { html_url: string };
-    return { url: pr.html_url };
+    return { url: pr.html_url, type: 'pr' };
   } catch (error) {
     console.error('[Execution] PR creation error:', error);
-    return null;
+    // Return compare URL as fallback on error
+    return { url: compareUrl, type: 'compare' };
   }
 }
 
@@ -285,7 +293,7 @@ async function handleSessionComplete(taskId: string): Promise<void> {
 
       if (project) {
         const task = await prisma.task.findUnique({ where: { id: taskId } });
-        const pr = await createPullRequest(
+        const result = await createPullRequest(
           project.fullName,
           execution.branchName,
           project.defaultBranch,
@@ -294,12 +302,12 @@ async function handleSessionComplete(taskId: string): Promise<void> {
           execution.accessToken
         );
 
-        if (pr) {
-          addLogEntry(taskId, 'success', 'Pull request created', pr.url);
-          broadcastProgress(taskId, 'done', 'Pull request created', { prUrl: pr.url });
+        if (result.type === 'pr') {
+          addLogEntry(taskId, 'success', 'Pull request created', result.url);
+          broadcastProgress(taskId, 'done', 'Pull request created', { prUrl: result.url, isCompareLink: false });
         } else {
-          addLogEntry(taskId, 'info', 'Changes pushed, but PR creation failed');
-          broadcastProgress(taskId, 'done', 'Changes pushed, but PR creation failed');
+          addLogEntry(taskId, 'success', 'Changes pushed! Create PR here:', result.url);
+          broadcastProgress(taskId, 'done', 'Changes pushed successfully', { prUrl: result.url, isCompareLink: true });
         }
       }
     } else {

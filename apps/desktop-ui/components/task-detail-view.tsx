@@ -17,6 +17,7 @@ export interface ExecutionProgress {
   status: 'cloning' | 'executing' | 'committing' | 'creating_pr' | 'done' | 'cancelled' | 'error'
   message: string
   prUrl?: string
+  isCompareLink?: boolean
 }
 
 interface Label {
@@ -358,7 +359,7 @@ export function TaskDetailView({ task, logs, progress, open, onClose, onDelete, 
                           rel="noopener noreferrer"
                           className="inline-flex items-center gap-1 text-xs text-linear-accent hover:underline mt-2"
                         >
-                          View Pull Request →
+                          {progress.isCompareLink ? 'Create Pull Request →' : 'View Pull Request →'}
                         </a>
                       )}
                     </div>
