@@ -1,5 +1,6 @@
 import { Router, Response } from 'express';
 import { z } from 'zod';
+import { prisma } from '@openlinear/db';
 import { optionalAuth, AuthRequest } from '../middleware/auth';
 import {
   createBatch,
@@ -30,12 +31,21 @@ router.post('/', optionalAuth, async (req: AuthRequest, res: Response) => {
     const { taskIds, mode } = parsed.data;
     const userId = req.userId || null;
 
+    let accessToken: string | null = null;
+    if (userId) {
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { accessToken: true },
+      });
+      accessToken = user?.accessToken ?? null;
+    }
+
     const batch = await createBatch({
       taskIds,
       mode,
       projectId: '',
       userId,
-      accessToken: null,
+      accessToken,
     });
 
     startBatch(batch.id);

@@ -1,10 +1,14 @@
 import crypto from 'crypto';
+import { exec } from 'child_process';
+import { promisify } from 'util';
 import { prisma } from '@openlinear/db';
 import { broadcast } from '../sse';
 import { getClientForDirectory } from './opencode';
-import { ensureMainRepo, createWorktree, cleanupBatch, mergeBranch } from './worktree';
+import { ensureMainRepo, createWorktree, cleanupBatch, mergeBranch, createBatchBranch, pushBranch } from './worktree';
 import type { BatchState, BatchTask, BatchSettings, CreateBatchParams, BatchEventType } from '../types/batch';
 import type { OpencodeClient } from '@opencode-ai/sdk';
+
+const execAsync = promisify(exec);
 
 const activeBatches = new Map<string, BatchState>();
 const sessionToBatch = new Map<string, { batchId: string; taskId: string }>();
@@ -64,12 +68,18 @@ export async function createBatch(params: CreateBatchParams): Promise<BatchState
     mainRepoPath,
     batchBranch: `openlinear/batch-${batchId.slice(0, 8)}`,
     prUrl: null,
+    accessToken: params.accessToken,
+    userId: params.userId,
     createdAt: new Date(),
     completedAt: null,
   };
 
   activeBatches.set(batchId, batch);
-  broadcastBatchEvent('batch:created', batchId, { mode: params.mode, taskCount: tasks.length });
+  broadcastBatchEvent('batch:created', batchId, {
+    mode: params.mode,
+    status: 'running',
+    tasks: tasks.map(t => ({ taskId: t.taskId, title: t.title, status: t.status })),
+  });
 
   return batch;
 }
@@ -81,7 +91,11 @@ export async function startBatch(batchId: string): Promise<void> {
   }
 
   batch.status = 'running';
-  broadcastBatchEvent('batch:started', batchId, { mode: batch.mode });
+  broadcastBatchEvent('batch:started', batchId, {
+    mode: batch.mode,
+    status: 'running',
+    tasks: batch.tasks.map(t => ({ taskId: t.taskId, title: t.title, status: t.status })),
+  });
 
   if (batch.mode === 'parallel') {
     const count = Math.min(batch.settings.maxConcurrent, batch.tasks.length);
@@ -209,6 +223,23 @@ async function handleTaskComplete(
   if (!task || task.status === 'completed' || task.status === 'failed') return;
 
   if (success) {
+    // Commit changes from worktree
+    if (task.worktreePath) {
+      try {
+        const { stdout: status } = await execAsync('git status --porcelain', { cwd: task.worktreePath });
+        if (status.trim()) {
+          await execAsync('git add -A', { cwd: task.worktreePath });
+          const commitMsg = `feat: ${task.title.toLowerCase().replace(/[^a-z0-9\s]/g, '').slice(0, 50)}`;
+          await execAsync(`git commit -m "${commitMsg}"`, { cwd: task.worktreePath });
+          console.log(`[Batch] Committed changes for task ${task.taskId.slice(0, 8)}`);
+        } else {
+          console.log(`[Batch] No changes for task ${task.taskId.slice(0, 8)}`);
+        }
+      } catch (commitErr) {
+        console.error(`[Batch] Failed to commit for task ${task.taskId.slice(0, 8)}:`, commitErr);
+      }
+    }
+
     task.status = 'completed';
     broadcastBatchEvent('batch:task:completed', batchId, { taskId });
   } else {
@@ -258,13 +289,15 @@ async function finalizeBatch(batchId: string): Promise<void> {
   const project = await prisma.project.findUnique({ where: { id: batch.projectId } });
   const targetBranch = project?.defaultBranch || 'main';
 
+  await createBatchBranch(batch.projectId, batch.batchBranch, targetBranch);
+
   let hasFatalFailure = false;
 
   for (const task of batch.tasks) {
     if (task.status !== 'completed') continue;
 
     try {
-      const merged = await mergeBranch(batch.projectId, task.branch, targetBranch);
+      const merged = await mergeBranch(batch.projectId, task.branch, batch.batchBranch);
 
       if (!merged) {
         if (batch.settings.conflictBehavior === 'fail') {
@@ -302,9 +335,55 @@ async function finalizeBatch(batchId: string): Promise<void> {
     batch.completedAt = new Date();
     broadcastBatchEvent('batch:failed', batchId);
   } else {
+    try {
+      const proj = await prisma.project.findUnique({ where: { id: batch.projectId } });
+      if (proj) {
+        await pushBranch(batch.projectId, batch.batchBranch, proj.cloneUrl, batch.accessToken);
+
+        const completedTasks = batch.tasks.filter(t => t.status === 'completed');
+        const taskTitles = completedTasks.map(t => `- ${t.title}`).join('\n');
+        const prTitle = `Batch: ${completedTasks.length} tasks`;
+        const prBody = `Automated batch PR by OpenLinear\n\n## Tasks\n${taskTitles}`;
+
+        const [owner, repo] = proj.fullName.split('/');
+        const compareUrl = `https://github.com/${owner}/${repo}/compare/${targetBranch}...${batch.batchBranch}`;
+
+        if (batch.accessToken) {
+          try {
+            const response = await fetch(`https://api.github.com/repos/${owner}/${repo}/pulls`, {
+              method: 'POST',
+              headers: {
+                Authorization: `Bearer ${batch.accessToken}`,
+                Accept: 'application/vnd.github.v3+json',
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                title: prTitle,
+                head: batch.batchBranch,
+                base: targetBranch,
+                body: prBody,
+              }),
+            });
+            if (response.ok) {
+              const pr = await response.json() as { html_url: string };
+              batch.prUrl = pr.html_url;
+            } else {
+              batch.prUrl = compareUrl;
+            }
+          } catch {
+            batch.prUrl = compareUrl;
+          }
+        } else {
+          batch.prUrl = compareUrl;
+        }
+      }
+    } catch (pushError) {
+      console.error(`[Batch] Push/PR creation failed:`, pushError);
+    }
+
     batch.status = 'completed';
     batch.completedAt = new Date();
-    broadcastBatchEvent('batch:completed', batchId);
+    broadcastBatchEvent('batch:completed', batchId, { prUrl: batch.prUrl });
   }
 
   try {

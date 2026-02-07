@@ -31,6 +31,8 @@ export interface BatchState {
   mainRepoPath: string;
   batchBranch: string;
   prUrl: string | null;
+  accessToken: string | null;
+  userId: string | null;
   createdAt: Date;
   completedAt: Date | null;
 }

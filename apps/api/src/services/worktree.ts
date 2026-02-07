@@ -211,3 +211,28 @@ export async function mergeBranch(
     }
   }
 }
+
+export async function createBatchBranch(
+  projectId: string,
+  batchBranch: string,
+  defaultBranch: string
+): Promise<void> {
+  const mainRepoPath = join(REPOS_DIR, projectId, '.main');
+  console.log(`[Worktree] Creating batch branch ${batchBranch} from origin/${defaultBranch}`);
+  await execAsync(`git -C ${mainRepoPath} branch ${batchBranch} origin/${defaultBranch}`);
+}
+
+export async function pushBranch(
+  projectId: string,
+  branchName: string,
+  cloneUrl: string,
+  accessToken: string | null
+): Promise<void> {
+  const mainRepoPath = join(REPOS_DIR, projectId, '.main');
+  const url = accessToken
+    ? cloneUrl.replace('https://', `https://oauth2:${accessToken}@`)
+    : cloneUrl;
+  console.log(`[Worktree] Pushing ${branchName} to remote`);
+  await execAsync(`git -C ${mainRepoPath} push ${url} ${branchName}`);
+  console.log(`[Worktree] Push complete for ${branchName}`);
+}
