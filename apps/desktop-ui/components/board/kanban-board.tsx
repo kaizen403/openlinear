@@ -1,10 +1,11 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
+import { DragDropContext, Droppable, Draggable, DropResult } from "@hello-pangea/dnd"
 import { Column } from "./column"
 import { TaskCard } from "./task-card"
 import { TaskFormDialog } from "@/components/task-form"
-import { Loader2, Layers, Plus } from "lucide-react"
+import { Loader2, Plus } from "lucide-react"
 import { useSSE, SSEEventType, SSEEventData } from "@/hooks/use-sse"
 import { useAuth } from "@/hooks/use-auth"
 import { getActivePublicProject, PublicProject } from "@/lib/api"
@@ -156,6 +157,53 @@ export function KanbanBoard() {
     }
   }
 
+  const updateTaskStatus = async (taskId: string, newStatus: Task['status']) => {
+    try {
+      const token = localStorage.getItem('token')
+      const headers: HeadersInit = {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      }
+      const response = await fetch(`${API_BASE_URL}/api/tasks/${taskId}`, {
+        method: "PATCH",
+        headers,
+        body: JSON.stringify({ status: newStatus }),
+      })
+      if (!response.ok) {
+        throw new Error(`Failed to update task: ${response.statusText}`)
+      }
+    } catch (err) {
+      console.error("Error updating task:", err)
+      fetchTasks()
+    }
+  }
+
+  const handleMoveToInProgress = async (taskId: string) => {
+    setTasks((prev) =>
+      prev.map((task) =>
+        task.id === taskId ? { ...task, status: 'in_progress' as const } : task
+      )
+    )
+    await updateTaskStatus(taskId, 'in_progress')
+  }
+
+  const handleDragEnd = async (result: DropResult) => {
+    const { destination, source, draggableId } = result
+
+    if (!destination) return
+    if (destination.droppableId === source.droppableId && destination.index === source.index) return
+
+    const newStatus = destination.droppableId as Task['status']
+    
+    setTasks((prev) =>
+      prev.map((task) =>
+        task.id === draggableId ? { ...task, status: newStatus } : task
+      )
+    )
+
+    await updateTaskStatus(draggableId, newStatus)
+  }
+
   const handleExecute = async (taskId: string) => {
     if (!canExecute) {
       console.error("No active project - connect a repo first")
@@ -222,48 +270,69 @@ export function KanbanBoard() {
   }
 
   return (
-    <div className="flex-1 overflow-x-auto overflow-y-hidden">
-      <div className="flex gap-4 h-full p-6 min-w-max">
-        {COLUMNS.map((column) => {
-          const columnTasks = getTasksByStatus(column.status)
-          return (
-            <Column
-              key={column.id}
-              id={column.id}
-              title={column.title}
-              taskCount={columnTasks.length}
-              onAddTask={() => handleAddTask(column.status)}
-            >
-              {columnTasks.length === 0 ? (
-                <button
-                  onClick={() => handleAddTask(column.status)}
-                  className="w-full flex flex-col items-center justify-center py-8 text-linear-text-tertiary hover:text-linear-text-secondary hover:bg-linear-bg-tertiary/50 rounded-lg transition-all cursor-pointer group"
-                >
-                  <div className="w-10 h-10 rounded-full bg-linear-bg-tertiary flex items-center justify-center mb-3 group-hover:bg-linear-bg-tertiary group-hover:scale-110 transition-all">
-                    <Plus className="w-5 h-5" />
-                  </div>
-                  <span className="text-sm">Add task</span>
-                </button>
-              ) : (
-                columnTasks.map((task) => (
-                  <TaskCard
-                    key={task.id}
-                    task={task}
-                    onExecute={column.status === 'todo' && canExecute ? handleExecute : undefined}
-                    onCancel={column.status === 'in_progress' ? handleCancel : undefined}
-                    executionProgress={executionProgress[task.id]}
-                  />
-                ))
-              )}
-            </Column>
-          )
-        })}
-      </div>
+    <DragDropContext onDragEnd={handleDragEnd}>
+      <div className="flex-1 overflow-x-auto overflow-y-hidden">
+        <div className="flex gap-4 h-full p-6 min-w-max">
+          {COLUMNS.map((column) => {
+            const columnTasks = getTasksByStatus(column.status)
+            return (
+              <Droppable key={column.id} droppableId={column.id}>
+                {(provided, snapshot) => (
+                  <Column
+                    id={column.id}
+                    title={column.title}
+                    taskCount={columnTasks.length}
+                    onAddTask={() => handleAddTask(column.status)}
+                    innerRef={provided.innerRef}
+                    droppableProps={provided.droppableProps}
+                    isDraggingOver={snapshot.isDraggingOver}
+                  >
+                    {columnTasks.length === 0 ? (
+                      <button
+                        onClick={() => handleAddTask(column.status)}
+                        className="w-full flex flex-col items-center justify-center py-8 text-linear-text-tertiary hover:text-linear-text-secondary hover:bg-linear-bg-tertiary/50 rounded-lg transition-all cursor-pointer group"
+                      >
+                        <div className="w-10 h-10 rounded-full bg-linear-bg-tertiary flex items-center justify-center mb-3 group-hover:bg-linear-bg-tertiary group-hover:scale-110 transition-all">
+                          <Plus className="w-5 h-5" />
+                        </div>
+                        <span className="text-sm">Add task</span>
+                      </button>
+                    ) : (
+                      columnTasks.map((task, index) => (
+                        <Draggable key={task.id} draggableId={task.id} index={index}>
+                          {(provided, snapshot) => (
+                            <div
+                              ref={provided.innerRef}
+                              {...provided.draggableProps}
+                              {...provided.dragHandleProps}
+                              style={provided.draggableProps.style}
+                              className={snapshot.isDragging ? 'opacity-90' : ''}
+                            >
+                              <TaskCard
+                                task={task}
+                                onMoveToInProgress={column.status === 'todo' ? handleMoveToInProgress : undefined}
+                                onExecute={column.status === 'in_progress' && canExecute ? handleExecute : undefined}
+                                onCancel={column.status === 'in_progress' ? handleCancel : undefined}
+                                executionProgress={executionProgress[task.id]}
+                              />
+                            </div>
+                          )}
+                        </Draggable>
+                      ))
+                    )}
+                    {provided.placeholder}
+                  </Column>
+                )}
+              </Droppable>
+            )
+          })}
+        </div>
 
-      <TaskFormDialog
-        open={isTaskFormOpen}
-        onOpenChange={setIsTaskFormOpen}
-      />
-    </div>
+        <TaskFormDialog
+          open={isTaskFormOpen}
+          onOpenChange={setIsTaskFormOpen}
+        />
+      </div>
+    </DragDropContext>
   )
 }

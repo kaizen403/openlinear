@@ -2,7 +2,7 @@
 
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Loader2, GitBranch, Code, GitPullRequest, Check, X, ExternalLink } from "lucide-react"
+import { Loader2, GitBranch, Code, GitPullRequest, Check, X, ExternalLink, Play, ArrowRight } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 interface Label {
@@ -35,6 +35,7 @@ interface TaskCardProps {
   task: Task
   onExecute?: (taskId: string) => void
   onCancel?: (taskId: string) => void
+  onMoveToInProgress?: (taskId: string) => void
   executionProgress?: ExecutionProgress
 }
 
@@ -54,7 +55,7 @@ const progressConfig = {
   error: { icon: X, label: 'Error', color: 'text-red-400' },
 }
 
-export function TaskCard({ task, onExecute, onCancel, executionProgress }: TaskCardProps) {
+export function TaskCard({ task, onExecute, onCancel, onMoveToInProgress, executionProgress }: TaskCardProps) {
   const handleExecute = () => {
     if (onExecute) {
       onExecute(task.id)
@@ -64,6 +65,12 @@ export function TaskCard({ task, onExecute, onCancel, executionProgress }: TaskC
   const handleCancel = () => {
     if (onCancel) {
       onCancel(task.id)
+    }
+  }
+
+  const handleMoveToInProgress = () => {
+    if (onMoveToInProgress) {
+      onMoveToInProgress(task.id)
     }
   }
 
@@ -135,7 +142,21 @@ export function TaskCard({ task, onExecute, onCancel, executionProgress }: TaskC
           </span>
           
           <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-            {task.status === 'todo' && onExecute && (
+            {task.status === 'todo' && onMoveToInProgress && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-6 px-2 text-xs text-linear-text-secondary hover:text-linear-text hover:bg-linear-bg-tertiary"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  handleMoveToInProgress()
+                }}
+              >
+                <ArrowRight className="w-3 h-3 mr-1" />
+                Start
+              </Button>
+            )}
+            {task.status === 'in_progress' && onExecute && (
               <Button
                 size="sm"
                 variant="ghost"
@@ -145,6 +166,7 @@ export function TaskCard({ task, onExecute, onCancel, executionProgress }: TaskC
                   handleExecute()
                 }}
               >
+                <Play className="w-3 h-3 mr-1" />
                 Execute
               </Button>
             )}

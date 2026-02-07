@@ -3,6 +3,7 @@
 import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
 import { Plus } from "lucide-react"
+import { DroppableProvidedProps } from "@hello-pangea/dnd"
 
 interface ColumnProps {
   id: string
@@ -10,9 +11,12 @@ interface ColumnProps {
   taskCount: number
   children: React.ReactNode
   onAddTask?: () => void
+  innerRef?: (element: HTMLElement | null) => void
+  droppableProps?: DroppableProvidedProps
+  isDraggingOver?: boolean
 }
 
-export function Column({ id, title, taskCount, children, onAddTask }: ColumnProps) {
+export function Column({ id, title, taskCount, children, onAddTask, innerRef, droppableProps, isDraggingOver }: ColumnProps) {
   return (
     <div className="flex flex-col min-w-[300px] w-[300px] h-full bg-linear-bg-secondary rounded-lg border border-linear-border">
       <div className="flex items-center justify-between px-4 py-3 border-b border-linear-border">
@@ -36,10 +40,15 @@ export function Column({ id, title, taskCount, children, onAddTask }: ColumnProp
         )}
       </div>
 
-      <div className={cn(
-        "flex-1 p-3 overflow-y-auto",
-        "space-y-3"
-      )}>
+      <div 
+        ref={innerRef}
+        {...droppableProps}
+        className={cn(
+          "flex-1 p-3 overflow-y-auto",
+          "space-y-3",
+          isDraggingOver && "bg-linear-bg-tertiary/30"
+        )}
+      >
         {children}
       </div>
     </div>
