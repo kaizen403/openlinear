@@ -8,6 +8,18 @@ import { getClient, getClientForDirectory } from './opencode';
 
 import type { OpencodeClient } from '@opencode-ai/sdk';
 
+interface Label {
+  id: string;
+  name: string;
+  color: string;
+}
+
+interface TaskLabelRelation {
+  taskId: string;
+  labelId: string;
+  label: Label;
+}
+
 const execAsync = promisify(exec);
 
 const REPOS_DIR = process.env.REPOS_DIR || '/tmp/openlinear-repos';
@@ -100,7 +112,7 @@ async function updateTaskStatus(
     
     const flatTask = {
       ...task,
-      labels: task.labels.map(tl => tl.label),
+      labels: task.labels.map((tl: TaskLabelRelation) => tl.label),
     };
     
     broadcast('task:updated', flatTask);
@@ -600,7 +612,7 @@ export async function executeTask({ taskId, userId }: ExecuteTaskParams): Promis
       prompt += `\n\n${task.description}`;
     }
     if (task.labels.length > 0) {
-      const labelNames = task.labels.map(tl => tl.label.name).join(', ');
+      const labelNames = task.labels.map((tl: TaskLabelRelation) => tl.label.name).join(', ');
       prompt += `\n\nLabels: ${labelNames}`;
     }
 

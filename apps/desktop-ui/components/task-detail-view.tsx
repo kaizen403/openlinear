@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useRef } from "react"
-import { X, ArrowLeft, Bot, Wrench, CheckCircle, AlertCircle, Info, Clock, AlertTriangle, Flag, Tag, Folder } from "lucide-react"
+import { X, ArrowLeft, Bot, Wrench, CheckCircle, AlertCircle, Info, Clock, AlertTriangle, Flag, Tag, Folder, Square, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 
@@ -45,6 +45,8 @@ interface TaskDetailViewProps {
   open: boolean
   onClose: () => void
   onDelete?: (taskId: string) => void
+  onCancel?: (taskId: string) => void
+  isExecuting?: boolean
 }
 
 const statusConfig = {
@@ -95,12 +97,12 @@ function formatDate(timestamp: string): string {
   })
 }
 
-export function TaskDetailView({ task, logs, progress, open, onClose, onDelete }: TaskDetailViewProps) {
-  const logsEndRef = useRef<HTMLDivElement>(null)
+export function TaskDetailView({ task, logs, progress, open, onClose, onDelete, onCancel, isExecuting }: TaskDetailViewProps) {
+  const logsContainerRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    if (logsEndRef.current && open) {
-      logsEndRef.current.scrollIntoView({ behavior: 'smooth' })
+    if (logsContainerRef.current && open && logs.length > 0) {
+      logsContainerRef.current.scrollTop = 0
     }
   }, [logs, open])
 
@@ -141,17 +143,26 @@ export function TaskDetailView({ task, logs, progress, open, onClose, onDelete }
             </span>
           </div>
           <div className="flex items-center gap-2">
+            {isExecuting && onCancel && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 px-3 text-linear-text-secondary hover:text-yellow-400 hover:bg-yellow-400/10"
+                onClick={() => onCancel(task.id)}
+              >
+                <Square className="h-3.5 w-3.5 mr-1.5 fill-current" />
+                Stop
+              </Button>
+            )}
             {onDelete && (
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-8 w-8 p-0 text-linear-text-secondary hover:text-red-400"
+                className="h-8 px-3 text-linear-text-secondary hover:text-red-400 hover:bg-red-400/10"
                 onClick={() => onDelete(task.id)}
               >
-                <span className="sr-only">Delete task</span>
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <path d="M3 4.5h10M5.5 4.5v-1a1.5 1.5 0 0 1 1.5-1.5h2a1.5 1.5 0 0 1 1.5 1.5v1M12.5 4.5v8a1.5 1.5 0 0 1-1.5 1.5h-6a1.5 1.5 0 0 1-1.5-1.5v-8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
+                <Trash2 className="h-3.5 w-3.5 mr-1.5" />
+                Delete
               </Button>
             )}
             <Button
@@ -194,7 +205,10 @@ export function TaskDetailView({ task, logs, progress, open, onClose, onDelete }
                     Activity
                   </h2>
 
-                  <div className="space-y-3">
+                  <div 
+                    ref={logsContainerRef}
+                    className="max-h-[400px] overflow-y-auto space-y-3 pr-2"
+                  >
                     {logs.length === 0 ? (
                       <div className="flex flex-col items-center justify-center py-12 text-linear-text-tertiary">
                         <Clock className="w-8 h-8 mb-2 opacity-50" />
@@ -202,7 +216,7 @@ export function TaskDetailView({ task, logs, progress, open, onClose, onDelete }
                         <p className="text-xs mt-1">Execution logs will appear here when a task is run</p>
                       </div>
                     ) : (
-                      logs.map((log, index) => {
+                      [...logs].reverse().map((log, index) => {
                         const Icon = logIcons[log.type]
                         const isLast = index === logs.length - 1
                         
@@ -249,7 +263,6 @@ export function TaskDetailView({ task, logs, progress, open, onClose, onDelete }
                         )
                       })
                     )}
-                    <div ref={logsEndRef} />
                   </div>
                 </div>
               </div>

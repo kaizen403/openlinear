@@ -393,6 +393,8 @@ export function KanbanBoard() {
           open={!!selectedTaskId}
           onClose={handleDrawerClose}
           onDelete={handleDelete}
+          onCancel={handleCancel}
+          isExecuting={selectedTask?.status === 'in_progress'}
         />
       </div>
     </DragDropContext>
