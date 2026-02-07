@@ -5,6 +5,7 @@ import { DragDropContext, Droppable, Draggable, DropResult } from "@hello-pangea
 import { Column } from "./column"
 import { TaskCard } from "./task-card"
 import { TaskFormDialog } from "@/components/task-form"
+import { TaskDetailView, ExecutionLogEntry } from "@/components/task-detail-view"
 import { Loader2, Plus } from "lucide-react"
 import { useSSE, SSEEventType, SSEEventData } from "@/hooks/use-sse"
 import { useAuth } from "@/hooks/use-auth"
@@ -54,6 +55,8 @@ export function KanbanBoard() {
   const [isTaskFormOpen, setIsTaskFormOpen] = useState(false)
   const [defaultStatus, setDefaultStatus] = useState<Task['status']>('todo')
   const [publicProject, setPublicProject] = useState<PublicProject | null>(null)
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
+  const [taskLogs, setTaskLogs] = useState<Record<string, ExecutionLogEntry[]>>({})
   const { isAuthenticated, activeProject } = useAuth()
 
   useEffect(() => {
@@ -121,6 +124,16 @@ export function KanbanBoard() {
           setExecutionProgress((prev) => ({
             ...prev,
             [progressData.taskId]: progressData,
+          }))
+        }
+        break
+
+      case 'execution:log':
+        const logData = data as unknown as { taskId: string; entry: ExecutionLogEntry }
+        if (logData.taskId && logData.entry) {
+          setTaskLogs((prev) => ({
+            ...prev,
+            [logData.taskId]: [...(prev[logData.taskId] || []), logData.entry],
           }))
         }
         break
@@ -241,6 +254,44 @@ export function KanbanBoard() {
     }
   }
 
+  const handleTaskClick = async (taskId: string) => {
+    setSelectedTaskId(taskId)
+    
+    if (!taskLogs[taskId]) {
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/tasks/${taskId}/logs`)
+        if (response.ok) {
+          const data = await response.json()
+          setTaskLogs((prev) => ({ ...prev, [taskId]: data.logs || [] }))
+        }
+      } catch (err) {
+        console.error("Error fetching task logs:", err)
+      }
+    }
+  }
+
+  const handleDrawerClose = () => {
+    setSelectedTaskId(null)
+  }
+
+  const handleDelete = async (taskId: string) => {
+    try {
+      const token = localStorage.getItem('token')
+      const response = await fetch(`${API_BASE_URL}/api/tasks/${taskId}`, {
+        method: "DELETE",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      })
+      if (!response.ok) {
+        throw new Error(`Failed to delete task: ${response.statusText}`)
+      }
+      setSelectedTaskId(null)
+    } catch (err) {
+      console.error("Error deleting task:", err)
+    }
+  }
+
+  const selectedTask = selectedTaskId ? tasks.find((t) => t.id === selectedTaskId) || null : null
+
   const getTasksByStatus = (status: Task['status']) => {
     return tasks.filter((task) => task.status === status)
   }
@@ -313,6 +364,8 @@ export function KanbanBoard() {
                                 onMoveToInProgress={column.status === 'todo' ? handleMoveToInProgress : undefined}
                                 onExecute={column.status === 'in_progress' && canExecute ? handleExecute : undefined}
                                 onCancel={column.status === 'in_progress' ? handleCancel : undefined}
+                                onDelete={handleDelete}
+                                onTaskClick={handleTaskClick}
                                 executionProgress={executionProgress[task.id]}
                               />
                             </div>
@@ -331,6 +384,15 @@ export function KanbanBoard() {
         <TaskFormDialog
           open={isTaskFormOpen}
           onOpenChange={setIsTaskFormOpen}
+        />
+
+        <TaskDetailView
+          task={selectedTask}
+          logs={selectedTaskId ? (taskLogs[selectedTaskId] || []) : []}
+          progress={selectedTaskId ? executionProgress[selectedTaskId] : undefined}
+          open={!!selectedTaskId}
+          onClose={handleDrawerClose}
+          onDelete={handleDelete}
         />
       </div>
     </DragDropContext>

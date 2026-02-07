@@ -2,7 +2,7 @@
 
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Loader2, GitBranch, Code, GitPullRequest, Check, X, ExternalLink, Play, ArrowRight } from "lucide-react"
+import { Loader2, GitBranch, Code, GitPullRequest, Check, X, ExternalLink, Play, ArrowRight, Trash2 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 interface Label {
@@ -35,7 +35,9 @@ interface TaskCardProps {
   task: Task
   onExecute?: (taskId: string) => void
   onCancel?: (taskId: string) => void
+  onDelete?: (taskId: string) => void
   onMoveToInProgress?: (taskId: string) => void
+  onTaskClick?: (taskId: string) => void
   executionProgress?: ExecutionProgress
 }
 
@@ -55,7 +57,7 @@ const progressConfig = {
   error: { icon: X, label: 'Error', color: 'text-red-400' },
 }
 
-export function TaskCard({ task, onExecute, onCancel, onMoveToInProgress, executionProgress }: TaskCardProps) {
+export function TaskCard({ task, onExecute, onCancel, onDelete, onMoveToInProgress, onTaskClick, executionProgress }: TaskCardProps) {
   const handleExecute = () => {
     if (onExecute) {
       onExecute(task.id)
@@ -68,9 +70,21 @@ export function TaskCard({ task, onExecute, onCancel, onMoveToInProgress, execut
     }
   }
 
+  const handleDelete = () => {
+    if (onDelete) {
+      onDelete(task.id)
+    }
+  }
+
   const handleMoveToInProgress = () => {
     if (onMoveToInProgress) {
       onMoveToInProgress(task.id)
+    }
+  }
+
+  const handleCardClick = () => {
+    if (onTaskClick) {
+      onTaskClick(task.id)
     }
   }
 
@@ -78,12 +92,15 @@ export function TaskCard({ task, onExecute, onCancel, onMoveToInProgress, execut
   const isActiveProgress = showProgress && ['cloning', 'executing', 'committing', 'creating_pr'].includes(executionProgress.status)
 
   return (
-    <Card className="bg-linear-bg border-linear-border hover:border-linear-border-hover transition-colors cursor-pointer group">
+    <Card 
+      className="bg-linear-bg border-linear-border hover:border-linear-border-hover transition-colors cursor-pointer group"
+      onClick={handleCardClick}
+    >
       <CardHeader className="p-3 pb-0">
         <div className="flex items-start gap-2">
           <div className={cn("w-2 h-2 rounded-full mt-1.5 flex-shrink-0", priorityColors[task.priority])} />
           <h4 className="text-sm font-medium leading-tight line-clamp-2 flex-1">{task.title}</h4>
-          {task.status === 'in_progress' && (
+          {isActiveProgress && (
             <Loader2 className="w-3 h-3 animate-spin text-linear-accent flex-shrink-0 mt-0.5" />
           )}
         </div>
@@ -181,6 +198,19 @@ export function TaskCard({ task, onExecute, onCancel, onMoveToInProgress, execut
                 }}
               >
                 Cancel
+              </Button>
+            )}
+            {onDelete && !isActiveProgress && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-6 w-6 p-0 text-linear-text-tertiary hover:text-red-400 hover:bg-red-500/10"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  handleDelete()
+                }}
+              >
+                <Trash2 className="w-3 h-3" />
               </Button>
             )}
           </div>

@@ -29,7 +29,7 @@ export function Column({ id, title, taskCount, children, onAddTask, innerRef, dr
             {taskCount}
           </Badge>
         </div>
-        {onAddTask && taskCount === 0 && (
+        {onAddTask && (
           <button
             onClick={onAddTask}
             className="w-6 h-6 rounded flex items-center justify-center text-linear-text-tertiary hover:text-linear-text hover:bg-linear-bg-tertiary transition-colors"

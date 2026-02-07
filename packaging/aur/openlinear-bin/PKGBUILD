@@ -1,0 +1,22 @@
+pkgname=openlinear-bin
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="OpenLinear desktop app (AppImage)"
+arch=('x86_64')
+url="https://github.com/kaizen403/openlinear"
+license=('MIT')
+depends=('glibc')
+source=(
+  "openlinear-${pkgver}-x86_64.AppImage::https://github.com/kaizen403/openlinear/releases/download/v${pkgver}/openlinear-${pkgver}-x86_64.AppImage"
+  "openlinear.desktop"
+  "openlinear"
+  "openlinear.png::https://raw.githubusercontent.com/kaizen403/openlinear/v${pkgver}/apps/desktop/src-tauri/icons/icon.png"
+)
+sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP')
+
+package() {
+  install -Dm755 "${srcdir}/openlinear-${pkgver}-x86_64.AppImage" "${pkgdir}/opt/openlinear/openlinear.AppImage"
+  install -Dm755 "${srcdir}/openlinear" "${pkgdir}/usr/bin/openlinear"
+  install -Dm644 "${srcdir}/openlinear.desktop" "${pkgdir}/usr/share/applications/openlinear.desktop"
+  install -Dm644 "${srcdir}/openlinear.png" "${pkgdir}/usr/share/pixmaps/openlinear.png"
+}

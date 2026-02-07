@@ -38,16 +38,29 @@ export function parseGitHubUrl(url: string): { owner: string; repo: string } | n
 }
 
 export async function fetchPublicRepo(owner: string, repo: string): Promise<GitHubRepo> {
+  const headers: Record<string, string> = {
+    Accept: 'application/vnd.github.v3+json',
+    'User-Agent': 'OpenLinear',
+  };
+
+  // Use GitHub token if available for higher rate limits (5000/hr vs 60/hr)
+  const githubToken = process.env.GITHUB_TOKEN;
+  if (githubToken) {
+    headers['Authorization'] = `Bearer ${githubToken}`;
+  }
+
   const response = await fetch(`https://api.github.com/repos/${owner}/${repo}`, {
-    headers: {
-      Accept: 'application/vnd.github.v3+json',
-      'User-Agent': 'OpenLinear',
-    },
+    headers,
   });
 
   if (!response.ok) {
     if (response.status === 404) {
       throw new Error(`Repository ${owner}/${repo} not found or is private`);
+    }
+    if (response.status === 403) {
+      const resetHeader = response.headers.get('x-ratelimit-reset');
+      const resetTime = resetHeader ? new Date(parseInt(resetHeader) * 1000).toLocaleTimeString() : 'soon';
+      throw new Error(`GitHub rate limit exceeded. Resets at ${resetTime}. Add GITHUB_TOKEN to .env for higher limits.`);
     }
     throw new Error(`Failed to fetch repository: ${response.statusText}`);
   }

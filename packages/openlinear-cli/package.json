@@ -1,0 +1,27 @@
+{
+  "name": "@kaizen403/openlinear-cli",
+  "version": "0.1.0",
+  "description": "OpenLinear launcher and installer",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kaizen403/openlinear"
+  },
+  "bin": {
+    "openlinear": "bin/openlinear.js"
+  },
+  "files": [
+    "bin",
+    "scripts"
+  ],
+  "scripts": {
+    "postinstall": "node scripts/postinstall.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com",
+    "access": "public"
+  }
+}

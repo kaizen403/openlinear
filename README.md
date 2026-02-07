@@ -1,117 +1,156 @@
-# OpenLinear (Desktop)
+# OpenLinear
 
-OpenLinear is a Linear‑style kanban board with OpenCode‑powered task execution, shipped as a Tauri desktop app.
-
-## What You Get
-
-- 4‑column kanban board (Todo / In Progress / Done / Cancelled)
-- Task CRUD with labels and priorities
-- Real‑time updates via SSE
-- OpenCode task execution (clone → run → commit → PR)
-- Desktop‑first UI
-
-## Tech Stack
-
-- Tauri (desktop shell)
-- Next.js (desktop renderer)
-- Express (API)
-- PostgreSQL + Prisma (Docker)
-- shadcn/ui
-
-## Quick Start (Desktop Dev)
-
-1) Install deps
-```bash
-pnpm install
-```
-
-2) Start Postgres + set DB URL
-```bash
-docker compose up -d
-export DATABASE_URL=postgresql://openlinear:openlinear@localhost:5432/openlinear
-pnpm db:push
-```
-
-3) Start the API
-```bash
-pnpm --filter @openlinear/api dev
-```
-
-4) Start the desktop app
-```bash
-pnpm --filter @openlinear/desktop dev
-```
-
-Notes:
-- The renderer dev server runs at http://localhost:3000 and is used by Tauri in dev mode.
-- The API listens on http://localhost:3001.
-
-## OpenCode Setup
-
-OpenLinear expects an OpenCode server available at `OPENCODE_URL` (default: `http://localhost:4096`).
-Install and run OpenCode, then use the “Execute” action on a task.
-
-Set a custom URL if needed:
-```
-OPENCODE_URL=http://localhost:4096
-```
-
-## Scripts
-
-- `pnpm dev` — run all apps in dev mode
-- `pnpm build` — build all apps
-- `pnpm test` — run tests across the repo
-- `pnpm typecheck` — run TypeScript checks
-- `pnpm lint` — run linting across the repo
-- `pnpm db:push` — apply Prisma schema to the database
-- `pnpm db:studio` — open Prisma Studio
-- `pnpm build:sidecar` — build the API sidecar binary for desktop packaging
-- `pnpm build:desktop` — build the Tauri desktop app
+A desktop kanban board for managing and executing coding tasks through AI agents.
 
 ## Architecture
 
 ```
-                ┌──────────────────────┐
-                │  Next.js Renderer    │
-                │   (apps/desktop-ui)  │
-                └──────────┬───────────┘
-                           │ HTTP + SSE
-                           ▼
-                ┌──────────────────────┐
-                │     Express API      │
-                │      (apps/api)      │
-                └──────────┬───────────┘
-                           │ Prisma
-                           ▼
-                ┌──────────────────────┐
-                │     PostgreSQL       │
-                │  (docker-compose)    │
-                └──────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────┐
+│                           Desktop Application                            │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                          │
+│   ┌──────────────────┐      ┌──────────────────┐      ┌──────────────┐  │
+│   │   Desktop Shell  │◄────►│   Renderer (UI)  │◄────►│  Local API   │  │
+│   │                  │      │                  │      │   Sidecar    │  │
+│   └──────────────────┘      └──────────────────┘      └──────┬───────┘  │
+│                                                               │          │
+└───────────────────────────────────────────────────────────────┼──────────┘
+                                                                │
+                                                                ▼
+                                              ┌─────────────────────────────┐
+                                              │     Coding Agent Layer      │
+                                              │                             │
+                                              │  ┌─────────┐  ┌─────────┐   │
+                                              │  │OpenCode │  │ Codex   │   │
+                                              │  └─────────┘  └─────────┘   │
+                                              │  ┌─────────┐  ┌─────────┐   │
+                                              │  │Claude   │  │  ...    │   │
+                                              │  │ Code    │  │         │   │
+                                              │  └─────────┘  └─────────┘   │
+                                              └─────────────────────────────┘
 ```
 
-## Project Structure
+## Parallel Task Execution
+
+OpenLinear executes multiple coding tasks concurrently:
 
 ```
-openlinear/
-├── apps/
-│   ├── api/          # Express API
-│   ├── desktop/      # Tauri shell
-│   └── desktop-ui/   # Next.js renderer
-├── packages/
-│   ├── db/           # Prisma schema
-│   └── types/        # Shared types
-└── docker-compose.yml
+                    ┌──────────────────────────────────┐
+                    │        Execution Manager         │
+                    │                                  │
+                    │  ┌─────────────────────────────┐ │
+                    │  │     Active Execution Pool   │ │
+                    │  │                             │ │
+                    │  │  Task A ──► Agent Session   │ │
+                    │  │  Task B ──► Agent Session   │ │
+                    │  │  Task C ──► Agent Session   │ │
+                    │  │                             │ │
+                    │  │     (Configurable Limit)    │ │
+                    │  └─────────────────────────────┘ │
+                    └──────────────────────────────────┘
+```
+
+- Tasks run in isolated sessions with independent repo clones
+- Parallel limit is user-configurable via settings
+- Each execution tracks its own lifecycle: clone → execute → commit → PR
+- Real-time progress via event streaming
+
+## Agent Integration
+
+Currently integrated with the OpenCode SDK:
+
+```
+Execute Task
+     │
+     ▼
+Clone Repository ──► Create Branch ──► Start Agent Session
+                                              │
+                                              ▼
+                                    Agent works on codebase
+                                    (reads, edits, runs tools)
+                                              │
+                                              ▼
+                                    Commit Changes ──► Create PR
+```
+
+The agent layer is designed to support multiple providers:
+
+| Agent | Status |
+|-------|--------|
+| OpenCode | Integrated |
+| Claude Code | Planned |
+| Codex | Planned |
+| Aider | Planned |
+
+## Quick Start
+
+```bash
+# Install dependencies
+pnpm install
+
+# Start database
+docker compose up -d
+
+# Set database URL and push schema
+export DATABASE_URL=postgresql://openlinear:openlinear@localhost:5432/openlinear
+pnpm db:push
+
+# Start the API sidecar
+pnpm --filter @openlinear/api dev
+
+# Start the desktop app
+pnpm --filter @openlinear/desktop dev
 ```
 
 ## Environment Variables
 
-- `DATABASE_URL` — PostgreSQL connection string
-- `OPENCODE_URL` — OpenCode server base URL
-- `REPOS_DIR` — local path for cloned repos (default: `/tmp/openlinear-repos`)
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `DATABASE_URL` | PostgreSQL connection | - |
+| `OPENCODE_URL` | OpenCode server URL | `http://localhost:4096` |
+| `REPOS_DIR` | Local path for cloned repos | `/tmp/openlinear-repos` |
 
-## Troubleshooting
+## Distribution
 
-- **API won’t start (EADDRINUSE: 3001)**  
-  Another process is already using port 3001. Stop it or change the API port.
-- **OpenCode tasks won’t run**  
-  Ensure the OpenCode server is running and reachable at `OPENCODE_URL`.
+### GitHub Releases (binary assets)
+
+This repo includes a release workflow that builds Linux AppImage + .deb bundles and a Linux sidecar binary on tag push (`v*`).
+
+```
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+Artifacts are uploaded to the GitHub release:
+
+- `openlinear-<version>-x86_64.AppImage`
+- `openlinear-<version>-x86_64.deb`
+- `openlinear-api-<version>-x86_64`
+
+### AUR (yay/pacman)
+
+The AUR package lives in `packaging/aur/openlinear-bin`. It installs the AppImage and a desktop entry.
+
+Release steps:
+
+1. Update `pkgver` and `source` URLs in `PKGBUILD`.
+2. Regenerate `.SRCINFO` with `makepkg --printsrcinfo > .SRCINFO`.
+3. Push to the AUR repo (no keys are stored in this repo).
+
+### GitHub Packages (npm)
+
+`packages/openlinear-cli` publishes to GitHub Packages. It downloads the AppImage on install and runs it via the `openlinear` CLI.
+
+Local publish (kept in your user config, not the repo):
+
+```
+npm config set @kaizen403:registry https://npm.pkg.github.com
+npm config set //npm.pkg.github.com/:_authToken $GITHUB_TOKEN
+pnpm --filter @openlinear/openlinear-cli publish --access public
+```
+
+For forks, set `OPENLINEAR_RELEASE_BASE_URL` to point to your GitHub releases when installing the CLI:
+
+```
+OPENLINEAR_RELEASE_BASE_URL=https://github.com/kaizen403/openlinear/releases/download/v0.1.0
+```

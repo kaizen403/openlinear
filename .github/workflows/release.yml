@@ -1,0 +1,94 @@
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  build-release:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgtk-3-dev \
+            libwebkit2gtk-4.0-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libfuse2
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Build sidecar
+        run: pnpm build:sidecar
+
+      - name: Build desktop
+        run: pnpm build:desktop
+
+      - name: Prepare release artifacts
+        run: |
+          set -euo pipefail
+          VERSION=${GITHUB_REF_NAME#v}
+          APPIMAGE=$(ls apps/desktop/src-tauri/target/release/bundle/appimage/*.AppImage | head -n 1)
+          DEB=$(ls apps/desktop/src-tauri/target/release/bundle/deb/*.deb | head -n 1)
+          mkdir -p dist/release
+          cp "$APPIMAGE" "dist/release/openlinear-${VERSION}-x86_64.AppImage"
+          cp "$DEB" "dist/release/openlinear-${VERSION}-x86_64.deb"
+          cp apps/api/dist/api-linux-x64 "dist/release/openlinear-api-${VERSION}-x86_64"
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/release/*
+
+  publish-cli:
+    runs-on: ubuntu-22.04
+    needs: build-release
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://npm.pkg.github.com
+          cache: pnpm
+          scope: '@kaizen403'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Publish CLI
+        run: pnpm --filter @kaizen403/openlinear-cli publish --access public --no-git-checks
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
