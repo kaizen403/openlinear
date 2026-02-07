@@ -37,14 +37,11 @@ export default function HomePage() {
   return (
     <div className="flex h-screen bg-linear-bg text-linear-text">
       <aside className="w-64 bg-linear-bg-secondary border-r border-linear-border flex flex-col">
-        <div className="p-4 border-b border-linear-border flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="w-6 h-6 rounded-md bg-linear-accent flex items-center justify-center">
-              <Layout className="w-3.5 h-3.5 text-white" />
-            </div>
-            <span className="font-semibold text-linear-text">OpenLinear</span>
+        <div className="p-4 border-b border-linear-border flex items-center gap-2">
+          <div className="w-6 h-6 rounded-md bg-linear-accent flex items-center justify-center">
+            <Layout className="w-3.5 h-3.5 text-white" />
           </div>
-          <UserMenu />
+          <span className="font-semibold text-linear-text">OpenLinear</span>
         </div>
 
         {isAuthenticated && (

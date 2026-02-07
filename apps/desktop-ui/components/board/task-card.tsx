@@ -89,7 +89,7 @@ export function TaskCard({ task, onExecute, onCancel, onDelete, onMoveToInProgre
   return (
     <Card 
       className={cn(
-        "bg-linear-bg border-linear-border hover:border-linear-border-hover transition-colors cursor-pointer group",
+        "bg-linear-bg border-linear-border hover:border-linear-border-hover cursor-pointer group",
         selected && "border-linear-accent/50"
       )}
       onClick={handleCardClick}
@@ -98,13 +98,13 @@ export function TaskCard({ task, onExecute, onCancel, onDelete, onMoveToInProgre
         <div className="flex items-start gap-2">
           <div
             className={cn(
-              "flex-shrink-0 mt-0.5 transition-opacity",
+              "flex-shrink-0 mt-0.5",
               selectionMode || selected ? "opacity-100" : "opacity-0 group-hover:opacity-100"
             )}
             onClick={(e) => { e.stopPropagation(); onToggleSelect?.(task.id) }}
           >
             <div className={cn(
-              "w-4 h-4 rounded border flex items-center justify-center cursor-pointer transition-colors",
+              "w-4 h-4 rounded border flex items-center justify-center cursor-pointer",
               selected 
                 ? "bg-linear-accent border-linear-accent" 
                 : "border-linear-border-hover hover:border-linear-accent/50 bg-linear-bg"
@@ -113,9 +113,8 @@ export function TaskCard({ task, onExecute, onCancel, onDelete, onMoveToInProgre
             </div>
           </div>
           <div className={cn(
-            "w-2 h-2 rounded-full mt-1.5 flex-shrink-0 transition-all",
-            priorityColors[task.priority],
-            !selectionMode && !selected && "group-hover:opacity-0 group-hover:w-0 group-hover:mr-[-8px]"
+            "w-2 h-2 rounded-full mt-1.5 flex-shrink-0",
+            priorityColors[task.priority]
           )} />
           <h4 className="text-sm font-medium leading-tight line-clamp-2 flex-1">{task.title}</h4>
           {isActiveProgress && (
@@ -176,7 +175,7 @@ export function TaskCard({ task, onExecute, onCancel, onDelete, onMoveToInProgre
             <span className="text-[11px] text-linear-text-tertiary font-mono">
               {task.id.slice(0, 8)}
             </span>
-            {(task.status === 'in_progress' || task.status === 'done' || task.status === 'cancelled') && (
+            {(task.status === 'in_progress' || task.status === 'done' || task.status === 'cancelled') && (task.executionStartedAt || task.executionElapsedMs) && (
               <span className="text-[11px] text-linear-text-tertiary flex items-center gap-1 whitespace-nowrap tabular-nums">
                 <Clock className="w-3 h-3 flex-shrink-0" />
                 {task.status === 'in_progress' && task.executionStartedAt
@@ -186,7 +185,7 @@ export function TaskCard({ task, onExecute, onCancel, onDelete, onMoveToInProgre
             )}
           </div>
           
-          <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+          <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 flex-shrink-0">
             {task.status === 'todo' && onMoveToInProgress && (
               <Button
                 size="sm"
