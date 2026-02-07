@@ -89,30 +89,34 @@ export function TaskCard({ task, onExecute, onCancel, onDelete, onMoveToInProgre
   return (
     <Card 
       className={cn(
-        "bg-linear-bg border-linear-border hover:border-linear-border-hover transition-colors cursor-pointer group relative",
+        "bg-linear-bg border-linear-border hover:border-linear-border-hover transition-colors cursor-pointer group",
         selected && "border-linear-accent/50"
       )}
       onClick={handleCardClick}
     >
-      <div 
-        className={cn(
-          "absolute top-2 left-2 z-10 transition-opacity",
-          selectionMode || selected ? "opacity-100" : "opacity-0 group-hover:opacity-100"
-        )}
-        onClick={(e) => { e.stopPropagation(); onToggleSelect?.(task.id) }}
-      >
-        <div className={cn(
-          "w-4 h-4 rounded border flex items-center justify-center cursor-pointer transition-colors",
-          selected 
-            ? "bg-linear-accent border-linear-accent" 
-            : "border-linear-border-hover hover:border-linear-accent/50 bg-linear-bg"
-        )}>
-          {selected && <Check className="w-3 h-3 text-white" />}
-        </div>
-      </div>
       <CardHeader className="p-3 pb-0">
         <div className="flex items-start gap-2">
-          <div className={cn("w-2 h-2 rounded-full mt-1.5 flex-shrink-0", priorityColors[task.priority])} />
+          <div
+            className={cn(
+              "flex-shrink-0 mt-0.5 transition-opacity",
+              selectionMode || selected ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+            )}
+            onClick={(e) => { e.stopPropagation(); onToggleSelect?.(task.id) }}
+          >
+            <div className={cn(
+              "w-4 h-4 rounded border flex items-center justify-center cursor-pointer transition-colors",
+              selected 
+                ? "bg-linear-accent border-linear-accent" 
+                : "border-linear-border-hover hover:border-linear-accent/50 bg-linear-bg"
+            )}>
+              {selected && <Check className="w-3 h-3 text-white" />}
+            </div>
+          </div>
+          <div className={cn(
+            "w-2 h-2 rounded-full mt-1.5 flex-shrink-0 transition-all",
+            priorityColors[task.priority],
+            !selectionMode && !selected && "group-hover:opacity-0 group-hover:w-0 group-hover:mr-[-8px]"
+          )} />
           <h4 className="text-sm font-medium leading-tight line-clamp-2 flex-1">{task.title}</h4>
           {isActiveProgress && (
             <Loader2 className="w-3 h-3 animate-spin text-linear-accent flex-shrink-0 mt-0.5" />
@@ -167,14 +171,14 @@ export function TaskCard({ task, onExecute, onCancel, onDelete, onMoveToInProgre
           </div>
         )}
         
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-linear-text-tertiary">
+        <div className="flex items-center justify-between mt-1">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="text-[11px] text-linear-text-tertiary font-mono">
               {task.id.slice(0, 8)}
             </span>
             {(task.status === 'in_progress' || task.status === 'done' || task.status === 'cancelled') && (
-              <span className="text-xs text-linear-text-tertiary flex items-center gap-1 whitespace-nowrap tabular-nums">
-                <Clock className="w-3 h-3" />
+              <span className="text-[11px] text-linear-text-tertiary flex items-center gap-1 whitespace-nowrap tabular-nums">
+                <Clock className="w-3 h-3 flex-shrink-0" />
                 {task.status === 'in_progress' && task.executionStartedAt
                   ? formatDuration(liveElapsedMs)
                   : formatDuration(task.executionElapsedMs)}
@@ -182,12 +186,12 @@ export function TaskCard({ task, onExecute, onCancel, onDelete, onMoveToInProgre
             )}
           </div>
           
-          <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+          <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
             {task.status === 'todo' && onMoveToInProgress && (
               <Button
                 size="sm"
                 variant="ghost"
-                className="h-6 px-2 text-xs text-linear-text-secondary hover:text-linear-text hover:bg-linear-bg-tertiary"
+                className="h-6 px-1.5 text-xs text-linear-text-secondary hover:text-linear-text hover:bg-linear-bg-tertiary"
                 onClick={(e) => {
                   e.stopPropagation()
                   handleMoveToInProgress()
@@ -201,7 +205,7 @@ export function TaskCard({ task, onExecute, onCancel, onDelete, onMoveToInProgre
               <Button
                 size="sm"
                 variant="ghost"
-                className="h-6 px-2 text-xs text-linear-accent hover:text-linear-accent hover:bg-linear-accent/10"
+                className="h-6 px-1.5 text-xs text-linear-accent hover:text-linear-accent hover:bg-linear-accent/10"
                 onClick={(e) => {
                   e.stopPropagation()
                   handleExecute()
@@ -215,7 +219,7 @@ export function TaskCard({ task, onExecute, onCancel, onDelete, onMoveToInProgre
               <Button
                 size="sm"
                 variant="ghost"
-                className="h-6 px-2 text-xs text-red-400 hover:text-red-400 hover:bg-red-500/10"
+                className="h-6 px-1.5 text-xs text-red-400 hover:text-red-400 hover:bg-red-500/10"
                 onClick={(e) => {
                   e.stopPropagation()
                   handleCancel()
