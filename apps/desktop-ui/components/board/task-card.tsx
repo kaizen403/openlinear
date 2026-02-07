@@ -151,7 +151,7 @@ export function TaskCard({ task, onExecute, onCancel, onDelete, onMoveToInProgre
               {task.id.slice(0, 8)}
             </span>
             {(task.status === 'in_progress' || task.status === 'done' || task.status === 'cancelled') && (
-              <span className="text-xs text-linear-text-secondary flex items-center gap-1">
+              <span className="text-xs text-linear-text-tertiary flex items-center gap-1 whitespace-nowrap tabular-nums">
                 <Clock className="w-3 h-3" />
                 {task.status === 'in_progress' && task.executionStartedAt
                   ? formatDuration(liveElapsedMs)

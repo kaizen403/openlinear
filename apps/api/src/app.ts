@@ -4,6 +4,7 @@ import cookieParser from 'cookie-parser';
 import labelRoutes from './routes/labels';
 import tasksRouter from './routes/tasks';
 import settingsRouter from './routes/settings';
+import batchesRouter from './routes/batches';
 import authRouter from './routes/auth';
 import reposRouter from './routes/repos';
 import { clients, SSEClient } from './sse';
@@ -23,6 +24,7 @@ export function createApp(): Application {
   app.use('/api/labels', labelRoutes);
   app.use('/api/tasks', tasksRouter);
   app.use('/api/settings', settingsRouter);
+  app.use('/api/batches', batchesRouter);
 
   app.get('/health', (_req: Request, res: Response) => {
     res.json({ 

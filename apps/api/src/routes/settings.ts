@@ -4,8 +4,12 @@ import { z } from 'zod';
 import { broadcast } from '../sse';
 
 const UpdateSettingsSchema = z.object({
-  parallelLimit: z.number().int().min(1).max(5),
-});
+  parallelLimit: z.number().int().min(1).max(5).optional(),
+  maxBatchSize: z.number().int().min(1).max(10).optional(),
+  queueAutoApprove: z.boolean().optional(),
+  stopOnFailure: z.boolean().optional(),
+  conflictBehavior: z.enum(['skip', 'fail']).optional(),
+}).refine(data => Object.keys(data).length > 0, { message: 'At least one field required' });
 
 const router: Router = Router();
 
@@ -36,12 +40,10 @@ router.patch('/', async (req: Request, res: Response) => {
       return;
     }
 
-    const { parallelLimit } = parsed.data;
-
     const settings = await prisma.settings.upsert({
       where: { id: 'default' },
-      update: { parallelLimit },
-      create: { id: 'default', parallelLimit },
+      update: parsed.data,
+      create: { id: 'default', ...parsed.data },
     });
 
     broadcast('settings:updated', settings);
