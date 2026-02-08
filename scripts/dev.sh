@@ -11,11 +11,11 @@ fi
 
 echo "[dev] Starting API and Desktop App..."
 
-pnpm --filter @openlinear/api dev &
+API_PORT=3001 pnpm --filter @openlinear/api dev &
 API_PID=$!
 
 sleep 2
 
-pnpm --filter @openlinear/desktop tauri dev
+API_PORT=3001 PORT=3000 pnpm --filter @openlinear/desktop tauri dev
 
 kill $API_PID 2>/dev/null

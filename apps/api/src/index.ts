@@ -9,7 +9,7 @@ import { ensureOpenCodeServer, registerShutdownHandlers, getOpenCodeStatus } fro
 import { initEventSubscription } from './services/execution';
 
 const app = createApp();
-const PORT = 3001;
+const PORT = Number(process.env.API_PORT ?? 3001);
 
 registerShutdownHandlers();
 
