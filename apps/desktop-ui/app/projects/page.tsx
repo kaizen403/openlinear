@@ -24,7 +24,8 @@ import {
   MoreHorizontal,
   ChevronRight,
   CheckCircle2,
-  TrendingUp
+  TrendingUp,
+  Users
 } from "lucide-react"
 import { ProjectSelector } from "@/components/auth/project-selector"
 import { useAuth } from "@/hooks/use-auth"
@@ -198,7 +199,6 @@ export default function ProjectsPage() {
   const pathname = usePathname()
   const { isAuthenticated, activeProject } = useAuth()
   const [projectsExpanded, setProjectsExpanded] = useState(true)
-  const [teamsExpanded, setTeamsExpanded] = useState(true)
   const [favoritesExpanded, setFavoritesExpanded] = useState(true)
   const [activeTab, setActiveTab] = useState("all")
 
@@ -261,48 +261,18 @@ export default function ProjectsPage() {
                 ) : (
                   <div className="px-3 py-2 text-xs text-linear-text-tertiary">No project selected</div>
                 )}
-                <Link href="/projects/web-app" className={navItemClass(false)}>
-                  <Target className="w-4 h-4 text-linear-text-tertiary" />
-                  <span className="truncate">Web Application</span>
-                </Link>
-                <Link href="/projects/mobile" className={navItemClass(false)}>
-                  <Target className="w-4 h-4 text-linear-text-tertiary" />
-                  <span className="truncate">Mobile App</span>
-                </Link>
-                <Link href="/projects/api" className={navItemClass(false)}>
-                  <Target className="w-4 h-4 text-linear-text-tertiary" />
-                  <span className="truncate">API Gateway</span>
-                </Link>
               </div>
             </div>
           </div>
 
           <div className="mt-4 px-3">
-            <button onClick={() => setTeamsExpanded(!teamsExpanded)} className={sectionHeaderClass}>
-              <span className={cn("transition-transform duration-200", teamsExpanded ? "" : "-rotate-90")}>
-                <ChevronDown className="w-3 h-3" />
-              </span>
+            <Link
+              href="/teams"
+              className={navItemClass(false)}
+            >
+              <Users className="w-4 h-4 text-linear-text-secondary" />
               Teams
-            </button>
-            <div className={cn(
-              "overflow-hidden transition-all duration-200 ease-in-out",
-              teamsExpanded ? "max-h-96 opacity-100 mt-1" : "max-h-0 opacity-0"
-            )}>
-              <div className="space-y-0.5">
-                <Link href="/team/engineering" className={navItemClass(false)}>
-                  <div className="w-4 h-4 rounded bg-linear-bg-tertiary border border-linear-border flex items-center justify-center text-[10px] font-medium text-linear-text-secondary">E</div>
-                  Engineering
-                </Link>
-                <Link href="/team/design" className={navItemClass(false)}>
-                  <div className="w-4 h-4 rounded bg-linear-bg-tertiary border border-linear-border flex items-center justify-center text-[10px] font-medium text-linear-text-secondary">D</div>
-                  Design
-                </Link>
-                <Link href="/team/product" className={navItemClass(false)}>
-                  <div className="w-4 h-4 rounded bg-linear-bg-tertiary border border-linear-border flex items-center justify-center text-[10px] font-medium text-linear-text-secondary">P</div>
-                  Product
-                </Link>
-              </div>
-            </div>
+            </Link>
           </div>
 
           <div className="mt-4 px-3">
