@@ -25,6 +25,10 @@
     --input: 0 0% 16%;
     --ring: 217 91% 60%;
     --radius: 0.5rem;
+
+    /* Linear accent – overridden at runtime by the accent-color picker */
+    --linear-accent: #3b82f6;
+    --linear-accent-hover: #2563eb;
   }
 }
 

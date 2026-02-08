@@ -19,6 +19,7 @@ import {
   Moon,
   Sun,
   Laptop,
+  Check,
 } from "lucide-react"
 import { Slider } from "@/components/ui/slider"
 import { Button } from "@/components/ui/button"
@@ -99,6 +100,29 @@ export default function SettingsPage() {
   const maskedKey = "sk-ol-************************************a3f7"
   const fullKey = "sk-ol-9d8f7e6c5b4a3f2e1d0c9b8a7f6e5d4c3b2a3f7"
 
+  const ACCENT_PRESETS = [
+    { name: "Blue", accent: "#3b82f6", hover: "#2563eb" },
+    { name: "Purple", accent: "#8b5cf6", hover: "#7c3aed" },
+    { name: "Green", accent: "#22c55e", hover: "#16a34a" },
+    { name: "Orange", accent: "#f97316", hover: "#ea580c" },
+    { name: "Pink", accent: "#ec4899", hover: "#db2777" },
+    { name: "Red", accent: "#ef4444", hover: "#dc2626" },
+    { name: "Teal", accent: "#14b8a6", hover: "#0d9488" },
+    { name: "Yellow", accent: "#eab308", hover: "#ca8a04" },
+  ] as const
+
+  const [accentColor, setAccentColor] = useState("#3b82f6")
+
+  const applyAccentColor = (accent: string, hover: string) => {
+    setAccentColor(accent)
+    document.documentElement.style.setProperty("--linear-accent", accent)
+    document.documentElement.style.setProperty("--linear-accent-hover", hover)
+    try {
+      localStorage.setItem("openlinear-accent", JSON.stringify({ accent, hover }))
+    } catch {
+    }
+  }
+
   useEffect(() => {
     const fetchSettings = async () => {
       try {
@@ -120,6 +144,19 @@ export default function SettingsPage() {
     }
 
     fetchSettings()
+  }, [])
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem("openlinear-accent")
+      if (stored) {
+        const { accent, hover } = JSON.parse(stored)
+        setAccentColor(accent)
+        document.documentElement.style.setProperty("--linear-accent", accent)
+        document.documentElement.style.setProperty("--linear-accent-hover", hover)
+      }
+    } catch {
+    }
   }, [])
 
   const handleSave = async () => {
@@ -286,6 +323,43 @@ export default function SettingsPage() {
               >
                 <option.icon className="w-5 h-5" />
                 <span className="text-sm font-medium">{option.label}</span>
+              </button>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="bg-linear-bg-secondary border-linear-border">
+        <CardHeader>
+          <CardTitle className="text-linear-text">Accent Color</CardTitle>
+          <CardDescription className="text-linear-text-secondary">
+            Choose the accent color used throughout the interface.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-4 gap-3">
+            {ACCENT_PRESETS.map((preset) => (
+              <button
+                key={preset.name}
+                onClick={() => applyAccentColor(preset.accent, preset.hover)}
+                className={`flex flex-col items-center gap-2 p-3 rounded-lg border transition-colors ${
+                  accentColor === preset.accent
+                    ? "border-linear-accent bg-linear-accent/10"
+                    : "border-linear-border hover:border-linear-border-hover"
+                }`}
+              >
+                <div className="relative">
+                  <div
+                    className="w-8 h-8 rounded-full"
+                    style={{ backgroundColor: preset.accent }}
+                  />
+                  {accentColor === preset.accent && (
+                    <Check className="absolute inset-0 m-auto w-4 h-4 text-white" />
+                  )}
+                </div>
+                <span className="text-xs text-linear-text-secondary">
+                  {preset.name}
+                </span>
               </button>
             ))}
           </div>
