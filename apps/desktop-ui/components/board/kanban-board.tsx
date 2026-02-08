@@ -536,6 +536,7 @@ export function KanbanBoard() {
                                 selected={selectedTaskIds.has(task.id)}
                                 onToggleSelect={toggleTaskSelect}
                                 selectionMode={selectionMode}
+                                isBatchTask={batchTaskIds.includes(task.id)}
                               />
                             </div>
                           )}
@@ -563,7 +564,7 @@ export function KanbanBoard() {
           onClose={handleDrawerClose}
           onDelete={handleDelete}
           onCancel={handleCancel}
-          onExecute={handleExecute}
+          onExecute={selectedTaskId && batchTaskIds.includes(selectedTaskId) ? undefined : handleExecute}
           onUpdate={handleUpdateTask}
           isExecuting={selectedTask?.status === 'in_progress'}
         />

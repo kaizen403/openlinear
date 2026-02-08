@@ -18,6 +18,7 @@ interface TaskCardProps {
   selected?: boolean
   onToggleSelect?: (taskId: string) => void
   selectionMode?: boolean
+  isBatchTask?: boolean
 }
 
 const priorityColors = {
@@ -36,7 +37,7 @@ const progressConfig = {
   error: { icon: X, label: 'Error', color: 'text-red-400' },
 }
 
-export function TaskCard({ task, onExecute, onCancel, onDelete, onMoveToInProgress, onTaskClick, executionProgress, selected, onToggleSelect, selectionMode }: TaskCardProps) {
+export function TaskCard({ task, onExecute, onCancel, onDelete, onMoveToInProgress, onTaskClick, executionProgress, selected, onToggleSelect, selectionMode, isBatchTask }: TaskCardProps) {
   const [liveElapsedMs, setLiveElapsedMs] = useState<number>(0)
 
   useEffect(() => {
@@ -96,22 +97,24 @@ export function TaskCard({ task, onExecute, onCancel, onDelete, onMoveToInProgre
     >
       <CardHeader className="p-3 pb-0">
         <div className="flex items-start gap-2">
-          <div
-            className={cn(
-              "flex-shrink-0 mt-0.5",
-              selectionMode || selected ? "opacity-100" : "opacity-0 group-hover:opacity-100"
-            )}
-            onClick={(e) => { e.stopPropagation(); onToggleSelect?.(task.id) }}
-          >
-            <div className={cn(
-              "w-4 h-4 rounded border flex items-center justify-center cursor-pointer",
-              selected 
-                ? "bg-linear-accent border-linear-accent" 
-                : "border-linear-border-hover hover:border-linear-accent/50 bg-linear-bg"
-            )}>
-              {selected && <Check className="w-3 h-3 text-white" />}
+          {!isBatchTask && (
+            <div
+              className={cn(
+                "flex-shrink-0 mt-0.5",
+                selectionMode || selected ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+              )}
+              onClick={(e) => { e.stopPropagation(); onToggleSelect?.(task.id) }}
+            >
+              <div className={cn(
+                "w-4 h-4 rounded border flex items-center justify-center cursor-pointer",
+                selected 
+                  ? "bg-linear-accent border-linear-accent" 
+                  : "border-linear-border-hover hover:border-linear-accent/50 bg-linear-bg"
+              )}>
+                {selected && <Check className="w-3 h-3 text-white" />}
+              </div>
             </div>
-          </div>
+          )}
           <div className={cn(
             "w-2 h-2 rounded-full mt-1.5 flex-shrink-0",
             priorityColors[task.priority]
@@ -200,7 +203,7 @@ export function TaskCard({ task, onExecute, onCancel, onDelete, onMoveToInProgre
                 Start
               </Button>
             )}
-            {task.status === 'in_progress' && onExecute && !isActiveProgress && (
+            {task.status === 'in_progress' && onExecute && !isActiveProgress && !isBatchTask && (
               <Button
                 size="sm"
                 variant="ghost"
