@@ -61,6 +61,12 @@ export async function createWorktree(
     console.log(`[Worktree] Fetching latest before creating worktree for task ${taskId}`);
     await execAsync(`git -C ${mainRepoPath} fetch origin`);
 
+    try {
+      await execAsync(`git -C ${mainRepoPath} branch -D ${branchName}`);
+      console.log(`[Worktree] Deleted stale branch ${branchName}`);
+    } catch {
+    }
+
     console.log(`[Worktree] Creating worktree for task ${taskId} on branch ${branchName}`);
     await execAsync(
       `git -C ${mainRepoPath} worktree add ${worktreePath} -b ${branchName} ${defaultBranch}`
@@ -184,8 +190,15 @@ export async function mergeBranch(
       );
       console.log(`[Worktree] Merge succeeded: ${taskBranch} → ${targetBranch}`);
 
+      const { stdout: mergeHead } = await execAsync(`git -C ${mergePath} rev-parse HEAD`);
+      const mergeCommit = mergeHead.trim();
+
+      await execAsync(`git -C ${mainRepoPath} worktree remove ${mergePath} --force`).catch(() => {
+        if (existsSync(mergePath)) rmSync(mergePath, { recursive: true, force: true });
+      });
+
       await execAsync(
-        `git -C ${mainRepoPath} fetch ${mergePath} ${targetBranch}:${targetBranch}`
+        `git -C ${mainRepoPath} update-ref refs/heads/${targetBranch} ${mergeCommit}`
       );
 
       return true;
@@ -194,7 +207,6 @@ export async function mergeBranch(
       try {
         await execAsync(`git -C ${mergePath} merge --abort`);
       } catch {
-        // merge --abort may fail if merge didn't start properly
       }
       return false;
     }
