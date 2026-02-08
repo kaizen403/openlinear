@@ -122,10 +122,20 @@ function TaskCard({
   return (
     <motion.div
       layout
-      initial={{ opacity: 0, x: 40, scale: 0.95 }}
-      animate={{ opacity: 1, x: 0, scale: 1 }}
-      exit={{ opacity: 0, x: -20, scale: 0.95 }}
-      transition={SPRING}
+      initial={{ opacity: 0, y: 24, scale: 0.96, filter: "blur(6px)" }}
+      animate={{
+        opacity: 1,
+        y: 0,
+        scale: 1,
+        filter: "blur(0px)",
+        boxShadow: "0 0 0 rgba(255,255,255,0)",
+      }}
+      exit={{ opacity: 0, y: -12, scale: 0.97, filter: "blur(4px)" }}
+      transition={{ type: "spring", stiffness: 260, damping: 28 }}
+      whileHover={{
+        boxShadow: "0 0 20px rgba(255,255,255,0.03)",
+        borderColor: "rgba(255,255,255,0.1)",
+      }}
       className={cn(
         "group relative rounded-lg border border-white/[0.06] bg-zinc-900/60 backdrop-blur-sm",
         "border-l-2",
@@ -301,6 +311,31 @@ export function GlobalQuickCapture() {
     return () => window.removeEventListener("keydown", handleKey)
   }, [])
 
+  useEffect(() => {
+    function handleBrainstorm(e: Event) {
+      const query = (e as CustomEvent<string>).detail
+      if (!query) return
+
+      setQuery(query)
+      setPhase("stream")
+      setLoading(true)
+      setTasks([])
+
+      const showDelay = 1800
+      setTimeout(() => {
+        setLoading(false)
+        MOCK_TASKS.forEach((task, i) => {
+          setTimeout(() => {
+            setTasks((prev) => [...prev, { ...task, id: `${task.id}-${Date.now()}` }])
+          }, i * 280)
+        })
+      }, showDelay)
+    }
+
+    window.addEventListener("brainstorm-query", handleBrainstorm)
+    return () => window.removeEventListener("brainstorm-query", handleBrainstorm)
+  }, [])
+
   const handleClose = useCallback(() => {
     setPhase("ghost")
     setQuery("")
@@ -332,7 +367,7 @@ export function GlobalQuickCapture() {
       MOCK_TASKS.forEach((task, i) => {
         setTimeout(() => {
           setTasks((prev) => [...prev, { ...task, id: `${task.id}-${Date.now()}` }])
-        }, i * 220)
+        }, i * 280)
       })
     }, showDelay)
   }, [query])

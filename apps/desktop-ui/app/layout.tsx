@@ -4,6 +4,7 @@ import "./globals.css"
 import { AuthProvider } from "@/hooks/use-auth"
 import { Toaster } from "sonner"
 import { GlobalQuickCapture } from "@/components/global-quick-capture"
+import { GodModeOverlay } from "@/components/god-mode-overlay"
 
 const geistSans = localFont({
   src: [
@@ -62,6 +63,7 @@ export default function RootLayout({
         <AuthProvider>
           {children}
           <GlobalQuickCapture />
+          <GodModeOverlay />
           <Toaster position="bottom-right" theme="dark" />
         </AuthProvider>
       </body>
