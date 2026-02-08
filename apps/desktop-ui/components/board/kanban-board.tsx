@@ -150,6 +150,12 @@ export function KanbanBoard() {
                     ...(data.sessionId !== undefined && { sessionId: data.sessionId }),
                     ...(data.updatedAt && { updatedAt: data.updatedAt }),
                     ...(data.labels && { labels: data.labels }),
+                    ...(data.executionStartedAt !== undefined && { executionStartedAt: data.executionStartedAt }),
+                    ...(data.executionPausedAt !== undefined && { executionPausedAt: data.executionPausedAt }),
+                    ...(data.executionElapsedMs !== undefined && { executionElapsedMs: data.executionElapsedMs }),
+                    ...(data.executionProgress !== undefined && { executionProgress: data.executionProgress }),
+                    ...(data.prUrl !== undefined && { prUrl: data.prUrl }),
+                    ...(data.outcome !== undefined && { outcome: data.outcome }),
                   }
                 : task
             )

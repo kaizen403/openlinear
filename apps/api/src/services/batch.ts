@@ -142,6 +142,11 @@ async function startTask(batch: BatchState, taskIndex: number): Promise<void> {
 
     broadcastBatchEvent('batch:task:started', batch.id, { taskId: task.taskId, title: task.title });
 
+    await updateTaskInDb(task.taskId, 'in_progress', {
+      executionStartedAt: task.startedAt!,
+      executionProgress: 0,
+    });
+
     emitBatchLog(task.taskId, 'info', `Batch task started in ${batch.mode} mode`);
 
     subscribeToTaskEvents(client, sessionId, batch.id, task.taskId);
@@ -297,6 +302,35 @@ function subscribeToTaskEvents(
   })();
 }
 
+async function updateTaskInDb(
+  taskId: string,
+  status: 'in_progress' | 'done' | 'cancelled',
+  executionData?: {
+    executionStartedAt?: Date;
+    executionElapsedMs?: number;
+    executionProgress?: number | null;
+    prUrl?: string | null;
+    outcome?: string | null;
+  }
+): Promise<void> {
+  try {
+    const task = await prisma.task.update({
+      where: { id: taskId },
+      data: { status, ...executionData },
+      include: { labels: { include: { label: true } } },
+    });
+
+    const flatTask = {
+      ...task,
+      labels: (task.labels as Array<{ label: { id: string; name: string; color: string } }>).map(tl => tl.label),
+    };
+
+    broadcast('task:updated', flatTask);
+  } catch (err) {
+    console.error(`[Batch] Failed to update task ${taskId} in DB:`, err);
+  }
+}
+
 async function handleTaskComplete(
   batchId: string,
   taskId: string,
@@ -308,6 +342,8 @@ async function handleTaskComplete(
 
   const task = batch.tasks.find(t => t.taskId === taskId);
   if (!task || task.status === 'completed' || task.status === 'failed') return;
+
+  const elapsedMs = task.startedAt ? Date.now() - task.startedAt.getTime() : 0;
 
   if (success) {
     // Commit changes from worktree
@@ -330,11 +366,22 @@ async function handleTaskComplete(
     task.status = 'completed';
     broadcastBatchEvent('batch:task:completed', batchId, { taskId });
     emitBatchLog(taskId, 'success', 'Batch task completed');
+
+    await updateTaskInDb(taskId, 'done', {
+      executionElapsedMs: elapsedMs,
+      executionProgress: 100,
+      outcome: 'Completed via batch execution',
+    });
   } else {
     task.status = 'failed';
     task.error = error || 'Unknown error';
     broadcastBatchEvent('batch:task:failed', batchId, { taskId, error: task.error });
     emitBatchLog(taskId, 'error', `Batch task failed: ${task.error}`);
+
+    await updateTaskInDb(taskId, 'cancelled', {
+      executionElapsedMs: elapsedMs,
+      outcome: `Failed: ${task.error}`,
+    });
   }
 
   task.completedAt = new Date();
