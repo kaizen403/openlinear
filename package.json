@@ -4,6 +4,7 @@
   "scripts": {
     "build": "turbo run build",
     "dev": "./scripts/dev.sh",
+    "dev:web": "./scripts/dev-web.sh",
     "lint": "turbo run lint",
     "test": "turbo run test",
     "typecheck": "turbo run typecheck",

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import { DragDropContext, Droppable, Draggable, DropResult } from "@hello-pangea/dnd"
 import { Column } from "./column"
 import { TaskCard } from "./task-card"
@@ -73,6 +73,10 @@ export function KanbanBoard() {
   const handleBatchExecute = async (mode: 'parallel' | 'queue') => {
     try {
       const token = localStorage.getItem('token')
+      const nonDoneTaskIds = Array.from(selectedTaskIds).filter(
+        id => tasks.find(t => t.id === id)?.status !== 'done'
+      )
+      if (nonDoneTaskIds.length === 0) return
       const response = await fetch(`${API_BASE_URL}/api/batches`, {
         method: 'POST',
         headers: {
@@ -80,7 +84,7 @@ export function KanbanBoard() {
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify({
-          taskIds: Array.from(selectedTaskIds),
+          taskIds: nonDoneTaskIds,
           mode,
         }),
       })
@@ -115,6 +119,8 @@ export function KanbanBoard() {
     setDefaultStatus(status)
     setIsTaskFormOpen(true)
   }
+
+  const retryTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
   const handleSSEEvent = useCallback((eventType: SSEEventType, data: SSEEventData) => {
     switch (eventType) {
@@ -196,6 +202,7 @@ export function KanbanBoard() {
 
       case 'connected':
         console.log("[SSE] Connected with clientId:", data.clientId)
+        fetchTasks()
         break
 
       case 'batch:created':
@@ -309,26 +316,39 @@ export function KanbanBoard() {
 
   useSSE(SSE_URL, handleSSEEvent)
 
-  useEffect(() => {
-    fetchTasks()
-  }, [])
-
-  const fetchTasks = async () => {
+  const fetchTasks = useCallback(async () => {
     try {
-      setLoading(true)
-      setError(null)
       const response = await fetch(`${API_BASE_URL}/api/tasks`)
       if (!response.ok) {
         throw new Error(`Failed to fetch tasks: ${response.statusText}`)
       }
       const data = await response.json()
       setTasks(data)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to fetch tasks")
-    } finally {
+      setError(null)
       setLoading(false)
+      if (retryTimeoutRef.current) {
+        clearTimeout(retryTimeoutRef.current)
+        retryTimeoutRef.current = null
+      }
+    } catch (err) {
+      if (loading) {
+        retryTimeoutRef.current = setTimeout(() => fetchTasks(), 2000)
+      } else {
+        setError(err instanceof Error ? err.message : "Failed to fetch tasks")
+        setLoading(false)
+      }
     }
-  }
+  }, [loading])
+
+  useEffect(() => {
+    fetchTasks()
+    return () => {
+      if (retryTimeoutRef.current) {
+        clearTimeout(retryTimeoutRef.current)
+        retryTimeoutRef.current = null
+      }
+    }
+  }, [])
 
   const updateTaskStatus = async (taskId: string, newStatus: Task['status']) => {
     try {
@@ -485,7 +505,7 @@ export function KanbanBoard() {
         <div className="text-center">
           <p className="text-red-400 mb-4">{error}</p>
           <button
-            onClick={fetchTasks}
+            onClick={() => { setLoading(true); setError(null); fetchTasks() }}
             className="px-4 py-2 bg-linear-accent text-white rounded-md hover:bg-linear-accent-hover transition-colors"
           >
             Retry
@@ -497,7 +517,7 @@ export function KanbanBoard() {
 
   return (
     <DragDropContext onDragEnd={handleDragEnd}>
-      <div className="flex-1 overflow-x-auto overflow-y-hidden relative bg-[#050505]">
+      <div className="flex-1 overflow-hidden relative bg-[#111111]">
         {activeBatch && (
           <BatchProgress
             batchId={activeBatch.id}
@@ -510,7 +530,7 @@ export function KanbanBoard() {
             onTaskClick={handleTaskClick}
           />
         )}
-        <div className="flex gap-6 h-full p-6 min-w-max">
+        <div className="grid grid-cols-4 h-full">
           {COLUMNS.map((column) => {
             const columnTasks = getTasksByStatus(column.status)
             return (
@@ -648,13 +668,20 @@ export function KanbanBoard() {
           isExecuting={selectedTask?.status === 'in_progress'}
         />
 
-        <BatchControls
-          selectedCount={selectedTaskIds.size}
-          onExecuteParallel={() => handleBatchExecute('parallel')}
-          onExecuteQueue={() => handleBatchExecute('queue')}
-          onClearSelection={clearSelection}
-          disabled={!canExecute}
-        />
+        {(() => {
+          const selectedNonDoneTaskIds = Array.from(selectedTaskIds).filter(
+            id => tasks.find(t => t.id === id)?.status !== 'done'
+          )
+          return selectedNonDoneTaskIds.length > 0 ? (
+            <BatchControls
+              selectedCount={selectedNonDoneTaskIds.length}
+              onExecuteParallel={() => handleBatchExecute('parallel')}
+              onExecuteQueue={() => handleBatchExecute('queue')}
+              onClearSelection={clearSelection}
+              disabled={!canExecute}
+            />
+          ) : null
+        })()}
       </div>
     </DragDropContext>
   )

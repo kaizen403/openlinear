@@ -220,7 +220,7 @@ export function TaskDetailView({ task, logs, progress, open, onClose, onDelete, 
                   {editingTitle ? (
                     <input
                       ref={titleInputRef}
-                      className="flex-1 text-2xl font-semibold text-linear-text leading-tight bg-transparent border-b border-linear-accent outline-none"
+                      className="flex-1 text-2xl font-medium text-linear-text leading-tight bg-transparent border-b border-linear-accent outline-none"
                       value={titleDraft}
                       onChange={(e) => setTitleDraft(e.target.value)}
                       onBlur={saveTitle}
@@ -231,7 +231,7 @@ export function TaskDetailView({ task, logs, progress, open, onClose, onDelete, 
                     />
                   ) : (
                     <h1
-                      className="text-2xl font-semibold text-linear-text leading-tight flex-1 cursor-text hover:text-linear-text-secondary"
+                      className="text-2xl font-medium text-linear-text leading-tight flex-1 cursor-text hover:text-linear-text-secondary"
                       onClick={() => {
                         setTitleDraft(task.title)
                         setEditingTitle(true)

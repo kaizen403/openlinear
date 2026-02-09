@@ -33,7 +33,6 @@ interface SidebarProps {
 export function Sidebar({ open, onClose, width, animating }: SidebarProps) {
     const pathname = usePathname()
     const { user, isAuthenticated, isLoading, activeProject, logout } = useAuth()
-    const [projectsExpanded, setProjectsExpanded] = useState(true)
     const [teamsExpanded, setTeamsExpanded] = useState(true)
     const [favoritesExpanded, setFavoritesExpanded] = useState(true)
     const [isTauri, setIsTauri] = useState(false)
@@ -125,39 +124,24 @@ export function Sidebar({ open, onClose, width, animating }: SidebarProps) {
                 </div>
 
                 {/* Projects */}
-                <div className="mt-4 px-3">
-                    <button onClick={() => setProjectsExpanded(!projectsExpanded)} className={sectionHeaderClass}>
-                        <span className={cn("transition-transform duration-200", projectsExpanded ? "" : "-rotate-90")}>
-                            <ChevronDown className="w-3 h-3" />
-                        </span>
+                <div className="mt-4 px-3 space-y-0.5">
+                    <Link href="/projects" className={navItemClass(pathname === "/projects")}>
+                        <Briefcase className="w-4 h-4" />
                         Projects
-                    </button>
-                    <div
-                        className={cn(
-                            "overflow-hidden transition-all duration-200 ease-in-out",
-                            projectsExpanded ? "max-h-96 opacity-100 mt-1" : "max-h-0 opacity-0"
-                        )}
-                    >
-                        <div className="space-y-0.5">
-                            <Link href="/projects" className={navItemClass(pathname === "/projects")}>
-                                <Briefcase className="w-4 h-4 text-linear-text-secondary" />
-                                All Projects
-                            </Link>
-                            {activeProject && (
-                                <Link
-                                    href={`/projects/${activeProject.id}`}
-                                    className={navItemClass(pathname.startsWith("/projects/") && pathname !== "/projects")}
-                                >
-                                    <div className="w-4 h-4 rounded bg-linear-accent flex items-center justify-center">
-                                        <span className="text-[10px] font-bold text-white">
-                                            {activeProject.name.charAt(0).toUpperCase()}
-                                        </span>
-                                    </div>
-                                    <span className="truncate">{activeProject.name}</span>
-                                </Link>
-                            )}
-                        </div>
-                    </div>
+                    </Link>
+                    {activeProject && (
+                        <Link
+                            href={`/projects/${activeProject.id}`}
+                            className={navItemClass(pathname.startsWith("/projects/") && pathname !== "/projects")}
+                        >
+                            <div className="w-4 h-4 rounded bg-linear-accent flex items-center justify-center">
+                                <span className="text-[10px] font-bold text-white">
+                                    {activeProject.name.charAt(0).toUpperCase()}
+                                </span>
+                            </div>
+                            <span className="truncate">{activeProject.name}</span>
+                        </Link>
+                    )}
                 </div>
 
                 {/* Teams */}

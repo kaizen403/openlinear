@@ -1,7 +1,6 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { motion } from "framer-motion"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Loader2, GitBranch, Code, GitPullRequest, Check, X, ExternalLink, Play, ArrowRight, Trash2, Clock } from "lucide-react"
@@ -90,16 +89,15 @@ export function TaskCard({ task, onExecute, onCancel, onDelete, onMoveToInProgre
   const isActiveProgress = showProgress && ['cloning', 'executing', 'committing', 'creating_pr'].includes(executionProgress.status)
 
   return (
-    <motion.div
-      whileHover={{ scale: 1.02 }}
-      transition={{ type: "spring", stiffness: 300, damping: 25 }}
-    >
+    <div>
     <Card 
       className={cn(
-        "bg-[#111111] border border-t-white/[0.08] border-b-white/[0.03] border-l-white/[0.05] border-r-white/[0.05] hover:border-white/15 hover:shadow-[0_0_20px_rgba(0,0,0,0.5)] cursor-pointer group transition-all duration-200 rounded-lg",
-        selected && "border-linear-accent/50",
-        isBatchTask && "bg-[#0d0d0d] border-white/[0.12]",
-        isCompletedBatchTask && "bg-[#0d0d0d] border-white/[0.08] hover:border-purple-500/50"
+        "bg-white/[0.03] backdrop-blur-md border border-white/[0.08]",
+        "shadow-[0_4px_24px_-8px_rgba(0,0,0,0.4),0_1px_3px_rgba(0,0,0,0.2),inset_0_1px_0_rgba(255,255,255,0.05)]",
+        "cursor-pointer group rounded-xl",
+        selected && "bg-white/[0.06] border-linear-accent/40 shadow-[0_0_0_1px_rgba(59,130,246,0.3),0_4px_24px_-8px_rgba(59,130,246,0.2)]",
+        isBatchTask && "bg-linear-accent/[0.08] border-linear-accent/20 shadow-[0_4px_24px_-8px_rgba(59,130,246,0.3)]",
+        isCompletedBatchTask && "bg-purple-500/[0.05] border-purple-500/20"
       )}
       onClick={handleCardClick}
     >
@@ -109,7 +107,7 @@ export function TaskCard({ task, onExecute, onCancel, onDelete, onMoveToInProgre
             <div
               className={cn(
                 "flex-shrink-0 mt-0.5",
-                selectionMode || selected ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+                "opacity-100"
               )}
               onClick={(e) => { e.stopPropagation(); onToggleSelect?.(task.id) }}
             >
@@ -127,7 +125,7 @@ export function TaskCard({ task, onExecute, onCancel, onDelete, onMoveToInProgre
             "w-2 h-2 rounded-full mt-1.5 flex-shrink-0",
             priorityColors[task.priority]
           )} />
-          <h4 className="text-sm font-medium leading-tight line-clamp-2 flex-1">{task.title}</h4>
+          <h4 className="text-sm font-light leading-tight line-clamp-2 flex-1">{task.title}</h4>
           {(isBatchTask || isActiveProgress) && (
             task.status === 'done' ? (
               <Check className="w-3.5 h-3.5 flex-shrink-0 mt-0.5 text-linear-accent" />
@@ -200,7 +198,7 @@ export function TaskCard({ task, onExecute, onCancel, onDelete, onMoveToInProgre
             )}
           </div>
           
-          <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 flex-shrink-0">
+          <div className="flex items-center gap-0.5 flex-shrink-0">
             {task.status === 'todo' && onMoveToInProgress && (
               <Button
                 size="sm"
@@ -259,6 +257,6 @@ export function TaskCard({ task, onExecute, onCancel, onDelete, onMoveToInProgre
         </div>
       </CardContent>
     </Card>
-    </motion.div>
+    </div>
   )
 }

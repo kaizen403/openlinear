@@ -59,7 +59,7 @@ const config: Config = {
         ring: "hsl(var(--ring))",
         // Linear-specific colors
         linear: {
-          bg: "#1a1a1a",
+          bg: "#111111",
           "bg-secondary": "#141414",
           "bg-tertiary": "#0f0f0f",
           border: "#2a2a2a",

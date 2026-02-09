@@ -1,44 +1,9 @@
 import type { Metadata } from "next"
-import localFont from "next/font/local"
 import "./globals.css"
 import { AuthProvider } from "@/hooks/use-auth"
 import { Toaster } from "sonner"
 import { GlobalQuickCapture } from "@/components/global-quick-capture"
 import { GodModeOverlay } from "@/components/god-mode-overlay"
-
-const geistSans = localFont({
-  src: [
-    { path: "./fonts/Geist-Regular.otf", weight: "400", style: "normal" },
-    { path: "./fonts/Geist-Medium.otf", weight: "500", style: "normal" },
-    { path: "./fonts/Geist-SemiBold.otf", weight: "600", style: "normal" },
-    { path: "./fonts/Geist-Bold.otf", weight: "700", style: "normal" },
-  ],
-  variable: "--font-geist-sans",
-  display: "swap",
-  fallback: ["Geist", "system-ui", "sans-serif"],
-  adjustFontFallback: false,
-})
-
-const geistMono = localFont({
-  src: [
-    { path: "./fonts/GeistMono-Regular.woff2", weight: "400", style: "normal" },
-    { path: "./fonts/GeistMono-Medium.woff2", weight: "500", style: "normal" },
-    { path: "./fonts/GeistMono-SemiBold.woff2", weight: "600", style: "normal" },
-    { path: "./fonts/GeistMono-Bold.woff2", weight: "700", style: "normal" },
-  ],
-  variable: "--font-geist-mono",
-  display: "swap",
-  fallback: [
-    "Geist Mono",
-    "ui-monospace",
-    "SFMono-Regular",
-    "Menlo",
-    "Monaco",
-    "Consolas",
-    "monospace",
-  ],
-  adjustFontFallback: false,
-})
 
 export const metadata: Metadata = {
   title: "OpenLinear - Linear Clone",
@@ -59,7 +24,7 @@ export default function RootLayout({
           }}
         />
       </head>
-      <body className={`${geistSans.variable} ${geistMono.variable} font-sans antialiased`}>
+      <body className="font-sans antialiased">
         <AuthProvider>
           {children}
           <GlobalQuickCapture />
