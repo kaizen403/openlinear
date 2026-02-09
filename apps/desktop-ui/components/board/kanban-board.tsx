@@ -557,6 +557,7 @@ export function KanbanBoard() {
         <TaskFormDialog
           open={isTaskFormOpen}
           onOpenChange={setIsTaskFormOpen}
+          defaultStatus={defaultStatus}
         />
 
         <TaskDetailView

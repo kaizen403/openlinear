@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Loader2 } from "lucide-react"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
@@ -33,6 +33,7 @@ import { LabelPicker } from "@/components/label-picker"
 const formSchema = z.object({
   title: z.string().min(1, "Title is required"),
   description: z.string().optional(),
+  status: z.enum(["todo", "in_progress", "done", "cancelled"]),
   priority: z.enum(["low", "medium", "high"]),
   labelIds: z.array(z.string()),
 })
@@ -43,6 +44,7 @@ interface TaskFormDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   onSuccess?: () => void
+  defaultStatus?: "todo" | "in_progress" | "done" | "cancelled"
 }
 
 const API_BASE_URL = "http://localhost:3001/api"
@@ -59,10 +61,25 @@ const priorityLabels = {
   high: "High",
 }
 
+const statusColors = {
+  todo: "#a0a0a0",
+  in_progress: "#f59e0b",
+  done: "#22c55e",
+  cancelled: "#ef4444",
+}
+
+const statusLabels = {
+  todo: "Todo",
+  in_progress: "In Progress",
+  done: "Done",
+  cancelled: "Cancelled",
+}
+
 export function TaskFormDialog({
   open,
   onOpenChange,
   onSuccess,
+  defaultStatus,
 }: TaskFormDialogProps) {
   const [isSubmitting, setIsSubmitting] = useState(false)
 
@@ -71,10 +88,33 @@ export function TaskFormDialog({
     defaultValues: {
       title: "",
       description: "",
+      status: defaultStatus || "todo",
       priority: "medium",
       labelIds: [],
     },
   })
+
+  // Reset status when defaultStatus changes or dialog opens
+  useEffect(() => {
+    if (open) {
+      form.setValue("status", defaultStatus || "todo")
+    }
+  }, [defaultStatus, open, form])
+
+  // ⌘+Enter keyboard shortcut
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "Enter" && open) {
+        e.preventDefault()
+        form.handleSubmit(onSubmit)()
+      }
+    }
+
+    if (open) {
+      window.addEventListener("keydown", handleKeyDown)
+      return () => window.removeEventListener("keydown", handleKeyDown)
+    }
+  }, [open, form])
 
   const onSubmit = async (values: FormValues) => {
     try {
@@ -88,6 +128,7 @@ export function TaskFormDialog({
         body: JSON.stringify({
           title: values.title,
           description: values.description || undefined,
+          status: values.status,
           priority: values.priority,
           labelIds: values.labelIds.length > 0 ? values.labelIds : undefined,
         }),
@@ -112,6 +153,12 @@ export function TaskFormDialog({
       form.reset()
     }
     onOpenChange(newOpen)
+  }
+
+  const handleTextareaInput = (e: React.FormEvent<HTMLTextAreaElement>) => {
+    const target = e.currentTarget
+    target.style.height = "auto"
+    target.style.height = Math.min(target.scrollHeight, 200) + "px"
   }
 
   return (
@@ -151,8 +198,9 @@ export function TaskFormDialog({
                     <FormControl>
                       <textarea
                         placeholder="Add description..."
-                        className="w-full bg-transparent text-sm text-[#a0a0a0] placeholder:text-[#6a6a6a] outline-none border-none resize-none focus:ring-0 p-0 min-h-[24px]"
+                        className="w-full bg-transparent text-sm text-[#a0a0a0] placeholder:text-[#6a6a6a] outline-none border-none resize-none focus:ring-0 p-0 min-h-[60px] max-h-[200px] overflow-y-auto"
                         rows={1}
+                        onInput={handleTextareaInput}
                         {...field}
                       />
                     </FormControl>
@@ -165,6 +213,74 @@ export function TaskFormDialog({
             <div className="border-b border-[#2a2a2a]" />
 
             <div className="px-5 py-3 flex items-center gap-2">
+              <FormField
+                control={form.control}
+                name="status"
+                render={({ field }) => (
+                  <FormItem className="space-y-0">
+                    <Select
+                      onValueChange={field.onChange}
+                      value={field.value}
+                    >
+                      <FormControl>
+                        <SelectTrigger className="h-7 w-auto px-2.5 text-xs rounded-md bg-transparent border-none hover:bg-white/[0.06] text-[#a0a0a0] gap-1.5 focus:ring-0 shadow-none">
+                          <div className="flex items-center gap-1.5">
+                            <div
+                              className="w-2 h-2 rounded-full"
+                              style={{
+                                backgroundColor: statusColors[field.value as keyof typeof statusColors],
+                              }}
+                            />
+                            <SelectValue placeholder="Status">
+                              {statusLabels[field.value as keyof typeof statusLabels]}
+                            </SelectValue>
+                          </div>
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent className="bg-[#1a1a1a] border-[#2a2a2a]">
+                        <SelectItem
+                          value="todo"
+                          className="text-[#f5f5f5] focus:bg-white/[0.06] focus:text-[#f5f5f5] text-xs"
+                        >
+                          <div className="flex items-center gap-2">
+                            <div className="w-2 h-2 rounded-full" style={{ backgroundColor: statusColors.todo }} />
+                            Todo
+                          </div>
+                        </SelectItem>
+                        <SelectItem
+                          value="in_progress"
+                          className="text-[#f5f5f5] focus:bg-white/[0.06] focus:text-[#f5f5f5] text-xs"
+                        >
+                          <div className="flex items-center gap-2">
+                            <div className="w-2 h-2 rounded-full" style={{ backgroundColor: statusColors.in_progress }} />
+                            In Progress
+                          </div>
+                        </SelectItem>
+                        <SelectItem
+                          value="done"
+                          className="text-[#f5f5f5] focus:bg-white/[0.06] focus:text-[#f5f5f5] text-xs"
+                        >
+                          <div className="flex items-center gap-2">
+                            <div className="w-2 h-2 rounded-full" style={{ backgroundColor: statusColors.done }} />
+                            Done
+                          </div>
+                        </SelectItem>
+                        <SelectItem
+                          value="cancelled"
+                          className="text-[#f5f5f5] focus:bg-white/[0.06] focus:text-[#f5f5f5] text-xs"
+                        >
+                          <div className="flex items-center gap-2">
+                            <div className="w-2 h-2 rounded-full" style={{ backgroundColor: statusColors.cancelled }} />
+                            Cancelled
+                          </div>
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <FormMessage className="text-red-400 text-xs" />
+                  </FormItem>
+                )}
+              />
+
               <FormField
                 control={form.control}
                 name="priority"
@@ -253,20 +369,23 @@ export function TaskFormDialog({
               >
                 Cancel
               </Button>
-              <Button
-                type="submit"
-                disabled={isSubmitting}
-                className="h-8 px-3 text-xs bg-linear-accent hover:bg-linear-accent-hover text-white"
-              >
-                {isSubmitting ? (
-                  <>
-                    <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                    Creating...
-                  </>
-                ) : (
-                  "Create Task"
-                )}
-              </Button>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] text-[#6a6a6a]">⌘ Enter</span>
+                <Button
+                  type="submit"
+                  disabled={isSubmitting}
+                  className="h-8 px-3 text-xs bg-linear-accent hover:bg-linear-accent-hover text-white"
+                >
+                  {isSubmitting ? (
+                    <>
+                      <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                      Creating...
+                    </>
+                  ) : (
+                    "Create Task"
+                  )}
+                </Button>
+              </div>
             </DialogFooter>
           </form>
         </Form>
