@@ -20,6 +20,24 @@ enum Status {
   cancelled
 }
 
+enum TeamRole {
+  owner
+  admin
+  member
+
+  @@map("team_roles")
+}
+
+enum ProjectStatus {
+  planned
+  in_progress
+  paused
+  completed
+  cancelled
+
+  @@map("project_statuses")
+}
+
 model Task {
   id              String      @id @default(uuid())
   title           String
@@ -40,6 +58,12 @@ model Task {
   outcome             String?   // Summary of what was accomplished
   archived            Boolean   @default(false)
   inboxRead           Boolean   @default(false)
+  teamId              String?
+  team                Team?     @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  projectId           String?
+  project             Project?  @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  number              Int?      // team-scoped issue number
+  identifier          String?   // e.g. "ENG-1"
 
   @@map("tasks")
 }
@@ -86,7 +110,9 @@ model User {
   accessToken   String
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
-  repositories  Repository[]
+  repositories    Repository[]
+  teamMemberships TeamMember[]
+  ledProjects     Project[]    @relation("projectLead")
 
   @@map("users")
 }
@@ -106,4 +132,65 @@ model Repository {
 
   @@unique([userId, githubRepoId])
   @@map("projects")
+}
+
+model Team {
+  id              String        @id @default(uuid())
+  name            String
+  key             String        @unique // e.g. "ENG", "DSN"
+  description     String?
+  color           String        @default("#6366f1")
+  icon            String?
+  private         Boolean       @default(false)
+  nextIssueNumber Int           @default(1)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  members         TeamMember[]
+  projectTeams    ProjectTeam[]
+  tasks           Task[]
+
+  @@map("teams")
+}
+
+model TeamMember {
+  id        String   @id @default(uuid())
+  teamId    String
+  userId    String
+  role      TeamRole @default(member)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  team      Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, userId])
+  @@map("team_members")
+}
+
+model Project {
+  id           String        @id @default(uuid())
+  name         String
+  description  String?
+  status       ProjectStatus @default(planned)
+  color        String        @default("#6366f1")
+  icon         String?
+  startDate    DateTime?
+  targetDate   DateTime?
+  leadId       String?
+  lead         User?         @relation("projectLead", fields: [leadId], references: [id], onDelete: SetNull)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  projectTeams ProjectTeam[]
+  tasks        Task[]
+
+  @@map("linear_projects")
+}
+
+model ProjectTeam {
+  projectId String
+  teamId    String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  team      Team    @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@id([projectId, teamId])
+  @@map("project_teams")
 }
