@@ -506,6 +506,7 @@ export function KanbanBoard() {
             prUrl={activeBatch.prUrl}
             onCancel={handleCancelBatch}
             onDismiss={activeBatch.status === 'completed' ? () => setActiveBatch(null) : undefined}
+            onTaskClick={handleTaskClick}
           />
         )}
         <div className="flex gap-6 h-full p-6 min-w-max">

@@ -5,7 +5,7 @@ import { motion } from "framer-motion"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Loader2, GitBranch, Code, GitPullRequest, Check, X, ExternalLink, Play, ArrowRight, Trash2, Clock } from "lucide-react"
-import { cn } from "@/lib/utils"
+import { cn, openExternal } from "@/lib/utils"
 import { Task, ExecutionProgress, formatDuration } from "@/types/task"
 
 interface TaskCardProps {
@@ -174,16 +174,13 @@ export function TaskCard({ task, onExecute, onCancel, onDelete, onMoveToInProgre
               </span>
             </div>
             {executionProgress.prUrl && (
-              <a
-                href={executionProgress.prUrl}
-                target="_blank"
-                rel="noopener noreferrer"
+              <button
                 className="flex items-center gap-1 mt-2 text-xs text-linear-accent hover:underline"
-                onClick={(e) => e.stopPropagation()}
+                onClick={(e) => { e.stopPropagation(); openExternal(executionProgress.prUrl!) }}
               >
                 <ExternalLink className="w-3 h-3" />
                 View PR
-              </a>
+              </button>
             )}
           </div>
         )}

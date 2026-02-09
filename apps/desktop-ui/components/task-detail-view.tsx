@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react"
 import { X, ArrowLeft, Bot, Wrench, CheckCircle, AlertCircle, Info, Clock, AlertTriangle, Flag, Tag, Folder, Square, Trash2, GitMerge, ExternalLink, Play, Check } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { cn } from "@/lib/utils"
+import { cn, openExternal } from "@/lib/utils"
 import { Task, ExecutionProgress, ExecutionLogEntry, formatDuration } from "@/types/task"
 
 interface TaskDetailViewProps {
@@ -258,7 +258,7 @@ export function TaskDetailView({ task, logs, progress, open, onClose, onDelete, 
                     </div>
                     {(task.prUrl || progress?.prUrl) && (
                       <button
-                        onClick={() => window.open(task.prUrl || progress?.prUrl, '_blank')}
+                        onClick={() => openExternal((task.prUrl || progress?.prUrl)!)}
                         className="mt-3 inline-flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-medium text-white bg-[#8957e5] hover:bg-[#7c4dcc] transition-colors"
                       >
                         <GitMerge className="w-3.5 h-3.5" />
@@ -463,14 +463,12 @@ export function TaskDetailView({ task, logs, progress, open, onClose, onDelete, 
                         <span className="text-sm text-linear-text">{progress.message}</span>
                       </div>
                       {progress.prUrl && (
-                        <a
-                          href={progress.prUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
+                        <button
+                          onClick={() => openExternal(progress.prUrl!)}
                           className="inline-flex items-center gap-1 text-xs text-linear-accent hover:underline mt-2"
                         >
                           {progress.isCompareLink ? 'Create Pull Request →' : 'View Pull Request →'}
-                        </a>
+                        </button>
                       )}
                     </div>
                   </div>

@@ -3,7 +3,7 @@
 import { useEffect, useRef } from "react"
 import { X, Bot, Wrench, CheckCircle, AlertCircle, Info, Clock } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { cn } from "@/lib/utils"
+import { cn, openExternal } from "@/lib/utils"
 
 export interface ExecutionLogEntry {
   timestamp: string
@@ -196,14 +196,12 @@ export function ExecutionDrawer({ task, logs, progress, open, onClose }: Executi
 
         {progress?.prUrl && (
           <div className="p-4 border-t border-linear-border">
-            <a
-              href={progress.prUrl}
-              target="_blank"
-              rel="noopener noreferrer"
+            <button
+              onClick={() => openExternal(progress.prUrl!)}
               className="flex items-center justify-center gap-2 w-full py-2 px-4 bg-linear-accent hover:bg-linear-accent-hover text-white text-sm font-medium rounded-md transition-colors"
             >
               View Pull Request
-            </a>
+            </button>
           </div>
         )}
       </div>

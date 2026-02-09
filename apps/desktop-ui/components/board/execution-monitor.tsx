@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { Loader2, GitBranch, Code, GitPullRequest, Check, X, ExternalLink } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn, openExternal } from '@/lib/utils';
 
 interface ExecutionProgress {
   taskId: string;
@@ -49,16 +49,13 @@ export function ExecutionMonitor({ taskId, progress }: ExecutionMonitorProps) {
       </div>
       
       {progress.prUrl && (
-        <a
-          href={progress.prUrl}
-          target="_blank"
-          rel="noopener noreferrer"
+        <button
           className="flex items-center gap-1 mt-2 text-xs text-linear-accent hover:underline"
-          onClick={(e) => e.stopPropagation()}
+          onClick={(e) => { e.stopPropagation(); openExternal(progress.prUrl!) }}
         >
           <ExternalLink className="w-3 h-3" />
           View Pull Request
-        </a>
+        </button>
       )}
     </div>
   );

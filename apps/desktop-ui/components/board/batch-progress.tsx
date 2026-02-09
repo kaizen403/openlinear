@@ -3,7 +3,7 @@
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { X, Loader2, ChevronDown, ChevronUp, Check, AlertCircle, SkipForward, Ban, Clock, ExternalLink, GitPullRequest } from "lucide-react"
-import { cn } from "@/lib/utils"
+import { cn, openExternal } from "@/lib/utils"
 
 interface BatchProgressTask {
   taskId: string
@@ -19,18 +19,19 @@ interface BatchProgressProps {
   prUrl: string | null
   onCancel: (batchId: string) => void
   onDismiss?: () => void
+  onTaskClick?: (taskId: string) => void
 }
 
 const statusConfig: Record<string, { color: string; bg: string; icon: typeof Check; label: string }> = {
-  queued: { color: 'text-linear-text-tertiary', bg: 'bg-linear-text-tertiary', icon: Clock, label: 'Queued' },
+  queued: { color: 'text-[#666]', bg: 'bg-[#2a2a2a]', icon: Clock, label: 'Queued' },
   running: { color: 'text-linear-accent', bg: 'bg-linear-accent', icon: Loader2, label: 'Running' },
-  completed: { color: 'text-green-400', bg: 'bg-green-500', icon: Check, label: 'Done' },
-  failed: { color: 'text-red-400', bg: 'bg-red-500', icon: AlertCircle, label: 'Failed' },
-  skipped: { color: 'text-yellow-400', bg: 'bg-yellow-500', icon: SkipForward, label: 'Skipped' },
-  cancelled: { color: 'text-gray-400', bg: 'bg-gray-500', icon: Ban, label: 'Cancelled' },
+  completed: { color: 'text-[#4a7c5c]', bg: 'bg-[#1f3a2a]', icon: Check, label: 'Done' },
+  failed: { color: 'text-[#8b5a5a]', bg: 'bg-[#3d2626]', icon: AlertCircle, label: 'Failed' },
+  skipped: { color: 'text-[#7c6a4a]', bg: 'bg-[#3d3526]', icon: SkipForward, label: 'Skipped' },
+  cancelled: { color: 'text-[#666]', bg: 'bg-[#333]', icon: Ban, label: 'Cancelled' },
 }
 
-export function BatchProgress({ batchId, status, mode, tasks, prUrl, onCancel, onDismiss }: BatchProgressProps) {
+export function BatchProgress({ batchId, status, mode, tasks, prUrl, onCancel, onDismiss, onTaskClick }: BatchProgressProps) {
   const [expanded, setExpanded] = useState(false)
   const total = tasks.length
   const completed = tasks.filter(t => t.status === 'completed').length
@@ -40,8 +41,8 @@ export function BatchProgress({ batchId, status, mode, tasks, prUrl, onCancel, o
   const isRunning = status === 'running' || status === 'merging'
 
   return (
-    <div className="mx-6 mt-4 mb-0 bg-linear-bg-secondary border border-linear-border rounded-lg">
-      <div className="p-3">
+    <div className="mx-6 mt-4 mb-0 bg-[#141414] border border-[#222] rounded-lg">
+      <div className="p-3 bg-gradient-to-b from-[#1a1a1a] to-[#141414]">
         <div className="flex items-center justify-between mb-2">
           <button
             className="flex items-center gap-2 hover:opacity-80"
@@ -50,11 +51,11 @@ export function BatchProgress({ batchId, status, mode, tasks, prUrl, onCancel, o
             {isRunning ? (
               <Loader2 className="w-4 h-4 animate-spin text-linear-accent" />
             ) : (
-              <div className={cn("w-2 h-2 rounded-full", status === 'completed' ? 'bg-green-500' : status === 'failed' ? 'bg-red-500' : 'bg-gray-500')} />
+              <div className={cn("w-2 h-2 rounded-full", status === 'completed' ? 'bg-[#2d5a3d]' : status === 'failed' ? 'bg-[#5a2d2d]' : 'bg-[#444]')} />
             )}
             <span className="text-sm text-linear-text">
               {mode === 'queue' ? 'Queue' : 'Parallel'} Execution: {completed}/{total} complete
-              {failed > 0 && <span className="text-red-400 ml-1">({failed} failed)</span>}
+              {failed > 0 && <span className="text-[#8b5a5a] ml-1">({failed} failed)</span>}
             </span>
             {expanded ? (
               <ChevronUp className="w-3.5 h-3.5 text-linear-text-tertiary" />
@@ -67,7 +68,7 @@ export function BatchProgress({ batchId, status, mode, tasks, prUrl, onCancel, o
               size="sm"
               variant="ghost"
               onClick={() => onCancel(batchId)}
-              className="h-7 text-xs text-linear-text-tertiary hover:text-red-400"
+              className="h-7 text-xs text-[#666] hover:text-[#8b5a5a]"
             >
               <X className="w-3 h-3 mr-1" />
               Cancel
@@ -78,7 +79,7 @@ export function BatchProgress({ batchId, status, mode, tasks, prUrl, onCancel, o
               <Button
                 size="sm"
                 variant="ghost"
-                onClick={() => window.open(prUrl, '_blank')}
+                onClick={() => window.open(prUrl, "_blank")}
                 className="h-7 text-xs text-linear-accent hover:text-linear-accent-hover gap-1.5"
               >
                 <GitPullRequest className="w-3.5 h-3.5" />
@@ -123,16 +124,20 @@ export function BatchProgress({ batchId, status, mode, tasks, prUrl, onCancel, o
       </div>
 
       {expanded && (
-        <div className="border-t border-linear-border px-3 py-2 space-y-1">
+        <div className="border-t border-[#222] px-3 py-2 space-y-1">
           {tasks.map(task => {
             const cfg = statusConfig[task.status] || statusConfig.queued
             const Icon = cfg.icon
             return (
-              <div key={task.taskId} className="flex items-center gap-2 py-1">
+              <button
+                key={task.taskId}
+                className="flex items-center gap-2 py-1.5 px-1 -mx-1 w-full text-left rounded-md hover:bg-[#1c1c1c] transition-colors cursor-pointer"
+                onClick={() => onTaskClick?.(task.taskId)}
+              >
                 <Icon className={cn("w-3.5 h-3.5 flex-shrink-0", cfg.color, task.status === 'running' && 'animate-spin')} />
                 <span className="text-sm text-linear-text truncate flex-1">{task.title}</span>
-                <span className={cn("text-[11px] font-mono", cfg.color)}>{cfg.label}</span>
-              </div>
+                <span className={cn("text-[11px] font-mono flex-shrink-0", cfg.color)}>{cfg.label}</span>
+              </button>
             )
           })}
         </div>
