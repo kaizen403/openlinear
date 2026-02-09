@@ -18,7 +18,7 @@ interface ColumnProps {
 
 export function Column({ id, title, taskCount, children, onAddTask, innerRef, droppableProps, isDraggingOver }: ColumnProps) {
   return (
-    <div className="flex flex-col h-full border-r border-white/[0.06] last:border-r-0 min-w-0 bg-gradient-to-b from-white/[0.02] to-transparent">
+    <div className="flex flex-col h-full border-r border-white/[0.06] last:border-r-0 min-w-[280px] md:min-w-0 snap-start bg-gradient-to-b from-white/[0.02] to-transparent">
       <div className="flex items-center justify-between px-4 py-3 backdrop-blur-sm bg-white/[0.02] border-b border-white/[0.04]">
         <div className="flex items-center gap-2">
           <h3 className="text-zinc-400 text-xs font-medium uppercase tracking-wider">{title}</h3>

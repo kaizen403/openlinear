@@ -60,6 +60,8 @@ export function KanbanBoard() {
 
   const toggleTaskSelect = (taskId: string) => {
     if (batchTaskIds.includes(taskId)) return
+    const task = tasks.find(t => t.id === taskId)
+    if (task && (task.status === 'done' || task.status === 'cancelled')) return
     setSelectedTaskIds(prev => {
       const next = new Set(prev)
       if (next.has(taskId)) next.delete(taskId)
@@ -380,6 +382,22 @@ export function KanbanBoard() {
     await updateTaskStatus(taskId, 'in_progress')
   }
 
+  const handleBatchMoveToInProgress = async () => {
+    const todoIds = Array.from(selectedTaskIds).filter(
+      id => tasks.find(t => t.id === id)?.status === 'todo'
+    )
+    if (todoIds.length === 0) return
+    for (const id of todoIds) {
+      setTasks((prev) =>
+        prev.map((task) =>
+          task.id === id ? { ...task, status: 'in_progress' as const } : task
+        )
+      )
+    }
+    clearSelection()
+    await Promise.all(todoIds.map(id => updateTaskStatus(id, 'in_progress')))
+  }
+
   const handleDragEnd = async (result: DropResult) => {
     const { destination, source, draggableId } = result
 
@@ -455,6 +473,9 @@ export function KanbanBoard() {
   }
 
   const handleDelete = async (taskId: string) => {
+    const previousTasks = tasks
+    setTasks((prev) => prev.filter((t) => t.id !== taskId))
+    setSelectedTaskId(null)
     try {
       const token = localStorage.getItem('token')
       const response = await fetch(`${API_BASE_URL}/api/tasks/${taskId}`, {
@@ -462,11 +483,10 @@ export function KanbanBoard() {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       })
       if (!response.ok) {
-        throw new Error(`Failed to delete task: ${response.statusText}`)
+        setTasks(previousTasks)
       }
-      setSelectedTaskId(null)
-    } catch (err) {
-      console.error("Error deleting task:", err)
+    } catch {
+      setTasks(previousTasks)
     }
   }
 
@@ -530,7 +550,7 @@ export function KanbanBoard() {
             onTaskClick={handleTaskClick}
           />
         )}
-        <div className="grid grid-cols-4 h-full">
+        <div className="flex md:grid md:grid-cols-2 lg:grid-cols-4 h-full overflow-x-auto snap-x snap-mandatory md:overflow-x-visible">
           {COLUMNS.map((column) => {
             const columnTasks = getTasksByStatus(column.status)
             return (
@@ -669,14 +689,23 @@ export function KanbanBoard() {
         />
 
         {(() => {
-          const selectedNonDoneTaskIds = Array.from(selectedTaskIds).filter(
-            id => tasks.find(t => t.id === id)?.status !== 'done'
+          const selectedTodoIds = Array.from(selectedTaskIds).filter(
+            id => tasks.find(t => t.id === id)?.status === 'todo'
           )
-          return selectedNonDoneTaskIds.length > 0 ? (
+          const selectedInProgressIds = Array.from(selectedTaskIds).filter(
+            id => tasks.find(t => t.id === id)?.status === 'in_progress'
+          )
+          const actionableCount = selectedTodoIds.length + selectedInProgressIds.length
+          const hasTodo = selectedTodoIds.length > 0
+          const hasInProgress = selectedInProgressIds.length > 0
+          const mode = hasTodo && hasInProgress ? 'mixed' as const : hasTodo ? 'move' as const : 'execute' as const
+          return actionableCount > 0 ? (
             <BatchControls
-              selectedCount={selectedNonDoneTaskIds.length}
+              selectedCount={actionableCount}
+              mode={mode}
               onExecuteParallel={() => handleBatchExecute('parallel')}
               onExecuteQueue={() => handleBatchExecute('queue')}
+              onMoveToInProgress={handleBatchMoveToInProgress}
               onClearSelection={clearSelection}
               disabled={!canExecute}
             />

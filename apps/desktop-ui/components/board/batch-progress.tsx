@@ -41,7 +41,7 @@ export function BatchProgress({ batchId, status, mode, tasks, prUrl, onCancel, o
   const isRunning = status === 'running' || status === 'merging'
 
   return (
-    <div className="mx-6 mt-4 mb-0 bg-[#141414] border border-[#222] rounded-lg">
+    <div className="mx-3 sm:mx-6 mt-4 mb-0 bg-[#141414] border border-[#222] rounded-lg">
       <div className="p-3 bg-gradient-to-b from-[#1a1a1a] to-[#141414]">
         <div className="flex items-center justify-between mb-2">
           <button

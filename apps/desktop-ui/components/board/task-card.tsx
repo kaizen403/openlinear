@@ -23,9 +23,9 @@ interface TaskCardProps {
 }
 
 const priorityColors = {
-  low: "bg-emerald-500",
-  medium: "bg-yellow-500",
-  high: "bg-red-500",
+  low: "bg-emerald-700",
+  medium: "bg-yellow-700",
+  high: "bg-red-700",
 }
 
 const progressConfig = {
@@ -95,7 +95,7 @@ export function TaskCard({ task, onExecute, onCancel, onDelete, onMoveToInProgre
         "bg-white/[0.03] backdrop-blur-md border border-white/[0.08]",
         "shadow-[0_4px_24px_-8px_rgba(0,0,0,0.4),0_1px_3px_rgba(0,0,0,0.2),inset_0_1px_0_rgba(255,255,255,0.05)]",
         "cursor-pointer group rounded-xl",
-        selected && "bg-white/[0.06] border-linear-accent/40 shadow-[0_0_0_1px_rgba(59,130,246,0.3),0_4px_24px_-8px_rgba(59,130,246,0.2)]",
+        selected && "bg-white/[0.06] border-white/[0.15]",
         isBatchTask && "bg-linear-accent/[0.08] border-linear-accent/20 shadow-[0_4px_24px_-8px_rgba(59,130,246,0.3)]",
         isCompletedBatchTask && "bg-purple-500/[0.05] border-purple-500/20"
       )}
@@ -210,7 +210,7 @@ export function TaskCard({ task, onExecute, onCancel, onDelete, onMoveToInProgre
                 }}
               >
                 <ArrowRight className="w-3 h-3 mr-1" />
-                Start
+                Move
               </Button>
             )}
             {task.status === 'in_progress' && onExecute && !isActiveProgress && !isBatchTask && (
