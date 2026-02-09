@@ -9,7 +9,7 @@ import { BatchProgress } from "./batch-progress"
 import { DashboardLoading } from "./dashboard-loading"
 import { TaskFormDialog } from "@/components/task-form"
 import { TaskDetailView } from "@/components/task-detail-view"
-import { Plus } from "lucide-react"
+import { Plus, Loader2 } from "lucide-react"
 import { useSSE, SSEEventType, SSEEventData } from "@/hooks/use-sse"
 import { useAuth } from "@/hooks/use-auth"
 import { getActivePublicProject, PublicProject } from "@/lib/api"
@@ -31,6 +31,7 @@ interface ActiveBatch {
     title: string
     status: 'queued' | 'running' | 'completed' | 'failed' | 'skipped' | 'cancelled'
   }>
+  prUrl: string | null
 }
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001"
@@ -202,6 +203,7 @@ export function KanbanBoard() {
             status: data.status as string || 'running',
             mode: data.mode as string || 'parallel',
             tasks: (data.tasks as ActiveBatch['tasks']) || [],
+            prUrl: null,
           })
         }
         break
@@ -279,9 +281,11 @@ export function KanbanBoard() {
       case 'batch:failed':
       case 'batch:cancelled':
         setActiveBatch(prev => {
-          if (prev?.id === data.batchId) {
-            setTimeout(() => setActiveBatch(null), 5000)
-            return { ...prev, status: eventType.split(':')[1]! } as ActiveBatch
+          if (prev && prev.id === data.batchId) {
+            const prUrl = (data.prUrl as string) || prev.prUrl || null
+            const dismissMs = prUrl ? 30000 : 5000
+            setTimeout(() => setActiveBatch(null), dismissMs)
+            return { ...prev, status: eventType.split(':')[1]!, prUrl } as ActiveBatch
           }
           return prev
         })
@@ -489,6 +493,7 @@ export function KanbanBoard() {
             status={activeBatch.status}
             mode={activeBatch.mode}
             tasks={activeBatch.tasks}
+            prUrl={activeBatch.prUrl}
             onCancel={handleCancelBatch}
           />
         )}
@@ -517,8 +522,8 @@ export function KanbanBoard() {
                         </div>
                         <span className="text-sm">Add task</span>
                       </button>
-                    ) : (
-                      columnTasks.map((task, index) => (
+                    ) : (() => {
+                      const renderTask = (task: Task, index: number) => (
                         <Draggable key={task.id} draggableId={task.id} index={index}>
                           {(provided, snapshot) => (
                             <div
@@ -544,8 +549,31 @@ export function KanbanBoard() {
                             </div>
                           )}
                         </Draggable>
-                      ))
-                    )}
+                      )
+
+                      if (column.status === 'in_progress' && batchTaskIds.length > 0) {
+                        const batch = columnTasks.filter(t => batchTaskIds.includes(t.id))
+                        const rest = columnTasks.filter(t => !batchTaskIds.includes(t.id))
+                        return (
+                          <>
+                            {batch.length > 0 && (
+                              <div className="border border-dashed border-white/[0.08] rounded-lg p-2 space-y-3 mb-3 bg-white/[0.01]">
+                                <div className="flex items-center gap-1.5 px-1">
+                                  <Loader2 className="w-3 h-3 animate-spin text-zinc-500" />
+                                  <span className="text-[11px] text-zinc-500 font-medium uppercase tracking-wider">
+                                    Batch {activeBatch?.mode === 'queue' ? 'Queue' : 'Parallel'}
+                                  </span>
+                                </div>
+                                {batch.map((task, i) => renderTask(task, i))}
+                              </div>
+                            )}
+                            {rest.map((task, i) => renderTask(task, batch.length + i))}
+                          </>
+                        )
+                      }
+
+                      return columnTasks.map((task, index) => renderTask(task, index))
+                    })()}
                     {provided.placeholder}
                   </Column>
                 )}

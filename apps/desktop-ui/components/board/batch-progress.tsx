@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
-import { X, Loader2, ChevronDown, ChevronUp, Check, AlertCircle, SkipForward, Ban, Clock } from "lucide-react"
+import { X, Loader2, ChevronDown, ChevronUp, Check, AlertCircle, SkipForward, Ban, Clock, ExternalLink, GitPullRequest } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 interface BatchProgressTask {
@@ -16,6 +16,7 @@ interface BatchProgressProps {
   status: string
   mode: string
   tasks: BatchProgressTask[]
+  prUrl: string | null
   onCancel: (batchId: string) => void
 }
 
@@ -28,7 +29,7 @@ const statusConfig: Record<string, { color: string; bg: string; icon: typeof Che
   cancelled: { color: 'text-gray-400', bg: 'bg-gray-500', icon: Ban, label: 'Cancelled' },
 }
 
-export function BatchProgress({ batchId, status, mode, tasks, onCancel }: BatchProgressProps) {
+export function BatchProgress({ batchId, status, mode, tasks, prUrl, onCancel }: BatchProgressProps) {
   const [expanded, setExpanded] = useState(false)
   const total = tasks.length
   const completed = tasks.filter(t => t.status === 'completed').length
@@ -69,6 +70,18 @@ export function BatchProgress({ batchId, status, mode, tasks, onCancel }: BatchP
             >
               <X className="w-3 h-3 mr-1" />
               Cancel
+            </Button>
+          )}
+          {prUrl && !isRunning && (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => window.open(prUrl, '_blank')}
+              className="h-7 text-xs text-linear-accent hover:text-linear-accent-hover gap-1.5"
+            >
+              <GitPullRequest className="w-3.5 h-3.5" />
+              Open PR
+              <ExternalLink className="w-3 h-3" />
             </Button>
           )}
         </div>
