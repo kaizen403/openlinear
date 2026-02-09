@@ -36,6 +36,26 @@ export function Sidebar({ open, onClose, width, animating }: SidebarProps) {
     const [projectsExpanded, setProjectsExpanded] = useState(true)
     const [teamsExpanded, setTeamsExpanded] = useState(true)
     const [favoritesExpanded, setFavoritesExpanded] = useState(true)
+    const [isTauri, setIsTauri] = useState(false)
+
+    useEffect(() => {
+        setIsTauri(typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window)
+    }, [])
+
+    const handleClose = async () => {
+        const { getCurrentWindow } = await import('@tauri-apps/api/window')
+        getCurrentWindow().close()
+    }
+
+    const handleMinimize = async () => {
+        const { getCurrentWindow } = await import('@tauri-apps/api/window')
+        getCurrentWindow().minimize()
+    }
+
+    const handleMaximize = async () => {
+        const { getCurrentWindow } = await import('@tauri-apps/api/window')
+        getCurrentWindow().toggleMaximize()
+    }
 
     return (
         <aside
@@ -45,8 +65,27 @@ export function Sidebar({ open, onClose, width, animating }: SidebarProps) {
                 transition: animating ? 'width 150ms cubic-bezier(0.25, 0.1, 0.25, 1)' : 'none',
             }}
         >
-            <div className="p-4 border-b border-linear-border flex items-center justify-between min-w-0">
-                <div className="flex items-center">
+            <div className="p-4 border-b border-linear-border flex items-center justify-between min-w-0" data-tauri-drag-region>
+                <div className="flex items-center gap-3">
+                    {isTauri && (
+                        <div className="flex items-center gap-[7px]">
+                            <button
+                                onClick={handleClose}
+                                className="w-[12px] h-[12px] rounded-full bg-[#ff5f57] hover:brightness-110 transition-all flex-shrink-0"
+                                aria-label="Close"
+                            />
+                            <button
+                                onClick={handleMinimize}
+                                className="w-[12px] h-[12px] rounded-full bg-[#febc2e] hover:brightness-110 transition-all flex-shrink-0"
+                                aria-label="Minimize"
+                            />
+                            <button
+                                onClick={handleMaximize}
+                                className="w-[12px] h-[12px] rounded-full bg-[#28c840] hover:brightness-110 transition-all flex-shrink-0"
+                                aria-label="Maximize"
+                            />
+                        </div>
+                    )}
                     <span className="text-base font-semibold text-linear-text">OpenLinear</span>
                 </div>
                 <div className="flex items-center gap-1">

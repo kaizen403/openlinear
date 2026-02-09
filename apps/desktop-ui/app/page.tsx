@@ -20,7 +20,7 @@ export default function HomePage() {
 
   return (
     <AppShell>
-      <header className="h-14 border-b border-linear-border flex items-center px-4 sm:px-6 bg-linear-bg gap-2 sm:gap-4">
+      <header className="h-14 border-b border-linear-border flex items-center px-4 sm:px-6 bg-linear-bg gap-2 sm:gap-4" data-tauri-drag-region>
         <div className="flex items-center gap-4 min-w-0">
           <h1 className="text-lg font-semibold truncate">
             {activeProject ? activeProject.name : "All Issues"}

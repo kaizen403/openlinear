@@ -485,7 +485,7 @@ export function KanbanBoard() {
 
   return (
     <DragDropContext onDragEnd={handleDragEnd}>
-      <div className="flex-1 overflow-x-auto overflow-y-hidden relative">
+      <div className="flex-1 overflow-x-auto overflow-y-hidden relative bg-[#050505]">
         {activeBatch && (
           <BatchProgress
             batchId={activeBatch.id}
@@ -495,7 +495,7 @@ export function KanbanBoard() {
             onCancel={handleCancelBatch}
           />
         )}
-        <div className="flex gap-4 h-full p-6 min-w-max">
+        <div className="flex gap-6 h-full p-6 min-w-max">
           {COLUMNS.map((column) => {
             const columnTasks = getTasksByStatus(column.status)
             return (
@@ -510,12 +510,12 @@ export function KanbanBoard() {
                     droppableProps={provided.droppableProps}
                     isDraggingOver={snapshot.isDraggingOver}
                   >
-                    {columnTasks.length === 0 ? (
+                    {columnTasks.length === 0 && !snapshot.isDraggingOver ? (
                       <button
                         onClick={() => handleAddTask(column.status)}
-                        className="w-full flex flex-col items-center justify-center py-8 text-linear-text-tertiary hover:text-linear-text-secondary hover:bg-linear-bg-tertiary/50 rounded-lg transition-all cursor-pointer group"
+                        className="w-full flex flex-col items-center justify-center py-8 text-linear-text-tertiary hover:text-linear-text-secondary hover:bg-white/[0.03] rounded-lg transition-all cursor-pointer group"
                       >
-                        <div className="w-10 h-10 rounded-full bg-linear-bg-tertiary flex items-center justify-center mb-3 group-hover:bg-linear-bg-tertiary group-hover:scale-110 transition-all">
+                        <div className="w-10 h-10 rounded-full bg-white/[0.04] flex items-center justify-center mb-3 group-hover:bg-white/[0.06] group-hover:scale-110 transition-all">
                           <Plus className="w-5 h-5" />
                         </div>
                         <span className="text-sm">Add task</span>
