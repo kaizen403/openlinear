@@ -79,7 +79,7 @@ export function BatchProgress({ batchId, status, mode, tasks, prUrl, onCancel, o
               <Button
                 size="sm"
                 variant="ghost"
-                onClick={() => window.open(prUrl, "_blank")}
+                onClick={() => openExternal(prUrl)}
                 className="h-7 text-xs text-linear-accent hover:text-linear-accent-hover gap-1.5"
               >
                 <GitPullRequest className="w-3.5 h-3.5" />
