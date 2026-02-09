@@ -55,75 +55,15 @@ interface Project {
 const projects: Project[] = [
   {
     id: "1",
-    name: "Web Application",
-    description: "Main customer-facing web platform",
+    name: "MVP Development",
+    description: "Core product minimum viable release",
     icon: "hexagon",
-    iconColor: "bg-purple-500",
-    health: "on_track",
-    priority: "high",
-    lead: { name: "Sarah Chen", initials: "SC", avatarColor: "bg-blue-500" },
-    targetDate: "Mar 15, 2026",
-    status: { completed: 24, total: 32 }
-  },
-  {
-    id: "2",
-    name: "Mobile App",
-    description: "iOS and Android mobile applications",
-    icon: "target",
-    iconColor: "bg-emerald-500",
-    health: "no_updates",
-    priority: "high",
-    lead: { name: "Mike Ross", initials: "MR", avatarColor: "bg-green-500" },
-    targetDate: "Apr 30, 2026",
-    status: { completed: 12, total: 28 }
-  },
-  {
-    id: "3",
-    name: "API Gateway",
-    description: "Backend API infrastructure",
-    icon: "folder",
-    iconColor: "bg-amber-500",
-    health: "on_track",
-    priority: "none",
-    lead: { name: "Alex Kim", initials: "AK", avatarColor: "bg-purple-500" },
-    targetDate: "Feb 28, 2026",
-    status: { completed: 18, total: 20 }
-  },
-  {
-    id: "4",
-    name: "Design System",
-    description: "Component library and design tokens",
-    icon: "hexagon",
-    iconColor: "bg-pink-500",
-    health: "at_risk",
-    priority: "medium",
-    lead: { name: "Emma Wilson", initials: "EW", avatarColor: "bg-pink-500" },
-    targetDate: "Mar 01, 2026",
-    status: { completed: 8, total: 15 }
-  },
-  {
-    id: "5",
-    name: "Analytics Dashboard",
-    description: "Internal metrics and reporting",
-    icon: "target",
     iconColor: "bg-blue-500",
     health: "on_track",
-    priority: "low",
-    lead: { name: "James Lee", initials: "JL", avatarColor: "bg-orange-500" },
-    targetDate: "May 15, 2026",
-    status: { completed: 5, total: 22 }
-  },
-  {
-    id: "6",
-    name: "Database Migration",
-    description: "PostgreSQL to new infrastructure",
-    icon: "folder",
-    iconColor: "bg-red-500",
-    health: "off_track",
     priority: "high",
-    lead: { name: "David Park", initials: "DP", avatarColor: "bg-indigo-500" },
-    targetDate: "Feb 20, 2026",
-    status: { completed: 3, total: 18 }
+    lead: { name: "You", initials: "YO", avatarColor: "bg-blue-500" },
+    targetDate: "Mar 30, 2026",
+    status: { completed: 0, total: 10 }
   }
 ]
 

@@ -12,7 +12,6 @@ import {
   DialogContent,
   DialogDescription,
   DialogFooter,
-  DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
 import {
@@ -20,11 +19,8 @@ import {
   FormControl,
   FormField,
   FormItem,
-  FormLabel,
   FormMessage,
 } from "@/components/ui/form"
-import { Input } from "@/components/ui/input"
-import { Textarea } from "@/components/ui/textarea"
 import {
   Select,
   SelectContent,
@@ -50,6 +46,18 @@ interface TaskFormDialogProps {
 }
 
 const API_BASE_URL = "http://localhost:3001/api"
+
+const priorityColors = {
+  low: "bg-blue-400",
+  medium: "bg-yellow-400",
+  high: "bg-red-400",
+}
+
+const priorityLabels = {
+  low: "Low",
+  medium: "Medium",
+  high: "High",
+}
 
 export function TaskFormDialog({
   open,
@@ -108,139 +116,151 @@ export function TaskFormDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="sm:max-w-[500px] bg-linear-bg-secondary border-linear-border">
-        <DialogHeader>
-          <DialogTitle className="text-linear-text">Create Task</DialogTitle>
-          <DialogDescription className="text-linear-text-secondary">
-            Add a new task to your board. Fill in the details below.
-          </DialogDescription>
-        </DialogHeader>
+      <DialogContent className="sm:max-w-[520px] bg-[#1a1a1a] border-[#2a2a2a] p-0 gap-0 overflow-hidden">
+        <DialogTitle className="sr-only">Create Task</DialogTitle>
+        <DialogDescription className="sr-only">
+          Create a new task with title, description, priority, and labels
+        </DialogDescription>
 
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-5">
-            <FormField
-              control={form.control}
-              name="title"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel className="text-linear-text">Title</FormLabel>
-                  <FormControl>
-                    <Input
-                      placeholder="Enter task title..."
-                      {...field}
-                      className="bg-linear-bg-tertiary border-linear-border text-linear-text placeholder:text-linear-text-tertiary focus:border-linear-border-hover"
-                    />
-                  </FormControl>
-                  <FormMessage className="text-red-400" />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="description"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel className="text-linear-text">
-                    Description
-                  </FormLabel>
-                  <FormControl>
-                    <Textarea
-                      placeholder="Add a description..."
-                      className="min-h-[100px] resize-none bg-linear-bg-tertiary border-linear-border text-linear-text placeholder:text-linear-text-tertiary focus:border-linear-border-hover"
-                      {...field}
-                    />
-                  </FormControl>
-                  <FormMessage className="text-red-400" />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="priority"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel className="text-linear-text">Priority</FormLabel>
-                  <Select
-                    onValueChange={field.onChange}
-                    defaultValue={field.value}
-                  >
+          <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col">
+            <div className="px-5 pt-4 pb-3">
+              <FormField
+                control={form.control}
+                name="title"
+                render={({ field }) => (
+                  <FormItem className="space-y-0">
                     <FormControl>
-                      <SelectTrigger className="bg-linear-bg-tertiary border-linear-border text-linear-text focus:border-linear-border-hover">
-                        <SelectValue placeholder="Select priority" />
-                      </SelectTrigger>
+                      <input
+                        type="text"
+                        placeholder="Issue title"
+                        className="w-full bg-transparent text-lg font-semibold text-[#f5f5f5] placeholder:text-[#6a6a6a] outline-none border-none focus:ring-0 p-0"
+                        {...field}
+                      />
                     </FormControl>
-                    <SelectContent className="bg-linear-bg-secondary border-linear-border">
-                      <SelectItem
-                        value="low"
-                        className="text-linear-text focus:bg-linear-bg-tertiary focus:text-linear-text"
-                      >
-                        <div className="flex items-center gap-2">
-                          <div className="w-2 h-2 rounded-full bg-blue-400" />
-                          Low
-                        </div>
-                      </SelectItem>
-                      <SelectItem
-                        value="medium"
-                        className="text-linear-text focus:bg-linear-bg-tertiary focus:text-linear-text"
-                      >
-                        <div className="flex items-center gap-2">
-                          <div className="w-2 h-2 rounded-full bg-yellow-400" />
-                          Medium
-                        </div>
-                      </SelectItem>
-                      <SelectItem
-                        value="high"
-                        className="text-linear-text focus:bg-linear-bg-tertiary focus:text-linear-text"
-                      >
-                        <div className="flex items-center gap-2">
-                          <div className="w-2 h-2 rounded-full bg-red-400" />
-                          High
-                        </div>
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <FormMessage className="text-red-400" />
-                </FormItem>
-              )}
-            />
+                    <FormMessage className="text-red-400 text-xs mt-1" />
+                  </FormItem>
+                )}
+              />
 
-            <FormField
-              control={form.control}
-              name="labelIds"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel className="text-linear-text">Labels</FormLabel>
-                  <FormControl>
-                    <LabelPicker
-                      selectedIds={field.value}
-                      onChange={field.onChange}
-                    />
-                  </FormControl>
-                  <FormMessage className="text-red-400" />
-                </FormItem>
-              )}
-            />
+              <FormField
+                control={form.control}
+                name="description"
+                render={({ field }) => (
+                  <FormItem className="space-y-0 mt-2">
+                    <FormControl>
+                      <textarea
+                        placeholder="Add description..."
+                        className="w-full bg-transparent text-sm text-[#a0a0a0] placeholder:text-[#6a6a6a] outline-none border-none resize-none focus:ring-0 p-0 min-h-[24px]"
+                        rows={1}
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormMessage className="text-red-400 text-xs mt-1" />
+                  </FormItem>
+                )}
+              />
+            </div>
 
-            <DialogFooter className="gap-2 sm:gap-0">
+            <div className="border-b border-[#2a2a2a]" />
+
+            <div className="px-5 py-3 flex items-center gap-2">
+              <FormField
+                control={form.control}
+                name="priority"
+                render={({ field }) => (
+                  <FormItem className="space-y-0">
+                    <Select
+                      onValueChange={field.onChange}
+                      defaultValue={field.value}
+                    >
+                      <FormControl>
+                        <SelectTrigger className="h-7 w-auto px-2.5 text-xs rounded-md bg-transparent border-none hover:bg-white/[0.06] text-[#a0a0a0] gap-1.5 focus:ring-0 shadow-none">
+                          <div className="flex items-center gap-1.5">
+                            <div
+                              className={`w-2 h-2 rounded-full ${
+                                priorityColors[field.value as keyof typeof priorityColors]
+                              }`}
+                            />
+                            <SelectValue placeholder="Priority">
+                              {priorityLabels[field.value as keyof typeof priorityLabels]}
+                            </SelectValue>
+                          </div>
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent className="bg-[#1a1a1a] border-[#2a2a2a]">
+                        <SelectItem
+                          value="low"
+                          className="text-[#f5f5f5] focus:bg-white/[0.06] focus:text-[#f5f5f5] text-xs"
+                        >
+                          <div className="flex items-center gap-2">
+                            <div className="w-2 h-2 rounded-full bg-blue-400" />
+                            Low
+                          </div>
+                        </SelectItem>
+                        <SelectItem
+                          value="medium"
+                          className="text-[#f5f5f5] focus:bg-white/[0.06] focus:text-[#f5f5f5] text-xs"
+                        >
+                          <div className="flex items-center gap-2">
+                            <div className="w-2 h-2 rounded-full bg-yellow-400" />
+                            Medium
+                          </div>
+                        </SelectItem>
+                        <SelectItem
+                          value="high"
+                          className="text-[#f5f5f5] focus:bg-white/[0.06] focus:text-[#f5f5f5] text-xs"
+                        >
+                          <div className="flex items-center gap-2">
+                            <div className="w-2 h-2 rounded-full bg-red-400" />
+                            High
+                          </div>
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <FormMessage className="text-red-400 text-xs" />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="labelIds"
+                render={({ field }) => (
+                  <FormItem className="space-y-0">
+                    <FormControl>
+                      <LabelPicker
+                        selectedIds={field.value}
+                        onChange={field.onChange}
+                        triggerClassName="h-7 w-auto px-2.5 text-xs rounded-md bg-transparent border-none hover:bg-white/[0.06] hover:border-none text-[#a0a0a0] shadow-none"
+                      />
+                    </FormControl>
+                    <FormMessage className="text-red-400 text-xs" />
+                  </FormItem>
+                )}
+              />
+            </div>
+
+            <div className="border-b border-[#2a2a2a]" />
+
+            <DialogFooter className="px-5 py-3 gap-2 sm:gap-2">
               <Button
                 type="button"
-                variant="outline"
+                variant="ghost"
                 onClick={() => handleOpenChange(false)}
                 disabled={isSubmitting}
-                className="bg-transparent border-linear-border text-linear-text hover:bg-linear-bg-tertiary hover:text-linear-text"
+                className="h-8 px-3 text-xs bg-transparent text-[#a0a0a0] hover:bg-white/[0.06] hover:text-[#f5f5f5]"
               >
                 Cancel
               </Button>
               <Button
                 type="submit"
                 disabled={isSubmitting}
-                className="bg-linear-accent hover:bg-linear-accent-hover text-white"
+                className="h-8 px-3 text-xs bg-linear-accent hover:bg-linear-accent-hover text-white"
               >
                 {isSubmitting ? (
                   <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
                     Creating...
                   </>
                 ) : (

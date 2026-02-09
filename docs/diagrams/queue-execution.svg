@@ -1,0 +1,110 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 500" fill="none">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="900" y2="500">
+      <stop offset="0%" stop-color="#0c0c0e"/>
+      <stop offset="100%" stop-color="#131316"/>
+    </linearGradient>
+    <linearGradient id="card" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#181a1b"/>
+      <stop offset="100%" stop-color="#141617"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="900" height="500" rx="12" fill="url(#bg)"/>
+
+  <text x="450" y="40" text-anchor="middle" fill="#e4e6e8" font-family="Inter, system-ui, sans-serif" font-size="18" font-weight="700">Queue Execution Mode</text>
+  <text x="450" y="62" text-anchor="middle" fill="#5c6370" font-family="Inter, system-ui, sans-serif" font-size="12">Tasks execute one at a time, sequentially in order</text>
+
+  <!-- Timeline -->
+  <line x1="80" y1="130" x2="820" y2="130" stroke="#222628" stroke-width="2"/>
+  <text x="450" y="108" text-anchor="middle" fill="#5c6370" font-family="Inter, system-ui, sans-serif" font-size="10" font-weight="600" letter-spacing="2">EXECUTION TIMELINE</text>
+  <polygon points="817,126 825,130 817,134" fill="#3a3d42"/>
+  <text x="835" y="134" fill="#3a3d42" font-family="Inter, system-ui, sans-serif" font-size="10">time</text>
+
+  <!-- Task A - Completed -->
+  <rect x="90" y="150" width="160" height="95" rx="8" fill="url(#card)" stroke="#22c55e" stroke-width="1.5"/>
+  <circle cx="90" cy="130" r="6" fill="#22c55e"/>
+  <text x="170" y="172" text-anchor="middle" fill="#e4e6e8" font-family="Inter, system-ui, sans-serif" font-size="13" font-weight="600">Task A</text>
+  <rect x="105" y="182" width="130" height="3" rx="1.5" fill="#0e0f10"/>
+  <rect x="105" y="182" width="130" height="3" rx="1.5" fill="#22c55e"/>
+  <text x="170" y="202" text-anchor="middle" fill="#22c55e" font-family="Inter, system-ui, sans-serif" font-size="10" font-weight="600">COMPLETED</text>
+  <text x="170" y="222" text-anchor="middle" fill="#5c6370" font-family="Inter, system-ui, sans-serif" font-size="9">Clone → Execute → Commit</text>
+  <text x="170" y="236" text-anchor="middle" fill="#5c6370" font-family="Inter, system-ui, sans-serif" font-size="9">3 files changed</text>
+
+  <line x1="250" y1="197" x2="280" y2="197" stroke="#3a3d42" stroke-width="1.5"/>
+  <polygon points="277,193 285,197 277,201" fill="#3a3d42"/>
+
+  <!-- Task B - Running -->
+  <rect x="285" y="150" width="160" height="95" rx="8" fill="url(#card)" stroke="#f59e0b" stroke-width="1.5"/>
+  <circle cx="285" cy="130" r="6" fill="#f59e0b"/>
+  <circle cx="285" cy="130" r="10" fill="none" stroke="#f59e0b" stroke-width="1" opacity="0.3"/>
+  <text x="365" y="172" text-anchor="middle" fill="#e4e6e8" font-family="Inter, system-ui, sans-serif" font-size="13" font-weight="600">Task B</text>
+  <rect x="300" y="182" width="130" height="3" rx="1.5" fill="#0e0f10"/>
+  <rect x="300" y="182" width="75" height="3" rx="1.5" fill="#f59e0b"/>
+  <text x="365" y="202" text-anchor="middle" fill="#f59e0b" font-family="Inter, system-ui, sans-serif" font-size="10" font-weight="600">RUNNING</text>
+  <text x="365" y="222" text-anchor="middle" fill="#5c6370" font-family="Inter, system-ui, sans-serif" font-size="9">Agent is working...</text>
+  <text x="365" y="236" text-anchor="middle" fill="#5c6370" font-family="Inter, system-ui, sans-serif" font-size="9">58% progress</text>
+
+  <line x1="445" y1="197" x2="475" y2="197" stroke="#2a2d30" stroke-width="1.5" stroke-dasharray="4,3"/>
+  <polygon points="472,193 480,197 472,201" fill="#2a2d30"/>
+
+  <!-- Task C - Queued -->
+  <rect x="480" y="150" width="160" height="95" rx="8" fill="url(#card)" stroke="#2a2d30" stroke-width="1"/>
+  <circle cx="480" cy="130" r="6" fill="#2a2d30"/>
+  <text x="560" y="172" text-anchor="middle" fill="#5c6370" font-family="Inter, system-ui, sans-serif" font-size="13" font-weight="600">Task C</text>
+  <rect x="495" y="182" width="130" height="3" rx="1.5" fill="#0e0f10"/>
+  <text x="560" y="202" text-anchor="middle" fill="#3a3d42" font-family="Inter, system-ui, sans-serif" font-size="10" font-weight="600">QUEUED</text>
+  <text x="560" y="222" text-anchor="middle" fill="#3a3d42" font-family="Inter, system-ui, sans-serif" font-size="9">Waiting for Task B</text>
+
+  <line x1="640" y1="197" x2="670" y2="197" stroke="#2a2d30" stroke-width="1.5" stroke-dasharray="4,3"/>
+  <polygon points="667,193 675,197 667,201" fill="#2a2d30"/>
+
+  <!-- Task D - Queued -->
+  <rect x="675" y="150" width="160" height="95" rx="8" fill="url(#card)" stroke="#2a2d30" stroke-width="1"/>
+  <circle cx="675" cy="130" r="6" fill="#2a2d30"/>
+  <text x="755" y="172" text-anchor="middle" fill="#5c6370" font-family="Inter, system-ui, sans-serif" font-size="13" font-weight="600">Task D</text>
+  <rect x="690" y="182" width="130" height="3" rx="1.5" fill="#0e0f10"/>
+  <text x="755" y="202" text-anchor="middle" fill="#3a3d42" font-family="Inter, system-ui, sans-serif" font-size="10" font-weight="600">QUEUED</text>
+  <text x="755" y="222" text-anchor="middle" fill="#3a3d42" font-family="Inter, system-ui, sans-serif" font-size="9">Waiting for Task C</text>
+
+  <!-- How Queue Works -->
+  <rect x="40" y="290" width="400" height="180" rx="10" fill="url(#card)" stroke="#222628" stroke-width="1.2"/>
+  <text x="240" y="318" text-anchor="middle" fill="#8a8f94" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="600" letter-spacing="1.5">HOW QUEUE MODE WORKS</text>
+
+  <circle cx="75" cy="348" r="12" fill="#22c55e" opacity="0.1"/>
+  <text x="75" y="352" text-anchor="middle" fill="#4ade80" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="700">1</text>
+  <text x="95" y="352" fill="#e4e6e8" font-family="Inter, system-ui, sans-serif" font-size="12">Start first task in isolated worktree</text>
+
+  <circle cx="75" cy="378" r="12" fill="#22c55e" opacity="0.1"/>
+  <text x="75" y="382" text-anchor="middle" fill="#4ade80" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="700">2</text>
+  <text x="95" y="382" fill="#e4e6e8" font-family="Inter, system-ui, sans-serif" font-size="12">Wait for completion (commit changes)</text>
+
+  <circle cx="75" cy="408" r="12" fill="#22c55e" opacity="0.1"/>
+  <text x="75" y="412" text-anchor="middle" fill="#4ade80" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="700">3</text>
+  <text x="95" y="412" fill="#e4e6e8" font-family="Inter, system-ui, sans-serif" font-size="12">Auto-approve or wait for user approval</text>
+
+  <circle cx="75" cy="438" r="12" fill="#22c55e" opacity="0.1"/>
+  <text x="75" y="442" text-anchor="middle" fill="#4ade80" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="700">4</text>
+  <text x="95" y="442" fill="#e4e6e8" font-family="Inter, system-ui, sans-serif" font-size="12">Start next task, repeat until done</text>
+
+  <!-- Queue Settings -->
+  <rect x="470" y="290" width="390" height="180" rx="10" fill="url(#card)" stroke="#222628" stroke-width="1.2"/>
+  <text x="665" y="318" text-anchor="middle" fill="#8a8f94" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="600" letter-spacing="1.5">QUEUE SETTINGS</text>
+
+  <rect x="490" y="335" width="350" height="34" rx="6" fill="#0e0f10" stroke="#222628" stroke-width="0.8"/>
+  <text x="510" y="356" fill="#e4e6e8" font-family="Inter, system-ui, sans-serif" font-size="12">Auto-Approve Next Task</text>
+  <rect x="790" y="343" width="36" height="18" rx="9" fill="#2a2d30"/>
+  <circle cx="800" cy="352" r="6" fill="#5c6370"/>
+  <text x="770" y="356" text-anchor="end" fill="#5c6370" font-family="Inter, system-ui, sans-serif" font-size="9">OFF</text>
+
+  <rect x="490" y="378" width="350" height="34" rx="6" fill="#0e0f10" stroke="#222628" stroke-width="0.8"/>
+  <text x="510" y="399" fill="#e4e6e8" font-family="Inter, system-ui, sans-serif" font-size="12">Stop Queue on Failure</text>
+  <rect x="790" y="386" width="36" height="18" rx="9" fill="#2a2d30"/>
+  <circle cx="800" cy="395" r="6" fill="#5c6370"/>
+  <text x="770" y="399" text-anchor="end" fill="#5c6370" font-family="Inter, system-ui, sans-serif" font-size="9">OFF</text>
+
+  <rect x="490" y="421" width="350" height="34" rx="6" fill="#0e0f10" stroke="#222628" stroke-width="0.8"/>
+  <text x="510" y="442" fill="#e4e6e8" font-family="Inter, system-ui, sans-serif" font-size="12">Conflict Behavior</text>
+  <rect x="770" y="429" width="56" height="20" rx="4" fill="#22c55e" opacity="0.1"/>
+  <text x="798" y="443" text-anchor="middle" fill="#4ade80" font-family="Inter, system-ui, sans-serif" font-size="10" font-weight="600">SKIP</text>
+</svg>

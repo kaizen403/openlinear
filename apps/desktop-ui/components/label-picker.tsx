@@ -22,11 +22,12 @@ interface Label {
 interface LabelPickerProps {
   selectedIds: string[]
   onChange: (ids: string[]) => void
+  triggerClassName?: string
 }
 
 const API_BASE_URL = "http://localhost:3001/api"
 
-export function LabelPicker({ selectedIds, onChange }: LabelPickerProps) {
+export function LabelPicker({ selectedIds, onChange, triggerClassName }: LabelPickerProps) {
   const [labels, setLabels] = useState<Label[]>([])
   const [loading, setLoading] = useState(true)
   const [open, setOpen] = useState(false)
@@ -75,7 +76,10 @@ export function LabelPicker({ selectedIds, onChange }: LabelPickerProps) {
             variant="outline"
             role="combobox"
             aria-expanded={open}
-            className="w-full justify-between bg-linear-bg-tertiary border-linear-border hover:bg-linear-bg-tertiary hover:border-linear-border-hover"
+            className={cn(
+              "w-full justify-between bg-linear-bg-tertiary border-linear-border hover:bg-linear-bg-tertiary hover:border-linear-border-hover",
+              triggerClassName
+            )}
           >
             <div className="flex items-center gap-2">
               <Tag className="w-4 h-4 text-linear-text-tertiary" />

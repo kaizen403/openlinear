@@ -5,7 +5,7 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import {
     Layout, Home, Inbox, Layers, Settings, ChevronDown, Circle, Hash,
-    Target, Hexagon, Briefcase, PanelLeftClose, FolderKanban, Github, LogOut
+    Briefcase, PanelLeftClose, Github, LogOut
 } from "lucide-react"
 import { ProjectSelector } from "@/components/auth/project-selector"
 import { useAuth } from "@/hooks/use-auth"
@@ -143,7 +143,7 @@ export function Sidebar({ open, onClose, width, animating }: SidebarProps) {
                                 <Briefcase className="w-4 h-4 text-linear-text-secondary" />
                                 All Projects
                             </Link>
-                            {activeProject ? (
+                            {activeProject && (
                                 <Link
                                     href={`/projects/${activeProject.id}`}
                                     className={navItemClass(pathname.startsWith("/projects/") && pathname !== "/projects")}
@@ -155,21 +155,7 @@ export function Sidebar({ open, onClose, width, animating }: SidebarProps) {
                                     </div>
                                     <span className="truncate">{activeProject.name}</span>
                                 </Link>
-                            ) : (
-                                <div className="px-3 py-2 text-xs text-linear-text-tertiary">No project selected</div>
                             )}
-                            <Link href="/projects/web-app" className={navItemClass(pathname === "/projects/web-app")}>
-                                <Target className="w-4 h-4 text-linear-text-tertiary" />
-                                <span className="truncate">Web Application</span>
-                            </Link>
-                            <Link href="/projects/mobile" className={navItemClass(pathname === "/projects/mobile")}>
-                                <Target className="w-4 h-4 text-linear-text-tertiary" />
-                                <span className="truncate">Mobile App</span>
-                            </Link>
-                            <Link href="/projects/api" className={navItemClass(pathname === "/projects/api")}>
-                                <Target className="w-4 h-4 text-linear-text-tertiary" />
-                                <span className="truncate">API Gateway</span>
-                            </Link>
                         </div>
                     </div>
                 </div>

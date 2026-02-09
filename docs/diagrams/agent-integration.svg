@@ -1,0 +1,121 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 420" fill="none">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="900" y2="420">
+      <stop offset="0%" stop-color="#0c0c0e"/>
+      <stop offset="100%" stop-color="#131316"/>
+    </linearGradient>
+    <linearGradient id="card" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#181a1b"/>
+      <stop offset="100%" stop-color="#141617"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="900" height="420" rx="12" fill="url(#bg)"/>
+
+  <text x="450" y="40" text-anchor="middle" fill="#e4e6e8" font-family="Inter, system-ui, sans-serif" font-size="18" font-weight="700">Agent Integration — Task Lifecycle</text>
+  <text x="450" y="62" text-anchor="middle" fill="#5c6370" font-family="Inter, system-ui, sans-serif" font-size="12">End-to-end flow from task execution to pull request</text>
+
+  <!-- Step 1: Execute -->
+  <rect x="40" y="95" width="115" height="80" rx="8" fill="url(#card)" stroke="#22c55e" stroke-width="1.5"/>
+  <circle cx="60" cy="115" r="4" fill="#22c55e"/>
+  <text x="97" y="130" text-anchor="middle" fill="#e4e6e8" font-family="Inter, system-ui, sans-serif" font-size="13" font-weight="600">Execute</text>
+  <text x="97" y="150" text-anchor="middle" fill="#5c6370" font-family="Inter, system-ui, sans-serif" font-size="10">Trigger task</text>
+  <text x="97" y="163" text-anchor="middle" fill="#5c6370" font-family="Inter, system-ui, sans-serif" font-size="10">from UI</text>
+
+  <line x1="155" y1="135" x2="185" y2="135" stroke="#22c55e" stroke-width="1.5" opacity="0.5"/>
+  <polygon points="182,131 190,135 182,139" fill="#22c55e" opacity="0.5"/>
+
+  <!-- Step 2: Clone -->
+  <rect x="190" y="95" width="115" height="80" rx="8" fill="url(#card)" stroke="#222628" stroke-width="1.2"/>
+  <text x="247" y="130" text-anchor="middle" fill="#e4e6e8" font-family="Inter, system-ui, sans-serif" font-size="13" font-weight="600">Clone</text>
+  <text x="247" y="150" text-anchor="middle" fill="#5c6370" font-family="Inter, system-ui, sans-serif" font-size="10">git clone repo</text>
+  <text x="247" y="163" text-anchor="middle" fill="#5c6370" font-family="Inter, system-ui, sans-serif" font-size="10">into worktree</text>
+
+  <line x1="305" y1="135" x2="335" y2="135" stroke="#3a3d42" stroke-width="1.5"/>
+  <polygon points="332,131 340,135 332,139" fill="#3a3d42"/>
+
+  <!-- Step 3: Branch -->
+  <rect x="340" y="95" width="115" height="80" rx="8" fill="url(#card)" stroke="#222628" stroke-width="1.2"/>
+  <text x="397" y="130" text-anchor="middle" fill="#e4e6e8" font-family="Inter, system-ui, sans-serif" font-size="13" font-weight="600">Branch</text>
+  <text x="397" y="150" text-anchor="middle" fill="#5c6370" font-family="Inter, system-ui, sans-serif" font-size="10">Create isolated</text>
+  <text x="397" y="163" text-anchor="middle" fill="#5c6370" font-family="Inter, system-ui, sans-serif" font-size="10">task branch</text>
+
+  <line x1="455" y1="135" x2="485" y2="135" stroke="#3a3d42" stroke-width="1.5"/>
+  <polygon points="482,131 490,135 482,139" fill="#3a3d42"/>
+
+  <!-- Step 4: Agent Session -->
+  <rect x="490" y="95" width="140" height="80" rx="8" fill="url(#card)" stroke="#22c55e" stroke-width="1.5"/>
+  <circle cx="510" cy="115" r="4" fill="#22c55e"/>
+  <text x="560" y="130" text-anchor="middle" fill="#22c55e" font-family="Inter, system-ui, sans-serif" font-size="13" font-weight="700">Agent Session</text>
+  <text x="560" y="150" text-anchor="middle" fill="#5c6370" font-family="Inter, system-ui, sans-serif" font-size="10">AI agent writes</text>
+  <text x="560" y="163" text-anchor="middle" fill="#5c6370" font-family="Inter, system-ui, sans-serif" font-size="10">code changes</text>
+
+  <line x1="630" y1="135" x2="660" y2="135" stroke="#3a3d42" stroke-width="1.5"/>
+  <polygon points="657,131 665,135 657,139" fill="#3a3d42"/>
+
+  <!-- Step 5: Commit -->
+  <rect x="665" y="95" width="100" height="80" rx="8" fill="url(#card)" stroke="#222628" stroke-width="1.2"/>
+  <text x="715" y="130" text-anchor="middle" fill="#e4e6e8" font-family="Inter, system-ui, sans-serif" font-size="13" font-weight="600">Commit</text>
+  <text x="715" y="150" text-anchor="middle" fill="#5c6370" font-family="Inter, system-ui, sans-serif" font-size="10">Stage &amp; push</text>
+  <text x="715" y="163" text-anchor="middle" fill="#5c6370" font-family="Inter, system-ui, sans-serif" font-size="10">changes</text>
+
+  <line x1="765" y1="135" x2="795" y2="135" stroke="#3a3d42" stroke-width="1.5"/>
+  <polygon points="792,131 800,135 792,139" fill="#3a3d42"/>
+
+  <!-- Step 6: PR -->
+  <rect x="800" y="95" width="60" height="80" rx="8" fill="url(#card)" stroke="#4ade80" stroke-width="1.5"/>
+  <text x="830" y="130" text-anchor="middle" fill="#4ade80" font-family="Inter, system-ui, sans-serif" font-size="13" font-weight="700">PR</text>
+  <text x="830" y="150" text-anchor="middle" fill="#5c6370" font-family="Inter, system-ui, sans-serif" font-size="10">Open</text>
+  <text x="830" y="163" text-anchor="middle" fill="#5c6370" font-family="Inter, system-ui, sans-serif" font-size="10">PR</text>
+
+  <!-- SSE Event Stream -->
+  <rect x="40" y="210" width="820" height="100" rx="10" fill="url(#card)" stroke="#222628" stroke-width="1.2"/>
+  <text x="450" y="238" text-anchor="middle" fill="#8a8f94" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="600" letter-spacing="1.5">REAL-TIME EVENT STREAM (SSE)</text>
+
+  <!-- Event badges -->
+  <rect x="65" y="255" width="95" height="24" rx="5" fill="#0e0f10" stroke="#22c55e" stroke-width="0.8"/>
+  <text x="112" y="271" text-anchor="middle" fill="#22c55e" font-family="Inter, system-ui, sans-serif" font-size="10" font-weight="500">task.started</text>
+
+  <rect x="175" y="255" width="95" height="24" rx="5" fill="#0e0f10" stroke="#4ade80" stroke-width="0.8"/>
+  <text x="222" y="271" text-anchor="middle" fill="#4ade80" font-family="Inter, system-ui, sans-serif" font-size="10" font-weight="500">tool.call</text>
+
+  <rect x="285" y="255" width="95" height="24" rx="5" fill="#0e0f10" stroke="#4ade80" stroke-width="0.8"/>
+  <text x="332" y="271" text-anchor="middle" fill="#4ade80" font-family="Inter, system-ui, sans-serif" font-size="10" font-weight="500">file.edit</text>
+
+  <rect x="395" y="255" width="95" height="24" rx="5" fill="#0e0f10" stroke="#f59e0b" stroke-width="0.8"/>
+  <text x="442" y="271" text-anchor="middle" fill="#f59e0b" font-family="Inter, system-ui, sans-serif" font-size="10" font-weight="500">agent.thinking</text>
+
+  <rect x="505" y="255" width="95" height="24" rx="5" fill="#0e0f10" stroke="#4ade80" stroke-width="0.8"/>
+  <text x="552" y="271" text-anchor="middle" fill="#4ade80" font-family="Inter, system-ui, sans-serif" font-size="10" font-weight="500">file.create</text>
+
+  <rect x="615" y="255" width="95" height="24" rx="5" fill="#0e0f10" stroke="#22c55e" stroke-width="0.8"/>
+  <text x="662" y="271" text-anchor="middle" fill="#22c55e" font-family="Inter, system-ui, sans-serif" font-size="10" font-weight="500">commit.push</text>
+
+  <rect x="725" y="255" width="110" height="24" rx="5" fill="#0e0f10" stroke="#22c55e" stroke-width="0.8"/>
+  <text x="780" y="271" text-anchor="middle" fill="#22c55e" font-family="Inter, system-ui, sans-serif" font-size="10" font-weight="500">task.completed</text>
+
+  <text x="450" y="299" text-anchor="middle" fill="#3a3d42" font-family="Inter, system-ui, sans-serif" font-size="10">Every tool call, file edit, and status change streams live to the UI</text>
+
+  <!-- Supported Agents -->
+  <rect x="40" y="335" width="820" height="60" rx="10" fill="url(#card)" stroke="#222628" stroke-width="1.2"/>
+  <text x="100" y="372" text-anchor="middle" fill="#8a8f94" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="600" letter-spacing="1">AGENTS</text>
+
+  <rect x="165" y="352" width="110" height="28" rx="6" fill="#0e0f10" stroke="#22c55e" stroke-width="1.2"/>
+  <circle cx="183" cy="366" r="4" fill="#22c55e"/>
+  <text x="228" y="370" text-anchor="middle" fill="#e4e6e8" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="500">OpenCode</text>
+
+  <rect x="295" y="352" width="120" height="28" rx="6" fill="#0e0f10" stroke="#2a2d30" stroke-width="0.8"/>
+  <text x="355" y="370" text-anchor="middle" fill="#5c6370" font-family="Inter, system-ui, sans-serif" font-size="11">Claude Code</text>
+
+  <rect x="435" y="352" width="100" height="28" rx="6" fill="#0e0f10" stroke="#2a2d30" stroke-width="0.8"/>
+  <text x="485" y="370" text-anchor="middle" fill="#5c6370" font-family="Inter, system-ui, sans-serif" font-size="11">Codex</text>
+
+  <rect x="555" y="352" width="100" height="28" rx="6" fill="#0e0f10" stroke="#2a2d30" stroke-width="0.8"/>
+  <text x="605" y="370" text-anchor="middle" fill="#5c6370" font-family="Inter, system-ui, sans-serif" font-size="11">Aider</text>
+
+  <rect x="680" y="356" width="70" height="18" rx="4" fill="#22c55e" opacity="0.12"/>
+  <text x="715" y="369" text-anchor="middle" fill="#4ade80" font-family="Inter, system-ui, sans-serif" font-size="9" font-weight="600">INTEGRATED</text>
+
+  <rect x="770" y="356" width="60" height="18" rx="4" fill="#2a2d30" opacity="0.5"/>
+  <text x="800" y="369" text-anchor="middle" fill="#5c6370" font-family="Inter, system-ui, sans-serif" font-size="9" font-weight="600">PLANNED</text>
+</svg>

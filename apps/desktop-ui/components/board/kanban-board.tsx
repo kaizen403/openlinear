@@ -6,9 +6,10 @@ import { Column } from "./column"
 import { TaskCard } from "./task-card"
 import { BatchControls } from "./batch-controls"
 import { BatchProgress } from "./batch-progress"
+import { DashboardLoading } from "./dashboard-loading"
 import { TaskFormDialog } from "@/components/task-form"
 import { TaskDetailView } from "@/components/task-detail-view"
-import { Loader2, Plus } from "lucide-react"
+import { Plus } from "lucide-react"
 import { useSSE, SSEEventType, SSEEventData } from "@/hooks/use-sse"
 import { useAuth } from "@/hooks/use-auth"
 import { getActivePublicProject, PublicProject } from "@/lib/api"
@@ -460,11 +461,7 @@ export function KanbanBoard() {
   }
 
   if (loading) {
-    return (
-      <div className="flex-1 flex items-center justify-center">
-        <Loader2 className="w-8 h-8 animate-spin text-linear-accent" />
-      </div>
-    )
+    return <DashboardLoading />
   }
 
   if (error) {

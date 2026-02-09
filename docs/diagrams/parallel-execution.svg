@@ -1,0 +1,126 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 520" fill="none">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="900" y2="520">
+      <stop offset="0%" stop-color="#0c0c0e"/>
+      <stop offset="100%" stop-color="#131316"/>
+    </linearGradient>
+    <linearGradient id="card" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#181a1b"/>
+      <stop offset="100%" stop-color="#141617"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="900" height="520" rx="12" fill="url(#bg)"/>
+
+  <text x="450" y="40" text-anchor="middle" fill="#e4e6e8" font-family="Inter, system-ui, sans-serif" font-size="18" font-weight="700">Parallel Execution Mode</text>
+  <text x="450" y="62" text-anchor="middle" fill="#5c6370" font-family="Inter, system-ui, sans-serif" font-size="12">Run multiple tasks simultaneously with configurable concurrency</text>
+
+  <!-- Selected Tasks -->
+  <rect x="40" y="90" width="180" height="180" rx="10" fill="url(#card)" stroke="#222628" stroke-width="1.2"/>
+  <text x="130" y="118" text-anchor="middle" fill="#8a8f94" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="600" letter-spacing="1.5">SELECTED TASKS</text>
+
+  <rect x="58" y="132" width="144" height="28" rx="5" fill="#0e0f10" stroke="#22c55e" stroke-width="1"/>
+  <circle cx="74" cy="146" r="4" fill="#22c55e"/>
+  <text x="130" y="150" text-anchor="middle" fill="#e4e6e8" font-family="Inter, system-ui, sans-serif" font-size="11">Task A</text>
+
+  <rect x="58" y="168" width="144" height="28" rx="5" fill="#0e0f10" stroke="#22c55e" stroke-width="1"/>
+  <circle cx="74" cy="182" r="4" fill="#22c55e"/>
+  <text x="130" y="186" text-anchor="middle" fill="#e4e6e8" font-family="Inter, system-ui, sans-serif" font-size="11">Task B</text>
+
+  <rect x="58" y="204" width="144" height="28" rx="5" fill="#0e0f10" stroke="#22c55e" stroke-width="1"/>
+  <circle cx="74" cy="218" r="4" fill="#22c55e"/>
+  <text x="130" y="222" text-anchor="middle" fill="#e4e6e8" font-family="Inter, system-ui, sans-serif" font-size="11">Task C</text>
+
+  <rect x="58" y="240" width="144" height="28" rx="5" fill="#0e0f10" stroke="#2a2d30" stroke-width="1"/>
+  <circle cx="74" cy="254" r="4" fill="#2a2d30"/>
+  <text x="130" y="258" text-anchor="middle" fill="#5c6370" font-family="Inter, system-ui, sans-serif" font-size="11">Task D (queued)</text>
+
+  <!-- Arrow from Tasks to Pool -->
+  <line x1="220" y1="180" x2="265" y2="180" stroke="#3a3d42" stroke-width="1.5"/>
+  <polygon points="262,176 270,180 262,184" fill="#3a3d42"/>
+
+  <!-- Execution Pool -->
+  <rect x="270" y="90" width="280" height="180" rx="10" fill="url(#card)" stroke="#222628" stroke-width="1.2"/>
+  <text x="410" y="118" text-anchor="middle" fill="#8a8f94" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="600" letter-spacing="1.5">EXECUTION POOL</text>
+  <rect x="428" y="105" width="50" height="18" rx="4" fill="#22c55e" opacity="0.12"/>
+  <text x="453" y="117" text-anchor="middle" fill="#4ade80" font-family="Inter, system-ui, sans-serif" font-size="9" font-weight="600">3 slots</text>
+
+  <!-- Slot 1 - Running -->
+  <rect x="290" y="134" width="240" height="36" rx="6" fill="#0e0f10" stroke="#f59e0b" stroke-width="1.2"/>
+  <circle cx="308" cy="152" r="5" fill="#f59e0b"/>
+  <circle cx="308" cy="152" r="8" fill="none" stroke="#f59e0b" stroke-width="0.8" opacity="0.3"/>
+  <text x="324" y="156" fill="#e4e6e8" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="500">Task A</text>
+  <rect x="400" y="148" width="80" height="3" rx="1.5" fill="#1a1c1e"/>
+  <rect x="400" y="148" width="60" height="3" rx="1.5" fill="#f59e0b"/>
+  <text x="500" y="156" fill="#f59e0b" font-family="Inter, system-ui, sans-serif" font-size="9" font-weight="600">RUNNING</text>
+
+  <!-- Slot 2 - Running -->
+  <rect x="290" y="178" width="240" height="36" rx="6" fill="#0e0f10" stroke="#f59e0b" stroke-width="1.2"/>
+  <circle cx="308" cy="196" r="5" fill="#f59e0b"/>
+  <circle cx="308" cy="196" r="8" fill="none" stroke="#f59e0b" stroke-width="0.8" opacity="0.3"/>
+  <text x="324" y="200" fill="#e4e6e8" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="500">Task B</text>
+  <rect x="400" y="192" width="80" height="3" rx="1.5" fill="#1a1c1e"/>
+  <rect x="400" y="192" width="35" height="3" rx="1.5" fill="#f59e0b"/>
+  <text x="500" y="200" fill="#f59e0b" font-family="Inter, system-ui, sans-serif" font-size="9" font-weight="600">RUNNING</text>
+
+  <!-- Slot 3 - Running -->
+  <rect x="290" y="222" width="240" height="36" rx="6" fill="#0e0f10" stroke="#22c55e" stroke-width="1.2"/>
+  <circle cx="308" cy="240" r="5" fill="#22c55e"/>
+  <text x="324" y="244" fill="#e4e6e8" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="500">Task C</text>
+  <rect x="400" y="236" width="80" height="3" rx="1.5" fill="#1a1c1e"/>
+  <rect x="400" y="236" width="80" height="3" rx="1.5" fill="#22c55e"/>
+  <text x="500" y="244" fill="#22c55e" font-family="Inter, system-ui, sans-serif" font-size="9" font-weight="600">DONE</text>
+
+  <!-- Arrow from Pool to Worktrees -->
+  <line x1="550" y1="180" x2="595" y2="180" stroke="#3a3d42" stroke-width="1.5"/>
+  <polygon points="592,176 600,180 592,184" fill="#3a3d42"/>
+
+  <!-- Git Worktrees -->
+  <rect x="600" y="90" width="260" height="180" rx="10" fill="url(#card)" stroke="#222628" stroke-width="1.2"/>
+  <text x="730" y="118" text-anchor="middle" fill="#8a8f94" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="600" letter-spacing="1.5">GIT WORKTREES</text>
+
+  <rect x="620" y="134" width="220" height="28" rx="5" fill="#0e0f10" stroke="#f59e0b" stroke-width="0.8"/>
+  <text x="636" y="152" fill="#f59e0b" font-family="Inter, system-ui, sans-serif" font-size="10">⎇</text>
+  <text x="656" y="152" fill="#e4e6e8" font-family="Inter, system-ui, sans-serif" font-size="11">task/task-a-branch</text>
+
+  <rect x="620" y="170" width="220" height="28" rx="5" fill="#0e0f10" stroke="#f59e0b" stroke-width="0.8"/>
+  <text x="636" y="188" fill="#f59e0b" font-family="Inter, system-ui, sans-serif" font-size="10">⎇</text>
+  <text x="656" y="188" fill="#e4e6e8" font-family="Inter, system-ui, sans-serif" font-size="11">task/task-b-branch</text>
+
+  <rect x="620" y="206" width="220" height="28" rx="5" fill="#0e0f10" stroke="#22c55e" stroke-width="0.8"/>
+  <text x="636" y="224" fill="#22c55e" font-family="Inter, system-ui, sans-serif" font-size="10">⎇</text>
+  <text x="656" y="224" fill="#e4e6e8" font-family="Inter, system-ui, sans-serif" font-size="11">task/task-c-branch</text>
+  <text x="810" y="224" text-anchor="end" fill="#22c55e" font-family="Inter, system-ui, sans-serif" font-size="9" font-weight="600">✓</text>
+
+  <text x="730" y="256" text-anchor="middle" fill="#3a3d42" font-family="Inter, system-ui, sans-serif" font-size="10">Each task runs in isolated directory</text>
+
+  <!-- Merge & PR Section -->
+  <rect x="200" y="310" width="500" height="180" rx="10" fill="url(#card)" stroke="#222628" stroke-width="1.2"/>
+  <text x="450" y="338" text-anchor="middle" fill="#8a8f94" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="600" letter-spacing="1.5">MERGE &amp; PULL REQUEST</text>
+
+  <!-- Merge flow -->
+  <rect x="226" y="358" width="130" height="50" rx="6" fill="#0e0f10" stroke="#22c55e" stroke-width="1"/>
+  <text x="291" y="380" text-anchor="middle" fill="#e4e6e8" font-family="Inter, system-ui, sans-serif" font-size="12" font-weight="500">Batch Branch</text>
+  <text x="291" y="398" text-anchor="middle" fill="#5c6370" font-family="Inter, system-ui, sans-serif" font-size="10">Merge all completed</text>
+
+  <line x1="356" y1="383" x2="390" y2="383" stroke="#3a3d42" stroke-width="1.5"/>
+  <polygon points="387,379 395,383 387,387" fill="#3a3d42"/>
+
+  <rect x="395" y="358" width="130" height="50" rx="6" fill="#0e0f10" stroke="#22c55e" stroke-width="1.2"/>
+  <text x="460" y="380" text-anchor="middle" fill="#22c55e" font-family="Inter, system-ui, sans-serif" font-size="12" font-weight="600">Create PR</text>
+  <text x="460" y="398" text-anchor="middle" fill="#5c6370" font-family="Inter, system-ui, sans-serif" font-size="10">Auto-generated</text>
+
+  <line x1="525" y1="383" x2="555" y2="383" stroke="#3a3d42" stroke-width="1.5"/>
+  <polygon points="552,379 560,383 552,387" fill="#3a3d42"/>
+
+  <rect x="560" y="358" width="120" height="50" rx="6" fill="#0e0f10" stroke="#4ade80" stroke-width="1.2"/>
+  <text x="620" y="380" text-anchor="middle" fill="#4ade80" font-family="Inter, system-ui, sans-serif" font-size="12" font-weight="600">GitHub</text>
+  <text x="620" y="398" text-anchor="middle" fill="#5c6370" font-family="Inter, system-ui, sans-serif" font-size="10">Ready for review</text>
+
+  <!-- Conflict handling note -->
+  <rect x="226" y="425" width="454" height="45" rx="6" fill="#0e0f10" stroke="#2a2d30" stroke-width="0.8"/>
+  <rect x="240" y="436" width="62" height="18" rx="4" fill="#f59e0b" opacity="0.1"/>
+  <text x="271" y="449" text-anchor="middle" fill="#f59e0b" font-family="Inter, system-ui, sans-serif" font-size="9" font-weight="600">CONFLICT</text>
+  <text x="314" y="449" fill="#5c6370" font-family="Inter, system-ui, sans-serif" font-size="11">Conflicting branches are skipped — the rest merge cleanly</text>
+  <text x="314" y="463" fill="#3a3d42" font-family="Inter, system-ui, sans-serif" font-size="10">Configurable: skip (default) or fail the entire batch</text>
+</svg>

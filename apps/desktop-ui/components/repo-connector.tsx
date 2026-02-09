@@ -75,17 +75,23 @@ export function RepoConnector({ onRepoConnected, onRepoDisconnected }: RepoConne
   if (connectedProject) {
     return (
       <div className="flex items-center gap-2">
-        <div className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-green-500/10 border border-green-500/20">
-          <Check className="w-3.5 h-3.5 text-green-500" />
-          <span className="text-sm text-green-400 font-medium">
+        <div
+          className="flex items-center gap-2 px-3 py-1.5 rounded-md border"
+          style={{
+            backgroundColor: 'color-mix(in srgb, var(--linear-accent) 10%, transparent)',
+            borderColor: 'color-mix(in srgb, var(--linear-accent) 20%, transparent)',
+          }}
+        >
+          <Check className="w-3.5 h-3.5 text-linear-accent" />
+          <span className="text-sm text-linear-accent font-medium">
             {connectedProject.fullName}
           </span>
           <button
             onClick={handleDisconnect}
-            className="ml-1 p-0.5 rounded hover:bg-green-500/20 transition-colors"
+            className="ml-1 p-0.5 rounded transition-colors hover:bg-linear-bg-tertiary"
             title="Disconnect repository"
           >
-            <X className="w-3 h-3 text-green-400" />
+            <X className="w-3 h-3 text-linear-accent" />
           </button>
         </div>
       </div>

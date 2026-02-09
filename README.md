@@ -4,76 +4,63 @@ A desktop kanban board for managing and executing coding tasks through AI agents
 
 ## Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                           Desktop Application                            │
-├─────────────────────────────────────────────────────────────────────────┤
-│                                                                          │
-│   ┌──────────────────┐      ┌──────────────────┐      ┌──────────────┐  │
-│   │   Desktop Shell  │◄────►│   Renderer (UI)  │◄────►│  Local API   │  │
-│   │                  │      │                  │      │   Sidecar    │  │
-│   └──────────────────┘      └──────────────────┘      └──────┬───────┘  │
-│                                                               │          │
-└───────────────────────────────────────────────────────────────┼──────────┘
-                                                                │
-                                                                ▼
-                                              ┌─────────────────────────────┐
-                                              │     Coding Agent Layer      │
-                                              │                             │
-                                              │  ┌─────────┐  ┌─────────┐   │
-                                              │  │OpenCode │  │ Codex   │   │
-                                              │  └─────────┘  └─────────┘   │
-                                              │  ┌─────────┐  ┌─────────┐   │
-                                              │  │Claude   │  │  ...    │   │
-                                              │  │ Code    │  │         │   │
-                                              │  └─────────┘  └─────────┘   │
-                                              └─────────────────────────────┘
-```
+<p align="center">
+  <img src="docs/diagrams/architecture.svg" alt="OpenLinear Architecture" width="100%"/>
+</p>
 
-## Parallel Task Execution
+## Task Execution
 
-OpenLinear executes multiple coding tasks concurrently:
+OpenLinear supports two execution modes for running coding tasks: **parallel** and **queue**. Both modes use git worktrees to isolate each task in its own branch and working directory, and merge results into a single batched PR.
 
-```
-                    ┌──────────────────────────────────┐
-                    │        Execution Manager         │
-                    │                                  │
-                    │  ┌─────────────────────────────┐ │
-                    │  │     Active Execution Pool   │ │
-                    │  │                             │ │
-                    │  │  Task A ──► Agent Session   │ │
-                    │  │  Task B ──► Agent Session   │ │
-                    │  │  Task C ──► Agent Session   │ │
-                    │  │                             │ │
-                    │  │     (Configurable Limit)    │ │
-                    │  └─────────────────────────────┘ │
-                    └──────────────────────────────────┘
-```
+### Parallel Execution
 
-- Tasks run in isolated sessions with independent repo clones
-- Parallel limit is user-configurable via settings
-- Each execution tracks its own lifecycle: clone → execute → commit → PR
-- Real-time progress via event streaming
+Run multiple tasks simultaneously, up to a configurable concurrency limit. When a slot frees up, the next queued task starts automatically.
+
+<p align="center">
+  <img src="docs/diagrams/parallel-execution.svg" alt="Parallel Execution" width="100%"/>
+</p>
+
+- Tasks run in isolated git worktrees with independent agent sessions
+- Concurrency limit is configurable via settings (default: 3)
+- When a task finishes, the next queued task fills the open slot
+- All completed branches merge into a single batch branch
+- Merge conflicts are handled gracefully — conflicting tasks are skipped, the rest are included
+
+### Queue Execution
+
+Run tasks one at a time, sequentially. Optionally require user approval before starting the next task.
+
+<p align="center">
+  <img src="docs/diagrams/queue-execution.svg" alt="Queue Execution" width="100%"/>
+</p>
+
+- Tasks execute strictly in order, one after another
+- **Auto-approve** mode starts the next task immediately on completion
+- **Manual approval** mode waits for user confirmation before proceeding
+- Individual tasks can be cancelled without stopping the whole queue
+- Same merge + PR flow as parallel mode
+
+### Execution Settings
+
+| Setting | Description | Default |
+|---------|-------------|---------|
+| Parallel Limit | Max concurrent tasks in parallel mode | `3` |
+| Max Batch Size | Max tasks per batch | `3` |
+| Auto-Approve | Auto-start next task in queue mode | `off` |
+| Stop on Failure | Halt queue/batch if a task fails | `off` |
+| Conflict Behavior | `skip` conflicting merges or `fail` the batch | `skip` |
 
 ## Agent Integration
 
-Currently integrated with the OpenCode SDK:
+Each task follows a complete lifecycle: clone → branch → agent session → commit → PR.
 
-```
-Execute Task
-     │
-     ▼
-Clone Repository ──► Create Branch ──► Start Agent Session
-                                              │
-                                              ▼
-                                    Agent works on codebase
-                                    (reads, edits, runs tools)
-                                              │
-                                              ▼
-                                    Commit Changes ──► Create PR
-```
+<p align="center">
+  <img src="docs/diagrams/agent-integration.svg" alt="Agent Integration Flow" width="100%"/>
+</p>
 
-The agent layer is designed to support multiple providers:
+The execution engine streams real-time events (SSE) to the UI — you see every tool call, file edit, and status change as it happens.
+
+Currently integrated with the OpenCode SDK. The agent layer is designed to support multiple providers:
 
 | Agent | Status |
 |-------|--------|
