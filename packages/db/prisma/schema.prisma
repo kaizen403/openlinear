@@ -38,6 +38,7 @@ model Task {
   executionProgress   Int?      // 0-100 estimated progress
   prUrl               String?
   outcome             String?   // Summary of what was accomplished
+  archived            Boolean   @default(false)
 
   @@map("tasks")
 }

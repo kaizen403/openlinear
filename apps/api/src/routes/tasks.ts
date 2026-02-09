@@ -57,9 +57,61 @@ function flattenLabels(task: TaskWithLabels) {
 
 const router: Router = Router();
 
+// --- Archived endpoints (must be before /:id routes) ---
+
+router.get('/archived', async (_req: Request, res: Response) => {
+  try {
+    const tasks = await prisma.task.findMany({
+      where: { archived: true },
+      include: {
+        labels: {
+          include: {
+            label: true,
+          },
+        },
+      },
+      orderBy: { updatedAt: 'desc' },
+    });
+
+    res.json(tasks.map(flattenLabels));
+  } catch (error) {
+    console.error('[Tasks] Error listing archived tasks:', error);
+    res.status(500).json({ error: 'Failed to list archived tasks' });
+  }
+});
+
+router.delete('/archived', async (_req: Request, res: Response) => {
+  try {
+    await prisma.task.deleteMany({ where: { archived: true } });
+    res.status(204).send();
+  } catch (error) {
+    console.error('[Tasks] Error deleting all archived tasks:', error);
+    res.status(500).json({ error: 'Failed to delete archived tasks' });
+  }
+});
+
+router.delete('/archived/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    const existing = await prisma.task.findUnique({ where: { id } });
+    if (!existing || !existing.archived) {
+      res.status(404).json({ error: 'Archived task not found' });
+      return;
+    }
+
+    await prisma.task.delete({ where: { id } });
+    res.status(204).send();
+  } catch (error) {
+    console.error('[Tasks] Error permanently deleting task:', error);
+    res.status(500).json({ error: 'Failed to permanently delete task' });
+  }
+});
+
 router.get('/', async (_req: Request, res: Response) => {
   try {
     const tasks = await prisma.task.findMany({
+      where: { archived: false },
       include: {
         labels: {
           include: {
@@ -197,13 +249,16 @@ router.delete('/:id', async (req: Request, res: Response) => {
       return;
     }
 
-    await prisma.task.delete({ where: { id } });
+    await prisma.task.update({
+      where: { id },
+      data: { archived: true },
+    });
 
     broadcast('task:deleted', { id });
     res.status(204).send();
   } catch (error) {
-    console.error('[Tasks] Error deleting task:', error);
-    res.status(500).json({ error: 'Failed to delete task' });
+    console.error('[Tasks] Error archiving task:', error);
+    res.status(500).json({ error: 'Failed to archive task' });
   }
 });
 
