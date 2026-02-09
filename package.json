@@ -9,6 +9,7 @@
     "test": "turbo run test",
     "typecheck": "turbo run typecheck",
     "db:push": "pnpm --filter db db:push",
+    "db:seed": "pnpm --filter @openlinear/api exec tsx ../../packages/db/prisma/seed.ts",
     "db:studio": "pnpm --filter db db:studio",
     "build:sidecar": "./scripts/build-sidecar.sh",
     "build:desktop": "pnpm --filter @openlinear/desktop tauri build"

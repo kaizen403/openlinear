@@ -14,6 +14,9 @@ else
   echo "[dev] Using remote database, skipping docker..."
 fi
 
+echo "[dev] Seeding test tasks..."
+pnpm db:seed
+
 echo "[dev] Starting API and Desktop UI..."
 
 API_PORT=3001 pnpm --filter @openlinear/api dev &
