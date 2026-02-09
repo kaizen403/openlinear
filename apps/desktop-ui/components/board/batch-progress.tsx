@@ -33,6 +33,7 @@ const statusConfig: Record<string, { color: string; bg: string; icon: typeof Che
 
 export function BatchProgress({ batchId, status, mode, tasks, prUrl, onCancel, onDismiss, onTaskClick }: BatchProgressProps) {
   const [expanded, setExpanded] = useState(false)
+  const [cancelling, setCancelling] = useState(false)
   const total = tasks.length
   const completed = tasks.filter(t => t.status === 'completed').length
   const failed = tasks.filter(t => t.status === 'failed').length
@@ -67,11 +68,21 @@ export function BatchProgress({ batchId, status, mode, tasks, prUrl, onCancel, o
             <Button
               size="sm"
               variant="ghost"
-              onClick={() => onCancel(batchId)}
+              onClick={() => { setCancelling(true); onCancel(batchId) }}
+              disabled={cancelling}
               className="h-7 text-xs text-[#666] hover:text-[#8b5a5a]"
             >
-              <X className="w-3 h-3 mr-1" />
-              Cancel
+              {cancelling ? (
+                <>
+                  <Loader2 className="w-3 h-3 animate-spin mr-1" />
+                  Cancelling
+                </>
+              ) : (
+                <>
+                  <X className="w-3 h-3 mr-1" />
+                  Cancel
+                </>
+              )}
             </Button>
           )}
           {prUrl && !isRunning && (

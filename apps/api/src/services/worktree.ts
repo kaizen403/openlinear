@@ -62,6 +62,26 @@ export async function createWorktree(
     await execAsync(`git -C ${mainRepoPath} fetch origin`);
 
     try {
+      const { stdout: worktreeList } = await execAsync(`git -C ${mainRepoPath} worktree list --porcelain`);
+      const lines = worktreeList.split('\n');
+      for (let i = 0; i < lines.length; i++) {
+        if (lines[i].startsWith('worktree ')) {
+          const wtPath = lines[i].slice('worktree '.length);
+          for (let j = i + 1; j < lines.length && lines[j] !== ''; j++) {
+            if (lines[j] === `branch refs/heads/${branchName}`) {
+              console.log(`[Worktree] Removing stale worktree at ${wtPath} for branch ${branchName}`);
+              await execAsync(`git -C ${mainRepoPath} worktree remove ${wtPath} --force`).catch(() => {
+                if (existsSync(wtPath)) rmSync(wtPath, { recursive: true, force: true });
+              });
+              break;
+            }
+          }
+        }
+      }
+    } catch {
+    }
+
+    try {
       await execAsync(`git -C ${mainRepoPath} branch -D ${branchName}`);
       console.log(`[Worktree] Deleted stale branch ${branchName}`);
     } catch {

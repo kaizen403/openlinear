@@ -3,7 +3,7 @@
 import { Button } from "@/components/ui/button"
 import { Play, ListOrdered, ArrowRight, X } from "lucide-react"
 
-type BatchMode = 'execute' | 'move' | 'mixed'
+type BatchMode = 'execute' | 'move' | 'mixed' | 'view'
 
 interface BatchControlsProps {
   selectedCount: number
@@ -19,7 +19,7 @@ export function BatchControls({ selectedCount, mode, onExecuteParallel, onExecut
   if (selectedCount === 0) return null
 
   return (
-    <div className="fixed bottom-4 sm:bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-2.5 sm:py-3 bg-linear-bg-secondary border border-linear-border rounded-xl shadow-2xl backdrop-blur-sm max-w-[calc(100vw-2rem)]">
+    <div className="fixed bottom-4 sm:bottom-6 left-1/2 -translate-x-1/2 z-50 flex flex-wrap items-center gap-2 sm:gap-3 px-3 sm:px-4 py-2.5 sm:py-3 bg-linear-bg-secondary border border-linear-border rounded-xl shadow-2xl backdrop-blur-sm max-w-[calc(100vw-2rem)]">
       <span className="text-sm text-linear-text-secondary whitespace-nowrap">
         {selectedCount} task{selectedCount !== 1 ? 's' : ''} selected
       </span>
@@ -39,7 +39,8 @@ export function BatchControls({ selectedCount, mode, onExecuteParallel, onExecut
             size="sm"
             onClick={onExecuteQueue}
             disabled={disabled}
-            className="bg-linear-accent hover:bg-linear-accent-hover text-white gap-1.5"
+            variant="outline"
+            className="border-linear-border text-linear-text hover:bg-linear-bg-tertiary gap-1.5"
           >
             <ListOrdered className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">Execute Queue</span>
@@ -51,7 +52,8 @@ export function BatchControls({ selectedCount, mode, onExecuteParallel, onExecut
           size="sm"
           onClick={onMoveToInProgress}
           disabled={disabled}
-          className="bg-linear-accent hover:bg-linear-accent-hover text-white gap-1.5"
+          variant="outline"
+          className="border-linear-border text-linear-text hover:bg-linear-bg-tertiary gap-1.5"
         >
           <ArrowRight className="w-3.5 h-3.5" />
           <span className="hidden sm:inline">Move to In-Progress</span>

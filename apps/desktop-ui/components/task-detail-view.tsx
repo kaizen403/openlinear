@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef } from "react"
-import { X, ArrowLeft, Bot, Wrench, CheckCircle, AlertCircle, Info, Clock, AlertTriangle, Flag, Tag, Folder, Square, Trash2, GitMerge, ExternalLink, Play, Check } from "lucide-react"
+import { X, ArrowLeft, Bot, Wrench, CheckCircle, AlertCircle, Info, Clock, AlertTriangle, Flag, Tag, Folder, Square, Archive, GitMerge, ExternalLink, Play, Check, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn, openExternal } from "@/lib/utils"
 import { Task, ExecutionProgress, ExecutionLogEntry, formatDuration } from "@/types/task"
@@ -20,10 +20,10 @@ interface TaskDetailViewProps {
 }
 
 const statusConfig = {
-  todo: { label: 'Todo', color: 'bg-linear-text-tertiary' },
-  in_progress: { label: 'In Progress', color: 'bg-yellow-500' },
-  done: { label: 'Done', color: 'bg-green-500' },
-  cancelled: { label: 'Cancelled', color: 'bg-gray-500' },
+  todo: { label: 'Todo', color: 'bg-slate-500' },
+  in_progress: { label: 'In Progress', color: 'bg-blue-500' },
+  done: { label: 'Done', color: 'bg-purple-500' },
+  cancelled: { label: 'Cancelled', color: 'bg-zinc-500' },
 }
 
 const priorityConfig = {
@@ -75,12 +75,17 @@ export function TaskDetailView({ task, logs, progress, open, onClose, onDelete, 
   const [editingDescription, setEditingDescription] = useState(false)
   const [titleDraft, setTitleDraft] = useState("")
   const [descriptionDraft, setDescriptionDraft] = useState("")
+  const [cancelling, setCancelling] = useState(false)
 
   useEffect(() => {
     if (logsContainerRef.current && open && logs.length > 0) {
       logsContainerRef.current.scrollTop = 0
     }
   }, [logs, open])
+
+  useEffect(() => {
+    if (!isExecuting) setCancelling(false)
+  }, [isExecuting])
 
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
@@ -170,10 +175,20 @@ export function TaskDetailView({ task, logs, progress, open, onClose, onDelete, 
                   variant="ghost"
                   size="sm"
                   className="h-8 px-3 text-linear-text-secondary hover:text-yellow-400 hover:bg-yellow-400/10"
-                  onClick={() => onCancel(task.id)}
+                  disabled={cancelling}
+                  onClick={() => { setCancelling(true); onCancel(task.id) }}
                 >
-                  <Square className="h-3.5 w-3.5 mr-1.5 fill-current" />
-                  Stop
+                  {cancelling ? (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                      Stopping
+                    </>
+                  ) : (
+                    <>
+                      <Square className="h-3.5 w-3.5 mr-1.5 fill-current" />
+                      Stop
+                    </>
+                  )}
                 </Button>
               )
             ) : (
@@ -193,11 +208,11 @@ export function TaskDetailView({ task, logs, progress, open, onClose, onDelete, 
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-8 px-3 text-linear-text-secondary hover:text-red-400 hover:bg-red-400/10"
+                className="h-8 px-3 text-linear-text-secondary hover:text-linear-accent hover:bg-linear-accent/10"
                 onClick={() => onDelete(task.id)}
               >
-                <Trash2 className="h-3.5 w-3.5 mr-1.5" />
-                Delete
+                <Archive className="h-3.5 w-3.5 mr-1.5" />
+                Archive
               </Button>
             )}
             <Button

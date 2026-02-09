@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Loader2, GitBranch, Code, GitPullRequest, Check, X, ExternalLink, Play, ArrowRight, Trash2, Clock } from "lucide-react"
+import { Loader2, GitBranch, Code, GitPullRequest, Check, X, ExternalLink, Play, ArrowRight, Archive, Clock } from "lucide-react"
 import { cn, openExternal } from "@/lib/utils"
 import { Task, ExecutionProgress, formatDuration } from "@/types/task"
 
@@ -20,6 +20,7 @@ interface TaskCardProps {
   selectionMode?: boolean
   isBatchTask?: boolean
   isCompletedBatchTask?: boolean
+  isDragging?: boolean
 }
 
 const priorityColors = {
@@ -38,8 +39,9 @@ const progressConfig = {
   error: { icon: X, label: 'Error', color: 'text-red-400' },
 }
 
-export function TaskCard({ task, onExecute, onCancel, onDelete, onMoveToInProgress, onTaskClick, executionProgress, selected, onToggleSelect, selectionMode, isBatchTask, isCompletedBatchTask }: TaskCardProps) {
+export function TaskCard({ task, onExecute, onCancel, onDelete, onMoveToInProgress, onTaskClick, executionProgress, selected, onToggleSelect, selectionMode, isBatchTask, isCompletedBatchTask, isDragging }: TaskCardProps) {
   const [liveElapsedMs, setLiveElapsedMs] = useState<number>(0)
+  const [cancelling, setCancelling] = useState(false)
 
   useEffect(() => {
     if (task.status === 'in_progress' && task.executionStartedAt) {
@@ -55,6 +57,12 @@ export function TaskCard({ task, onExecute, onCancel, onDelete, onMoveToInProgre
     }
   }, [task.status, task.executionStartedAt])
 
+  useEffect(() => {
+    if (task.status !== 'in_progress') {
+      setCancelling(false)
+    }
+  }, [task.status])
+
   const handleExecute = () => {
     if (onExecute) {
       onExecute(task.id)
@@ -63,6 +71,7 @@ export function TaskCard({ task, onExecute, onCancel, onDelete, onMoveToInProgre
 
   const handleCancel = () => {
     if (onCancel) {
+      setCancelling(true)
       onCancel(task.id)
     }
   }
@@ -92,11 +101,12 @@ export function TaskCard({ task, onExecute, onCancel, onDelete, onMoveToInProgre
     <div>
     <Card 
       className={cn(
-        "bg-white/[0.03] backdrop-blur-md border border-white/[0.08]",
-        "shadow-[0_4px_24px_-8px_rgba(0,0,0,0.4),0_1px_3px_rgba(0,0,0,0.2),inset_0_1px_0_rgba(255,255,255,0.05)]",
+        isDragging
+          ? "bg-[#1a1a1a] border border-white/[0.12] shadow-2xl"
+          : "bg-white/[0.03] backdrop-blur-md border border-white/[0.08] shadow-[0_4px_24px_-8px_rgba(0,0,0,0.4),0_1px_3px_rgba(0,0,0,0.2),inset_0_1px_0_rgba(255,255,255,0.05)]",
         "cursor-pointer group rounded-xl",
-        selected && "bg-white/[0.06] border-white/[0.15]",
-        isBatchTask && "bg-linear-accent/[0.08] border-linear-accent/20 shadow-[0_4px_24px_-8px_rgba(59,130,246,0.3)]",
+        selected && !isDragging && "bg-white/[0.06] border-white/[0.15]",
+        isBatchTask && "border-white/[0.10]",
         isCompletedBatchTask && "bg-purple-500/[0.05] border-purple-500/20"
       )}
       onClick={handleCardClick}
@@ -188,7 +198,10 @@ export function TaskCard({ task, onExecute, onCancel, onDelete, onMoveToInProgre
             <span className="text-[11px] text-linear-text-tertiary font-mono opacity-60">
               OP-{task.id.slice(0, 3).toUpperCase()}
             </span>
-            {(task.status === 'in_progress' || task.status === 'done' || task.status === 'cancelled') && (task.executionStartedAt || task.executionElapsedMs) && (
+            {(task.status === 'in_progress' || task.status === 'done' || task.status === 'cancelled') && (
+              (task.status === 'in_progress' && task.executionStartedAt && liveElapsedMs >= 1000) ||
+              ((task.status === 'done' || task.status === 'cancelled') && (task.executionElapsedMs ?? 0) > 0)
+            ) && (
               <span className="text-[11px] text-linear-text-tertiary flex items-center gap-1 whitespace-nowrap tabular-nums">
                 <Clock className="w-3 h-3 flex-shrink-0" />
                 {task.status === 'in_progress' && task.executionStartedAt
@@ -217,14 +230,14 @@ export function TaskCard({ task, onExecute, onCancel, onDelete, onMoveToInProgre
               <Button
                 size="sm"
                 variant="ghost"
-                className="h-6 px-2 text-xs text-linear-accent hover:text-linear-accent hover:bg-linear-accent/10 gap-1"
+                className="h-6 w-6 rounded-md p-0 text-linear-accent bg-linear-accent/10 border border-linear-accent/30 hover:bg-linear-accent/20"
                 onClick={(e) => {
                   e.stopPropagation()
                   handleExecute()
                 }}
+                aria-label="Execute task"
               >
                 <Play className="w-3 h-3 fill-current" />
-                Execute
               </Button>
             )}
             {isActiveProgress && onCancel && (
@@ -232,25 +245,34 @@ export function TaskCard({ task, onExecute, onCancel, onDelete, onMoveToInProgre
                 size="sm"
                 variant="ghost"
                 className="h-6 px-1.5 text-xs text-red-400 hover:text-red-400 hover:bg-red-500/10"
+                disabled={cancelling}
                 onClick={(e) => {
                   e.stopPropagation()
                   handleCancel()
                 }}
               >
-                Cancel
+                {cancelling ? (
+                  <>
+                    <Loader2 className="w-3 h-3 animate-spin mr-1" />
+                    Cancelling
+                  </>
+                ) : (
+                  'Cancel'
+                )}
               </Button>
             )}
             {onDelete && !isActiveProgress && (
               <Button
                 size="sm"
                 variant="ghost"
-                className="h-6 w-6 p-0 text-linear-text-tertiary hover:text-red-400 hover:bg-red-500/10"
+                className="h-6 w-6 p-0 text-linear-text-tertiary hover:text-linear-accent hover:bg-linear-accent/10"
                 onClick={(e) => {
                   e.stopPropagation()
                   handleDelete()
                 }}
+                aria-label="Archive task"
               >
-                <Trash2 className="w-3 h-3" />
+                <Archive className="w-3 h-3" />
               </Button>
             )}
           </div>

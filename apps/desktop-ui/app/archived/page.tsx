@@ -7,6 +7,7 @@ import {
   AlertTriangle,
   Flag,
   Loader2,
+  Check,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { AppShell } from "@/components/layout/app-shell"
@@ -29,6 +30,8 @@ export default function ArchivedPage() {
   const [activeTab, setActiveTab] = useState<PriorityTab>("all")
   const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set())
   const [deletingAll, setDeletingAll] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [deletingSelected, setDeletingSelected] = useState(false)
 
   const fetchArchived = useCallback(async () => {
     try {
@@ -47,9 +50,18 @@ export default function ArchivedPage() {
     fetchArchived()
   }, [fetchArchived])
 
+  useEffect(() => {
+    setSelectedIds(new Set())
+  }, [activeTab])
+
   const handleDeleteOne = async (taskId: string) => {
     setDeletingIds((prev) => new Set(prev).add(taskId))
     setTasks((prev) => prev.filter((t) => t.id !== taskId))
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      next.delete(taskId)
+      return next
+    })
 
     try {
       const token = localStorage.getItem("token")
@@ -75,6 +87,7 @@ export default function ArchivedPage() {
     setDeletingAll(true)
     const previousTasks = tasks
     setTasks([])
+    setSelectedIds(new Set())
 
     try {
       const token = localStorage.getItem("token")
@@ -92,11 +105,53 @@ export default function ArchivedPage() {
     }
   }
 
+  const handleDeleteSelected = async () => {
+    const idsToDelete = Array.from(selectedIds)
+    if (idsToDelete.length === 0) return
+
+    setDeletingSelected(true)
+    const previousTasks = tasks
+    setTasks((prev) => prev.filter((t) => !selectedIds.has(t.id)))
+    setSelectedIds(new Set())
+
+    try {
+      const token = localStorage.getItem("token")
+      const results = await Promise.all(
+        idsToDelete.map((taskId) =>
+          fetch(`${API_BASE_URL}/api/tasks/archived/${taskId}`, {
+            method: "DELETE",
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+          })
+        )
+      )
+      if (results.some((r) => !r.ok)) {
+        setTasks(previousTasks)
+        fetchArchived()
+      }
+    } catch {
+      setTasks(previousTasks)
+      fetchArchived()
+    } finally {
+      setDeletingSelected(false)
+    }
+  }
+
+  const toggleSelected = (taskId: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(taskId)) next.delete(taskId)
+      else next.add(taskId)
+      return next
+    })
+  }
+
   const filteredTasks = activeTab === "all"
     ? tasks
     : tasks.filter((t) => t.priority === activeTab)
 
   const countByPriority = (p: string) => tasks.filter((t) => t.priority === p).length
+  const selectedCount = selectedIds.size
+  const canSelectAll = filteredTasks.length > 0 && filteredTasks.some((t) => !selectedIds.has(t.id))
 
   return (
     <AppShell>
@@ -113,18 +168,50 @@ export default function ArchivedPage() {
                 )}
               </div>
               {tasks.length > 0 && (
-                <button
-                  onClick={handleDeleteAll}
-                  disabled={deletingAll}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium text-red-400 hover:text-red-300 hover:bg-red-500/10 transition-colors disabled:opacity-50"
-                >
-                  {deletingAll ? (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  ) : (
-                    <Trash2 className="w-3.5 h-3.5" />
+                <div className="flex items-center gap-2">
+                  {selectedCount > 0 && (
+                    <button
+                      onClick={handleDeleteSelected}
+                      disabled={deletingSelected}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium text-red-400 hover:text-red-300 hover:bg-red-500/10 transition-colors disabled:opacity-50"
+                    >
+                      {deletingSelected ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Trash2 className="w-3.5 h-3.5" />
+                      )}
+                      Delete selected
+                    </button>
                   )}
-                  Delete all
-                </button>
+                  {canSelectAll && (
+                    <button
+                      onClick={() => setSelectedIds(new Set(filteredTasks.map((t) => t.id)))}
+                      className="px-3 py-1.5 rounded-md text-sm font-medium text-linear-text-tertiary hover:text-linear-text-secondary hover:bg-linear-bg-tertiary/50 transition-colors"
+                    >
+                      Select all
+                    </button>
+                  )}
+                  {selectedCount > 0 && (
+                    <button
+                      onClick={() => setSelectedIds(new Set())}
+                      className="px-3 py-1.5 rounded-md text-sm font-medium text-linear-text-tertiary hover:text-linear-text-secondary hover:bg-linear-bg-tertiary/50 transition-colors"
+                    >
+                      Clear
+                    </button>
+                  )}
+                  <button
+                    onClick={handleDeleteAll}
+                    disabled={deletingAll}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium text-red-400 hover:text-red-300 hover:bg-red-500/10 transition-colors disabled:opacity-50"
+                  >
+                    {deletingAll ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Trash2 className="w-3.5 h-3.5" />
+                    )}
+                    Delete all
+                  </button>
+                </div>
               )}
             </div>
 
@@ -163,11 +250,24 @@ export default function ArchivedPage() {
               {filteredTasks.map((task) => {
                 const config = priorityConfig[task.priority]
                 const PriorityIcon = config?.icon || Flag
+                const isSelected = selectedIds.has(task.id)
                 return (
                   <div
                     key={task.id}
                     className="flex items-center gap-3 px-4 sm:px-6 py-3 hover:bg-linear-bg-secondary/50 transition-colors group"
                   >
+                    <button
+                      onClick={() => toggleSelected(task.id)}
+                      className={cn(
+                        "w-4 h-4 rounded border flex items-center justify-center",
+                        isSelected
+                          ? "bg-linear-accent/20 border-linear-accent text-linear-accent"
+                          : "border-linear-border text-transparent"
+                      )}
+                      aria-label={isSelected ? "Unselect task" : "Select task"}
+                    >
+                      {isSelected && <Check className="w-3 h-3" />}
+                    </button>
                     <div className={cn("flex-shrink-0", config?.color || "text-linear-text-tertiary")}>
                       <PriorityIcon className="w-4 h-4" />
                     </div>
@@ -213,7 +313,7 @@ export default function ArchivedPage() {
               </h3>
               <p className="text-sm text-linear-text-tertiary">
                 {activeTab === "all"
-                  ? "Tasks you delete will appear here"
+                  ? "Tasks you archive will appear here"
                   : "Try switching to a different priority tab"}
               </p>
             </div>
