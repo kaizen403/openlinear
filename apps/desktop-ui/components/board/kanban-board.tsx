@@ -13,6 +13,7 @@ import { Plus, Loader2, Check, GitPullRequest, ExternalLink, X } from "lucide-re
 import { useSSE, SSEEventType, SSEEventData } from "@/hooks/use-sse"
 import { useAuth } from "@/hooks/use-auth"
 import { getActivePublicProject, PublicProject } from "@/lib/api"
+import { openExternal } from "@/lib/utils"
 import { Task, ExecutionProgress, ExecutionLogEntry } from "@/types/task"
 
 const COLUMNS = [
@@ -601,7 +602,7 @@ export function KanbanBoard() {
                                   </div>
                                   {completedBatch?.prUrl && (
                                     <button
-                                      onClick={() => window.open(completedBatch.prUrl!, '_blank')}
+                                      onClick={() => openExternal(completedBatch.prUrl!)}
                                       className="flex items-center gap-1 text-[11px] text-purple-400 hover:text-purple-300 font-medium transition-colors"
                                     >
                                       <GitPullRequest className="w-3 h-3" />
