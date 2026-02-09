@@ -4,8 +4,8 @@ import { useState, useEffect } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import {
-    Layout, Home, Inbox, Layers, Settings, ChevronDown, Circle, Hash,
-    Briefcase, PanelLeftClose, Github, LogOut
+    Home, Inbox, Layers, Settings,
+    Briefcase, PanelLeftClose, Github, LogOut, Users, Archive
 } from "lucide-react"
 import { ProjectSelector } from "@/components/auth/project-selector"
 import { useAuth } from "@/hooks/use-auth"
@@ -20,9 +20,6 @@ const navItemClass = (isActive: boolean) =>
             : "text-linear-text-secondary hover:text-linear-text hover:bg-linear-bg-tertiary/50"
     )
 
-const sectionHeaderClass =
-    "flex items-center gap-2 w-full px-3 py-1.5 text-xs font-semibold text-linear-text-tertiary uppercase tracking-wider hover:text-linear-text-secondary transition-colors duration-200"
-
 interface SidebarProps {
     open: boolean
     onClose: () => void
@@ -33,8 +30,6 @@ interface SidebarProps {
 export function Sidebar({ open, onClose, width, animating }: SidebarProps) {
     const pathname = usePathname()
     const { user, isAuthenticated, isLoading, activeProject, logout } = useAuth()
-    const [teamsExpanded, setTeamsExpanded] = useState(true)
-    const [favoritesExpanded, setFavoritesExpanded] = useState(true)
     const [isTauri, setIsTauri] = useState(false)
 
     useEffect(() => {
@@ -58,7 +53,7 @@ export function Sidebar({ open, onClose, width, animating }: SidebarProps) {
 
     return (
         <aside
-            className="bg-linear-bg-secondary border-r border-linear-border flex flex-col flex-shrink-0 overflow-hidden"
+            className="bg-linear-bg-secondary border-r border-linear-border flex flex-col flex-shrink-0 overflow-hidden h-full"
             style={{
                 width: open ? width : 0,
                 transition: animating ? 'width 150ms cubic-bezier(0.25, 0.1, 0.25, 1)' : 'none',
@@ -107,34 +102,30 @@ export function Sidebar({ open, onClose, width, animating }: SidebarProps) {
             <nav className="flex-1 overflow-y-auto py-2 min-w-0">
                 <div className="px-3 space-y-0.5">
                     <Link href="/" className={navItemClass(pathname === "/")}>
-                        <Home className="w-4 h-4" />
-                        Home
+                        <Home className="w-4 h-4 flex-shrink-0" />
+                        <span>Home</span>
                     </Link>
                     <Link href="/inbox" className={navItemClass(pathname === "/inbox")}>
-                        <Inbox className="w-4 h-4" />
-                        Inbox
+                        <Inbox className="w-4 h-4 flex-shrink-0" />
+                        <span>Inbox</span>
                         <span className="ml-auto text-xs text-linear-text-tertiary bg-linear-bg-tertiary px-1.5 py-0.5 rounded">
                             3
                         </span>
                     </Link>
                     <Link href="/my-issues" className={navItemClass(pathname === "/my-issues")}>
-                        <Layers className="w-4 h-4" />
-                        My Issues
+                        <Layers className="w-4 h-4 flex-shrink-0" />
+                        <span>My Issues</span>
                     </Link>
-                </div>
-
-                {/* Projects */}
-                <div className="mt-4 px-3 space-y-0.5">
                     <Link href="/projects" className={navItemClass(pathname === "/projects")}>
-                        <Briefcase className="w-4 h-4" />
-                        Projects
+                        <Briefcase className="w-4 h-4 flex-shrink-0" />
+                        <span>Projects</span>
                     </Link>
                     {activeProject && (
                         <Link
                             href={`/projects/${activeProject.id}`}
                             className={navItemClass(pathname.startsWith("/projects/") && pathname !== "/projects")}
                         >
-                            <div className="w-4 h-4 rounded bg-linear-accent flex items-center justify-center">
+                            <div className="w-4 h-4 rounded bg-linear-accent flex items-center justify-center flex-shrink-0">
                                 <span className="text-[10px] font-bold text-white">
                                     {activeProject.name.charAt(0).toUpperCase()}
                                 </span>
@@ -142,74 +133,18 @@ export function Sidebar({ open, onClose, width, animating }: SidebarProps) {
                             <span className="truncate">{activeProject.name}</span>
                         </Link>
                     )}
-                </div>
-
-                {/* Teams */}
-                <div className="mt-4 px-3">
-                    <button onClick={() => setTeamsExpanded(!teamsExpanded)} className={sectionHeaderClass}>
-                        <span className={cn("transition-transform duration-200", teamsExpanded ? "" : "-rotate-90")}>
-                            <ChevronDown className="w-3 h-3" />
-                        </span>
-                        Teams
-                    </button>
-                    <div
-                        className={cn(
-                            "overflow-hidden transition-all duration-200 ease-in-out",
-                            teamsExpanded ? "max-h-96 opacity-100 mt-1" : "max-h-0 opacity-0"
-                        )}
-                    >
-                        <div className="space-y-0.5">
-                            <Link href="/team/engineering" className={navItemClass(pathname === "/team/engineering")}>
-                                <div className="w-4 h-4 rounded bg-linear-bg-tertiary border border-linear-border flex items-center justify-center text-[10px] font-medium text-linear-text-secondary">
-                                    E
-                                </div>
-                                Engineering
-                            </Link>
-                            <Link href="/team/design" className={navItemClass(pathname === "/team/design")}>
-                                <div className="w-4 h-4 rounded bg-linear-bg-tertiary border border-linear-border flex items-center justify-center text-[10px] font-medium text-linear-text-secondary">
-                                    D
-                                </div>
-                                Design
-                            </Link>
-                            <Link href="/team/product" className={navItemClass(pathname === "/team/product")}>
-                                <div className="w-4 h-4 rounded bg-linear-bg-tertiary border border-linear-border flex items-center justify-center text-[10px] font-medium text-linear-text-secondary">
-                                    P
-                                </div>
-                                Product
-                            </Link>
-                        </div>
-                    </div>
-                </div>
-
-                {/* Favorites */}
-                <div className="mt-4 px-3">
-                    <button onClick={() => setFavoritesExpanded(!favoritesExpanded)} className={sectionHeaderClass}>
-                        <span className={cn("transition-transform duration-200", favoritesExpanded ? "" : "-rotate-90")}>
-                            <ChevronDown className="w-3 h-3" />
-                        </span>
-                        Favorites
-                    </button>
-                    <div
-                        className={cn(
-                            "overflow-hidden transition-all duration-200 ease-in-out",
-                            favoritesExpanded ? "max-h-96 opacity-100 mt-1" : "max-h-0 opacity-0"
-                        )}
-                    >
-                        <div className="space-y-0.5">
-                            <Link href="/view/active" className={navItemClass(pathname === "/view/active")}>
-                                <Circle className="w-3 h-3 text-linear-text-tertiary" />
-                                Active Sprint
-                            </Link>
-                            <Link href="/view/backlog" className={navItemClass(pathname === "/view/backlog")}>
-                                <Hash className="w-4 h-4 text-linear-text-tertiary" />
-                                Backlog
-                            </Link>
-                        </div>
-                    </div>
+                    <Link href="/teams" className={navItemClass(pathname === "/teams" || pathname.startsWith("/team/"))}>
+                        <Users className="w-4 h-4 flex-shrink-0" />
+                        <span>Teams</span>
+                    </Link>
+                    <Link href="/archived" className={navItemClass(pathname === "/archived")}>
+                        <Archive className="w-4 h-4 flex-shrink-0" />
+                        <span>Archived</span>
+                    </Link>
                 </div>
             </nav>
 
-            <div className="p-3 border-t border-linear-border min-w-0">
+            <div className="mt-auto p-3 border-t border-linear-border min-w-0">
                 <Link
                     href="/settings"
                     className={cn(
