@@ -561,7 +561,7 @@ export function KanbanBoard() {
                                 <div className="flex items-center gap-1.5 px-1">
                                   <Loader2 className="w-3 h-3 animate-spin text-zinc-500" />
                                   <span className="text-[11px] text-zinc-500 font-medium uppercase tracking-wider">
-                                    Batch {activeBatch?.mode === 'queue' ? 'Queue' : 'Parallel'}
+                                    {activeBatch?.mode === 'queue' ? 'Queue' : 'Parallel'} Execution
                                   </span>
                                 </div>
                                 {batch.map((task, i) => renderTask(task, i))}

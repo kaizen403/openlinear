@@ -52,7 +52,7 @@ export function BatchProgress({ batchId, status, mode, tasks, prUrl, onCancel }:
               <div className={cn("w-2 h-2 rounded-full", status === 'completed' ? 'bg-green-500' : status === 'failed' ? 'bg-red-500' : 'bg-gray-500')} />
             )}
             <span className="text-sm text-linear-text">
-              Batch {mode}: {completed}/{total} complete
+              {mode === 'queue' ? 'Queue' : 'Parallel'} Execution: {completed}/{total} complete
               {failed > 0 && <span className="text-red-400 ml-1">({failed} failed)</span>}
             </span>
             {expanded ? (
