@@ -111,8 +111,8 @@ export function RepoConnector({ onRepoConnected, onRepoDisconnected }: RepoConne
   }
 
   return (
-    <div className="flex items-center gap-2">
-      <div className="relative">
+    <div className="flex items-center gap-2 flex-wrap">
+      <div className="relative flex-1 min-w-[200px]">
         <GitBranch className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-linear-text-tertiary" />
         <input
           type="text"
@@ -120,7 +120,7 @@ export function RepoConnector({ onRepoConnected, onRepoDisconnected }: RepoConne
           onChange={(e) => setUrl(e.target.value)}
           onKeyDown={handleKeyDown}
           placeholder="github.com/owner/repo"
-          className="w-64 h-8 pl-9 pr-3 rounded-md bg-linear-bg-tertiary border border-linear-border text-sm placeholder:text-linear-text-tertiary focus:outline-none focus:border-linear-accent transition-colors"
+          className="w-full h-8 pl-9 pr-3 rounded-md bg-linear-bg-tertiary border border-linear-border text-sm placeholder:text-linear-text-tertiary focus:outline-none focus:border-linear-accent transition-colors"
           autoFocus
           disabled={isLoading}
         />

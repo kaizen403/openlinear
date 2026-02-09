@@ -16,29 +16,34 @@ export function AppShell({ children }: AppShellProps) {
     const [sidebarOpen, setSidebarOpen] = useState(true)
     const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_WIDTH)
     const [dragging, setDragging] = useState(false)
+    const [isMobile, setIsMobile] = useState(false)
     const startX = useRef(0)
     const startWidth = useRef(DEFAULT_WIDTH)
 
-    /* Auto-collapse sidebar on narrow viewports */
+    /* Track mobile breakpoint */
     useEffect(() => {
         const mq = window.matchMedia("(max-width: 768px)")
         const handler = (e: MediaQueryListEvent | MediaQueryList) => {
-            setSidebarOpen(!e.matches)
+            setIsMobile(e.matches)
+            if (e.matches) {
+                setSidebarOpen(false)
+            }
         }
         handler(mq)
         mq.addEventListener("change", handler)
         return () => mq.removeEventListener("change", handler)
     }, [])
 
-    /* Drag handlers */
+    /* Drag handlers — disabled on mobile */
     const handleMouseDown = useCallback((e: React.MouseEvent) => {
+        if (isMobile) return
         e.preventDefault()
         setDragging(true)
         startX.current = e.clientX
         startWidth.current = sidebarWidth
         document.body.style.cursor = "col-resize"
         document.body.style.userSelect = "none"
-    }, [sidebarWidth])
+    }, [sidebarWidth, isMobile])
 
     useEffect(() => {
         const handleMouseMove = (e: MouseEvent) => {
@@ -63,12 +68,36 @@ export function AppShell({ children }: AppShellProps) {
         }
     }, [dragging])
 
+    const closeSidebar = useCallback(() => setSidebarOpen(false), [])
+
     return (
         <div className="flex h-screen bg-linear-bg text-linear-text overflow-hidden">
-            <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} width={sidebarWidth} animating={!dragging} />
+            {/* Mobile overlay backdrop */}
+            {isMobile && sidebarOpen && (
+                <div
+                    className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm"
+                    onClick={closeSidebar}
+                />
+            )}
 
-            {/* Drag handle — only visible when sidebar is open */}
-            {sidebarOpen && (
+            {/* Sidebar — overlay on mobile, inline on desktop */}
+            <div
+                className={
+                    isMobile
+                        ? "fixed inset-y-0 left-0 z-50"
+                        : "relative z-10 flex-shrink-0"
+                }
+            >
+                <Sidebar
+                    open={sidebarOpen}
+                    onClose={closeSidebar}
+                    width={isMobile ? 280 : sidebarWidth}
+                    animating={!dragging}
+                />
+            </div>
+
+            {/* Drag handle — only visible when sidebar is open on desktop */}
+            {!isMobile && sidebarOpen && (
                 <div
                     onMouseDown={handleMouseDown}
                     className="w-1 flex-shrink-0 cursor-col-resize relative group z-10 -ml-px"

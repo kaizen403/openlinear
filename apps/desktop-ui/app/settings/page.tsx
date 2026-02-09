@@ -932,8 +932,9 @@ export default function SettingsPage() {
         <div className="flex-1 h-full" data-tauri-drag-region />
       </header>
 
-      <div className="flex flex-1 overflow-hidden">
-        <nav className="w-52 flex-shrink-0 border-r border-linear-border bg-linear-bg overflow-y-auto py-3 px-2">
+      <div className="flex flex-col md:flex-row flex-1 overflow-hidden">
+        <nav className="flex-shrink-0 border-b md:border-b-0 md:border-r border-linear-border bg-linear-bg overflow-x-auto md:overflow-y-auto md:w-52 py-2 md:py-3 px-2">
+          <div className="flex md:flex-col gap-1 min-w-max md:min-w-0">
           {NAV_ITEMS.map((item) => {
             const Icon = item.icon
             const isActive = activeSection === item.id
@@ -941,7 +942,7 @@ export default function SettingsPage() {
               <button
                 key={item.id}
                 onClick={() => setActiveSection(item.id)}
-                className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-sm transition-colors ${
+                className={`flex items-center gap-2.5 px-3 py-2 rounded-md text-sm whitespace-nowrap transition-colors ${
                   isActive
                     ? "bg-linear-bg-tertiary text-linear-text"
                     : "text-linear-text-secondary hover:text-linear-text hover:bg-linear-bg-tertiary/50"
@@ -952,6 +953,7 @@ export default function SettingsPage() {
               </button>
             )
           })}
+          </div>
         </nav>
 
         <main className="flex-1 overflow-y-auto p-6 sm:p-8">
