@@ -222,13 +222,13 @@ export function TaskCard({ task, onExecute, onCancel, onDelete, onMoveToInProgre
               <Button
                 size="sm"
                 variant="ghost"
-                className="h-6 px-1.5 text-xs text-linear-accent hover:text-linear-accent hover:bg-linear-accent/10"
+                className="h-6 px-2 text-xs text-linear-accent hover:text-linear-accent hover:bg-linear-accent/10 gap-1"
                 onClick={(e) => {
                   e.stopPropagation()
                   handleExecute()
                 }}
               >
-                <Play className="w-3 h-3 mr-1" />
+                <Play className="w-3 h-3 fill-current" />
                 Execute
               </Button>
             )}
