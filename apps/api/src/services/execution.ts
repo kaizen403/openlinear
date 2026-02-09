@@ -41,6 +41,7 @@ interface ExecutionState {
   filesChanged: number;
   toolsExecuted: number;
   promptSent: boolean;
+  cancelled: boolean;
 }
 
 interface ExecutionLogEntry {
@@ -293,7 +294,7 @@ function findTaskBySessionId(sessionId: string): string | undefined {
 
 async function handleSessionComplete(taskId: string): Promise<void> {
   const execution = activeExecutions.get(taskId);
-  if (!execution) return;
+  if (!execution || execution.cancelled) return;
 
   const elapsedMs = Date.now() - execution.startedAt.getTime();
   let prUrl: string | null = null;
@@ -315,7 +316,7 @@ async function handleSessionComplete(taskId: string): Promise<void> {
       broadcastProgress(taskId, 'creating_pr', 'Creating pull request...');
       addLogEntry(taskId, 'info', 'Creating pull request...');
 
-      const project = await prisma.project.findUnique({
+      const project = await prisma.repository.findUnique({
         where: { id: execution.projectId },
       });
 
@@ -404,8 +405,8 @@ async function handleOpenCodeEvent(event: { type: string; properties?: Record<st
     case 'session.completed':
       if (taskId) {
         const execution = activeExecutions.get(taskId);
-        if (!execution?.promptSent) {
-          console.log(`[Execution] Ignoring early ${event.type} for task ${taskId.slice(0, 8)} (prompt not yet sent)`);
+        if (!execution?.promptSent || execution.cancelled) {
+          console.log(`[Execution] Ignoring ${event.type} for task ${taskId.slice(0, 8)} (${!execution?.promptSent ? 'prompt not yet sent' : 'cancelled'})`);
           break;
         }
         addLogEntry(taskId, 'success', 'Agent completed work');
@@ -579,11 +580,11 @@ export async function executeTask({ taskId, userId }: ExecuteTaskParams): Promis
     });
     accessToken = user?.accessToken ?? null;
 
-    project = await prisma.project.findFirst({
+    project = await prisma.repository.findFirst({
       where: { userId, isActive: true },
     });
   } else {
-    project = await prisma.project.findFirst({
+    project = await prisma.repository.findFirst({
       where: { userId: null, isActive: true },
     });
   }
@@ -654,6 +655,7 @@ export async function executeTask({ taskId, userId }: ExecuteTaskParams): Promis
       filesChanged: 0,
       toolsExecuted: 0,
       promptSent: false,
+      cancelled: false,
     };
 
     activeExecutions.set(taskId, executionState);
@@ -711,30 +713,30 @@ export async function cancelTask(taskId: string): Promise<{ success: boolean; er
     return { success: false, error: 'Task is not running' };
   }
 
+  execution.cancelled = true;
+
+  const now = new Date();
+  const elapsedMs = now.getTime() - execution.startedAt.getTime();
+  const estimatedProgress = estimateProgress(execution);
+
+  addLogEntry(taskId, 'info', 'Execution cancelled by user');
+  broadcastProgress(taskId, 'cancelled', 'Execution cancelled', {
+    elapsedMs,
+    estimatedProgress,
+  });
+
+  await updateTaskStatus(taskId, 'cancelled', null, {
+    executionPausedAt: now,
+    executionElapsedMs: elapsedMs,
+    executionProgress: estimatedProgress,
+  });
+
   try {
     await execution.client.session.abort({ path: { id: execution.sessionId } });
-    
-    const now = new Date();
-    const elapsedMs = now.getTime() - execution.startedAt.getTime();
-    const estimatedProgress = estimateProgress(execution);
-    
-    addLogEntry(taskId, 'info', 'Execution cancelled by user');
-    broadcastProgress(taskId, 'cancelled', 'Execution cancelled', { 
-      elapsedMs,
-      estimatedProgress,
-    });
-    
-    await updateTaskStatus(taskId, 'cancelled', null, {
-      executionPausedAt: now,
-      executionElapsedMs: elapsedMs,
-      executionProgress: estimatedProgress,
-    });
-    
-    await cleanupExecution(taskId);
-    return { success: true };
   } catch (error) {
-    console.error(`[Execution] Failed to cancel task ${taskId}:`, error);
-    await cleanupExecution(taskId);
-    return { success: true, error: error instanceof Error ? error.message : 'Abort may have failed' };
+    console.error(`[Execution] Abort call failed for task ${taskId}:`, error);
   }
+
+  await cleanupExecution(taskId);
+  return { success: true };
 }

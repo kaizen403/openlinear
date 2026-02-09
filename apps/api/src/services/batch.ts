@@ -28,7 +28,7 @@ export async function createBatch(params: CreateBatchParams): Promise<BatchState
     conflictBehavior: (settings?.conflictBehavior as 'skip' | 'fail') ?? 'skip',
   };
 
-  const project = await prisma.project.findFirst({
+  const project = await prisma.repository.findFirst({
     where: params.userId
       ? { userId: params.userId, isActive: true }
       : { userId: null, isActive: true },
@@ -115,7 +115,7 @@ async function startTask(batch: BatchState, taskIndex: number): Promise<void> {
   task.startedAt = new Date();
 
   try {
-    const project = await prisma.project.findUnique({ where: { id: batch.projectId } });
+    const project = await prisma.repository.findUnique({ where: { id: batch.projectId } });
 
     const worktreePath = await createWorktree(
       batch.projectId,
@@ -422,7 +422,7 @@ async function finalizeBatch(batchId: string): Promise<void> {
   batch.status = 'merging';
   broadcastBatchEvent('batch:merging', batchId);
 
-  const project = await prisma.project.findUnique({ where: { id: batch.projectId } });
+  const project = await prisma.repository.findUnique({ where: { id: batch.projectId } });
   const targetBranch = project?.defaultBranch || 'main';
 
   await createBatchBranch(batch.projectId, batch.batchBranch, targetBranch);
@@ -472,7 +472,7 @@ async function finalizeBatch(batchId: string): Promise<void> {
     broadcastBatchEvent('batch:failed', batchId);
   } else {
     try {
-      const proj = await prisma.project.findUnique({ where: { id: batch.projectId } });
+      const proj = await prisma.repository.findUnique({ where: { id: batch.projectId } });
       if (proj) {
         await pushBranch(batch.projectId, batch.batchBranch, proj.cloneUrl, batch.accessToken);
 
@@ -519,6 +519,26 @@ async function finalizeBatch(batchId: string): Promise<void> {
 
     batch.status = 'completed';
     batch.completedAt = new Date();
+
+    if (batch.prUrl) {
+      const completedTaskIds = batch.tasks
+        .filter(t => t.status === 'completed')
+        .map(t => t.taskId);
+      if (completedTaskIds.length > 0) {
+        try {
+          await prisma.task.updateMany({
+            where: { id: { in: completedTaskIds } },
+            data: { prUrl: batch.prUrl },
+          });
+          for (const taskId of completedTaskIds) {
+            broadcast('task:updated', { id: taskId, prUrl: batch.prUrl });
+          }
+        } catch (err) {
+          console.error(`[Batch] Failed to write prUrl to tasks:`, err);
+        }
+      }
+    }
+
     broadcastBatchEvent('batch:completed', batchId, { prUrl: batch.prUrl });
   }
 

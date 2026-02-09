@@ -29,7 +29,7 @@ interface SidebarProps {
 
 export function Sidebar({ open, onClose, width, animating }: SidebarProps) {
     const pathname = usePathname()
-    const { user, isAuthenticated, isLoading, activeProject, logout } = useAuth()
+    const { user, isAuthenticated, isLoading, activeRepository, logout } = useAuth()
     const [isTauri, setIsTauri] = useState(false)
 
     useEffect(() => {
@@ -120,17 +120,17 @@ export function Sidebar({ open, onClose, width, animating }: SidebarProps) {
                         <Briefcase className="w-4 h-4 flex-shrink-0" />
                         <span>Projects</span>
                     </Link>
-                    {activeProject && (
+                    {activeRepository && (
                         <Link
-                            href={`/projects/${activeProject.id}`}
+                            href={`/projects/${activeRepository.id}`}
                             className={navItemClass(pathname.startsWith("/projects/") && pathname !== "/projects")}
                         >
                             <div className="w-4 h-4 rounded bg-linear-accent flex items-center justify-center flex-shrink-0">
                                 <span className="text-[10px] font-bold text-white">
-                                    {activeProject.name.charAt(0).toUpperCase()}
+                                    {activeRepository.name.charAt(0).toUpperCase()}
                                 </span>
                             </div>
-                            <span className="truncate">{activeProject.name}</span>
+                            <span className="truncate">{activeRepository.name}</span>
                         </Link>
                     )}
                     <Link href="/teams" className={navItemClass(pathname === "/teams" || pathname.startsWith("/team/"))}>

@@ -12,7 +12,7 @@ import { useAuth } from "@/hooks/use-auth"
 export default function HomePage() {
   const [isTaskFormOpen, setIsTaskFormOpen] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
-  const { isAuthenticated, activeProject } = useAuth()
+  const { isAuthenticated, activeRepository } = useAuth()
 
   const handleTaskCreated = useCallback(() => {
     setRefreshKey((prev) => prev + 1)
@@ -23,7 +23,7 @@ export default function HomePage() {
       <header className="h-14 border-b border-linear-border flex items-center px-4 sm:px-6 bg-linear-bg gap-2 sm:gap-4" data-tauri-drag-region>
         <div className="flex items-center gap-4 min-w-0">
           <h1 className="text-lg font-semibold truncate">
-            {activeProject ? activeProject.name : "All Issues"}
+            {activeRepository ? activeRepository.name : "All Issues"}
           </h1>
           {!isAuthenticated && <RepoConnector />}
         </div>

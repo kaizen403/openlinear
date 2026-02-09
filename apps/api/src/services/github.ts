@@ -68,7 +68,7 @@ export async function fetchPublicRepo(owner: string, repo: string): Promise<GitH
   return (await response.json()) as GitHubRepo;
 }
 
-export async function addProjectByUrl(url: string): Promise<{
+export async function addRepositoryByUrl(url: string): Promise<{
   id: string;
   name: string;
   fullName: string;
@@ -87,23 +87,23 @@ export async function addProjectByUrl(url: string): Promise<{
     throw new Error('Private repositories require authentication');
   }
 
-  const existing = await prisma.project.findFirst({
+  const existing = await prisma.repository.findFirst({
     where: { githubRepoId: repo.id, userId: null },
   });
 
   if (existing) {
-    return prisma.project.update({
+    return prisma.repository.update({
       where: { id: existing.id },
       data: { isActive: true },
     });
   }
 
-  await prisma.project.updateMany({
+  await prisma.repository.updateMany({
     where: { userId: null },
     data: { isActive: false },
   });
 
-  return prisma.project.create({
+  return prisma.repository.create({
     data: {
       githubRepoId: repo.id,
       name: repo.name,
@@ -224,23 +224,23 @@ export async function createOrUpdateUser(
 export async function getUserById(userId: string) {
   return prisma.user.findUnique({
     where: { id: userId },
-    include: { projects: true },
+    include: { repositories: true },
   });
 }
 
-export async function getUserProjects(userId: string) {
-  return prisma.project.findMany({
+export async function getUserRepositories(userId: string) {
+  return prisma.repository.findMany({
     where: { userId },
     orderBy: { updatedAt: 'desc' },
   });
 }
 
-export async function addProject(
+export async function addRepository(
   userId: string,
   repo: GitHubRepo,
   isActive = false
 ) {
-  return prisma.project.upsert({
+  return prisma.repository.upsert({
     where: {
       userId_githubRepoId: { userId, githubRepoId: repo.id },
     },
@@ -263,20 +263,20 @@ export async function addProject(
   });
 }
 
-export async function setActiveProject(userId: string, projectId: string) {
-  await prisma.project.updateMany({
+export async function setActiveRepository(userId: string, projectId: string) {
+  await prisma.repository.updateMany({
     where: { userId },
     data: { isActive: false },
   });
 
-  return prisma.project.update({
+  return prisma.repository.update({
     where: { id: projectId },
     data: { isActive: true },
   });
 }
 
-export async function getActiveProject(userId: string) {
-  return prisma.project.findFirst({
+export async function getActiveRepository(userId: string) {
+  return prisma.repository.findFirst({
     where: { userId, isActive: true },
   });
 }

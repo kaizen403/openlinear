@@ -6,10 +6,10 @@ export interface User {
   username: string;
   email: string | null;
   avatarUrl: string | null;
-  projects: Project[];
+  repositories: Repository[];
 }
 
-export interface Project {
+export interface Repository {
   id: string;
   githubRepoId: number;
   name: string;
@@ -51,7 +51,7 @@ export async function fetchCurrentUser(): Promise<User | null> {
   return res.json();
 }
 
-export async function fetchUserProjects(): Promise<Project[]> {
+export async function fetchUserRepositories(): Promise<Repository[]> {
   const res = await fetch(`${API_URL}/api/repos`, {
     headers: getAuthHeader(),
   });
@@ -69,7 +69,7 @@ export async function fetchGitHubRepos(): Promise<GitHubRepo[]> {
   return res.json();
 }
 
-export async function importRepo(repo: GitHubRepo): Promise<Project> {
+export async function importRepo(repo: GitHubRepo): Promise<Repository> {
   const res = await fetch(`${API_URL}/api/repos/import`, {
     method: 'POST',
     headers: {
@@ -83,7 +83,7 @@ export async function importRepo(repo: GitHubRepo): Promise<Project> {
   return res.json();
 }
 
-export async function activateProject(projectId: string): Promise<Project> {
+export async function activateRepository(projectId: string): Promise<Repository> {
   const res = await fetch(`${API_URL}/api/repos/${projectId}/activate`, {
     method: 'POST',
     headers: getAuthHeader(),
@@ -93,7 +93,7 @@ export async function activateProject(projectId: string): Promise<Project> {
   return res.json();
 }
 
-export async function getActiveProject(): Promise<Project | null> {
+export async function getActiveRepository(): Promise<Repository | null> {
   const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
   if (!token) return null;
   
@@ -116,7 +116,7 @@ export function logout(): void {
 
 // Public repo functions (no auth required)
 
-export interface PublicProject {
+export interface PublicRepository {
   id: string;
   githubRepoId: number;
   name: string;
@@ -127,7 +127,7 @@ export interface PublicProject {
   userId: string | null;
 }
 
-export async function addRepoByUrl(url: string): Promise<PublicProject> {
+export async function addRepoByUrl(url: string): Promise<PublicRepository> {
   const res = await fetch(`${API_URL}/api/repos/url`, {
     method: 'POST',
     headers: {
@@ -143,13 +143,13 @@ export async function addRepoByUrl(url: string): Promise<PublicProject> {
   return res.json();
 }
 
-export async function getActivePublicProject(): Promise<PublicProject | null> {
+export async function getActivePublicRepository(): Promise<PublicRepository | null> {
   const res = await fetch(`${API_URL}/api/repos/active/public`);
   if (!res.ok) return null;
   return res.json();
 }
 
-export async function activatePublicProject(projectId: string): Promise<PublicProject> {
+export async function activatePublicRepository(projectId: string): Promise<PublicRepository> {
   const res = await fetch(`${API_URL}/api/repos/${projectId}/activate/public`, {
     method: 'POST',
   });

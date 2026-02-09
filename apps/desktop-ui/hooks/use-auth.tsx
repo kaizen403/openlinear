@@ -1,15 +1,15 @@
 "use client";
 
 import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
-import { User, Project, fetchCurrentUser, getActiveProject, logout as apiLogout } from '@/lib/api';
+import { User, Repository, fetchCurrentUser, getActiveRepository, logout as apiLogout } from '@/lib/api';
 
 interface AuthContextType {
   user: User | null;
-  activeProject: Project | null;
+  activeRepository: Repository | null;
   isLoading: boolean;
   isAuthenticated: boolean;
   refreshUser: () => Promise<void>;
-  refreshActiveProject: () => Promise<void>;
+  refreshActiveRepository: () => Promise<void>;
   logout: () => void;
 }
 
@@ -17,7 +17,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
-  const [activeProject, setActiveProject] = useState<Project | null>(null);
+  const [activeRepository, setActiveRepository] = useState<Repository | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   const refreshUser = useCallback(async () => {
@@ -29,12 +29,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const refreshActiveProject = useCallback(async () => {
+  const refreshActiveRepository = useCallback(async () => {
     try {
-      const project = await getActiveProject();
-      setActiveProject(project);
+      const project = await getActiveRepository();
+      setActiveRepository(project);
     } catch {
-      setActiveProject(null);
+      setActiveRepository(null);
     }
   }, []);
 
@@ -53,26 +53,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       window.history.replaceState({}, '', window.location.pathname);
     }
 
-    Promise.all([refreshUser(), refreshActiveProject()]).finally(() => {
+    Promise.all([refreshUser(), refreshActiveRepository()]).finally(() => {
       setIsLoading(false);
     });
-  }, [refreshUser, refreshActiveProject]);
+  }, [refreshUser, refreshActiveRepository]);
 
   const logout = useCallback(() => {
     apiLogout();
     setUser(null);
-    setActiveProject(null);
+    setActiveRepository(null);
   }, []);
 
   return (
     <AuthContext.Provider
       value={{
         user,
-        activeProject,
+        activeRepository,
         isLoading,
         isAuthenticated: !!user,
         refreshUser,
-        refreshActiveProject,
+        refreshActiveRepository,
         logout,
       }}
     >

@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { GitBranch, Plus, Check, Loader2 } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
-import { Project, GitHubRepo, fetchGitHubRepos, importRepo, activateProject } from '@/lib/api';
+import { Repository, GitHubRepo, fetchGitHubRepos, importRepo, activateRepository } from '@/lib/api';
 import {
   Dialog,
   DialogContent,
@@ -14,7 +14,7 @@ import {
 import { Button } from '@/components/ui/button';
 
 export function ProjectSelector() {
-  const { user, activeProject, isAuthenticated, refreshActiveProject } = useAuth();
+  const { user, activeRepository, isAuthenticated, refreshActiveRepository } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
   const [repos, setRepos] = useState<GitHubRepo[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -38,7 +38,7 @@ export function ProjectSelector() {
     setImporting(repo.id);
     try {
       await importRepo(repo);
-      await refreshActiveProject();
+      await refreshActiveRepository();
       setIsOpen(false);
     } catch (err) {
       console.error('Failed to import repo:', err);
@@ -47,17 +47,17 @@ export function ProjectSelector() {
     }
   };
 
-  const handleActivate = async (project: Project) => {
+  const handleActivate = async (project: Repository) => {
     try {
-      await activateProject(project.id);
-      await refreshActiveProject();
+      await activateRepository(project.id);
+      await refreshActiveRepository();
       setIsOpen(false);
     } catch (err) {
       console.error('Failed to activate project:', err);
     }
   };
 
-  const userProjects = user?.projects || [];
+  const userProjects = user?.repositories || [];
   const importedRepoIds = new Set(userProjects.map(p => p.githubRepoId));
 
   return (
@@ -66,7 +66,7 @@ export function ProjectSelector() {
         <button className="flex items-center gap-2 px-3 py-2 rounded-md bg-linear-bg-tertiary hover:bg-linear-border text-sm transition-colors w-full">
           <GitBranch className="w-4 h-4 text-linear-text-secondary" />
           <span className="flex-1 text-left truncate">
-            {activeProject?.fullName || 'Select Project'}
+            {activeRepository?.fullName || 'Select Project'}
           </span>
         </button>
       </DialogTrigger>

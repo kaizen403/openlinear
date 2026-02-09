@@ -3,12 +3,12 @@ import jwt from 'jsonwebtoken';
 import { prisma } from '@openlinear/db';
 import {
   getGitHubRepos,
-  addProject,
-  setActiveProject,
-  getActiveProject,
-  getUserProjects,
+  addRepository,
+  setActiveRepository,
+  getActiveRepository,
+  getUserRepositories,
   GitHubRepo,
-  addProjectByUrl,
+  addRepositoryByUrl,
 } from '../services/github';
 
 const router: Router = Router();
@@ -45,7 +45,7 @@ router.post('/url', async (req: Request, res: Response) => {
   }
 
   try {
-    const project = await addProjectByUrl(url);
+    const project = await addRepositoryByUrl(url);
     res.json(project);
   } catch (err) {
     console.error('[Repos] Failed to add repo by URL:', err);
@@ -56,7 +56,7 @@ router.post('/url', async (req: Request, res: Response) => {
 
 router.get('/active/public', async (_req: Request, res: Response) => {
   try {
-    const project = await prisma.project.findFirst({
+    const project = await prisma.repository.findFirst({
       where: { userId: null, isActive: true },
     });
     res.json(project);
@@ -68,7 +68,7 @@ router.get('/active/public', async (_req: Request, res: Response) => {
 
 router.get('/public', async (_req: Request, res: Response) => {
   try {
-    const projects = await prisma.project.findMany({
+    const projects = await prisma.repository.findMany({
       where: { userId: null },
       orderBy: { updatedAt: 'desc' },
     });
@@ -81,12 +81,12 @@ router.get('/public', async (_req: Request, res: Response) => {
 
 router.post('/:id/activate/public', async (req: Request, res: Response) => {
   try {
-    await prisma.project.updateMany({
+    await prisma.repository.updateMany({
       where: { userId: null },
       data: { isActive: false },
     });
     
-    const project = await prisma.project.update({
+    const project = await prisma.repository.update({
       where: { id: req.params.id },
       data: { isActive: true },
     });
@@ -105,7 +105,7 @@ router.get('/', async (req: Request, res: Response) => {
   }
 
   try {
-    const projects = await getUserProjects(user.id);
+    const projects = await getUserRepositories(user.id);
     res.json(projects);
   } catch (err) {
     console.error('[Repos] Failed to get projects:', err);
@@ -143,7 +143,7 @@ router.post('/import', async (req: Request, res: Response) => {
   }
 
   try {
-    const project = await addProject(user.id, repo, true);
+    const project = await addRepository(user.id, repo, true);
     res.json(project);
   } catch (err) {
     console.error('[Repos] Failed to import repo:', err);
@@ -159,7 +159,7 @@ router.post('/:id/activate', async (req: Request, res: Response) => {
   }
 
   try {
-    const project = await setActiveProject(user.id, req.params.id);
+    const project = await setActiveRepository(user.id, req.params.id);
     res.json(project);
   } catch (err) {
     console.error('[Repos] Failed to activate project:', err);
@@ -175,7 +175,7 @@ router.get('/active', async (req: Request, res: Response) => {
   }
 
   try {
-    const project = await getActiveProject(user.id);
+    const project = await getActiveRepository(user.id);
     res.json(project);
   } catch (err) {
     console.error('[Repos] Failed to get active project:', err);

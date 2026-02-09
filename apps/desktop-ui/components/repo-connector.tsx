@@ -2,10 +2,10 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { GitBranch, Check, Loader2, Link as LinkIcon, X } from 'lucide-react';
-import { PublicProject, addRepoByUrl, getActivePublicProject } from '@/lib/api';
+import { PublicRepository, addRepoByUrl, getActivePublicRepository } from '@/lib/api';
 
 interface RepoConnectorProps {
-  onRepoConnected?: (project: PublicProject) => void;
+  onRepoConnected?: (project: PublicRepository) => void;
   onRepoDisconnected?: () => void;
 }
 
@@ -13,12 +13,12 @@ export function RepoConnector({ onRepoConnected, onRepoDisconnected }: RepoConne
   const [url, setUrl] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [connectedProject, setConnectedProject] = useState<PublicProject | null>(null);
+  const [connectedProject, setConnectedProject] = useState<PublicRepository | null>(null);
   const [isExpanded, setIsExpanded] = useState(false);
 
   const checkActiveProject = useCallback(async () => {
     try {
-      const project = await getActivePublicProject();
+      const project = await getActivePublicRepository();
       setConnectedProject(project);
       if (project && onRepoConnected) {
         onRepoConnected(project);

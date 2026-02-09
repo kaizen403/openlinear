@@ -12,7 +12,7 @@ import { TaskDetailView } from "@/components/task-detail-view"
 import { Plus, Loader2, Check, GitPullRequest, ExternalLink, X } from "lucide-react"
 import { useSSE, SSEEventType, SSEEventData } from "@/hooks/use-sse"
 import { useAuth } from "@/hooks/use-auth"
-import { getActivePublicProject, PublicProject } from "@/lib/api"
+import { getActivePublicRepository, PublicRepository } from "@/lib/api"
 import { openExternal } from "@/lib/utils"
 import { Task, ExecutionProgress, ExecutionLogEntry } from "@/types/task"
 
@@ -45,13 +45,13 @@ export function KanbanBoard() {
   const [executionProgress, setExecutionProgress] = useState<Record<string, ExecutionProgress>>({})
   const [isTaskFormOpen, setIsTaskFormOpen] = useState(false)
   const [defaultStatus, setDefaultStatus] = useState<Task['status']>('todo')
-  const [publicProject, setPublicProject] = useState<PublicProject | null>(null)
+  const [publicProject, setPublicProject] = useState<PublicRepository | null>(null)
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
   const [taskLogs, setTaskLogs] = useState<Record<string, ExecutionLogEntry[]>>({})
   const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set())
   const [activeBatch, setActiveBatch] = useState<ActiveBatch | null>(null)
   const [completedBatch, setCompletedBatch] = useState<{ taskIds: string[]; prUrl: string | null; mode: string } | null>(null)
-  const { isAuthenticated, activeProject } = useAuth()
+  const { isAuthenticated, activeRepository } = useAuth()
 
   const selectionMode = selectedTaskIds.size > 0
 
@@ -109,11 +109,11 @@ export function KanbanBoard() {
 
   useEffect(() => {
     if (!isAuthenticated) {
-      getActivePublicProject().then(setPublicProject).catch(() => setPublicProject(null))
+      getActivePublicRepository().then(setPublicProject).catch(() => setPublicProject(null))
     }
   }, [isAuthenticated])
 
-  const canExecute = isAuthenticated ? !!activeProject : !!publicProject
+  const canExecute = isAuthenticated ? !!activeRepository : !!publicProject
 
   const handleAddTask = (status: Task['status']) => {
     setDefaultStatus(status)

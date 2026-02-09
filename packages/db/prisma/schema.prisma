@@ -39,6 +39,7 @@ model Task {
   prUrl               String?
   outcome             String?   // Summary of what was accomplished
   archived            Boolean   @default(false)
+  inboxRead           Boolean   @default(false)
 
   @@map("tasks")
 }
@@ -85,12 +86,12 @@ model User {
   accessToken   String
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
-  projects      Project[]
+  repositories  Repository[]
 
   @@map("users")
 }
 
-model Project {
+model Repository {
   id            String   @id @default(uuid())
   githubRepoId  Int
   name          String
