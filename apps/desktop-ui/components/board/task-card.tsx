@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { motion } from "framer-motion"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Loader2, GitBranch, Code, GitPullRequest, Check, X, ExternalLink, Play, ArrowRight, Trash2, Clock } from "lucide-react"
@@ -88,9 +89,13 @@ export function TaskCard({ task, onExecute, onCancel, onDelete, onMoveToInProgre
   const isActiveProgress = showProgress && ['cloning', 'executing', 'committing', 'creating_pr'].includes(executionProgress.status)
 
   return (
+    <motion.div
+      whileHover={{ scale: 1.02 }}
+      transition={{ type: "spring", stiffness: 300, damping: 25 }}
+    >
     <Card 
       className={cn(
-        "bg-linear-bg border-linear-border hover:border-linear-border-hover cursor-pointer group",
+        "bg-[#111111] border border-t-white/[0.08] border-b-white/[0.03] border-l-white/[0.05] border-r-white/[0.05] hover:border-white/15 hover:shadow-[0_0_20px_rgba(0,0,0,0.5)] cursor-pointer group transition-all duration-200 rounded-lg",
         selected && "border-linear-accent/50"
       )}
       onClick={handleCardClick}
@@ -144,7 +149,7 @@ export function TaskCard({ task, onExecute, onCancel, onDelete, onMoveToInProgre
         )}
 
         {showProgress && (
-          <div className="mb-3 p-2 bg-linear-bg-tertiary rounded-md">
+          <div className="mb-3 p-2 bg-white/[0.03] rounded-md">
             <div className="flex items-center gap-2">
               {isActiveProgress ? (
                 <Loader2 className={cn('w-3 h-3 animate-spin', progressConfig[executionProgress.status].color)} />
@@ -175,8 +180,8 @@ export function TaskCard({ task, onExecute, onCancel, onDelete, onMoveToInProgre
         
         <div className="flex items-center justify-between mt-1">
           <div className="flex items-center gap-2 min-w-0">
-            <span className="text-[11px] text-linear-text-tertiary font-mono">
-              {task.id.slice(0, 8)}
+            <span className="text-[11px] text-linear-text-tertiary font-mono opacity-60">
+              OP-{task.id.slice(0, 3).toUpperCase()}
             </span>
             {(task.status === 'in_progress' || task.status === 'done' || task.status === 'cancelled') && (task.executionStartedAt || task.executionElapsedMs) && (
               <span className="text-[11px] text-linear-text-tertiary flex items-center gap-1 whitespace-nowrap tabular-nums">
@@ -247,5 +252,6 @@ export function TaskCard({ task, onExecute, onCancel, onDelete, onMoveToInProgre
         </div>
       </CardContent>
     </Card>
+    </motion.div>
   )
 }

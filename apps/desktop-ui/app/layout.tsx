@@ -3,6 +3,8 @@ import localFont from "next/font/local"
 import "./globals.css"
 import { AuthProvider } from "@/hooks/use-auth"
 import { Toaster } from "sonner"
+import { GlobalQuickCapture } from "@/components/global-quick-capture"
+import { GodModeOverlay } from "@/components/god-mode-overlay"
 
 const geistSans = localFont({
   src: [
@@ -50,9 +52,18 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className="dark">
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var s=localStorage.getItem("openlinear-accent");if(s){var c=JSON.parse(s);document.documentElement.style.setProperty("--linear-accent",c.accent);document.documentElement.style.setProperty("--linear-accent-hover",c.hover)}}catch(e){}})()`,
+          }}
+        />
+      </head>
       <body className={`${geistSans.variable} ${geistMono.variable} font-sans antialiased`}>
         <AuthProvider>
           {children}
+          <GlobalQuickCapture />
+          <GodModeOverlay />
           <Toaster position="bottom-right" theme="dark" />
         </AuthProvider>
       </body>
