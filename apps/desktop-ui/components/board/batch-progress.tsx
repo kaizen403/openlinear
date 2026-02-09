@@ -18,6 +18,7 @@ interface BatchProgressProps {
   tasks: BatchProgressTask[]
   prUrl: string | null
   onCancel: (batchId: string) => void
+  onDismiss?: () => void
 }
 
 const statusConfig: Record<string, { color: string; bg: string; icon: typeof Check; label: string }> = {
@@ -29,7 +30,7 @@ const statusConfig: Record<string, { color: string; bg: string; icon: typeof Che
   cancelled: { color: 'text-gray-400', bg: 'bg-gray-500', icon: Ban, label: 'Cancelled' },
 }
 
-export function BatchProgress({ batchId, status, mode, tasks, prUrl, onCancel }: BatchProgressProps) {
+export function BatchProgress({ batchId, status, mode, tasks, prUrl, onCancel, onDismiss }: BatchProgressProps) {
   const [expanded, setExpanded] = useState(false)
   const total = tasks.length
   const completed = tasks.filter(t => t.status === 'completed').length
@@ -73,15 +74,37 @@ export function BatchProgress({ batchId, status, mode, tasks, prUrl, onCancel }:
             </Button>
           )}
           {prUrl && !isRunning && (
+            <div className="flex items-center gap-1">
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => window.open(prUrl, '_blank')}
+                className="h-7 text-xs text-linear-accent hover:text-linear-accent-hover gap-1.5"
+              >
+                <GitPullRequest className="w-3.5 h-3.5" />
+                Open PR
+                <ExternalLink className="w-3 h-3" />
+              </Button>
+              {onDismiss && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={onDismiss}
+                  className="h-7 w-7 p-0 text-linear-text-tertiary hover:text-linear-text"
+                >
+                  <X className="w-3 h-3" />
+                </Button>
+              )}
+            </div>
+          )}
+          {!isRunning && !prUrl && onDismiss && (
             <Button
               size="sm"
               variant="ghost"
-              onClick={() => window.open(prUrl, '_blank')}
-              className="h-7 text-xs text-linear-accent hover:text-linear-accent-hover gap-1.5"
+              onClick={onDismiss}
+              className="h-7 w-7 p-0 text-linear-text-tertiary hover:text-linear-text"
             >
-              <GitPullRequest className="w-3.5 h-3.5" />
-              Open PR
-              <ExternalLink className="w-3 h-3" />
+              <X className="w-3 h-3" />
             </Button>
           )}
         </div>

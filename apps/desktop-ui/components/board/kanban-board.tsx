@@ -9,7 +9,7 @@ import { BatchProgress } from "./batch-progress"
 import { DashboardLoading } from "./dashboard-loading"
 import { TaskFormDialog } from "@/components/task-form"
 import { TaskDetailView } from "@/components/task-detail-view"
-import { Plus, Loader2 } from "lucide-react"
+import { Plus, Loader2, Check, GitPullRequest, ExternalLink, X } from "lucide-react"
 import { useSSE, SSEEventType, SSEEventData } from "@/hooks/use-sse"
 import { useAuth } from "@/hooks/use-auth"
 import { getActivePublicProject, PublicProject } from "@/lib/api"
@@ -49,11 +49,13 @@ export function KanbanBoard() {
   const [taskLogs, setTaskLogs] = useState<Record<string, ExecutionLogEntry[]>>({})
   const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set())
   const [activeBatch, setActiveBatch] = useState<ActiveBatch | null>(null)
+  const [completedBatch, setCompletedBatch] = useState<{ taskIds: string[]; prUrl: string | null; mode: string } | null>(null)
   const { isAuthenticated, activeProject } = useAuth()
 
   const selectionMode = selectedTaskIds.size > 0
 
   const batchTaskIds = activeBatch?.tasks.map(t => t.taskId) ?? []
+  const completedBatchTaskIds = completedBatch?.taskIds ?? []
 
   const toggleTaskSelect = (taskId: string) => {
     if (batchTaskIds.includes(taskId)) return
@@ -278,14 +280,22 @@ export function KanbanBoard() {
         break
 
       case 'batch:completed':
+        setActiveBatch(prev => {
+          if (prev && prev.id === data.batchId) {
+            const prUrl = (data.prUrl as string) || prev.prUrl || null
+            const taskIds = prev.tasks.map(t => t.taskId)
+            setCompletedBatch({ taskIds, prUrl, mode: prev.mode })
+            return { ...prev, status: 'completed', prUrl } as ActiveBatch
+          }
+          return prev
+        })
+        break
       case 'batch:failed':
       case 'batch:cancelled':
         setActiveBatch(prev => {
           if (prev && prev.id === data.batchId) {
-            const prUrl = (data.prUrl as string) || prev.prUrl || null
-            const dismissMs = prUrl ? 30000 : 5000
-            setTimeout(() => setActiveBatch(null), dismissMs)
-            return { ...prev, status: eventType.split(':')[1]!, prUrl } as ActiveBatch
+            setTimeout(() => setActiveBatch(null), 5000)
+            return { ...prev, status: eventType.split(':')[1]! } as ActiveBatch
           }
           return prev
         })
@@ -495,6 +505,7 @@ export function KanbanBoard() {
             tasks={activeBatch.tasks}
             prUrl={activeBatch.prUrl}
             onCancel={handleCancelBatch}
+            onDismiss={activeBatch.status === 'completed' ? () => setActiveBatch(null) : undefined}
           />
         )}
         <div className="flex gap-6 h-full p-6 min-w-max">
@@ -523,7 +534,7 @@ export function KanbanBoard() {
                         <span className="text-sm">Add task</span>
                       </button>
                     ) : (() => {
-                      const renderTask = (task: Task, index: number) => (
+                      const renderTask = (task: Task, index: number, completedBatch?: boolean) => (
                         <Draggable key={task.id} draggableId={task.id} index={index}>
                           {(provided, snapshot) => (
                             <div
@@ -545,6 +556,7 @@ export function KanbanBoard() {
                                 onToggleSelect={toggleTaskSelect}
                                 selectionMode={selectionMode}
                                 isBatchTask={batchTaskIds.includes(task.id)}
+                                isCompletedBatchTask={completedBatch}
                               />
                             </div>
                           )}
@@ -565,6 +577,39 @@ export function KanbanBoard() {
                                   </span>
                                 </div>
                                 {batch.map((task, i) => renderTask(task, i))}
+                              </div>
+                            )}
+                            {rest.map((task, i) => renderTask(task, batch.length + i))}
+                          </>
+                        )
+                      }
+
+                      if (column.status === 'done' && completedBatchTaskIds.length > 0) {
+                        const batch = columnTasks.filter(t => completedBatchTaskIds.includes(t.id))
+                        const rest = columnTasks.filter(t => !completedBatchTaskIds.includes(t.id))
+                        return (
+                          <>
+                            {batch.length > 0 && (
+                              <div className="border border-dashed border-purple-500/20 rounded-lg p-2 space-y-3 mb-3 bg-purple-500/[0.02] hover:border-purple-500/40 transition-colors">
+                                <div className="flex items-center justify-between px-1">
+                                  <div className="flex items-center gap-1.5">
+                                    <Check className="w-3 h-3 text-purple-400" />
+                                    <span className="text-[11px] text-purple-400/80 font-medium uppercase tracking-wider">
+                                      {completedBatch?.mode === 'queue' ? 'Queue' : 'Parallel'} Execution
+                                    </span>
+                                  </div>
+                                  {completedBatch?.prUrl && (
+                                    <button
+                                      onClick={() => window.open(completedBatch.prUrl!, '_blank')}
+                                      className="flex items-center gap-1 text-[11px] text-purple-400 hover:text-purple-300 font-medium transition-colors"
+                                    >
+                                      <GitPullRequest className="w-3 h-3" />
+                                      Open PR
+                                      <ExternalLink className="w-2.5 h-2.5" />
+                                    </button>
+                                  )}
+                                </div>
+                                {batch.map((task, i) => renderTask(task, i, true))}
                               </div>
                             )}
                             {rest.map((task, i) => renderTask(task, batch.length + i))}

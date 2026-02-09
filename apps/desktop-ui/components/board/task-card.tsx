@@ -20,6 +20,7 @@ interface TaskCardProps {
   onToggleSelect?: (taskId: string) => void
   selectionMode?: boolean
   isBatchTask?: boolean
+  isCompletedBatchTask?: boolean
 }
 
 const priorityColors = {
@@ -38,7 +39,7 @@ const progressConfig = {
   error: { icon: X, label: 'Error', color: 'text-red-400' },
 }
 
-export function TaskCard({ task, onExecute, onCancel, onDelete, onMoveToInProgress, onTaskClick, executionProgress, selected, onToggleSelect, selectionMode, isBatchTask }: TaskCardProps) {
+export function TaskCard({ task, onExecute, onCancel, onDelete, onMoveToInProgress, onTaskClick, executionProgress, selected, onToggleSelect, selectionMode, isBatchTask, isCompletedBatchTask }: TaskCardProps) {
   const [liveElapsedMs, setLiveElapsedMs] = useState<number>(0)
 
   useEffect(() => {
@@ -97,7 +98,8 @@ export function TaskCard({ task, onExecute, onCancel, onDelete, onMoveToInProgre
       className={cn(
         "bg-[#111111] border border-t-white/[0.08] border-b-white/[0.03] border-l-white/[0.05] border-r-white/[0.05] hover:border-white/15 hover:shadow-[0_0_20px_rgba(0,0,0,0.5)] cursor-pointer group transition-all duration-200 rounded-lg",
         selected && "border-linear-accent/50",
-        isBatchTask && "bg-[#0d0d0d] border-white/[0.12]"
+        isBatchTask && "bg-[#0d0d0d] border-white/[0.12]",
+        isCompletedBatchTask && "bg-[#0d0d0d] border-white/[0.08] hover:border-purple-500/50"
       )}
       onClick={handleCardClick}
     >
@@ -127,10 +129,14 @@ export function TaskCard({ task, onExecute, onCancel, onDelete, onMoveToInProgre
           )} />
           <h4 className="text-sm font-medium leading-tight line-clamp-2 flex-1">{task.title}</h4>
           {(isBatchTask || isActiveProgress) && (
-            <Loader2 className={cn(
-              "w-3 h-3 animate-spin flex-shrink-0 mt-0.5",
-              isActiveProgress ? "text-linear-accent" : "text-zinc-500"
-            )} />
+            task.status === 'done' ? (
+              <Check className="w-3.5 h-3.5 flex-shrink-0 mt-0.5 text-linear-accent" />
+            ) : (
+              <Loader2 className={cn(
+                "w-3 h-3 animate-spin flex-shrink-0 mt-0.5",
+                isActiveProgress ? "text-linear-accent" : "text-zinc-500"
+              )} />
+            )
           )}
         </div>
       </CardHeader>
