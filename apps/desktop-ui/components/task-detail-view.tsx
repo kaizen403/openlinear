@@ -27,9 +27,9 @@ const statusConfig = {
 }
 
 const priorityConfig = {
-  low: { label: 'Low', color: 'text-emerald-400', icon: Flag },
-  medium: { label: 'Medium', color: 'text-yellow-400', icon: Flag },
-  high: { label: 'High', color: 'text-red-400', icon: AlertTriangle },
+  low: { label: 'Low', color: 'text-emerald-600', icon: Flag },
+  medium: { label: 'Medium', color: 'text-yellow-600', icon: Flag },
+  high: { label: 'High', color: 'text-red-600', icon: AlertTriangle },
 }
 
 const logIcons = {
@@ -148,7 +148,7 @@ export function TaskDetailView({ task, logs, progress, open, onClose, onDelete, 
   return (
     <div className="absolute inset-0 z-40 bg-linear-bg">
       <div className="flex flex-col h-full">
-        <header className="flex items-center justify-between px-4 py-3 border-b border-linear-border">
+        <header className="flex items-center justify-between px-3 sm:px-4 py-3 border-b border-linear-border">
           <div className="flex items-center gap-3">
             <Button
               variant="ghost"
@@ -212,8 +212,8 @@ export function TaskDetailView({ task, logs, progress, open, onClose, onDelete, 
         </header>
 
         <div className="flex-1 overflow-hidden">
-          <div className="flex h-full">
-            <main className="flex-1 min-w-0 overflow-y-auto p-6">
+            <div className="flex flex-col md:flex-row h-full">
+            <main className="flex-1 min-w-0 overflow-y-auto p-4 sm:p-6">
               <div className="max-w-3xl mx-auto">
                 <div className="flex items-start gap-3 mb-6">
                   <div className={cn("w-2.5 h-2.5 rounded-full mt-2 flex-shrink-0", priorityConfig[task.priority].color.replace('text-', 'bg-'))} />
@@ -379,7 +379,7 @@ export function TaskDetailView({ task, logs, progress, open, onClose, onDelete, 
               </div>
             </main>
 
-            <aside className="w-72 flex-shrink-0 border-l border-linear-border bg-linear-bg-secondary overflow-y-auto">
+            <aside className="w-full md:w-72 flex-shrink-0 border-t md:border-t-0 md:border-l border-linear-border bg-linear-bg-secondary overflow-y-auto">
               <div className="p-4 space-y-6">
                 <div>
                   <h3 className="text-xs font-medium text-linear-text-tertiary uppercase tracking-wider mb-3">

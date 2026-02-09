@@ -7,7 +7,7 @@ import {
   Globe,
   Mic,
   ArrowUp,
-  Terminal,
+  Brain,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
@@ -97,7 +97,7 @@ export function GodModeOverlay() {
         }}
         className={cn(
           "pointer-events-auto",
-          "fixed bottom-6 right-6",
+          "fixed bottom-4 right-4 sm:bottom-6 sm:right-6",
           "flex items-center justify-center",
           "w-12 h-12 rounded-full",
           "bg-zinc-950/80 backdrop-blur-2xl border border-white/10 shadow-2xl",
@@ -107,7 +107,7 @@ export function GodModeOverlay() {
         )}
         aria-label="Toggle God Mode"
       >
-        <Terminal className="w-5 h-5 text-zinc-400" />
+        <Brain className="w-5 h-5 text-zinc-400" />
       </motion.button>
 
       <AnimatePresence>
@@ -121,7 +121,7 @@ export function GodModeOverlay() {
             className={cn(
               "pointer-events-auto",
               "fixed bottom-12 inset-x-0 mx-auto",
-              "w-[600px] h-16 rounded-full",
+              "w-[calc(100%-2rem)] sm:w-[600px] max-w-[600px] h-14 sm:h-16 rounded-full",
               "bg-zinc-950/80 backdrop-blur-2xl border border-white/10 shadow-2xl",
               "flex items-center gap-3 px-4"
             )}

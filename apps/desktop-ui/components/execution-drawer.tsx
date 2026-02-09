@@ -108,7 +108,7 @@ export function ExecutionDrawer({ task, logs, progress, open, onClose }: Executi
 
       <div
         className={cn(
-          "fixed right-0 top-0 h-full w-[420px] z-50 bg-linear-bg border-l border-linear-border shadow-xl transition-transform duration-200 ease-out flex flex-col",
+          "fixed right-0 top-0 h-full w-full sm:w-[420px] z-50 bg-linear-bg border-l border-linear-border shadow-xl transition-transform duration-200 ease-out flex flex-col",
           open ? "translate-x-0" : "translate-x-full"
         )}
       >

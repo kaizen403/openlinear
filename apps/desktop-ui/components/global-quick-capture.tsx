@@ -36,15 +36,15 @@ type ToggleId = "web" | "research" | "writing"
 const SPRING = { type: "spring" as const, stiffness: 300, damping: 30 }
 
 const PRIORITY_COLORS: Record<GeneratedTask["priority"], string> = {
-  high: "border-red-500/40",
-  medium: "border-yellow-500/40",
-  low: "border-emerald-500/40",
+  high: "border-red-700/40",
+  medium: "border-yellow-700/40",
+  low: "border-emerald-700/40",
 }
 
 const PRIORITY_DOTS: Record<GeneratedTask["priority"], string> = {
-  high: "bg-red-500",
-  medium: "bg-yellow-500",
-  low: "bg-emerald-500",
+  high: "bg-red-700",
+  medium: "bg-yellow-700",
+  low: "bg-emerald-700",
 }
 
 const PRIORITY_ICONS: Record<
@@ -153,9 +153,9 @@ function TaskCard({
             )}
           >
             <PriorityIcon className={cn("w-2.5 h-2.5", {
-              "text-red-400": task.priority === "high",
-              "text-yellow-400": task.priority === "medium",
-              "text-emerald-400": task.priority === "low",
+              "text-red-600": task.priority === "high",
+              "text-yellow-600": task.priority === "medium",
+              "text-emerald-600": task.priority === "low",
             })} />
           </div>
           <h4 className="text-[13px] font-medium leading-snug text-zinc-100 flex-1">
@@ -402,21 +402,35 @@ export function GlobalQuickCapture() {
             key="ghost"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            exit={{ opacity: 0, x: 8 }}
-            transition={SPRING}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.3 }}
             onClick={handleGhostClick}
             aria-label="Open quick capture"
             className={cn(
               "fixed right-0 top-1/2 -translate-y-1/2 z-[9999]",
-              "flex items-center justify-center",
-              "w-1.5 h-16 rounded-l-full",
-              "bg-zinc-500 opacity-20",
-              "hover:opacity-100 hover:w-2 hover:bg-white/80",
-              "hover:shadow-[0_0_15px_rgba(255,255,255,0.3)]",
-              "transition-all duration-300 ease-out",
-              "cursor-pointer"
+              "w-12 h-28",
+              "bg-white/[0.08] backdrop-blur-sm",
+              "rounded-l-xl",
+              "cursor-pointer",
+              "hover:bg-white/[0.12]",
+              "border-l border-t border-b border-white/[0.06]",
+              "flex items-center justify-center"
             )}
-          />
+          >
+            <span 
+              className="text-[12px] text-zinc-200 tracking-wide"
+              style={{ 
+                writingMode: 'vertical-rl',
+                textOrientation: 'mixed',
+                transform: 'rotate(180deg)',
+                fontFamily: '"Caveat", cursive',
+                fontWeight: 600,
+                letterSpacing: '0.04em'
+              }}
+            >
+              BrainStorm
+            </span>
+          </motion.button>
         )}
       </AnimatePresence>
 
@@ -444,7 +458,7 @@ export function GlobalQuickCapture() {
               animate={{
                 x: 0,
                 opacity: 1,
-                width: phase === "stream" ? 400 : 360,
+                width: phase === "stream" ? "min(400px, 100vw)" : "min(360px, 100vw)",
               }}
               exit={{ x: "100%", opacity: 0 }}
               transition={SPRING}
@@ -457,24 +471,24 @@ export function GlobalQuickCapture() {
               )}
             >
               {/* ---------- Top bar ---------- */}
-              <div className="flex items-center justify-between px-4 pt-4 pb-2">
+              <div className="flex items-center justify-between px-5 pt-5 pb-3">
                 <div className="flex items-baseline gap-2">
-                  <span className="text-[15px] font-semibold tracking-tight bg-gradient-to-r from-white via-white to-zinc-400 bg-clip-text text-transparent">
+                  <span className="text-[20px] font-semibold tracking-tight bg-gradient-to-r from-white via-white to-zinc-400 bg-clip-text text-transparent">
                     Brainstorm
                   </span>
-                  <span className="text-[11px] text-zinc-600 font-light tracking-wide">
+                  <span className="text-[14px] text-zinc-600 font-light tracking-wide">
                     by
                   </span>
-                  <span className="text-[11px] font-medium tracking-wider text-zinc-500 uppercase">
+                  <span className="text-[14px] font-medium tracking-wider text-zinc-500 uppercase">
                     OpenLinear
                   </span>
                 </div>
                 <button
                   onClick={handleClose}
-                  className="flex h-6 w-6 items-center justify-center rounded-md text-zinc-600 hover:text-zinc-300 hover:bg-white/[0.06] transition-colors"
+                  className="flex h-8 w-8 items-center justify-center rounded-md text-zinc-600 hover:text-zinc-300 hover:bg-white/[0.06] transition-colors"
                   aria-label="Close"
                 >
-                  <X className="h-3.5 w-3.5" />
+                  <X className="h-5 w-5" />
                 </button>
               </div>
 
@@ -482,22 +496,22 @@ export function GlobalQuickCapture() {
               <motion.div
                 layout
                 transition={SPRING}
-                className="px-4 pb-3 pt-1"
+                className="px-5 pb-4 pt-2"
               >
                 <div
                   className={cn(
-                    "flex items-center gap-2",
+                    "flex items-center gap-3",
                     "rounded-full",
                     "bg-zinc-900/90 border border-white/[0.06]",
-                    "px-3 py-2",
+                    "px-4 py-3",
                     "transition-shadow duration-300",
                     "focus-within:shadow-[0_0_0_1px_rgba(255,255,255,0.1),0_0_20px_rgba(255,255,255,0.04)]",
                     "focus-within:border-white/[0.12]"
                   )}
                 >
                   {/* Plus icon */}
-                  <div className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-white/[0.06]">
-                    <Plus className="h-3 w-3 text-zinc-500" />
+                  <div className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-white/[0.06]">
+                    <Plus className="h-4 w-4 text-zinc-500" />
                   </div>
 
                   {/* Input */}
@@ -509,7 +523,7 @@ export function GlobalQuickCapture() {
                     onKeyDown={handleKeyDown}
                     placeholder="Ask agents to..."
                     className={cn(
-                      "flex-1 bg-transparent text-[13px] text-zinc-200",
+                      "flex-1 bg-transparent text-[16px] text-zinc-200",
                       "placeholder:text-zinc-600",
                       "outline-none border-none",
                       "caret-zinc-400"
@@ -517,7 +531,7 @@ export function GlobalQuickCapture() {
                   />
 
                   {/* Toggle icons */}
-                  <div className="flex items-center gap-0.5 border-l border-white/[0.06] pl-2">
+                  <div className="flex items-center gap-1 border-l border-white/[0.06] pl-3">
                     <ToggleButton
                       id="web"
                       icon={Globe}

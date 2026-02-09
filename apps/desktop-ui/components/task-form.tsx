@@ -50,9 +50,9 @@ interface TaskFormDialogProps {
 const API_BASE_URL = "http://localhost:3001/api"
 
 const priorityColors = {
-  low: "bg-blue-400",
-  medium: "bg-yellow-400",
-  high: "bg-red-400",
+  low: "bg-blue-700",
+  medium: "bg-yellow-700",
+  high: "bg-red-700",
 }
 
 const priorityLabels = {
@@ -171,7 +171,7 @@ export function TaskFormDialog({
 
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col">
-            <div className="px-5 pt-4 pb-3">
+            <div className="px-4 sm:px-5 pt-4 pb-3">
               <FormField
                 control={form.control}
                 name="title"
@@ -212,7 +212,7 @@ export function TaskFormDialog({
 
             <div className="border-b border-[#2a2a2a]" />
 
-            <div className="px-5 py-3 flex items-center gap-2">
+            <div className="px-4 sm:px-5 py-3 flex items-center gap-2 flex-wrap">
               <FormField
                 control={form.control}
                 name="status"
@@ -359,7 +359,7 @@ export function TaskFormDialog({
 
             <div className="border-b border-[#2a2a2a]" />
 
-            <DialogFooter className="px-5 py-3 gap-2 sm:gap-2">
+            <DialogFooter className="px-4 sm:px-5 py-3 gap-2 sm:gap-2">
               <Button
                 type="button"
                 variant="ghost"
