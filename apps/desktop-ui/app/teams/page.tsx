@@ -278,25 +278,16 @@ export default function TeamsPage() {
                         </div>
                       </td>
                       <td className="py-3 px-4">
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
-                            <button className="opacity-0 group-hover:opacity-100 p-1.5 rounded-md hover:bg-linear-bg-tertiary transition-all">
-                              <MoreHorizontal className="w-4 h-4 text-linear-text-tertiary" />
-                            </button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end" className="bg-linear-bg-secondary border-linear-border">
-                            <DropdownMenuItem
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                handleDeleteTeam(team.id)
-                              }}
-                              className="text-red-500 hover:text-red-400 hover:bg-linear-bg-tertiary cursor-pointer"
-                            >
-                              <Trash2 className="w-4 h-4 mr-2" />
-                              Delete
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
+                        <button
+                          onClick={(e: React.MouseEvent) => {
+                            e.stopPropagation()
+                            handleDeleteTeam(team.id)
+                          }}
+                          className="opacity-0 group-hover:opacity-100 p-1.5 rounded-md hover:bg-red-500/10 transition-all"
+                          title="Delete team"
+                        >
+                          <Trash2 className="w-4 h-4 text-red-500" />
+                        </button>
                       </td>
                     </tr>
                   ))}

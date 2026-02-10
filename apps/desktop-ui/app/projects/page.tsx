@@ -5,18 +5,13 @@ import {
   Search, 
   Plus, 
   FolderKanban, 
-  Circle, 
   Target, 
   Hexagon, 
   Filter,
-  AlertCircle,
   Calendar,
-  MoreHorizontal,
-  CheckCircle2,
   TrendingUp,
   Trash2,
-  Loader2,
-  X
+  Loader2
 } from "lucide-react"
 import { AppShell } from "@/components/layout/app-shell"
 import { cn } from "@/lib/utils"
@@ -174,7 +169,6 @@ export default function ProjectsPage() {
       if (!["completed", "cancelled"].includes(project.status)) return false
     }
     
-    // Search filtering
     if (searchQuery) {
       const query = searchQuery.toLowerCase()
       return (
@@ -213,7 +207,6 @@ export default function ProjectsPage() {
         color: "#3b82f6",
       })
       
-      // Reset form and close dialog
       setFormData({
         name: "",
         description: "",
@@ -548,7 +541,6 @@ export default function ProjectsPage() {
         </div>
       </div>
 
-      {/* Delete Confirmation Dialog */}
       <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
         <DialogContent className="sm:max-w-[400px] bg-linear-bg border-linear-border">
           <DialogHeader>
