@@ -58,6 +58,7 @@ model Task {
   outcome             String?   // Summary of what was accomplished
   archived            Boolean   @default(false)
   inboxRead           Boolean   @default(false)
+  batchId             String?   // Groups tasks executed together in a batch
   teamId              String?
   team                Team?     @relation(fields: [teamId], references: [id], onDelete: SetNull)
   projectId           String?

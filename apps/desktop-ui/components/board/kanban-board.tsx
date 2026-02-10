@@ -211,6 +211,8 @@ export function KanbanBoard() {
             executionProgress: data.executionProgress ?? null,
             prUrl: data.prUrl ?? null,
             outcome: data.outcome ?? null,
+            batchId: data.batchId ?? null,
+            inboxRead: data.inboxRead ?? false,
           }
           setTasks((prev) => [...prev, newTask])
         }

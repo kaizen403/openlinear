@@ -75,6 +75,12 @@ export async function createBatch(params: CreateBatchParams): Promise<BatchState
   };
 
   activeBatches.set(batchId, batch);
+
+  await prisma.task.updateMany({
+    where: { id: { in: params.taskIds } },
+    data: { batchId },
+  });
+
   broadcastBatchEvent('batch:created', batchId, {
     mode: params.mode,
     status: 'running',

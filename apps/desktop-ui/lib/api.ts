@@ -307,3 +307,43 @@ export async function deleteProject(id: string): Promise<void> {
   })
   if (!res.ok) throw new Error('Failed to delete project')
 }
+
+export async function fetchInboxTasks(): Promise<InboxTask[]> {
+  const res = await fetch(`${API_URL}/api/inbox`)
+  if (!res.ok) throw new Error('Failed to fetch inbox')
+  return res.json()
+}
+
+export async function fetchInboxCount(): Promise<number> {
+  const res = await fetch(`${API_URL}/api/inbox/count`)
+  if (!res.ok) return 0
+  const data = await res.json()
+  return data.count
+}
+
+export async function markInboxRead(taskId: string): Promise<void> {
+  await fetch(`${API_URL}/api/inbox/read/${taskId}`, { method: 'PATCH' })
+}
+
+export async function markAllInboxRead(): Promise<void> {
+  await fetch(`${API_URL}/api/inbox/read-all`, { method: 'PATCH' })
+}
+
+export interface InboxTask {
+  id: string
+  title: string
+  description: string | null
+  priority: 'low' | 'medium' | 'high'
+  status: 'done'
+  createdAt: string
+  updatedAt: string
+  prUrl: string | null
+  outcome: string | null
+  batchId: string | null
+  inboxRead: boolean
+  executionElapsedMs: number
+  labels: Array<{ id: string; name: string; color: string; priority: number }>
+  team?: { id: string; name: string; key: string; color: string } | null
+  project?: { id: string; name: string; status: string; color: string } | null
+  identifier?: string | null
+}

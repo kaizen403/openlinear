@@ -10,7 +10,7 @@ import {
 import { ProjectSelector } from "@/components/auth/project-selector"
 import { useAuth } from "@/hooks/use-auth"
 import { cn } from "@/lib/utils"
-import { getLoginUrl } from "@/lib/api"
+import { getLoginUrl, fetchInboxCount } from "@/lib/api"
 
 const navItemClass = (isActive: boolean) =>
     cn(
@@ -31,10 +31,15 @@ export function Sidebar({ open, onClose, width, animating }: SidebarProps) {
     const pathname = usePathname()
     const { user, isAuthenticated, isLoading, activeRepository, logout } = useAuth()
     const [isTauri, setIsTauri] = useState(false)
+    const [inboxCount, setInboxCount] = useState(0)
 
     useEffect(() => {
         setIsTauri(typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window)
     }, [])
+
+    useEffect(() => {
+        fetchInboxCount().then(setInboxCount).catch(() => setInboxCount(0))
+    }, [pathname])
 
     const handleClose = async () => {
         const { getCurrentWindow } = await import('@tauri-apps/api/window')
@@ -108,9 +113,11 @@ export function Sidebar({ open, onClose, width, animating }: SidebarProps) {
                     <Link href="/inbox" className={navItemClass(pathname === "/inbox")}>
                         <Inbox className="w-4 h-4 flex-shrink-0" />
                         <span>Inbox</span>
-                        <span className="ml-auto text-xs text-linear-text-tertiary bg-linear-bg-tertiary px-1.5 py-0.5 rounded">
-                            3
-                        </span>
+                        {inboxCount > 0 && (
+                            <span className="ml-auto text-xs text-linear-text-tertiary bg-linear-bg-tertiary px-1.5 py-0.5 rounded">
+                                {inboxCount}
+                            </span>
+                        )}
                     </Link>
                     <Link href="/my-issues" className={navItemClass(pathname === "/my-issues")}>
                         <Layers className="w-4 h-4 flex-shrink-0" />

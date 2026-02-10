@@ -21,6 +21,8 @@ export interface Task {
   executionProgress: number | null
   prUrl: string | null
   outcome: string | null
+  batchId: string | null
+  inboxRead: boolean
 }
 
 export interface ExecutionProgress {
