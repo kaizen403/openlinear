@@ -13,6 +13,8 @@ const CreateTaskSchema = z.object({
   description: z.string().optional(),
   priority: PriorityEnum.optional().default('medium'),
   labelIds: z.array(z.string().uuid()).optional().default([]),
+  teamId: z.string().uuid().optional(),
+  projectId: z.string().uuid().optional(),
 });
 
 const UpdateTaskSchema = z.object({
@@ -21,6 +23,8 @@ const UpdateTaskSchema = z.object({
   priority: PriorityEnum.optional(),
   status: StatusEnum.optional(),
   labelIds: z.array(z.string().uuid()).optional(),
+  teamId: z.string().uuid().nullable().optional(),
+  projectId: z.string().uuid().nullable().optional(),
 });
 
 interface Label {
@@ -46,14 +50,29 @@ interface TaskWithLabels {
   createdAt: Date;
   updatedAt: Date;
   labels: TaskLabel[];
+  teamId: string | null;
+  projectId: string | null;
+  number: number | null;
+  identifier: string | null;
+  team?: { id: string; name: string; key: string; color: string } | null;
+  project?: { id: string; name: string; status: string; color: string } | null;
+  [key: string]: unknown;
 }
 
-function flattenLabels(task: TaskWithLabels) {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function flattenLabels(task: any) {
+  const { labels, ...rest } = task;
   return {
-    ...task,
-    labels: task.labels.map((tl: TaskLabel) => tl.label),
+    ...rest,
+    labels: (labels as TaskLabel[]).map((tl: TaskLabel) => tl.label),
   };
 }
+
+const taskInclude = {
+  labels: { include: { label: true } },
+  team: { select: { id: true, name: true, key: true, color: true } },
+  project: { select: { id: true, name: true, status: true, color: true } },
+};
 
 const router: Router = Router();
 
@@ -63,13 +82,7 @@ router.get('/archived', async (_req: Request, res: Response) => {
   try {
     const tasks = await prisma.task.findMany({
       where: { archived: true },
-      include: {
-        labels: {
-          include: {
-            label: true,
-          },
-        },
-      },
+      include: taskInclude,
       orderBy: { updatedAt: 'desc' },
     });
 
@@ -108,17 +121,16 @@ router.delete('/archived/:id', async (req: Request, res: Response) => {
   }
 });
 
-router.get('/', async (_req: Request, res: Response) => {
+router.get('/', async (req: Request, res: Response) => {
   try {
+    const { teamId, projectId } = req.query;
+    const where: Record<string, unknown> = { archived: false };
+    if (teamId) where.teamId = teamId as string;
+    if (projectId) where.projectId = projectId as string;
+
     const tasks = await prisma.task.findMany({
-      where: { archived: false },
-      include: {
-        labels: {
-          include: {
-            label: true,
-          },
-        },
-      },
+      where,
+      include: taskInclude,
       orderBy: { createdAt: 'desc' },
     });
 
@@ -137,25 +149,67 @@ router.post('/', async (req: Request, res: Response) => {
       return;
     }
 
-    const { title, description, priority, labelIds } = parsed.data;
+    const { title, description, priority, labelIds, teamId, projectId } = parsed.data;
 
-    const task = await prisma.task.create({
-      data: {
-        title,
-        description,
-        priority,
-        labels: {
-          create: labelIds.map((labelId) => ({ labelId })),
-        },
-      },
-      include: {
-        labels: {
-          include: {
-            label: true,
+    if (teamId) {
+      const team = await prisma.team.findUnique({ where: { id: teamId } });
+      if (!team) {
+        res.status(400).json({ error: 'Team not found' });
+        return;
+      }
+    }
+
+    if (projectId && !teamId) {
+      const project = await prisma.project.findUnique({ where: { id: projectId } });
+      if (!project) {
+        res.status(400).json({ error: 'Project not found' });
+        return;
+      }
+    }
+
+    let task;
+
+    if (teamId) {
+      task = await prisma.$transaction(async (tx) => {
+        const team = await tx.team.update({
+          where: { id: teamId },
+          data: { nextIssueNumber: { increment: 1 } },
+          select: { key: true, nextIssueNumber: true },
+        });
+        const number = team.nextIssueNumber - 1;
+        const identifier = `${team.key}-${number}`;
+
+        const created = await tx.task.create({
+          data: {
+            title,
+            description,
+            priority,
+            teamId,
+            projectId: projectId || undefined,
+            number,
+            identifier,
+            labels: {
+              create: labelIds.map((labelId) => ({ labelId })),
+            },
+          },
+          include: taskInclude,
+        });
+        return created;
+      });
+    } else {
+      task = await prisma.task.create({
+        data: {
+          title,
+          description,
+          priority,
+          projectId: projectId || undefined,
+          labels: {
+            create: labelIds.map((labelId) => ({ labelId })),
           },
         },
-      },
-    });
+        include: taskInclude,
+      });
+    }
 
     const transformedTask = flattenLabels(task);
     broadcast('task:created', transformedTask);
@@ -172,13 +226,7 @@ router.get('/:id', async (req: Request, res: Response) => {
 
     const task = await prisma.task.findUnique({
       where: { id },
-      include: {
-        labels: {
-          include: {
-            label: true,
-          },
-        },
-      },
+      include: taskInclude,
     });
 
     if (!task) {
@@ -202,7 +250,7 @@ router.patch('/:id', async (req: Request, res: Response) => {
       return;
     }
 
-    const { labelIds, ...updateData } = parsed.data;
+    const { labelIds, teamId, projectId, ...updateData } = parsed.data;
 
     const existing = await prisma.task.findUnique({ where: { id } });
     if (!existing) {
@@ -210,24 +258,20 @@ router.patch('/:id', async (req: Request, res: Response) => {
       return;
     }
 
+    const data: Record<string, unknown> = { ...updateData };
+    if (teamId !== undefined) data.teamId = teamId;
+    if (projectId !== undefined) data.projectId = projectId;
+    if (labelIds !== undefined) {
+      data.labels = {
+        deleteMany: {},
+        create: labelIds.map((labelId) => ({ labelId })),
+      };
+    }
+
     const task = await prisma.task.update({
       where: { id },
-      data: {
-        ...updateData,
-        ...(labelIds !== undefined && {
-          labels: {
-            deleteMany: {},
-            create: labelIds.map((labelId) => ({ labelId })),
-          },
-        }),
-      },
-      include: {
-        labels: {
-          include: {
-            label: true,
-          },
-        },
-      },
+      data,
+      include: taskInclude,
     });
 
     const transformedTask = flattenLabels(task);
