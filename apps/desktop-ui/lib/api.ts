@@ -127,6 +127,53 @@ export interface PublicRepository {
   userId: string | null;
 }
 
+export interface Team {
+  id: string
+  name: string
+  key: string
+  description: string | null
+  color: string
+  icon: string | null
+  private: boolean
+  nextIssueNumber: number
+  createdAt: string
+  updatedAt: string
+  _count?: { members: number }
+  members?: TeamMember[]
+  projectTeams?: { team: Team }[]
+}
+
+export interface TeamMember {
+  id: string
+  teamId: string
+  userId: string
+  role: 'owner' | 'admin' | 'member'
+  sortOrder: number
+  createdAt: string
+  user?: {
+    id: string
+    username: string
+    email: string | null
+    avatarUrl: string | null
+  }
+}
+
+export interface Project {
+  id: string
+  name: string
+  description: string | null
+  status: 'planned' | 'in_progress' | 'paused' | 'completed' | 'cancelled'
+  color: string
+  icon: string | null
+  startDate: string | null
+  targetDate: string | null
+  leadId: string | null
+  createdAt: string
+  updatedAt: string
+  teams?: Team[]
+  _count?: { tasks: number }
+}
+
 export async function addRepoByUrl(url: string): Promise<PublicRepository> {
   const res = await fetch(`${API_URL}/api/repos/url`, {
     method: 'POST',
@@ -167,4 +214,96 @@ export async function executeTaskPublic(taskId: string): Promise<void> {
     const error = await res.json().catch(() => ({ error: 'Failed to execute task' }));
     throw new Error(error.error || 'Failed to execute task');
   }
+}
+
+export async function fetchTeams(): Promise<Team[]> {
+  const res = await fetch(`${API_URL}/api/teams`)
+  if (!res.ok) throw new Error('Failed to fetch teams')
+  return res.json()
+}
+
+export async function fetchTeam(id: string): Promise<Team> {
+  const res = await fetch(`${API_URL}/api/teams/${id}`)
+  if (!res.ok) throw new Error('Failed to fetch team')
+  return res.json()
+}
+
+export async function createTeam(data: { name: string; key: string; description?: string; color?: string; icon?: string; private?: boolean }): Promise<Team> {
+  const res = await fetch(`${API_URL}/api/teams`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+    body: JSON.stringify(data),
+  })
+  if (!res.ok) throw new Error('Failed to create team')
+  return res.json()
+}
+
+export async function updateTeam(id: string, data: Partial<{ name: string; description: string | null; color: string; icon: string | null; private: boolean }>): Promise<Team> {
+  const res = await fetch(`${API_URL}/api/teams/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+    body: JSON.stringify(data),
+  })
+  if (!res.ok) throw new Error('Failed to update team')
+  return res.json()
+}
+
+export async function deleteTeam(id: string): Promise<void> {
+  const res = await fetch(`${API_URL}/api/teams/${id}`, {
+    method: 'DELETE',
+    headers: getAuthHeader(),
+  })
+  if (!res.ok) throw new Error('Failed to delete team')
+}
+
+export async function addTeamMember(teamId: string, data: { email?: string; userId?: string; role?: string }): Promise<TeamMember> {
+  const res = await fetch(`${API_URL}/api/teams/${teamId}/members`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+    body: JSON.stringify(data),
+  })
+  if (!res.ok) throw new Error('Failed to add team member')
+  return res.json()
+}
+
+export async function removeTeamMember(teamId: string, userId: string): Promise<void> {
+  const res = await fetch(`${API_URL}/api/teams/${teamId}/members/${userId}`, {
+    method: 'DELETE',
+    headers: getAuthHeader(),
+  })
+  if (!res.ok) throw new Error('Failed to remove team member')
+}
+
+export async function fetchProjects(): Promise<Project[]> {
+  const res = await fetch(`${API_URL}/api/projects`)
+  if (!res.ok) throw new Error('Failed to fetch projects')
+  return res.json()
+}
+
+export async function createProject(data: { name: string; description?: string; status?: string; color?: string; icon?: string; teamIds?: string[]; startDate?: string; targetDate?: string; leadId?: string }): Promise<Project> {
+  const res = await fetch(`${API_URL}/api/projects`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+    body: JSON.stringify(data),
+  })
+  if (!res.ok) throw new Error('Failed to create project')
+  return res.json()
+}
+
+export async function updateProject(id: string, data: Partial<{ name: string; description: string | null; status: string; color: string; icon: string | null; teamIds: string[]; startDate: string | null; targetDate: string | null; leadId: string | null }>): Promise<Project> {
+  const res = await fetch(`${API_URL}/api/projects/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+    body: JSON.stringify(data),
+  })
+  if (!res.ok) throw new Error('Failed to update project')
+  return res.json()
+}
+
+export async function deleteProject(id: string): Promise<void> {
+  const res = await fetch(`${API_URL}/api/projects/${id}`, {
+    method: 'DELETE',
+    headers: getAuthHeader(),
+  })
+  if (!res.ok) throw new Error('Failed to delete project')
 }

@@ -57,6 +57,12 @@ export type SSEEventType =
   | 'batch:completed'
   | 'batch:failed'
   | 'batch:cancelled'
+  | 'team:created'
+  | 'team:updated'
+  | 'team:deleted'
+  | 'project:created'
+  | 'project:updated'
+  | 'project:deleted'
 
 const SSE_RECONNECT_DELAY = 3000
 
@@ -276,6 +282,60 @@ export function useSSE(
         onEventRef.current('batch:cancelled', data)
       } catch (err) {
         console.error("[SSE] Failed to parse batch:cancelled:", err)
+      }
+    })
+
+    eventSource.addEventListener("team:created", (event) => {
+      try {
+        const data = JSON.parse((event as MessageEvent).data)
+        onEventRef.current('team:created', data)
+      } catch (err) {
+        console.error("[SSE] Failed to parse team:created:", err)
+      }
+    })
+
+    eventSource.addEventListener("team:updated", (event) => {
+      try {
+        const data = JSON.parse((event as MessageEvent).data)
+        onEventRef.current('team:updated', data)
+      } catch (err) {
+        console.error("[SSE] Failed to parse team:updated:", err)
+      }
+    })
+
+    eventSource.addEventListener("team:deleted", (event) => {
+      try {
+        const data = JSON.parse((event as MessageEvent).data)
+        onEventRef.current('team:deleted', data)
+      } catch (err) {
+        console.error("[SSE] Failed to parse team:deleted:", err)
+      }
+    })
+
+    eventSource.addEventListener("project:created", (event) => {
+      try {
+        const data = JSON.parse((event as MessageEvent).data)
+        onEventRef.current('project:created', data)
+      } catch (err) {
+        console.error("[SSE] Failed to parse project:created:", err)
+      }
+    })
+
+    eventSource.addEventListener("project:updated", (event) => {
+      try {
+        const data = JSON.parse((event as MessageEvent).data)
+        onEventRef.current('project:updated', data)
+      } catch (err) {
+        console.error("[SSE] Failed to parse project:updated:", err)
+      }
+    })
+
+    eventSource.addEventListener("project:deleted", (event) => {
+      try {
+        const data = JSON.parse((event as MessageEvent).data)
+        onEventRef.current('project:deleted', data)
+      } catch (err) {
+        console.error("[SSE] Failed to parse project:deleted:", err)
       }
     })
 
