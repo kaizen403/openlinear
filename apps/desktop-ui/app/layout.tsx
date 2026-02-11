@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next"
 import "./globals.css"
 import { AuthProvider } from "@/hooks/use-auth"
+import { SSEProvider } from "@/providers/sse-provider"
 import { Toaster } from "sonner"
 import { GlobalQuickCapture } from "@/components/global-quick-capture"
 import { GodModeOverlay } from "@/components/god-mode-overlay"
@@ -40,7 +41,9 @@ export default function RootLayout({
       </head>
       <body className="font-sans antialiased">
         <AuthProvider>
-          {children}
+          <SSEProvider>
+            {children}
+          </SSEProvider>
           <GlobalQuickCapture />
           <GodModeOverlay />
           <Toaster position="bottom-right" theme="dark" />

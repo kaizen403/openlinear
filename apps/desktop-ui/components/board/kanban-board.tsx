@@ -10,7 +10,8 @@ import { DashboardLoading } from "./dashboard-loading"
 import { TaskFormDialog } from "@/components/task-form"
 import { TaskDetailView } from "@/components/task-detail-view"
 import { Plus, Loader2, Check, GitPullRequest, ExternalLink, GripVertical } from "lucide-react"
-import { useSSE, SSEEventType, SSEEventData } from "@/hooks/use-sse"
+import { SSEEventType, SSEEventData } from "@/hooks/use-sse"
+import { useSSESubscription } from "@/providers/sse-provider"
 import { useAuth } from "@/hooks/use-auth"
 import { getActivePublicRepository, PublicRepository, Project } from "@/lib/api"
 import { openExternal } from "@/lib/utils"
@@ -36,7 +37,6 @@ interface ActiveBatch {
 }
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001"
-const SSE_URL = `${API_BASE_URL}/api/events`
 
 interface KanbanBoardProps {
   projectId?: string | null
@@ -513,7 +513,7 @@ export function KanbanBoard({ projectId, teamId, projects = [] }: KanbanBoardPro
     }
   }, [fetchTasks, isAuthenticated, refreshActiveRepository, refreshPublicProject, projectId, teamId])
 
-  useSSE(SSE_URL, handleSSEEvent)
+  useSSESubscription(handleSSEEvent)
 
   useEffect(() => {
     fetchTasks({ showLoading: true, allowRetry: true, clearError: true, resetRetry: true })
@@ -527,7 +527,7 @@ export function KanbanBoard({ projectId, teamId, projects = [] }: KanbanBoardPro
         }
         return prev
       })
-    }, 10000)
+    }, 3000)
 
     return () => {
       if (retryTimeoutRef.current) {
