@@ -1,7 +1,7 @@
 "use client"
 
 import { Suspense, useState, useCallback, useEffect } from "react"
-import { useSearchParams } from "next/navigation"
+import { useSearchParams, useRouter } from "next/navigation"
 import { Search, Plus, FolderKanban } from "lucide-react"
 import { KanbanBoard } from "@/components/board/kanban-board"
 import { TaskFormDialog } from "@/components/task-form"
@@ -25,7 +25,8 @@ function HomeContent() {
 
   const [isTaskFormOpen, setIsTaskFormOpen] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
-  const { isAuthenticated, activeRepository, refreshActiveRepository } = useAuth()
+  const { isAuthenticated, isLoading, activeRepository, refreshActiveRepository } = useAuth()
+  const router = useRouter()
   const [projects, setProjects] = useState<Project[]>([])
   const [teams, setTeams] = useState<Team[]>([])
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
@@ -49,6 +50,12 @@ function HomeContent() {
     }
   }, [urlProjectId, urlTeamId])
 
+  useEffect(() => {
+    if (!isLoading && !isAuthenticated) {
+      router.push('/login')
+    }
+  }, [isLoading, isAuthenticated, router])
+
   const handleTaskCreated = useCallback(() => {
     setRefreshKey((prev) => prev + 1)
   }, [])
@@ -62,9 +69,13 @@ function HomeContent() {
     ? teams.find(t => t.id === selectedTeamId)?.name || "Team Issues"
     : selectedProjectId
       ? projects.find(p => p.id === selectedProjectId)?.name || "Project"
-      : activeRepository
-        ? activeRepository.name
-        : "Dashboard"
+        : activeRepository
+          ? activeRepository.name
+          : "Dashboard"
+
+  if (isLoading || !isAuthenticated) {
+    return null
+  }
 
   return (
     <AppShell>

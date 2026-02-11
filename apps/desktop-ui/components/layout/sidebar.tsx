@@ -5,13 +5,13 @@ import Link from "next/link"
 import { usePathname, useSearchParams } from "next/navigation"
 import {
     Home, Inbox, Layers, Settings,
-    PanelLeftClose, Github, LogOut, Archive,
+    PanelLeftClose, LogOut, Archive,
     ChevronRight, ChevronDown, CircleDot, FolderKanban, Eye, Plus
 } from "lucide-react"
 import { ProjectSelector } from "@/components/auth/project-selector"
 import { useAuth } from "@/hooks/use-auth"
 import { cn } from "@/lib/utils"
-import { getLoginUrl, fetchInboxCount, fetchTeams, type Team } from "@/lib/api"
+import { fetchInboxCount, fetchTeams, type Team } from "@/lib/api"
 
 const navItemClass = (isActive: boolean) =>
     cn(
@@ -288,11 +288,10 @@ export function Sidebar({ open, onClose, width, animating }: SidebarProps) {
                     </div>
                 ) : (
                     <a
-                        href={getLoginUrl()}
+                        href="/login"
                         className="flex items-center gap-3 w-full px-3 py-2 rounded-md text-sm font-medium bg-linear-accent hover:bg-linear-accent-hover text-white transition-colors"
                     >
-                        <Github className="w-4 h-4" />
-                        Sign in with GitHub
+                        Sign in
                     </a>
                 )}
             </div>
