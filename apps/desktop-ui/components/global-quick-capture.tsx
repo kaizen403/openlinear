@@ -408,12 +408,12 @@ export function GlobalQuickCapture() {
             aria-label="Open quick capture"
             className={cn(
               "fixed right-0 top-1/2 -translate-y-1/2 z-[9999]",
-              "w-1.5 h-16",
-              "bg-[#09090b]/60 backdrop-blur-xl",
+              "w-3 h-24",
+              "bg-white/[0.08] backdrop-blur-xl",
               "rounded-l-lg",
               "cursor-pointer",
-              "hover:w-2 hover:bg-[#09090b]/80",
-              "border-l border-t border-b border-white/[0.08]",
+              "hover:w-4 hover:bg-white/[0.14]",
+              "border-l border-t border-b border-white/[0.12]",
               "shadow-[-4px_0_20px_rgba(0,0,0,0.4)]",
               "transition-all duration-300 ease-out"
             )}
