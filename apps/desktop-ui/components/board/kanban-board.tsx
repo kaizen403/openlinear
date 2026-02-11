@@ -40,10 +40,11 @@ const SSE_URL = `${API_BASE_URL}/api/events`
 
 interface KanbanBoardProps {
   projectId?: string | null
+  teamId?: string | null
   projects?: Project[]
 }
 
-export function KanbanBoard({ projectId, projects = [] }: KanbanBoardProps) {
+export function KanbanBoard({ projectId, teamId, projects = [] }: KanbanBoardProps) {
   const [tasks, setTasks] = useState<Task[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -253,8 +254,12 @@ export function KanbanBoard({ projectId, projects = [] }: KanbanBoardProps) {
     let shouldStopLoading = showLoading
 
     try {
-      const url = projectId
-        ? `${API_BASE_URL}/api/tasks?projectId=${encodeURIComponent(projectId)}`
+      const params = new URLSearchParams()
+      if (projectId) params.set('projectId', projectId)
+      if (teamId) params.set('teamId', teamId)
+      const qs = params.toString()
+      const url = qs
+        ? `${API_BASE_URL}/api/tasks?${qs}`
         : `${API_BASE_URL}/api/tasks`
       const response = await fetch(url)
       if (!response.ok) {
@@ -292,14 +297,18 @@ export function KanbanBoard({ projectId, projects = [] }: KanbanBoardProps) {
         setLoading(false)
       }
     }
-  }, [projectId])
+  }, [projectId, teamId])
 
   const handleSSEEvent = useCallback((eventType: SSEEventType, data: SSEEventData) => {
     switch (eventType) {
       case 'task:created':
         if (data.id && data.title && data.status) {
           const taskProjectId = (data as unknown as { projectId?: string }).projectId
+          const taskTeamId = (data as unknown as { teamId?: string }).teamId
           if (projectId && taskProjectId !== projectId) {
+            break
+          }
+          if (teamId && taskTeamId !== teamId) {
             break
           }
           const newTask: Task = {
@@ -502,7 +511,7 @@ export function KanbanBoard({ projectId, projects = [] }: KanbanBoardProps) {
       default:
         break
     }
-  }, [fetchTasks, isAuthenticated, refreshActiveRepository, refreshPublicProject])
+  }, [fetchTasks, isAuthenticated, refreshActiveRepository, refreshPublicProject, projectId, teamId])
 
   useSSE(SSE_URL, handleSSEEvent)
 

@@ -1,6 +1,7 @@
 "use client"
 
-import { useState, useCallback, useEffect } from "react"
+import { Suspense, useState, useCallback, useEffect } from "react"
+import { useSearchParams } from "next/navigation"
 import { Search, Plus, FolderKanban } from "lucide-react"
 import { KanbanBoard } from "@/components/board/kanban-board"
 import { TaskFormDialog } from "@/components/task-form"
@@ -8,7 +9,7 @@ import { RepoConnector } from "@/components/repo-connector"
 
 import { AppShell } from "@/components/layout/app-shell"
 import { useAuth } from "@/hooks/use-auth"
-import { fetchProjects, Project } from "@/lib/api"
+import { fetchProjects, fetchTeams, Project, Team } from "@/lib/api"
 import {
   Select,
   SelectContent,
@@ -17,16 +18,36 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 
-export default function HomePage() {
+function HomeContent() {
+  const searchParams = useSearchParams()
+  const urlTeamId = searchParams.get("teamId")
+  const urlProjectId = searchParams.get("projectId")
+
   const [isTaskFormOpen, setIsTaskFormOpen] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
   const { isAuthenticated, activeRepository, refreshActiveRepository } = useAuth()
   const [projects, setProjects] = useState<Project[]>([])
+  const [teams, setTeams] = useState<Team[]>([])
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
+  const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null)
 
   useEffect(() => {
     fetchProjects().then(setProjects).catch(() => setProjects([]))
+    fetchTeams().then(setTeams).catch(() => setTeams([]))
   }, [])
+
+  useEffect(() => {
+    if (urlProjectId) {
+      setSelectedProjectId(urlProjectId)
+      setSelectedTeamId(null)
+    } else if (urlTeamId) {
+      setSelectedTeamId(urlTeamId)
+      setSelectedProjectId(null)
+    } else {
+      setSelectedProjectId(null)
+      setSelectedTeamId(null)
+    }
+  }, [urlProjectId, urlTeamId])
 
   const handleTaskCreated = useCallback(() => {
     setRefreshKey((prev) => prev + 1)
@@ -37,12 +58,20 @@ export default function HomePage() {
     setRefreshKey((prev) => prev + 1)
   }, [refreshActiveRepository])
 
+  const headerLabel = selectedTeamId
+    ? teams.find(t => t.id === selectedTeamId)?.name || "Team Issues"
+    : selectedProjectId
+      ? projects.find(p => p.id === selectedProjectId)?.name || "Project"
+      : activeRepository
+        ? activeRepository.name
+        : "Dashboard"
+
   return (
     <AppShell>
       <header className="h-14 border-b border-linear-border flex items-center px-4 sm:px-6 bg-linear-bg gap-2 sm:gap-4" data-tauri-drag-region>
         <div className="flex items-center gap-4 min-w-0">
           <h1 className="text-lg font-semibold truncate">
-            {activeRepository ? activeRepository.name : "Dashboard"}
+            {headerLabel}
           </h1>
           {!isAuthenticated && <RepoConnector onRepoConnected={handleRepoConnected} />}
         </div>
@@ -50,7 +79,10 @@ export default function HomePage() {
         <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
           <Select
             value={selectedProjectId || "all"}
-            onValueChange={(value) => setSelectedProjectId(value === "all" ? null : value)}
+            onValueChange={(value) => {
+              setSelectedProjectId(value === "all" ? null : value)
+              setSelectedTeamId(null)
+            }}
           >
             <SelectTrigger className="h-8 w-auto min-w-[140px] px-2.5 text-xs rounded-md bg-linear-bg-tertiary border border-linear-border hover:border-linear-border-hover text-linear-text gap-1.5 focus:ring-0 shadow-none">
               <div className="flex items-center gap-1.5">
@@ -111,7 +143,7 @@ export default function HomePage() {
         </div>
       </header>
 
-      <KanbanBoard key={refreshKey} projectId={selectedProjectId} />
+      <KanbanBoard key={refreshKey} projectId={selectedProjectId} teamId={selectedTeamId} />
       <TaskFormDialog
         open={isTaskFormOpen}
         onOpenChange={setIsTaskFormOpen}
@@ -120,5 +152,13 @@ export default function HomePage() {
         projects={projects}
       />
     </AppShell>
+  )
+}
+
+export default function HomePage() {
+  return (
+    <Suspense>
+      <HomeContent />
+    </Suspense>
   )
 }

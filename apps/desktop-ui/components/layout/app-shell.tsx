@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef, useCallback, ReactNode } from "react"
+import { useState, useEffect, useRef, useCallback, ReactNode, Suspense } from "react"
 import { PanelLeft } from "lucide-react"
 import { Sidebar } from "./sidebar"
 
@@ -88,12 +88,14 @@ export function AppShell({ children }: AppShellProps) {
                         : "relative z-10 flex-shrink-0"
                 }
             >
-                <Sidebar
-                    open={sidebarOpen}
-                    onClose={closeSidebar}
-                    width={isMobile ? 280 : sidebarWidth}
-                    animating={!dragging}
-                />
+                <Suspense>
+                    <Sidebar
+                        open={sidebarOpen}
+                        onClose={closeSidebar}
+                        width={isMobile ? 280 : sidebarWidth}
+                        animating={!dragging}
+                    />
+                </Suspense>
             </div>
 
             {/* Drag handle — only visible when sidebar is open on desktop */}

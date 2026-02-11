@@ -140,7 +140,7 @@ export interface Team {
   updatedAt: string
   _count?: { members: number }
   members?: TeamMember[]
-  projectTeams?: { team: Team }[]
+  projectTeams?: { project: { id: string; name: string; status: string; color: string; icon: string | null } }[]
 }
 
 export interface TeamMember {

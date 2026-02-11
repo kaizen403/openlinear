@@ -36,6 +36,13 @@ router.get('/', async (_req: AuthRequest, res: Response) => {
         _count: {
           select: { members: true },
         },
+        projectTeams: {
+          include: {
+            project: {
+              select: { id: true, name: true, status: true, color: true, icon: true },
+            },
+          },
+        },
       },
       orderBy: { createdAt: 'asc' },
     });

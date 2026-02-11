@@ -2,21 +2,30 @@
 
 import { useState, useEffect } from "react"
 import Link from "next/link"
-import { usePathname } from "next/navigation"
+import { usePathname, useSearchParams } from "next/navigation"
 import {
     Home, Inbox, Layers, Settings,
-    Briefcase, PanelLeftClose, Github, LogOut, Users, Archive
+    PanelLeftClose, Github, LogOut, Archive,
+    ChevronRight, ChevronDown, CircleDot
 } from "lucide-react"
 import { ProjectSelector } from "@/components/auth/project-selector"
 import { useAuth } from "@/hooks/use-auth"
 import { cn } from "@/lib/utils"
-import { getLoginUrl, fetchInboxCount } from "@/lib/api"
+import { getLoginUrl, fetchInboxCount, fetchTeams, type Team } from "@/lib/api"
 
 const navItemClass = (isActive: boolean) =>
     cn(
         "flex items-center gap-3 px-3 py-1.5 rounded-md text-sm font-medium transition-all duration-200 cursor-pointer group",
         isActive
             ? "bg-linear-bg-tertiary text-linear-text shadow-sm"
+            : "text-linear-text-secondary hover:text-linear-text hover:bg-linear-bg-tertiary/50"
+    )
+
+const subNavItemClass = (isActive: boolean) =>
+    cn(
+        "flex items-center gap-2.5 px-3 py-1 rounded-md text-[13px] transition-all duration-200 cursor-pointer",
+        isActive
+            ? "bg-linear-bg-tertiary text-linear-text"
             : "text-linear-text-secondary hover:text-linear-text hover:bg-linear-bg-tertiary/50"
     )
 
@@ -27,11 +36,76 @@ interface SidebarProps {
     animating: boolean
 }
 
+function TeamSection({ team, pathname, searchParams }: { team: Team; pathname: string; searchParams: URLSearchParams }) {
+    const [expanded, setExpanded] = useState(true)
+    const teamId = searchParams.get("teamId")
+    const projectId = searchParams.get("projectId")
+
+    const projects = team.projectTeams?.map(pt => pt.project) || []
+    const isTeamActive = pathname === "/" && teamId === team.id && !projectId
+
+    return (
+        <div>
+            <button
+                onClick={() => setExpanded(!expanded)}
+                className="flex items-center gap-2 w-full px-3 py-1.5 rounded-md text-[13px] font-medium text-linear-text-secondary hover:text-linear-text hover:bg-linear-bg-tertiary/50 transition-colors"
+            >
+                {expanded ? (
+                    <ChevronDown className="w-3 h-3 flex-shrink-0 text-linear-text-tertiary" />
+                ) : (
+                    <ChevronRight className="w-3 h-3 flex-shrink-0 text-linear-text-tertiary" />
+                )}
+                <div
+                    className="w-4 h-4 rounded flex items-center justify-center flex-shrink-0"
+                    style={{ backgroundColor: `${team.color}25` }}
+                >
+                    <span className="text-[9px] font-bold" style={{ color: team.color }}>
+                        {team.name.charAt(0).toUpperCase()}
+                    </span>
+                </div>
+                <span className="truncate">{team.name}</span>
+            </button>
+
+            {expanded && (
+                <div className="ml-3 pl-3 border-l border-white/[0.06] mt-0.5 space-y-0.5">
+                    <Link
+                        href={`/?teamId=${team.id}`}
+                        className={subNavItemClass(isTeamActive)}
+                    >
+                        <CircleDot className="w-3.5 h-3.5 flex-shrink-0" />
+                        <span>Issues</span>
+                    </Link>
+
+                    {projects.length > 0 && (
+                        <div className="space-y-0.5">
+                            {projects.map(project => (
+                                <Link
+                                    key={project.id}
+                                    href={`/?projectId=${project.id}`}
+                                    className={subNavItemClass(projectId === project.id)}
+                                >
+                                    <div
+                                        className="w-3 h-3 rounded-sm flex-shrink-0"
+                                        style={{ backgroundColor: project.color }}
+                                    />
+                                    <span className="truncate">{project.name}</span>
+                                </Link>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            )}
+        </div>
+    )
+}
+
 export function Sidebar({ open, onClose, width, animating }: SidebarProps) {
     const pathname = usePathname()
-    const { user, isAuthenticated, isLoading, activeRepository, logout } = useAuth()
+    const searchParams = useSearchParams()
+    const { user, isAuthenticated, isLoading, logout } = useAuth()
     const [isTauri, setIsTauri] = useState(false)
     const [inboxCount, setInboxCount] = useState(0)
+    const [teams, setTeams] = useState<Team[]>([])
 
     useEffect(() => {
         setIsTauri(typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window)
@@ -40,6 +114,10 @@ export function Sidebar({ open, onClose, width, animating }: SidebarProps) {
     useEffect(() => {
         fetchInboxCount().then(setInboxCount).catch(() => setInboxCount(0))
     }, [pathname])
+
+    useEffect(() => {
+        fetchTeams().then(setTeams).catch(() => setTeams([]))
+    }, [])
 
     const handleClose = async () => {
         const { getCurrentWindow } = await import('@tauri-apps/api/window')
@@ -55,6 +133,8 @@ export function Sidebar({ open, onClose, width, animating }: SidebarProps) {
         const { getCurrentWindow } = await import('@tauri-apps/api/window')
         getCurrentWindow().toggleMaximize()
     }
+
+    const isHomeNoFilter = pathname === "/" && !searchParams.get("teamId") && !searchParams.get("projectId")
 
     return (
         <aside
@@ -106,7 +186,7 @@ export function Sidebar({ open, onClose, width, animating }: SidebarProps) {
 
             <nav className="flex-1 overflow-y-auto py-2 min-w-0">
                 <div className="px-3 space-y-0.5">
-                    <Link href="/" className={navItemClass(pathname === "/")}>
+                    <Link href="/" className={navItemClass(isHomeNoFilter)}>
                         <Home className="w-4 h-4 flex-shrink-0" />
                         <span>Home</span>
                     </Link>
@@ -123,27 +203,30 @@ export function Sidebar({ open, onClose, width, animating }: SidebarProps) {
                         <Layers className="w-4 h-4 flex-shrink-0" />
                         <span>My Issues</span>
                     </Link>
-                    <Link href="/projects" className={navItemClass(pathname === "/projects")}>
-                        <Briefcase className="w-4 h-4 flex-shrink-0" />
-                        <span>Projects</span>
-                    </Link>
-                    {activeRepository && (
-                        <Link
-                            href={`/projects/${activeRepository.id}`}
-                            className={navItemClass(pathname.startsWith("/projects/") && pathname !== "/projects")}
-                        >
-                            <div className="w-4 h-4 rounded bg-linear-accent flex items-center justify-center flex-shrink-0">
-                                <span className="text-[10px] font-bold text-white">
-                                    {activeRepository.name.charAt(0).toUpperCase()}
-                                </span>
-                            </div>
-                            <span className="truncate">{activeRepository.name}</span>
-                        </Link>
-                    )}
-                    <Link href="/teams" className={navItemClass(pathname === "/teams" || pathname.startsWith("/team/"))}>
-                        <Users className="w-4 h-4 flex-shrink-0" />
-                        <span>Teams</span>
-                    </Link>
+                </div>
+
+                {/* Team hierarchy */}
+                {teams.length > 0 && (
+                    <div className="mt-4 px-3">
+                        <div className="flex items-center justify-between px-3 mb-1">
+                            <span className="text-[11px] font-medium uppercase tracking-wider text-linear-text-tertiary">
+                                Your teams
+                            </span>
+                        </div>
+                        <div className="space-y-0.5">
+                            {teams.map(team => (
+                                <TeamSection
+                                    key={team.id}
+                                    team={team}
+                                    pathname={pathname}
+                                    searchParams={searchParams}
+                                />
+                            ))}
+                        </div>
+                    </div>
+                )}
+
+                <div className="mt-4 px-3 space-y-0.5">
                     <Link href="/archived" className={navItemClass(pathname === "/archived")}>
                         <Archive className="w-4 h-4 flex-shrink-0" />
                         <span>Archived</span>
