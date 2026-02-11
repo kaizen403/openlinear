@@ -16,7 +16,7 @@ const JWT_SECRET = process.env.JWT_SECRET || 'openlinear-dev-secret-change-in-pr
 
 interface AuthUser {
   id: string;
-  accessToken: string;
+  accessToken: string | null;
 }
 
 async function getAuthUser(req: Request): Promise<AuthUser | null> {
@@ -117,6 +117,11 @@ router.get('/github', async (req: Request, res: Response) => {
   const user = await getAuthUser(req);
   if (!user) {
     res.status(401).json({ error: 'Unauthorized' });
+    return;
+  }
+
+  if (!user.accessToken) {
+    res.status(403).json({ error: 'GitHub account not linked. Please sign in with GitHub first.' });
     return;
   }
 
