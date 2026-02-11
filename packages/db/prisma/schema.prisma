@@ -132,6 +132,7 @@ model Repository {
   isActive      Boolean  @default(false)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+  projects      Project[]
 
   @@unique([userId, githubRepoId])
   @@map("projects")
@@ -180,6 +181,10 @@ model Project {
   targetDate   DateTime?
   leadId       String?
   lead         User?         @relation("projectLead", fields: [leadId], references: [id], onDelete: SetNull)
+  repositoryId String?
+  repository   Repository?   @relation(fields: [repositoryId], references: [id], onDelete: SetNull)
+  localPath    String?       // Absolute path to local folder (alternative to repo)
+  repoUrl      String?       // Original URL used to connect (for display)
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
   projectTeams ProjectTeam[]
