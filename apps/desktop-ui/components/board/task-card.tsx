@@ -207,7 +207,7 @@ export function TaskCard({ task, onExecute, onCancel, onDelete, onMoveToInProgre
         <div className="flex items-center justify-between mt-1">
           <div className="flex items-center gap-2 min-w-0">
             <span className="text-[11px] text-linear-text-tertiary font-mono opacity-60">
-              {task.identifier || `OP-${task.id.slice(0, 3).toUpperCase()}`}
+              {task.identifier || (task.number ? `#${task.number}` : task.id.slice(0, 6))}
             </span>
             {(task.status === 'in_progress' || task.status === 'done' || task.status === 'cancelled') && (
               (task.status === 'in_progress' && task.executionStartedAt && !task.executionPausedAt && liveElapsedMs >= 1000) ||

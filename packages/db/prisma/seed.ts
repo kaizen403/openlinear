@@ -146,6 +146,25 @@ async function main() {
     data: { projectId: project.id, teamId: team.id },
   });
   console.log(`[seed] Migrated ${migrated.count} orphan tasks into project`);
+
+  // 9. Assign identifiers to seed tasks
+  for (let i = 0; i < SEED_TASKS.length; i++) {
+    await prisma.task.update({
+      where: { id: SEED_TASKS[i].id },
+      data: {
+        identifier: `${team.key}-${i + 1}`,
+        number: i + 1,
+      },
+    });
+  }
+  console.log(`[seed] Assigned identifiers to ${SEED_TASKS.length} tasks`);
+
+  // 10. Update team's nextIssueNumber
+  await prisma.team.update({
+    where: { id: team.id },
+    data: { nextIssueNumber: SEED_TASKS.length + 1 },
+  });
+  console.log(`[seed] Set team nextIssueNumber to ${SEED_TASKS.length + 1}`);
 }
 
 main()
