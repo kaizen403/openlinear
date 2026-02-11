@@ -166,7 +166,7 @@ router.get('/me', async (req: Request, res: Response) => {
       return;
     }
 
-    const { accessToken: _, ...safeUser } = user;
+    const { accessToken: _, passwordHash: __, ...safeUser } = user;
     res.json(safeUser);
   } catch {
     res.status(401).json({ error: 'Invalid token' });
