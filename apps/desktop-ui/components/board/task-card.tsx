@@ -96,6 +96,7 @@ export function TaskCard({ task, onExecute, onCancel, onDelete, onMoveToInProgre
 
   const showProgress = executionProgress && executionProgress.taskId === task.id
   const isActiveProgress = showProgress && ['cloning', 'executing', 'committing', 'creating_pr'].includes(executionProgress.status)
+  const prLink = !isActiveProgress ? (executionProgress?.prUrl || task.prUrl) : null
 
   return (
     <div>
@@ -181,10 +182,10 @@ export function TaskCard({ task, onExecute, onCancel, onDelete, onMoveToInProgre
                 {executionProgress.message || progressConfig[executionProgress.status].label}
               </span>
             </div>
-            {executionProgress.prUrl && (
+            {prLink && (
               <button
                 className="flex items-center gap-1 mt-2 text-xs text-linear-accent hover:underline"
-                onClick={(e) => { e.stopPropagation(); openExternal(executionProgress.prUrl!) }}
+                onClick={(e) => { e.stopPropagation(); openExternal(prLink) }}
               >
                 <ExternalLink className="w-3 h-3" />
                 View PR

@@ -7,6 +7,7 @@ import { getClientForDirectory } from './opencode';
 import { ensureMainRepo, createWorktree, cleanupBatch, mergeBranch, createBatchBranch, pushBranch } from './worktree';
 import type { BatchState, BatchTask, BatchSettings, CreateBatchParams, BatchEventType } from '../types/batch';
 import type { OpencodeClient } from '@opencode-ai/sdk';
+import { getOrCreateBuffer, appendTextDelta, appendReasoningDelta, flushDeltaBuffer, cleanupDeltaBuffer } from './delta-buffer';
 
 const execAsync = promisify(exec);
 
@@ -219,6 +220,7 @@ function subscribeToTaskEvents(
   taskId: string
 ): void {
   let promptSent = false;
+  getOrCreateBuffer(taskId, (msg) => emitBatchLog(taskId, 'agent', msg));
 
   (async () => {
     try {
@@ -232,13 +234,17 @@ function subscribeToTaskEvents(
 
         // Terminal events
         if (type === 'session.completed' || type === 'session.idle') {
-          if (!promptSent) continue; // Ignore pre-prompt idle
+          if (!promptSent) continue;
+          flushDeltaBuffer(taskId);
+          cleanupDeltaBuffer(taskId);
           emitBatchLog(taskId, 'success', 'Agent completed work');
           await handleTaskComplete(batchId, taskId, true);
           break;
         }
 
         if (type === 'session.error') {
+          flushDeltaBuffer(taskId);
+          cleanupDeltaBuffer(taskId);
           const errorMsg = String(props.error || 'Session error');
           emitBatchLog(taskId, 'error', 'Execution failed', errorMsg);
           await handleTaskComplete(batchId, taskId, false, errorMsg);
@@ -263,11 +269,9 @@ function subscribeToTaskEvents(
           const delta = props.delta as string | undefined;
 
           if (part?.type === 'text' && delta) {
-            const trimmed = delta.trim();
-            if (trimmed.length > 0 && trimmed.length < 200) {
-              emitBatchLog(taskId, 'agent', trimmed);
-            }
+            appendTextDelta(taskId, delta);
           } else if (part?.type === 'tool') {
+            flushDeltaBuffer(taskId);
             const toolName = part.tool || 'unknown tool';
             const state = part.state;
             if (state?.status === 'running') {
@@ -279,8 +283,8 @@ function subscribeToTaskEvents(
             }
           } else if (part?.type === 'reasoning') {
             const reasoning = delta || part.text || '';
-            if (reasoning.length > 10 && reasoning.length < 200) {
-              emitBatchLog(taskId, 'agent', `Thinking: ${reasoning.slice(0, 100)}`);
+            if (reasoning.length > 0) {
+              appendReasoningDelta(taskId, reasoning);
             }
           }
           continue;
@@ -288,6 +292,7 @@ function subscribeToTaskEvents(
 
         // Tool execution events
         if (type === 'tool.execute.before') {
+          flushDeltaBuffer(taskId);
           const tool = props.tool as string | undefined;
           if (tool) {
             emitBatchLog(taskId, 'tool', `Starting: ${tool}`);
@@ -314,6 +319,7 @@ function subscribeToTaskEvents(
         }
       }
     } catch (error) {
+      cleanupDeltaBuffer(taskId);
       console.error(`[Batch] Event subscription error for task ${taskId.slice(0, 8)}:`, error);
       await handleTaskComplete(batchId, taskId, false, 'Event subscription failed');
     }
@@ -555,18 +561,8 @@ async function finalizeBatch(batchId: string): Promise<void> {
       const completedTaskIds = batch.tasks
         .filter(t => t.status === 'completed')
         .map(t => t.taskId);
-      if (completedTaskIds.length > 0) {
-        try {
-          await prisma.task.updateMany({
-            where: { id: { in: completedTaskIds } },
-            data: { prUrl: batch.prUrl },
-          });
-          for (const taskId of completedTaskIds) {
-            broadcast('task:updated', { id: taskId, prUrl: batch.prUrl });
-          }
-        } catch (err) {
-          console.error(`[Batch] Failed to write prUrl to tasks:`, err);
-        }
+      for (const taskId of completedTaskIds) {
+        await updateTaskInDb(taskId, 'done', { prUrl: batch.prUrl });
       }
     }
 

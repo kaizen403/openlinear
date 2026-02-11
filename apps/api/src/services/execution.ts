@@ -7,6 +7,7 @@ import { broadcast } from '../sse';
 import { getClient, getClientForDirectory } from './opencode';
 
 import type { OpencodeClient } from '@opencode-ai/sdk';
+import { getOrCreateBuffer, appendTextDelta, appendReasoningDelta, flushDeltaBuffer, cleanupDeltaBuffer } from './delta-buffer';
 
 interface Label {
   id: string;
@@ -146,9 +147,23 @@ function estimateProgress(execution: ExecutionState): number {
   return Math.min(Math.round(baseProgress + fileProgress + timeProgress), 95);
 }
 
+async function persistLogs(taskId: string): Promise<void> {
+  const execution = activeExecutions.get(taskId);
+  if (!execution || execution.logs.length === 0) return;
+  try {
+    await prisma.$executeRaw`
+      UPDATE tasks SET "executionLogs" = ${JSON.stringify(execution.logs)}::jsonb WHERE id = ${taskId}
+    `;
+  } catch (error) {
+    console.error(`[Execution] Failed to persist logs for task ${taskId.slice(0, 8)}:`, error);
+  }
+}
+
 async function cleanupExecution(taskId: string): Promise<void> {
   const execution = activeExecutions.get(taskId);
   if (execution) {
+    flushDeltaBuffer(taskId);
+    cleanupDeltaBuffer(taskId);
     clearTimeout(execution.timeoutId);
     sessionToTask.delete(execution.sessionId);
     activeExecutions.delete(taskId);
@@ -359,6 +374,7 @@ async function handleSessionComplete(taskId: string): Promise<void> {
     addLogEntry(taskId, 'error', 'Post-execution failed');
     broadcastProgress(taskId, 'error', 'Post-execution failed');
   } finally {
+    await persistLogs(taskId);
     await cleanupExecution(taskId);
   }
 }
@@ -409,6 +425,7 @@ async function handleOpenCodeEvent(event: { type: string; properties?: Record<st
           console.log(`[Execution] Ignoring ${event.type} for task ${taskId.slice(0, 8)} (${!execution?.promptSent ? 'prompt not yet sent' : 'cancelled'})`);
           break;
         }
+        flushDeltaBuffer(taskId);
         addLogEntry(taskId, 'success', 'Agent completed work');
         await handleSessionComplete(taskId);
       }
@@ -420,6 +437,7 @@ async function handleOpenCodeEvent(event: { type: string; properties?: Record<st
         addLogEntry(taskId, 'error', 'Execution failed', errorMsg);
         broadcastProgress(taskId, 'error', 'Execution failed');
         await updateTaskStatus(taskId, 'cancelled', null);
+        await persistLogs(taskId);
         await cleanupExecution(taskId);
       }
       break;
@@ -444,11 +462,9 @@ async function handleOpenCodeEvent(event: { type: string; properties?: Record<st
       const delta = event.properties?.delta as string;
 
       if (part?.type === 'text' && delta) {
-        const trimmed = delta.trim();
-        if (trimmed.length > 0 && trimmed.length < 200) {
-          addLogEntry(taskId, 'agent', trimmed);
-        }
+        appendTextDelta(taskId, delta);
       } else if (part?.type === 'tool') {
+        flushDeltaBuffer(taskId);
         const toolName = part.tool || 'unknown tool';
         const state = part.state;
         if (state?.status === 'running') {
@@ -462,8 +478,8 @@ async function handleOpenCodeEvent(event: { type: string; properties?: Record<st
         }
       } else if (part?.type === 'reasoning') {
         const reasoning = delta || part.text || '';
-        if (reasoning.length > 10 && reasoning.length < 200) {
-          addLogEntry(taskId, 'agent', `Thinking: ${reasoning.slice(0, 100)}`);
+        if (reasoning.length > 0) {
+          appendReasoningDelta(taskId, reasoning);
         }
       }
       break;
@@ -471,6 +487,7 @@ async function handleOpenCodeEvent(event: { type: string; properties?: Record<st
 
     case 'tool.execute.before': {
       if (!taskId) break;
+      flushDeltaBuffer(taskId);
       const tool = event.properties?.tool as string;
       if (tool) {
         addLogEntry(taskId, 'tool', `Starting: ${tool}`);
@@ -660,6 +677,7 @@ export async function executeTask({ taskId, userId }: ExecuteTaskParams): Promis
 
     activeExecutions.set(taskId, executionState);
     sessionToTask.set(sessionId, taskId);
+    getOrCreateBuffer(taskId, (msg) => addLogEntry(taskId, 'agent', msg));
 
     // Add initial log entries
     addLogEntry(taskId, 'info', 'Repository cloned successfully');
@@ -737,6 +755,7 @@ export async function cancelTask(taskId: string): Promise<{ success: boolean; er
     console.error(`[Execution] Abort call failed for task ${taskId}:`, error);
   }
 
+  await persistLogs(taskId);
   await cleanupExecution(taskId);
   return { success: true };
 }

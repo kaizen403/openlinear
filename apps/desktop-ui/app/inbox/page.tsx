@@ -198,7 +198,12 @@ export default function InboxPage() {
     loadData()
   }, [loadData])
 
-  const handleSSEEvent = useCallback((eventType: SSEEventType, _data: SSEEventData) => {
+  const handleSSEEvent = useCallback((eventType: SSEEventType, data: SSEEventData) => {
+    if (eventType === 'batch:completed' && data.batchId && data.prUrl) {
+      setTasks(prev => prev.map(task =>
+        task.batchId === data.batchId ? { ...task, prUrl: data.prUrl as string } : task
+      ))
+    }
     if (eventType === 'task:updated' || eventType === 'task:created' || eventType === 'batch:completed') {
       loadData()
     }

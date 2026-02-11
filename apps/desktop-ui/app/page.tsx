@@ -47,10 +47,9 @@ export default function HomePage() {
           </button>
           <button
             onClick={() => setIsTaskFormOpen(true)}
-            className="flex items-center gap-2 h-9 px-3 sm:px-4 rounded-md bg-linear-bg-tertiary hover:bg-linear-bg-secondary border border-linear-border text-linear-text text-sm font-medium transition-colors"
+            className="flex items-center h-9 px-3 sm:px-4 rounded-md bg-linear-bg-tertiary hover:bg-linear-bg-secondary border border-linear-border text-linear-text text-sm font-medium transition-colors"
           >
-            <Plus className="w-4 h-4" />
-            <span className="hidden sm:inline">Issues</span>
+            <span className="hidden sm:inline">+ Issues</span>
           </button>
 
         </div>
