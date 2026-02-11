@@ -44,7 +44,7 @@ export function TaskCard({ task, onExecute, onCancel, onDelete, onMoveToInProgre
   const [cancelling, setCancelling] = useState(false)
 
   useEffect(() => {
-    if (task.status === 'in_progress' && task.executionStartedAt) {
+    if (task.status === 'in_progress' && task.executionStartedAt && !task.executionPausedAt) {
       const updateElapsed = () => {
         const started = new Date(task.executionStartedAt!).getTime()
         const elapsed = Date.now() - started
@@ -55,7 +55,7 @@ export function TaskCard({ task, onExecute, onCancel, onDelete, onMoveToInProgre
       const interval = setInterval(updateElapsed, 1000)
       return () => clearInterval(interval)
     }
-  }, [task.status, task.executionStartedAt])
+  }, [task.status, task.executionStartedAt, task.executionPausedAt])
 
   useEffect(() => {
     if (task.status !== 'in_progress') {
@@ -210,12 +210,13 @@ export function TaskCard({ task, onExecute, onCancel, onDelete, onMoveToInProgre
               {task.identifier || `OP-${task.id.slice(0, 3).toUpperCase()}`}
             </span>
             {(task.status === 'in_progress' || task.status === 'done' || task.status === 'cancelled') && (
-              (task.status === 'in_progress' && task.executionStartedAt && liveElapsedMs >= 1000) ||
+              (task.status === 'in_progress' && task.executionStartedAt && !task.executionPausedAt && liveElapsedMs >= 1000) ||
+              ((task.status === 'in_progress' && task.executionPausedAt && (task.executionElapsedMs ?? 0) > 0)) ||
               ((task.status === 'done' || task.status === 'cancelled') && (task.executionElapsedMs ?? 0) > 0)
             ) && (
               <span className="text-[11px] text-linear-text-tertiary flex items-center gap-1 whitespace-nowrap tabular-nums">
                 <Clock className="w-3 h-3 flex-shrink-0" />
-                {task.status === 'in_progress' && task.executionStartedAt
+                {task.status === 'in_progress' && task.executionStartedAt && !task.executionPausedAt
                   ? formatDuration(liveElapsedMs)
                   : formatDuration(task.executionElapsedMs)}
               </span>
