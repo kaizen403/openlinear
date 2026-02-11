@@ -88,10 +88,12 @@ function InboxTaskRow({
   task,
   onMarkRead,
   compact,
+  hidePrLink,
 }: {
   task: InboxTask
   onMarkRead: (id: string) => void
   compact?: boolean
+  hidePrLink?: boolean
 }) {
   return (
     <div
@@ -144,7 +146,7 @@ function InboxTaskRow({
         </span>
       )}
 
-      {task.prUrl && (
+      {task.prUrl && !hidePrLink && (
         <button
           onClick={(e) => { e.stopPropagation(); openExternal(task.prUrl!) }}
           className="flex items-center gap-1 text-[11px] text-purple-400 hover:text-purple-300 font-medium transition-colors flex-shrink-0"
@@ -302,6 +304,7 @@ export default function InboxPage() {
                         task={task}
                         onMarkRead={handleMarkRead}
                         compact
+                        hidePrLink
                       />
                     ))}
                   </div>

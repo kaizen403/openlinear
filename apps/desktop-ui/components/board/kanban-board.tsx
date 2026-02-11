@@ -49,14 +49,40 @@ export function KanbanBoard() {
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
   const [taskLogs, setTaskLogs] = useState<Record<string, ExecutionLogEntry[]>>({})
   const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set())
+  const [selectingColumns, setSelectingColumns] = useState<Set<string>>(new Set())
   const [activeBatch, setActiveBatch] = useState<ActiveBatch | null>(null)
   const [completedBatch, setCompletedBatch] = useState<{ taskIds: string[]; prUrl: string | null; mode: string } | null>(null)
-  const { isAuthenticated, activeRepository } = useAuth()
-
-  const selectionMode = selectedTaskIds.size > 0
+  const { isAuthenticated, activeRepository, refreshActiveRepository } = useAuth()
 
   const batchTaskIds = activeBatch?.tasks.map(t => t.taskId) ?? []
   const completedBatchTaskIds = completedBatch?.taskIds ?? []
+
+
+  const clearColumnSelection = useCallback((status: Task['status']) => {
+    setSelectedTaskIds(prev => {
+      const next = new Set(prev)
+      tasks
+        .filter(task => task.status === status)
+        .forEach(task => next.delete(task.id))
+      return next
+    })
+  }, [tasks])
+
+  const toggleColumnSelection = useCallback((columnId: string) => {
+    setSelectingColumns(prev => {
+      const next = new Set(prev)
+      if (next.has(columnId)) {
+        next.delete(columnId)
+        const columnStatus = COLUMNS.find(c => c.id === columnId)?.status
+        if (columnStatus) {
+          clearColumnSelection(columnStatus)
+        }
+      } else {
+        next.add(columnId)
+      }
+      return next
+    })
+  }, [clearColumnSelection])
 
   const toggleTaskSelect = (taskId: string) => {
     if (batchTaskIds.includes(taskId)) return
@@ -68,7 +94,28 @@ export function KanbanBoard() {
     })
   }
 
-  const clearSelection = () => setSelectedTaskIds(new Set())
+  const clearSelection = () => {
+    setSelectedTaskIds(new Set())
+    setSelectingColumns(new Set())
+  }
+
+  useEffect(() => {
+    setSelectingColumns(prev => {
+      const next = new Set(prev)
+      let changed = false
+      if (batchTaskIds.length > 0 && next.has('in_progress')) {
+        next.delete('in_progress')
+        clearColumnSelection('in_progress')
+        changed = true
+      }
+      if (completedBatchTaskIds.length > 0 && next.has('done')) {
+        next.delete('done')
+        clearColumnSelection('done')
+        changed = true
+      }
+      return changed ? next : prev
+    })
+  }, [batchTaskIds.length, completedBatchTaskIds.length, clearColumnSelection])
 
   const handleBatchExecute = async (mode: 'parallel' | 'queue') => {
     try {
@@ -107,11 +154,38 @@ export function KanbanBoard() {
     }
   }
 
-  useEffect(() => {
+  const refreshPublicProject = useCallback(async () => {
     if (!isAuthenticated) {
-      getActivePublicRepository().then(setPublicProject).catch(() => setPublicProject(null))
+      try {
+        const project = await getActivePublicRepository()
+        setPublicProject(project)
+      } catch {
+        setPublicProject(null)
+      }
     }
   }, [isAuthenticated])
+
+  useEffect(() => {
+    refreshPublicProject()
+  }, [refreshPublicProject])
+
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.visibilityState !== 'visible') return
+      if (isAuthenticated) {
+        refreshActiveRepository()
+      }
+      refreshPublicProject()
+    }
+
+    document.addEventListener('visibilitychange', handleVisibility)
+    window.addEventListener('focus', handleVisibility)
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibility)
+      window.removeEventListener('focus', handleVisibility)
+    }
+  }, [isAuthenticated, refreshActiveRepository, refreshPublicProject])
 
   const canExecute = isAuthenticated ? !!activeRepository : !!publicProject
 
@@ -122,6 +196,7 @@ export function KanbanBoard() {
 
   const retryTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const retryAttemptRef = useRef(0)
+  const safetyTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
   const fetchTasks = useCallback(async (options?: {
     showLoading?: boolean
@@ -213,6 +288,8 @@ export function KanbanBoard() {
             outcome: data.outcome ?? null,
             batchId: data.batchId ?? null,
             inboxRead: data.inboxRead ?? false,
+            identifier: data.identifier ?? null,
+            number: data.number ?? null,
           }
           setTasks((prev) => [...prev, newTask])
         }
@@ -238,6 +315,7 @@ export function KanbanBoard() {
                     ...(data.executionProgress !== undefined && { executionProgress: data.executionProgress }),
                     ...(data.prUrl !== undefined && { prUrl: data.prUrl }),
                     ...(data.outcome !== undefined && { outcome: data.outcome }),
+                    ...(data.batchId !== undefined && { batchId: data.batchId }),
                   }
                 : task
             )
@@ -274,6 +352,10 @@ export function KanbanBoard() {
       case 'connected':
         console.log("[SSE] Connected with clientId:", data.clientId)
         fetchTasks({ silent: true })
+        if (isAuthenticated) {
+          refreshActiveRepository()
+        }
+        refreshPublicProject()
         break
 
       case 'batch:created':
@@ -383,16 +465,32 @@ export function KanbanBoard() {
       default:
         break
     }
-  }, [fetchTasks])
+  }, [fetchTasks, isAuthenticated, refreshActiveRepository, refreshPublicProject])
 
   useSSE(SSE_URL, handleSSEEvent)
 
   useEffect(() => {
     fetchTasks({ showLoading: true, allowRetry: true, clearError: true, resetRetry: true })
+
+    // Safety timeout: force loading to false after 10s no matter what
+    safetyTimeoutRef.current = setTimeout(() => {
+      setLoading(prev => {
+        if (prev) {
+          console.warn('[KanbanBoard] Safety timeout triggered - forcing loading to false')
+          return false
+        }
+        return prev
+      })
+    }, 10000)
+
     return () => {
       if (retryTimeoutRef.current) {
         clearTimeout(retryTimeoutRef.current)
         retryTimeoutRef.current = null
+      }
+      if (safetyTimeoutRef.current) {
+        clearTimeout(safetyTimeoutRef.current)
+        safetyTimeoutRef.current = null
       }
     }
   }, [fetchTasks])
@@ -598,6 +696,10 @@ export function KanbanBoard() {
         <div className="flex md:grid md:grid-cols-2 lg:grid-cols-4 h-full overflow-x-auto snap-x snap-mandatory md:overflow-x-visible">
           {COLUMNS.map((column) => {
             const columnTasks = getTasksByStatus(column.status)
+            const hasParallelGroup =
+              (column.status === 'in_progress' && batchTaskIds.length > 0) ||
+              (column.status === 'done' && completedBatchTaskIds.length > 0)
+            const selectionActive = !hasParallelGroup && selectingColumns.has(column.id)
             return (
               <Droppable key={column.id} droppableId={column.id}>
                 {(provided, snapshot) => (
@@ -606,6 +708,8 @@ export function KanbanBoard() {
                     title={column.title}
                     taskCount={columnTasks.length}
                     onAddTask={() => handleAddTask(column.status)}
+                    selectionActive={selectionActive}
+                    onToggleSelection={!hasParallelGroup ? () => toggleColumnSelection(column.id) : undefined}
                     innerRef={provided.innerRef}
                     droppableProps={provided.droppableProps}
                     isDraggingOver={snapshot.isDraggingOver}
@@ -640,7 +744,7 @@ export function KanbanBoard() {
                                 executionProgress={executionProgress[task.id]}
                                 selected={selectedTaskIds.has(task.id)}
                                 onToggleSelect={toggleTaskSelect}
-                                selectionMode={selectionMode}
+                                selectionMode={selectionActive}
                                 isBatchTask={batchTaskIds.includes(task.id)}
                                 isCompletedBatchTask={completedBatch}
                                 isDragging={snapshot.isDragging}
@@ -682,37 +786,58 @@ export function KanbanBoard() {
                         )
                       }
 
-                      if (column.status === 'done' && completedBatchTaskIds.length > 0) {
-                        const batch = columnTasks.filter(t => completedBatchTaskIds.includes(t.id))
-                        const rest = columnTasks.filter(t => !completedBatchTaskIds.includes(t.id))
-                        return (
-                          <>
-                            {batch.length > 0 && (
-                              <div className="border border-dashed border-purple-500/20 rounded-lg p-2 space-y-3 mb-3 bg-purple-500/[0.02] hover:border-purple-500/40 transition-colors">
-                                <div className="flex items-center justify-between px-1">
-                                  <div className="flex items-center gap-1.5">
-                                    <Check className="w-3 h-3 text-purple-400" />
-                                    <span className="text-[11px] text-purple-400/80 font-medium uppercase tracking-wider">
-                                      {completedBatch?.mode === 'queue' ? 'Queue' : 'Parallel'} Execution
-                                    </span>
+                      if (column.status === 'done') {
+                        const batchGroups = new Map<string, Task[]>()
+                        const ungrouped: Task[] = []
+                        for (const t of columnTasks) {
+                          if (t.batchId) {
+                            const group = batchGroups.get(t.batchId) || []
+                            group.push(t)
+                            batchGroups.set(t.batchId, group)
+                          } else {
+                            ungrouped.push(t)
+                          }
+                        }
+
+                        if (batchGroups.size > 0) {
+                          let taskIndex = 0
+                          return (
+                            <>
+                              {Array.from(batchGroups.entries()).map(([batchGroupId, batchTasks]) => {
+                                const groupPrUrl = batchTasks.find(t => t.prUrl)?.prUrl || null
+                                const groupMode = completedBatch?.taskIds.some(id => batchTasks.some(t => t.id === id))
+                                  ? completedBatch.mode
+                                  : null
+                                const startIndex = taskIndex
+                                taskIndex += batchTasks.length
+                                return (
+                                  <div key={`batch-group-${batchGroupId}`} className="border border-dashed border-purple-500/20 rounded-lg p-2 space-y-3 mb-3 hover:border-purple-500/40 transition-colors">
+                                    <div className="flex items-center justify-between px-1">
+                                      <div className="flex items-center gap-1.5">
+                                        <Check className="w-3 h-3 text-purple-400" />
+                                        <span className="text-[11px] text-purple-400/80 font-medium uppercase tracking-wider">
+                                          {groupMode === 'queue' ? 'Queue' : 'Parallel'} Execution
+                                        </span>
+                                      </div>
+                                      {groupPrUrl && (
+                                        <button
+                                          onClick={() => openExternal(groupPrUrl)}
+                                          className="flex items-center gap-1 text-[11px] text-purple-400 hover:text-purple-300 font-medium transition-colors"
+                                        >
+                                          <GitPullRequest className="w-3 h-3" />
+                                          Open PR
+                                          <ExternalLink className="w-2.5 h-2.5" />
+                                        </button>
+                                      )}
+                                    </div>
+                                    {batchTasks.map((task, i) => renderTask(task, startIndex + i, true))}
                                   </div>
-                                  {completedBatch?.prUrl && (
-                                    <button
-                                      onClick={() => openExternal(completedBatch.prUrl!)}
-                                      className="flex items-center gap-1 text-[11px] text-purple-400 hover:text-purple-300 font-medium transition-colors"
-                                    >
-                                      <GitPullRequest className="w-3 h-3" />
-                                      Open PR
-                                      <ExternalLink className="w-2.5 h-2.5" />
-                                    </button>
-                                  )}
-                                </div>
-                                {batch.map((task, i) => renderTask(task, i, true))}
-                              </div>
-                            )}
-                            {rest.map((task, i) => renderTask(task, batch.length + i))}
-                          </>
-                        )
+                                )
+                              })}
+                              {ungrouped.map((task, i) => renderTask(task, taskIndex + i))}
+                            </>
+                          )
+                        }
                       }
 
                       return columnTasks.map((task, index) => renderTask(task, index))

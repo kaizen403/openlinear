@@ -337,7 +337,17 @@ router.get('/:id/running', async (req: Request, res: Response) => {
 router.get('/:id/logs', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const logs = getExecutionLogs(id);
+    let logs = getExecutionLogs(id);
+
+    if (logs.length === 0) {
+      const result = await prisma.$queryRaw<Array<{ executionLogs: unknown }>>`
+        SELECT "executionLogs" FROM tasks WHERE id = ${id}
+      `;
+      if (result.length > 0 && Array.isArray(result[0].executionLogs)) {
+        logs = result[0].executionLogs as unknown as typeof logs;
+      }
+    }
+
     res.json({ logs });
   } catch (error) {
     console.error('[Tasks] Error getting execution logs:', error);

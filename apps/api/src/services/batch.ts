@@ -13,6 +13,14 @@ const execAsync = promisify(exec);
 const activeBatches = new Map<string, BatchState>();
 const sessionToBatch = new Map<string, { batchId: string; taskId: string }>();
 
+interface BatchLogEntry {
+  timestamp: string;
+  type: 'info' | 'agent' | 'tool' | 'error' | 'success';
+  message: string;
+  details?: string;
+}
+const batchTaskLogs = new Map<string, BatchLogEntry[]>();
+
 function broadcastBatchEvent(type: BatchEventType, batchId: string, data: Record<string, unknown> = {}): void {
   broadcast(type, { batchId, ...data, timestamp: new Date().toISOString() });
 }
@@ -194,10 +202,14 @@ async function startTask(batch: BatchState, taskIndex: number): Promise<void> {
 }
 
 function emitBatchLog(taskId: string, type: 'info' | 'agent' | 'tool' | 'error' | 'success', message: string, details?: string): void {
-  broadcast('execution:log', {
-    taskId,
-    entry: { timestamp: new Date().toISOString(), type, message, ...(details ? { details } : {}) },
-  });
+  const entry: BatchLogEntry = { timestamp: new Date().toISOString(), type, message, ...(details ? { details } : {}) };
+
+  if (!batchTaskLogs.has(taskId)) {
+    batchTaskLogs.set(taskId, []);
+  }
+  batchTaskLogs.get(taskId)!.push(entry);
+
+  broadcast('execution:log', { taskId, entry });
 }
 
 function subscribeToTaskEvents(
@@ -310,7 +322,7 @@ function subscribeToTaskEvents(
 
 async function updateTaskInDb(
   taskId: string,
-  status: 'in_progress' | 'done' | 'cancelled',
+  status: 'todo' | 'in_progress' | 'done' | 'cancelled',
   executionData?: {
     executionStartedAt?: Date;
     executionElapsedMs?: number;
@@ -384,13 +396,26 @@ async function handleTaskComplete(
     broadcastBatchEvent('batch:task:failed', batchId, { taskId, error: task.error });
     emitBatchLog(taskId, 'error', `Batch task failed: ${task.error}`);
 
-    await updateTaskInDb(taskId, 'cancelled', {
+    await updateTaskInDb(taskId, 'todo', {
       executionElapsedMs: elapsedMs,
       outcome: `Failed: ${task.error}`,
     });
   }
 
   task.completedAt = new Date();
+
+  const logs = batchTaskLogs.get(taskId) || [];
+  if (logs.length > 0) {
+    try {
+      await prisma.task.update({
+        where: { id: taskId },
+        data: { executionLogs: JSON.parse(JSON.stringify(logs)) },
+      });
+    } catch (err) {
+      console.error(`[Batch] Failed to persist logs for task ${taskId.slice(0, 8)}:`, err);
+    }
+    batchTaskLogs.delete(taskId);
+  }
 
   if (task.sessionId) {
     sessionToBatch.delete(task.sessionId);

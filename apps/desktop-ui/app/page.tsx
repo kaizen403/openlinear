@@ -12,11 +12,16 @@ import { useAuth } from "@/hooks/use-auth"
 export default function HomePage() {
   const [isTaskFormOpen, setIsTaskFormOpen] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
-  const { isAuthenticated, activeRepository } = useAuth()
+  const { isAuthenticated, activeRepository, refreshActiveRepository } = useAuth()
 
   const handleTaskCreated = useCallback(() => {
     setRefreshKey((prev) => prev + 1)
   }, [])
+
+  const handleRepoConnected = useCallback(() => {
+    refreshActiveRepository()
+    setRefreshKey((prev) => prev + 1)
+  }, [refreshActiveRepository])
 
   return (
     <AppShell>
@@ -25,7 +30,7 @@ export default function HomePage() {
           <h1 className="text-lg font-semibold truncate">
             {activeRepository ? activeRepository.name : "All Issues"}
           </h1>
-          {!isAuthenticated && <RepoConnector />}
+          {!isAuthenticated && <RepoConnector onRepoConnected={handleRepoConnected} />}
         </div>
         <div className="flex-1 h-full" data-tauri-drag-region />
         <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
@@ -42,10 +47,10 @@ export default function HomePage() {
           </button>
           <button
             onClick={() => setIsTaskFormOpen(true)}
-            className="flex items-center gap-2 h-9 px-3 sm:px-4 rounded-md bg-linear-accent hover:bg-linear-accent-hover text-white text-sm font-medium transition-colors"
+            className="flex items-center gap-2 h-9 px-3 sm:px-4 rounded-md bg-linear-bg-tertiary hover:bg-linear-bg-secondary border border-linear-border text-linear-text text-sm font-medium transition-colors"
           >
             <Plus className="w-4 h-4" />
-            <span className="hidden sm:inline">Create Task</span>
+            <span className="hidden sm:inline">Issues</span>
           </button>
 
         </div>

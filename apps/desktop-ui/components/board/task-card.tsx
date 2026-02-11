@@ -107,13 +107,13 @@ export function TaskCard({ task, onExecute, onCancel, onDelete, onMoveToInProgre
         "cursor-pointer group rounded-xl",
         selected && !isDragging && "bg-white/[0.06] border-white/[0.15]",
         isBatchTask && "border-white/[0.10]",
-        isCompletedBatchTask && "bg-purple-500/[0.05] border-purple-500/20"
+        isCompletedBatchTask && ""
       )}
       onClick={handleCardClick}
     >
       <CardHeader className="p-3 pb-0">
         <div className="flex items-start gap-2">
-          {!isBatchTask && (
+          {selectionMode && !isBatchTask && (
             <div
               className={cn(
                 "flex-shrink-0 mt-0.5",
@@ -192,11 +192,21 @@ export function TaskCard({ task, onExecute, onCancel, onDelete, onMoveToInProgre
             )}
           </div>
         )}
+
+        {!showProgress && task.status === 'done' && task.prUrl && !isCompletedBatchTask && (
+          <button
+            className="flex items-center gap-1 mb-2 text-xs text-linear-accent hover:underline"
+            onClick={(e) => { e.stopPropagation(); openExternal(task.prUrl!) }}
+          >
+            <GitPullRequest className="w-3 h-3" />
+            View PR
+          </button>
+        )}
         
         <div className="flex items-center justify-between mt-1">
           <div className="flex items-center gap-2 min-w-0">
             <span className="text-[11px] text-linear-text-tertiary font-mono opacity-60">
-              OP-{task.id.slice(0, 3).toUpperCase()}
+              {task.identifier || `OP-${task.id.slice(0, 3).toUpperCase()}`}
             </span>
             {(task.status === 'in_progress' || task.status === 'done' || task.status === 'cancelled') && (
               (task.status === 'in_progress' && task.executionStartedAt && liveElapsedMs >= 1000) ||

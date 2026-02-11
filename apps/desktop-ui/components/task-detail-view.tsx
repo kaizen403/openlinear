@@ -165,7 +165,7 @@ export function TaskDetailView({ task, logs, progress, open, onClose, onDelete, 
               Back
             </Button>
             <span className="text-sm text-linear-text-tertiary font-mono">
-              {task.id.slice(0, 8)}
+              {task.identifier || task.id.slice(0, 8)}
             </span>
           </div>
           <div className="flex items-center gap-2">

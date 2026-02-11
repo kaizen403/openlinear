@@ -27,6 +27,8 @@ export interface SSEEventData {
   outcome?: string | null
   batchId?: string | null
   inboxRead?: boolean
+  identifier?: string | null
+  number?: number | null
   taskId?: string
   mode?: string
   tasks?: Array<{

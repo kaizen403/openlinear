@@ -11,12 +11,14 @@ interface ColumnProps {
   taskCount: number
   children: React.ReactNode
   onAddTask?: () => void
+  selectionActive?: boolean
+  onToggleSelection?: () => void
   innerRef?: (element: HTMLElement | null) => void
   droppableProps?: DroppableProvidedProps
   isDraggingOver?: boolean
 }
 
-export function Column({ id, title, taskCount, children, onAddTask, innerRef, droppableProps, isDraggingOver }: ColumnProps) {
+export function Column({ id, title, taskCount, children, onAddTask, selectionActive, onToggleSelection, innerRef, droppableProps, isDraggingOver }: ColumnProps) {
   return (
     <div className="flex flex-col h-full border-r border-white/[0.06] last:border-r-0 min-w-[280px] md:min-w-0 snap-start bg-gradient-to-b from-white/[0.02] to-transparent">
       <div className="flex items-center justify-between px-4 py-3 backdrop-blur-sm bg-white/[0.02] border-b border-white/[0.04]">
@@ -29,15 +31,25 @@ export function Column({ id, title, taskCount, children, onAddTask, innerRef, dr
             {taskCount}
           </Badge>
         </div>
-        {onAddTask && (
-          <button
-            onClick={onAddTask}
-            className="w-6 h-6 rounded-md flex items-center justify-center text-zinc-500"
-            aria-label={`Add task to ${title}`}
-          >
-            <Plus className="w-4 h-4" />
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {onToggleSelection && (
+            <button
+              onClick={onToggleSelection}
+              className="h-6 px-2 rounded-md text-[11px] uppercase tracking-wider text-linear-text-secondary bg-linear-bg-tertiary border border-white/[0.12] hover:bg-linear-bg-secondary hover:text-linear-text transition-colors"
+            >
+              {selectionActive ? 'Cancel' : 'Select'}
+            </button>
+          )}
+          {onAddTask && (
+            <button
+              onClick={onAddTask}
+              className="w-6 h-6 rounded-md flex items-center justify-center text-zinc-500"
+              aria-label={`Add task to ${title}`}
+            >
+              <Plus className="w-4 h-4" />
+            </button>
+          )}
+        </div>
       </div>
 
       <div 

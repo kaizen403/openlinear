@@ -2,7 +2,7 @@ import { Router, Response } from 'express';
 import { prisma } from '@openlinear/db';
 import { z } from 'zod';
 import { broadcast } from '../sse';
-import { requireAuth, AuthRequest } from '../middleware/auth';
+import { requireAuth, optionalAuth, AuthRequest } from '../middleware/auth';
 
 const router: Router = Router();
 
@@ -46,7 +46,7 @@ router.get('/', async (_req: AuthRequest, res: Response) => {
   }
 });
 
-router.post('/', requireAuth, async (req: AuthRequest, res: Response) => {
+router.post('/', optionalAuth, async (req: AuthRequest, res: Response) => {
   try {
     const parsed = createTeamSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -57,12 +57,14 @@ router.post('/', requireAuth, async (req: AuthRequest, res: Response) => {
     const team = await prisma.team.create({
       data: {
         ...parsed.data,
-        members: {
-          create: {
-            userId: req.userId!,
-            role: 'owner',
+        ...(req.userId && {
+          members: {
+            create: {
+              userId: req.userId,
+              role: 'owner',
+            },
           },
-        },
+        }),
       },
       include: {
         members: {
@@ -86,7 +88,7 @@ router.post('/', requireAuth, async (req: AuthRequest, res: Response) => {
   }
 });
 
-router.patch('/:id', requireAuth, async (req: AuthRequest, res: Response) => {
+router.patch('/:id', optionalAuth, async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
     const parsed = updateTeamSchema.safeParse(req.body);
@@ -121,7 +123,7 @@ router.patch('/:id', requireAuth, async (req: AuthRequest, res: Response) => {
   }
 });
 
-router.delete('/:id', requireAuth, async (req: AuthRequest, res: Response) => {
+router.delete('/:id', optionalAuth, async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
     await prisma.$transaction(async (tx) => {
@@ -241,7 +243,7 @@ router.post('/:id/members', requireAuth, async (req: AuthRequest, res: Response)
   }
 });
 
-router.delete('/:id/members/:userId', requireAuth, async (req: AuthRequest, res: Response) => {
+router.delete('/:id/members/:userId', optionalAuth, async (req: AuthRequest, res: Response) => {
   try {
     const { id, userId } = req.params;
 
