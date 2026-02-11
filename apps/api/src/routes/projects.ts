@@ -47,9 +47,15 @@ const projectInclude = {
   },
 };
 
-router.get('/', async (_req: Request, res: Response) => {
+router.get('/', async (req: Request, res: Response) => {
   try {
+    const teamId = req.query.teamId as string | undefined;
+    const where = teamId
+      ? { projectTeams: { some: { teamId } } }
+      : {};
+
     const projects = await prisma.project.findMany({
+      where,
       include: projectInclude,
       orderBy: { createdAt: 'desc' },
     });

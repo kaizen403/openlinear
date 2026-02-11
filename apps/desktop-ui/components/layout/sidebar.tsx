@@ -6,7 +6,7 @@ import { usePathname, useSearchParams } from "next/navigation"
 import {
     Home, Inbox, Layers, Settings,
     PanelLeftClose, Github, LogOut, Archive,
-    ChevronRight, ChevronDown, CircleDot, Users, Briefcase
+    ChevronRight, ChevronDown, CircleDot, FolderKanban, Eye, Plus
 } from "lucide-react"
 import { ProjectSelector } from "@/components/auth/project-selector"
 import { useAuth } from "@/hooks/use-auth"
@@ -39,10 +39,10 @@ interface SidebarProps {
 function TeamSection({ team, pathname, searchParams }: { team: Team; pathname: string; searchParams: URLSearchParams }) {
     const [expanded, setExpanded] = useState(true)
     const teamId = searchParams.get("teamId")
-    const projectId = searchParams.get("projectId")
 
-    const projects = team.projectTeams?.map(pt => pt.project) || []
-    const isTeamActive = pathname === "/" && teamId === team.id && !projectId
+    const isIssuesActive = pathname === "/" && teamId === team.id
+    const isProjectsActive = pathname === "/projects" && teamId === team.id
+    const isViewsActive = pathname === "/views" && teamId === team.id
 
     return (
         <div>
@@ -70,29 +70,25 @@ function TeamSection({ team, pathname, searchParams }: { team: Team; pathname: s
                 <div className="ml-3 pl-3 border-l border-white/[0.06] mt-0.5 space-y-0.5">
                     <Link
                         href={`/?teamId=${team.id}`}
-                        className={subNavItemClass(isTeamActive)}
+                        className={subNavItemClass(isIssuesActive)}
                     >
                         <CircleDot className="w-3.5 h-3.5 flex-shrink-0" />
                         <span>Issues</span>
                     </Link>
-
-                    {projects.length > 0 && (
-                        <div className="space-y-0.5">
-                            {projects.map(project => (
-                                <Link
-                                    key={project.id}
-                                    href={`/?projectId=${project.id}`}
-                                    className={subNavItemClass(projectId === project.id)}
-                                >
-                                    <div
-                                        className="w-3 h-3 rounded-sm flex-shrink-0"
-                                        style={{ backgroundColor: project.color }}
-                                    />
-                                    <span className="truncate">{project.name}</span>
-                                </Link>
-                            ))}
-                        </div>
-                    )}
+                    <Link
+                        href={`/projects?teamId=${team.id}`}
+                        className={subNavItemClass(isProjectsActive)}
+                    >
+                        <FolderKanban className="w-3.5 h-3.5 flex-shrink-0" />
+                        <span>Projects</span>
+                    </Link>
+                    <Link
+                        href={`/views?teamId=${team.id}`}
+                        className={subNavItemClass(isViewsActive)}
+                    >
+                        <Eye className="w-3.5 h-3.5 flex-shrink-0" />
+                        <span>Views</span>
+                    </Link>
                 </div>
             )}
         </div>
@@ -203,24 +199,24 @@ export function Sidebar({ open, onClose, width, animating }: SidebarProps) {
                         <Layers className="w-4 h-4 flex-shrink-0" />
                         <span>My Issues</span>
                     </Link>
-                    <Link href="/teams" className={navItemClass(pathname === "/teams" || pathname.startsWith("/teams/"))}>
-                        <Users className="w-4 h-4 flex-shrink-0" />
-                        <span>Teams</span>
-                    </Link>
-                    <Link href="/projects" className={navItemClass(pathname === "/projects")}>
-                        <Briefcase className="w-4 h-4 flex-shrink-0" />
-                        <span>Projects</span>
-                    </Link>
+
                 </div>
 
                 {/* Team hierarchy */}
-                {teams.length > 0 && (
-                    <div className="mt-4 px-3">
-                        <div className="flex items-center justify-between px-3 mb-1">
-                            <span className="text-[11px] font-medium uppercase tracking-wider text-linear-text-tertiary">
-                                Your teams
-                            </span>
-                        </div>
+                <div className="mt-4 px-3">
+                    <div className="flex items-center justify-between px-3 mb-1">
+                        <span className="text-[11px] font-medium uppercase tracking-wider text-linear-text-tertiary">
+                            Your teams
+                        </span>
+                        <Link
+                            href="/teams"
+                            className="p-0.5 rounded hover:bg-linear-bg-tertiary transition-colors text-linear-text-tertiary hover:text-linear-text"
+                            title="Manage teams"
+                        >
+                            <Plus className="w-3 h-3" />
+                        </Link>
+                    </div>
+                    {teams.length > 0 ? (
                         <div className="space-y-0.5">
                             {teams.map(team => (
                                 <TeamSection
@@ -231,8 +227,16 @@ export function Sidebar({ open, onClose, width, animating }: SidebarProps) {
                                 />
                             ))}
                         </div>
-                    </div>
-                )}
+                    ) : (
+                        <Link
+                            href="/teams"
+                            className="flex items-center gap-2 px-3 py-1.5 rounded-md text-[13px] text-linear-text-tertiary hover:text-linear-text hover:bg-linear-bg-tertiary/50 transition-colors"
+                        >
+                            <Plus className="w-3.5 h-3.5" />
+                            <span>Create a team</span>
+                        </Link>
+                    )}
+                </div>
 
                 <div className="mt-4 px-3 space-y-0.5">
                     <Link href="/archived" className={navItemClass(pathname === "/archived")}>

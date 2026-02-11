@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
+import { useSearchParams } from "next/navigation"
 import { 
   Search, 
   Plus, 
@@ -108,6 +109,8 @@ function formatDate(dateString: string | null): string {
 }
 
 export default function ProjectsPage() {
+  const searchParams = useSearchParams()
+  const filterTeamId = searchParams.get("teamId") || undefined
   const [activeTab, setActiveTab] = useState("all")
   const [projects, setProjects] = useState<Project[]>([])
   const [teams, setTeams] = useState<Team[]>([])
@@ -123,19 +126,19 @@ export default function ProjectsPage() {
     name: "",
     description: "",
     status: "planned" as StatusType,
-    teamId: "" as string,
+    teamId: filterTeamId || "" as string,
     targetDate: "",
   })
   const [formErrors, setFormErrors] = useState<Record<string, string>>({})
 
   const loadProjects = useCallback(async () => {
     try {
-      const data = await fetchProjects()
+      const data = await fetchProjects(filterTeamId)
       setProjects(data)
     } catch (error) {
       console.error("Failed to fetch projects:", error)
     }
-  }, [])
+  }, [filterTeamId])
 
   const loadTeams = useCallback(async () => {
     try {
