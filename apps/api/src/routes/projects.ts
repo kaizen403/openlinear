@@ -83,13 +83,33 @@ router.post('/', requireAuth, async (req: AuthRequest, res: Response) => {
       return;
     }
 
-    const { teamIds, startDate, targetDate, ...projectData } = parsed.data;
+    const { teamIds, startDate, targetDate, repoUrl, localPath, ...projectData } = parsed.data;
+
+    let repositoryId: string | undefined;
+
+    if (repoUrl) {
+      try {
+        const repo = await addRepositoryByUrl(repoUrl);
+        repositoryId = repo.id;
+      } catch (err) {
+        res.status(400).json({ error: `Failed to connect repository: ${(err as Error).message}` });
+        return;
+      }
+    }
 
     const project = await prisma.project.create({
       data: {
-        ...projectData,
+        name: projectData.name,
+        description: projectData.description,
+        status: projectData.status,
+        color: projectData.color,
+        icon: projectData.icon,
+        leadId: projectData.leadId,
         startDate: startDate ? new Date(startDate) : undefined,
         targetDate: targetDate ? new Date(targetDate) : undefined,
+        localPath: localPath || undefined,
+        repoUrl: repoUrl || undefined,
+        repositoryId: repositoryId || undefined,
         projectTeams: {
           create: teamIds.map((teamId) => ({ teamId })),
         },
