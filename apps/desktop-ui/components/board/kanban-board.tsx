@@ -9,7 +9,7 @@ import { BatchProgress } from "./batch-progress"
 import { DashboardLoading } from "./dashboard-loading"
 import { TaskFormDialog } from "@/components/task-form"
 import { TaskDetailView } from "@/components/task-detail-view"
-import { Plus, Loader2, Check, GitPullRequest, ExternalLink, X, GripVertical } from "lucide-react"
+import { Plus, Loader2, Check, GitPullRequest, ExternalLink, GripVertical } from "lucide-react"
 import { useSSE, SSEEventType, SSEEventData } from "@/hooks/use-sse"
 import { useAuth } from "@/hooks/use-auth"
 import { getActivePublicRepository, PublicRepository } from "@/lib/api"
@@ -703,7 +703,7 @@ export function KanbanBoard() {
 
   return (
     <DragDropContext onDragEnd={handleDragEnd}>
-      <div className="flex-1 overflow-hidden relative bg-[#111111]">
+      <div className="flex-1 overflow-hidden relative bg-[#111111] flex flex-col">
         {activeBatch && (
           <BatchProgress
             batchId={activeBatch.id}
@@ -713,10 +713,10 @@ export function KanbanBoard() {
             prUrl={activeBatch.prUrl}
             onCancel={handleCancelBatch}
             onDismiss={activeBatch.status === 'completed' ? () => setActiveBatch(null) : undefined}
-            onTaskClick={handleTaskClick}
+            onViewActivity={handleTaskClick}
           />
         )}
-        <div className="flex md:grid md:grid-cols-2 lg:grid-cols-4 h-full overflow-x-auto snap-x snap-mandatory md:overflow-x-visible">
+        <div className="flex md:grid md:grid-cols-2 lg:grid-cols-4 flex-1 min-h-0 overflow-x-auto snap-x snap-mandatory md:overflow-x-visible">
           {COLUMNS.map((column) => {
             const columnTasks = getTasksByStatus(column.status)
             const hasParallelGroup =
@@ -835,48 +835,58 @@ export function KanbanBoard() {
 
                       if (column.status === 'done') {
                         const batchGroups = new Map<string, Task[]>()
-                        const ungrouped: Task[] = []
+                        const orderedItems: Array<
+                          { type: 'group'; batchId: string; tasks: Task[] }
+                          | { type: 'task'; task: Task }
+                        > = []
+
                         for (const t of columnTasks) {
                           if (t.batchId) {
-                            const group = batchGroups.get(t.batchId) || []
-                            group.push(t)
-                            batchGroups.set(t.batchId, group)
+                            if (!batchGroups.has(t.batchId)) {
+                              const group: Task[] = []
+                              batchGroups.set(t.batchId, group)
+                              orderedItems.push({ type: 'group', batchId: t.batchId, tasks: group })
+                            }
+                            batchGroups.get(t.batchId)!.push(t)
                           } else {
-                            ungrouped.push(t)
+                            orderedItems.push({ type: 'task', task: t })
                           }
                         }
 
                         if (batchGroups.size > 0) {
-                          let itemIndex = 0
                           return (
                             <>
-                              {Array.from(batchGroups.entries()).map(([batchGroupId, batchTasks]) => {
+                              {orderedItems.map((item, index) => {
+                                if (item.type === 'task') {
+                                  return renderTask(item.task, index)
+                                }
+
+                                const batchTasks = item.tasks
                                 const groupPrUrl = batchTasks.find(t => t.prUrl)?.prUrl || null
                                 const groupMode = completedBatch?.taskIds.some(id => batchTasks.some(t => t.id === id))
                                   ? completedBatch.mode
                                   : null
-                                const currentIndex = itemIndex
-                                itemIndex += 1
+
                                 return (
-                                  <Draggable key={`batch-group-${batchGroupId}`} draggableId={`batch-group-${batchGroupId}`} index={currentIndex}>
+                                  <Draggable key={`batch-group-${item.batchId}`} draggableId={`batch-group-${item.batchId}`} index={index}>
                                     {(provided, snapshot) => (
                                       <div
                                         ref={provided.innerRef}
                                         {...provided.draggableProps}
                                         className={`border border-dashed border-purple-500/20 rounded-lg p-2 space-y-3 mb-3 hover:border-purple-500/40 transition-all duration-200 ${snapshot.isDragging ? 'shadow-2xl shadow-black/50 ring-1 ring-purple-500/20 scale-[1.02] rotate-1' : ''}`}
                                       >
-                                        <div className="flex items-center justify-between px-1" {...provided.dragHandleProps}>
-                                          <div className="flex items-center gap-1.5">
-                                            <GripVertical className="w-3 h-3 text-purple-400/60 cursor-grab active:cursor-grabbing" />
-                                            <Check className="w-3 h-3 text-purple-400" />
-                                            <span className="text-[11px] text-purple-400/80 font-medium uppercase tracking-wider">
+                                        <div className="flex items-center justify-between gap-3 px-1" {...provided.dragHandleProps}>
+                                          <div className="flex items-center gap-1.5 min-w-0">
+                                            <GripVertical className="w-3 h-3 text-purple-400/60 cursor-grab active:cursor-grabbing flex-shrink-0" />
+                                            <Check className="w-3 h-3 text-purple-400 flex-shrink-0" />
+                                            <span className="text-[11px] text-purple-400/80 font-medium uppercase tracking-wider truncate">
                                               {groupMode === 'queue' ? 'Queue' : 'Parallel'} Execution
                                             </span>
                                           </div>
                                           {groupPrUrl && (
                                             <button
                                               onClick={() => openExternal(groupPrUrl)}
-                                              className="flex items-center gap-1 text-[11px] text-purple-400 hover:text-purple-300 font-medium transition-colors"
+                                              className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-purple-500/15 hover:bg-purple-500/25 border border-purple-500/30 hover:border-purple-500/50 text-[11px] text-purple-300 font-medium transition-all duration-200 flex-shrink-0"
                                             >
                                               <GitPullRequest className="w-3 h-3" />
                                               Open PR
@@ -907,7 +917,6 @@ export function KanbanBoard() {
                                   </Draggable>
                                 )
                               })}
-                              {ungrouped.map((task, i) => renderTask(task, itemIndex + i))}
                             </>
                           )
                         }
