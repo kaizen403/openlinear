@@ -16,6 +16,7 @@
   "dependencies": {
     "@opencode-ai/sdk": "^1.1.51",
     "@openlinear/db": "workspace:*",
+    "bcryptjs": "^2.4.3",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
     "dotenv": "^17.2.4",
@@ -24,6 +25,7 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
     "@types/cookie-parser": "^1.4.10",
     "@types/cors": "^2.8.17",
     "@types/express": "^4.17.21",
