@@ -47,6 +47,9 @@ const projectInclude = {
   projectTeams: {
     include: { team: true },
   },
+  repository: {
+    select: { id: true, name: true, fullName: true, cloneUrl: true, defaultBranch: true },
+  },
   _count: {
     select: { tasks: true },
   },
