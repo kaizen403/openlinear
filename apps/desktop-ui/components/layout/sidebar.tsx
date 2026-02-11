@@ -6,7 +6,7 @@ import { usePathname, useSearchParams } from "next/navigation"
 import {
     Home, Inbox, Layers, Settings,
     PanelLeftClose, Github, LogOut, Archive,
-    ChevronRight, ChevronDown, CircleDot
+    ChevronRight, ChevronDown, CircleDot, Users, Briefcase
 } from "lucide-react"
 import { ProjectSelector } from "@/components/auth/project-selector"
 import { useAuth } from "@/hooks/use-auth"
@@ -202,6 +202,14 @@ export function Sidebar({ open, onClose, width, animating }: SidebarProps) {
                     <Link href="/my-issues" className={navItemClass(pathname === "/my-issues")}>
                         <Layers className="w-4 h-4 flex-shrink-0" />
                         <span>My Issues</span>
+                    </Link>
+                    <Link href="/teams" className={navItemClass(pathname === "/teams" || pathname.startsWith("/teams/"))}>
+                        <Users className="w-4 h-4 flex-shrink-0" />
+                        <span>Teams</span>
+                    </Link>
+                    <Link href="/projects" className={navItemClass(pathname === "/projects")}>
+                        <Briefcase className="w-4 h-4 flex-shrink-0" />
+                        <span>Projects</span>
                     </Link>
                 </div>
 
