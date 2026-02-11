@@ -7,7 +7,7 @@ import { getClientForDirectory } from './opencode';
 import { ensureMainRepo, createWorktree, cleanupBatch, mergeBranch, createBatchBranch, pushBranch } from './worktree';
 import type { BatchState, BatchTask, BatchSettings, CreateBatchParams, BatchEventType } from '../types/batch';
 import type { OpencodeClient } from '@opencode-ai/sdk';
-import { getOrCreateBuffer, appendTextDelta, appendReasoningDelta, flushDeltaBuffer, cleanupDeltaBuffer } from './delta-buffer';
+import { getOrCreateBuffer, appendTextDelta, appendReasoningDelta, flushDeltaBuffer, cleanupDeltaBuffer, markThinking } from './delta-buffer';
 
 const execAsync = promisify(exec);
 
@@ -256,7 +256,9 @@ function subscribeToTaskEvents(
           const status = props.status as { type?: string; message?: string } | undefined;
           if (status?.type === 'busy') {
             promptSent = true;
-            emitBatchLog(taskId, 'agent', 'Agent is thinking...');
+            if (markThinking(taskId)) {
+              emitBatchLog(taskId, 'agent', 'Agent is thinking...');
+            }
           } else if (status?.type === 'retry') {
             emitBatchLog(taskId, 'info', `Retrying: ${status.message || 'unknown reason'}`);
           }
@@ -282,9 +284,8 @@ function subscribeToTaskEvents(
               emitBatchLog(taskId, 'error', `Failed: ${toolName}`, state.output);
             }
           } else if (part?.type === 'reasoning') {
-            const reasoning = delta || part.text || '';
-            if (reasoning.length > 0) {
-              appendReasoningDelta(taskId, reasoning);
+            if (delta && delta.length > 0) {
+              appendReasoningDelta(taskId, delta);
             }
           }
           continue;

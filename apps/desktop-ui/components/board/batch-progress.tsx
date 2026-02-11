@@ -19,7 +19,7 @@ interface BatchProgressProps {
   prUrl: string | null
   onCancel: (batchId: string) => void
   onDismiss?: () => void
-  onTaskClick?: (taskId: string) => void
+  onViewActivity?: (taskId: string) => void
 }
 
 const statusConfig: Record<string, { color: string; bg: string; icon: typeof Check; label: string }> = {
@@ -31,14 +31,12 @@ const statusConfig: Record<string, { color: string; bg: string; icon: typeof Che
   cancelled: { color: 'text-[#666]', bg: 'bg-[#333]', icon: Ban, label: 'Cancelled' },
 }
 
-export function BatchProgress({ batchId, status, mode, tasks, prUrl, onCancel, onDismiss, onTaskClick }: BatchProgressProps) {
+export function BatchProgress({ batchId, status, mode, tasks, prUrl, onCancel, onDismiss, onViewActivity }: BatchProgressProps) {
   const [expanded, setExpanded] = useState(false)
   const [cancelling, setCancelling] = useState(false)
   const total = tasks.length
   const completed = tasks.filter(t => t.status === 'completed').length
   const failed = tasks.filter(t => t.status === 'failed').length
-  const done = tasks.filter(t => !['queued', 'running'].includes(t.status)).length
-  const percentage = total > 0 ? Math.round((done / total) * 100) : 0
   const isRunning = status === 'running' || status === 'merging'
 
   return (
@@ -55,7 +53,7 @@ export function BatchProgress({ batchId, status, mode, tasks, prUrl, onCancel, o
               <div className={cn("w-2 h-2 rounded-full", status === 'completed' ? 'bg-[#2d5a3d]' : status === 'failed' ? 'bg-[#5a2d2d]' : 'bg-[#444]')} />
             )}
             <span className="text-sm text-linear-text">
-              {mode === 'queue' ? 'Queue' : 'Parallel'} Execution: {completed}/{total} complete
+              {mode === 'queue' ? 'Queue' : 'Parallel'} Issues: {completed}/{total} complete
               {failed > 0 && <span className="text-[#8b5a5a] ml-1">({failed} failed)</span>}
             </span>
             {expanded ? (
@@ -135,20 +133,26 @@ export function BatchProgress({ batchId, status, mode, tasks, prUrl, onCancel, o
       </div>
 
       {expanded && (
-        <div className="border-t border-[#222] px-3 py-2 space-y-1">
+        <div className="border-t border-[#222] px-3 py-2 space-y-2">
           {tasks.map(task => {
             const cfg = statusConfig[task.status] || statusConfig.queued
             const Icon = cfg.icon
             return (
-              <button
+              <div
                 key={task.taskId}
-                className="flex items-center gap-2 py-1.5 px-1 -mx-1 w-full text-left rounded-md hover:bg-[#1c1c1c] transition-colors cursor-pointer"
-                onClick={() => onTaskClick?.(task.taskId)}
+                className="bg-[#141414] border border-[#222] rounded-lg p-3 hover:border-[#333] transition-colors"
               >
-                <Icon className={cn("w-3.5 h-3.5 flex-shrink-0", cfg.color, task.status === 'running' && 'animate-spin')} />
-                <span className="text-sm text-linear-text truncate flex-1">{task.title}</span>
-                <span className={cn("text-[11px] font-mono flex-shrink-0", cfg.color)}>{cfg.label}</span>
-              </button>
+                <div className="flex items-center gap-3">
+                  <Icon className={cn("w-4 h-4 flex-shrink-0", cfg.color, task.status === 'running' && 'animate-spin')} />
+                  <span className="text-sm text-linear-text truncate flex-1">{task.title}</span>
+                  <button
+                    onClick={() => onViewActivity?.(task.taskId)}
+                    className="text-xs text-linear-text-tertiary hover:text-linear-accent transition-colors flex-shrink-0"
+                  >
+                    View activity
+                  </button>
+                </div>
+              </div>
             )
           })}
         </div>

@@ -329,6 +329,18 @@ export async function markAllInboxRead(): Promise<void> {
   await fetch(`${API_URL}/api/inbox/read-all`, { method: 'PATCH' })
 }
 
+export async function refreshTaskPr(taskId: string): Promise<{ prUrl: string | null; refreshed: boolean; message?: string }> {
+  const res = await fetch(`${API_URL}/api/tasks/${taskId}/refresh-pr`, {
+    method: 'POST',
+    headers: getAuthHeader(),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Failed to refresh PR' }))
+    throw new Error(err.error || 'Failed to refresh PR')
+  }
+  return res.json()
+}
+
 export interface InboxTask {
   id: string
   title: string

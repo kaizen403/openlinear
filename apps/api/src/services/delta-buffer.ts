@@ -19,6 +19,7 @@ interface BufferState {
   reasoning: string;
   textTimer: ReturnType<typeof setTimeout> | null;
   reasoningTimer: ReturnType<typeof setTimeout> | null;
+  isThinking: boolean;
   emit: EmitFn;
 }
 
@@ -31,6 +32,7 @@ export function getOrCreateBuffer(taskId: string, emit: EmitFn): void {
       reasoning: '',
       textTimer: null,
       reasoningTimer: null,
+      isThinking: false,
       emit,
     });
   }
@@ -38,6 +40,19 @@ export function getOrCreateBuffer(taskId: string, emit: EmitFn): void {
 
 function getBuffer(taskId: string): BufferState | undefined {
   return buffers.get(taskId);
+}
+
+export function markThinking(taskId: string): boolean {
+  const buf = getBuffer(taskId);
+  if (!buf) return true;
+  if (buf.isThinking) return false;
+  buf.isThinking = true;
+  return true;
+}
+
+export function clearThinking(taskId: string): void {
+  const buf = getBuffer(taskId);
+  if (buf) buf.isThinking = false;
 }
 
 export function appendTextDelta(taskId: string, delta: string): void {
@@ -95,6 +110,7 @@ function flushReasoning(taskId: string): void {
 }
 
 export function flushDeltaBuffer(taskId: string): void {
+  clearThinking(taskId);
   flushText(taskId);
   flushReasoning(taskId);
 }

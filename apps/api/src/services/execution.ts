@@ -7,7 +7,7 @@ import { broadcast } from '../sse';
 import { getClient, getClientForDirectory } from './opencode';
 
 import type { OpencodeClient } from '@opencode-ai/sdk';
-import { getOrCreateBuffer, appendTextDelta, appendReasoningDelta, flushDeltaBuffer, cleanupDeltaBuffer } from './delta-buffer';
+import { getOrCreateBuffer, appendTextDelta, appendReasoningDelta, flushDeltaBuffer, cleanupDeltaBuffer, markThinking } from './delta-buffer';
 
 interface Label {
   id: string;
@@ -448,7 +448,9 @@ async function handleOpenCodeEvent(event: { type: string; properties?: Record<st
       if (status?.type === 'busy') {
         const execution = activeExecutions.get(taskId);
         if (execution) execution.promptSent = true;
-        addLogEntry(taskId, 'agent', 'Agent is thinking...');
+        if (markThinking(taskId)) {
+          addLogEntry(taskId, 'agent', 'Agent is thinking...');
+        }
         broadcastProgress(taskId, 'executing', 'Agent is thinking...');
       } else if (status?.type === 'retry') {
         addLogEntry(taskId, 'info', `Retrying: ${status.message || 'unknown reason'}`);
@@ -477,9 +479,8 @@ async function handleOpenCodeEvent(event: { type: string; properties?: Record<st
           addLogEntry(taskId, 'error', `Failed: ${toolName}`, state.output);
         }
       } else if (part?.type === 'reasoning') {
-        const reasoning = delta || part.text || '';
-        if (reasoning.length > 0) {
-          appendReasoningDelta(taskId, reasoning);
+        if (delta && delta.length > 0) {
+          appendReasoningDelta(taskId, delta);
         }
       }
       break;

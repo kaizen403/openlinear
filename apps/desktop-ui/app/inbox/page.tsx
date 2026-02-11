@@ -3,13 +3,13 @@
 import { useState, useEffect, useCallback } from "react"
 import {
   Inbox, Check, CheckCheck, GitPullRequest, ExternalLink,
-  Clock, GitMerge, Loader2
+  Clock, GitMerge, Loader2, RefreshCw
 } from "lucide-react"
 import { AppShell } from "@/components/layout/app-shell"
 import { cn, openExternal } from "@/lib/utils"
 import { formatDuration } from "@/types/task"
 import {
-  fetchInboxTasks, fetchInboxCount, markInboxRead, markAllInboxRead,
+  fetchInboxTasks, fetchInboxCount, markInboxRead, markAllInboxRead, refreshTaskPr,
   type InboxTask
 } from "@/lib/api"
 import { useSSE, SSEEventType, SSEEventData } from "@/hooks/use-sse"
@@ -87,11 +87,13 @@ const priorityDots: Record<string, string> = {
 function InboxTaskRow({
   task,
   onMarkRead,
+  onRefreshPr,
   compact,
   hidePrLink,
 }: {
   task: InboxTask
   onMarkRead: (id: string) => void
+  onRefreshPr: (id: string) => void
   compact?: boolean
   hidePrLink?: boolean
 }) {
@@ -147,14 +149,25 @@ function InboxTaskRow({
       )}
 
       {task.prUrl && !hidePrLink && (
-        <button
-          onClick={(e) => { e.stopPropagation(); openExternal(task.prUrl!) }}
-          className="flex items-center gap-1 text-[11px] text-purple-400 hover:text-purple-300 font-medium transition-colors flex-shrink-0"
-        >
-          <GitPullRequest className="w-3 h-3" />
-          PR
-          <ExternalLink className="w-2.5 h-2.5" />
-        </button>
+        <div className="flex items-center gap-1 flex-shrink-0">
+          <button
+            onClick={(e) => { e.stopPropagation(); openExternal(task.prUrl!) }}
+            className="flex items-center gap-1 text-[11px] text-purple-400 hover:text-purple-300 font-medium transition-colors"
+          >
+            <GitPullRequest className="w-3 h-3" />
+            {task.prUrl.includes('/compare/') ? 'Compare' : 'PR'}
+            <ExternalLink className="w-2.5 h-2.5" />
+          </button>
+          {task.prUrl.includes('/compare/') && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onRefreshPr(task.id) }}
+              className="p-0.5 rounded hover:bg-white/[0.06] text-purple-400/60 hover:text-purple-300 transition-colors"
+              title="Check if PR was created"
+            >
+              <RefreshCw className="w-3 h-3" />
+            </button>
+          )}
+        </div>
       )}
 
       <span className="text-[11px] text-linear-text-tertiary flex-shrink-0">
@@ -223,6 +236,17 @@ export default function InboxPage() {
     await markAllInboxRead()
   }
 
+  const handleRefreshPr = async (taskId: string) => {
+    try {
+      const result = await refreshTaskPr(taskId)
+      if (result.refreshed && result.prUrl) {
+        setTasks(prev => prev.map(t => (t.id === taskId ? { ...t, prUrl: result.prUrl } : t)))
+      }
+    } catch (err) {
+      console.error("Failed to refresh PR:", err)
+    }
+  }
+
   const groups = groupInboxTasks(tasks)
 
   return (
@@ -269,6 +293,7 @@ export default function InboxPage() {
                     key={group.tasks[0]!.id}
                     task={group.tasks[0]!}
                     onMarkRead={handleMarkRead}
+                    onRefreshPr={handleRefreshPr}
                   />
                 )
               }
@@ -288,14 +313,25 @@ export default function InboxPage() {
                     <div className="flex-1" />
 
                     {group.prUrl && (
-                      <button
-                        onClick={() => openExternal(group.prUrl!)}
-                        className="flex items-center gap-1 text-[11px] text-purple-400 hover:text-purple-300 font-medium transition-colors"
-                      >
-                        <GitPullRequest className="w-3 h-3" />
-                        Open PR
-                        <ExternalLink className="w-2.5 h-2.5" />
-                      </button>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => openExternal(group.prUrl!)}
+                          className="flex items-center gap-1 text-[11px] text-purple-400 hover:text-purple-300 font-medium transition-colors"
+                        >
+                          <GitPullRequest className="w-3 h-3" />
+                          {group.prUrl.includes('/compare/') ? 'Compare' : 'Open PR'}
+                          <ExternalLink className="w-2.5 h-2.5" />
+                        </button>
+                        {group.prUrl.includes('/compare/') && (
+                          <button
+                            onClick={() => handleRefreshPr(group.tasks[0]!.id)}
+                            className="p-0.5 rounded hover:bg-white/[0.06] text-purple-400/60 hover:text-purple-300 transition-colors"
+                            title="Check if PR was created"
+                          >
+                            <RefreshCw className="w-3 h-3" />
+                          </button>
+                        )}
+                      </div>
                     )}
 
                     <span className="text-[11px] text-linear-text-tertiary">
@@ -308,6 +344,7 @@ export default function InboxPage() {
                         key={task.id}
                         task={task}
                         onMarkRead={handleMarkRead}
+                        onRefreshPr={handleRefreshPr}
                         compact
                         hidePrLink
                       />

@@ -408,29 +408,16 @@ export function GlobalQuickCapture() {
             aria-label="Open quick capture"
             className={cn(
               "fixed right-0 top-1/2 -translate-y-1/2 z-[9999]",
-              "w-12 h-28",
-              "bg-white/[0.08] backdrop-blur-sm",
-              "rounded-l-xl",
+              "w-1.5 h-16",
+              "bg-[#09090b]/60 backdrop-blur-xl",
+              "rounded-l-lg",
               "cursor-pointer",
-              "hover:bg-white/[0.12]",
-              "border-l border-t border-b border-white/[0.06]",
-              "flex items-center justify-center"
+              "hover:w-2 hover:bg-[#09090b]/80",
+              "border-l border-t border-b border-white/[0.08]",
+              "shadow-[-4px_0_20px_rgba(0,0,0,0.4)]",
+              "transition-all duration-300 ease-out"
             )}
-          >
-            <span 
-              className="text-[12px] text-zinc-200 tracking-wide"
-              style={{ 
-                writingMode: 'vertical-rl',
-                textOrientation: 'mixed',
-                transform: 'rotate(180deg)',
-                fontFamily: '"Caveat", cursive',
-                fontWeight: 600,
-                letterSpacing: '0.04em'
-              }}
-            >
-              BrainStorm
-            </span>
-          </motion.button>
+          />
         )}
       </AnimatePresence>
 
@@ -491,71 +478,6 @@ export function GlobalQuickCapture() {
                   <X className="h-5 w-5" />
                 </button>
               </div>
-
-              {/* ---------- Command Bar ---------- */}
-              <motion.div
-                layout
-                transition={SPRING}
-                className="px-5 pb-4 pt-2"
-              >
-                <div
-                  className={cn(
-                    "flex items-center gap-3",
-                    "rounded-full",
-                    "bg-zinc-900/90 border border-white/[0.06]",
-                    "px-4 py-3",
-                    "transition-shadow duration-300",
-                    "focus-within:shadow-[0_0_0_1px_rgba(255,255,255,0.1),0_0_20px_rgba(255,255,255,0.04)]",
-                    "focus-within:border-white/[0.12]"
-                  )}
-                >
-                  {/* Plus icon */}
-                  <div className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-white/[0.06]">
-                    <Plus className="h-4 w-4 text-zinc-500" />
-                  </div>
-
-                  {/* Input */}
-                  <input
-                    ref={inputRef}
-                    type="text"
-                    value={query}
-                    onChange={(e) => setQuery(e.target.value)}
-                    onKeyDown={handleKeyDown}
-                    placeholder="Ask agents to..."
-                    className={cn(
-                      "flex-1 bg-transparent text-[16px] text-zinc-200",
-                      "placeholder:text-zinc-600",
-                      "outline-none border-none",
-                      "caret-zinc-400"
-                    )}
-                  />
-
-                  {/* Toggle icons */}
-                  <div className="flex items-center gap-1 border-l border-white/[0.06] pl-3">
-                    <ToggleButton
-                      id="web"
-                      icon={Globe}
-                      label="Web search"
-                      active={toggles.web}
-                      onToggle={handleToggle}
-                    />
-                    <ToggleButton
-                      id="research"
-                      icon={Telescope}
-                      label="Deep research"
-                      active={toggles.research}
-                      onToggle={handleToggle}
-                    />
-                    <ToggleButton
-                      id="writing"
-                      icon={Type}
-                      label="Writing mode"
-                      active={toggles.writing}
-                      onToggle={handleToggle}
-                    />
-                  </div>
-                </div>
-              </motion.div>
 
               {/* ---------- Divider ---------- */}
               {phase === "stream" && (
@@ -638,61 +560,35 @@ export function GlobalQuickCapture() {
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, y: -6 }}
                       transition={{ ...SPRING, delay: 0.1 }}
-                      className="flex flex-col items-center justify-center pt-16 text-center px-6"
+                      className="flex flex-col items-center justify-center pt-10 text-center px-6"
                     >
-                      <span className="text-[28px] font-bold tracking-tight bg-gradient-to-r from-white via-white to-zinc-400 bg-clip-text text-transparent">
+                      <span className="text-[26px] font-bold tracking-tight bg-gradient-to-r from-white via-white to-zinc-300 bg-clip-text text-transparent">
                         Brainstorm
                       </span>
-                      <div className="flex items-center gap-1.5 mt-1.5">
-                        <span className="text-[10px] font-medium uppercase tracking-[0.2em] text-zinc-600">
-                          by OpenLinear
-                        </span>
-                        <span className="text-[9px] font-mono text-zinc-700 border border-white/[0.06] rounded px-1 py-0.5 bg-white/[0.02]">
-                          v1
-                        </span>
-                      </div>
 
-                      <div className="w-8 h-px bg-gradient-to-r from-transparent via-white/[0.08] to-transparent mt-6 mb-6" />
-
-                      <p className="text-[12px] text-zinc-500 max-w-[260px] leading-relaxed">
-                        Describe a goal in natural language. AI agents will decompose it into
-                        structured, actionable tasks you can insert directly into your board.
+                      <p className="text-[13px] text-zinc-400 max-w-[280px] leading-relaxed mt-3">
+                        Describe a goal — AI turns it into actionable tasks for your board.
                       </p>
 
-                      <div className="mt-6 w-full max-w-[260px] space-y-2">
-                        <span className="text-[10px] font-medium uppercase tracking-widest text-zinc-600 block text-left">
-                          How it works
-                        </span>
-                        <div className="space-y-1.5">
-                          <div className="flex items-start gap-2.5 text-left">
-                            <span className="text-[10px] font-mono text-zinc-600 mt-px shrink-0">01</span>
-                            <span className="text-[11px] text-zinc-500 leading-snug">
-                              Type what you want to build or fix
-                            </span>
-                          </div>
-                          <div className="flex items-start gap-2.5 text-left">
-                            <span className="text-[10px] font-mono text-zinc-600 mt-px shrink-0">02</span>
-                            <span className="text-[11px] text-zinc-500 leading-snug">
-                              Agents break it into prioritized tasks
-                            </span>
-                          </div>
-                          <div className="flex items-start gap-2.5 text-left">
-                            <span className="text-[10px] font-mono text-zinc-600 mt-px shrink-0">03</span>
-                            <span className="text-[11px] text-zinc-500 leading-snug">
-                              Insert the ones you want into your board
-                            </span>
-                          </div>
+                      <div className="mt-5 w-full max-w-[280px] rounded-lg bg-white/[0.03] border border-white/[0.06] px-4 py-3 space-y-2">
+                        <div className="flex items-center gap-2.5 text-left">
+                          <span className="text-[11px] font-mono text-zinc-500 shrink-0">1</span>
+                          <span className="text-[12px] text-zinc-400 leading-snug">
+                            Type what you want to build or fix
+                          </span>
                         </div>
-                      </div>
-
-                      <div className="flex items-center gap-1.5 mt-8 px-2.5 py-1.5 rounded-md bg-white/[0.03] border border-white/[0.04]">
-                        <span className="text-[10px] text-zinc-600">Press</span>
-                        <kbd className="inline-flex h-4 items-center rounded border border-white/[0.08] bg-white/[0.04] px-1 text-[10px] font-mono text-zinc-500">
-                          Enter
-                        </kbd>
-                        <span className="text-[10px] text-zinc-600">
-                          to generate
-                        </span>
+                        <div className="flex items-center gap-2.5 text-left">
+                          <span className="text-[11px] font-mono text-zinc-500 shrink-0">2</span>
+                          <span className="text-[12px] text-zinc-400 leading-snug">
+                            AI breaks it into prioritized tasks
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2.5 text-left">
+                          <span className="text-[11px] font-mono text-zinc-500 shrink-0">3</span>
+                          <span className="text-[12px] text-zinc-400 leading-snug">
+                            Insert the ones you want into your board
+                          </span>
+                        </div>
                       </div>
                     </motion.div>
                   )}
@@ -726,6 +622,40 @@ export function GlobalQuickCapture() {
                   </motion.div>
                 )}
               </AnimatePresence>
+
+              {/* ---------- Input Bar ---------- */}
+              <div className="border-t border-white/[0.06] px-4 py-3">
+                <div
+                  className={cn(
+                    "flex items-center gap-3",
+                    "rounded-full",
+                    "bg-zinc-900/90 border border-white/[0.06]",
+                    "px-4 py-3",
+                    "transition-shadow duration-300",
+                    "focus-within:shadow-[0_0_0_1px_rgba(255,255,255,0.1),0_0_20px_rgba(255,255,255,0.04)]",
+                    "focus-within:border-white/[0.12]"
+                  )}
+                >
+                  <div className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-white/[0.06]">
+                    <Plus className="h-4 w-4 text-zinc-500" />
+                  </div>
+
+                  <input
+                    ref={inputRef}
+                    type="text"
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    placeholder="Ask agents to..."
+                    className={cn(
+                      "flex-1 bg-transparent text-[16px] text-zinc-200",
+                      "placeholder:text-zinc-600",
+                      "outline-none border-none",
+                      "caret-zinc-400"
+                    )}
+                  />
+                </div>
+              </div>
             </motion.div>
           </>
         )}
