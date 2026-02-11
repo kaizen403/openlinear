@@ -128,6 +128,9 @@ export default function ProjectsPage() {
     status: "planned" as StatusType,
     teamId: filterTeamId || "" as string,
     targetDate: "",
+    sourceType: "none" as "none" | "repo" | "local",
+    repoUrl: "",
+    localPath: "",
   })
   const [formErrors, setFormErrors] = useState<Record<string, string>>({})
 
@@ -208,14 +211,19 @@ export default function ProjectsPage() {
         teamIds: formData.teamId ? [formData.teamId] : undefined,
         targetDate: formData.targetDate || undefined,
         color: "#3b82f6",
+        repoUrl: formData.sourceType === "repo" ? formData.repoUrl.trim() : undefined,
+        localPath: formData.sourceType === "local" ? formData.localPath.trim() : undefined,
       })
-      
+
       setFormData({
         name: "",
         description: "",
         status: "planned",
         teamId: "",
         targetDate: "",
+        sourceType: "none",
+        repoUrl: "",
+        localPath: "",
       })
       setIsCreateDialogOpen(false)
       loadProjects()
@@ -400,7 +408,64 @@ export default function ProjectsPage() {
                           className="bg-linear-bg-tertiary border-linear-border text-linear-text"
                         />
                       </div>
-                      
+
+                      <div className="space-y-2">
+                        <Label className="text-linear-text">Source</Label>
+                        <div className="flex items-center gap-4">
+                          <label className="flex items-center gap-2 text-sm text-linear-text-secondary cursor-pointer">
+                            <input
+                              type="radio"
+                              name="sourceType"
+                              value="none"
+                              checked={formData.sourceType === "none"}
+                              onChange={() => setFormData(prev => ({ ...prev, sourceType: "none", repoUrl: "", localPath: "" }))}
+                              className="accent-[hsl(var(--linear-accent))]"
+                            />
+                            None
+                          </label>
+                          <label className="flex items-center gap-2 text-sm text-linear-text-secondary cursor-pointer">
+                            <input
+                              type="radio"
+                              name="sourceType"
+                              value="repo"
+                              checked={formData.sourceType === "repo"}
+                              onChange={() => setFormData(prev => ({ ...prev, sourceType: "repo", localPath: "" }))}
+                              className="accent-[hsl(var(--linear-accent))]"
+                            />
+                            GitHub Repo
+                          </label>
+                          <label className="flex items-center gap-2 text-sm text-linear-text-secondary cursor-pointer">
+                            <input
+                              type="radio"
+                              name="sourceType"
+                              value="local"
+                              checked={formData.sourceType === "local"}
+                              onChange={() => setFormData(prev => ({ ...prev, sourceType: "local", repoUrl: "" }))}
+                              className="accent-[hsl(var(--linear-accent))]"
+                            />
+                            Local Folder
+                          </label>
+                        </div>
+
+                        {formData.sourceType === "repo" && (
+                          <Input
+                            value={formData.repoUrl}
+                            onChange={(e) => setFormData(prev => ({ ...prev, repoUrl: e.target.value }))}
+                            placeholder="https://github.com/owner/repo"
+                            className="bg-linear-bg-tertiary border-linear-border text-linear-text placeholder:text-linear-text-tertiary"
+                          />
+                        )}
+
+                        {formData.sourceType === "local" && (
+                          <Input
+                            value={formData.localPath}
+                            onChange={(e) => setFormData(prev => ({ ...prev, localPath: e.target.value }))}
+                            placeholder="/absolute/path/to/project"
+                            className="bg-linear-bg-tertiary border-linear-border text-linear-text placeholder:text-linear-text-tertiary"
+                          />
+                        )}
+                      </div>
+
                       <DialogFooter className="gap-2">
                         <Button
                           type="button"

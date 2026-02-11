@@ -283,7 +283,7 @@ export async function fetchProjects(teamId?: string): Promise<Project[]> {
   return res.json()
 }
 
-export async function createProject(data: { name: string; description?: string; status?: string; color?: string; icon?: string; teamIds?: string[]; startDate?: string; targetDate?: string; leadId?: string }): Promise<Project> {
+export async function createProject(data: { name: string; description?: string; status?: string; color?: string; icon?: string; teamIds?: string[]; startDate?: string; targetDate?: string; leadId?: string; repoUrl?: string; localPath?: string }): Promise<Project> {
   const res = await fetch(`${API_URL}/api/projects`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
