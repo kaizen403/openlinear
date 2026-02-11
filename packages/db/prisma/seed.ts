@@ -2,6 +2,11 @@ import { PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient();
 
+// Pre-computed bcrypt hash of "kaz" with 10 salt rounds
+// Generated via: bcrypt.hash('kaz', 10)
+const KAZ_PASSWORD_HASH =
+  "$2a$10$9nD7hcFzJXMrUMChzUMn8uM7vjcJnCCBsGGep8xyhriffyCbO9cnK";
+
 const SEED_TASKS = [
   {
     id: "seed-task-001",
@@ -54,6 +59,7 @@ const SEED_TASKS = [
 ];
 
 async function main() {
+  // 1. Seed dummy tasks
   for (const task of SEED_TASKS) {
     await prisma.task.upsert({
       where: { id: task.id },
@@ -61,8 +67,85 @@ async function main() {
       create: task,
     });
   }
-
   console.log(`[seed] Upserted ${SEED_TASKS.length} tasks`);
+
+  const user = await prisma.user.upsert({
+    where: { id: "seed-user-kaz" },
+    update: {},
+    create: {
+      id: "seed-user-kaz",
+      username: "kaz",
+      passwordHash: KAZ_PASSWORD_HASH,
+    },
+  });
+  console.log(`[seed] Upserted user "${user.username}"`);
+
+  // 3. Create team "Default" with key "DEF"
+  const team = await prisma.team.upsert({
+    where: { id: "seed-team-default" },
+    update: {},
+    create: {
+      id: "seed-team-default",
+      name: "Default",
+      key: "DEF",
+    },
+  });
+  console.log(`[seed] Upserted team "${team.name}" (${team.key})`);
+
+  // 4. Link kaz to Default team
+  await prisma.teamMember.upsert({
+    where: { teamId_userId: { teamId: team.id, userId: user.id } },
+    update: {},
+    create: {
+      teamId: team.id,
+      userId: user.id,
+      role: "owner",
+    },
+  });
+  console.log(`[seed] Upserted TeamMember kaz -> Default`);
+
+  // 5. Check for an active repository
+  const activeRepo = await prisma.repository.findFirst({
+    where: { isActive: true },
+  });
+  console.log(
+    activeRepo
+      ? `[seed] Found active repository: ${activeRepo.fullName}`
+      : `[seed] No active repository found`
+  );
+
+  // 6. Create project "OpenLinear"
+  const project = await prisma.project.upsert({
+    where: { id: "seed-project-openlinear" },
+    update: {},
+    create: {
+      id: "seed-project-openlinear",
+      name: "OpenLinear",
+      leadId: user.id,
+      ...(activeRepo ? { repositoryId: activeRepo.id } : {}),
+    },
+  });
+  console.log(`[seed] Upserted project "${project.name}"`);
+
+  // 7. Link project to team
+  await prisma.projectTeam.upsert({
+    where: {
+      projectId_teamId: { projectId: project.id, teamId: team.id },
+    },
+    update: {},
+    create: {
+      projectId: project.id,
+      teamId: team.id,
+    },
+  });
+  console.log(`[seed] Upserted ProjectTeam OpenLinear -> Default`);
+
+  // 8. Migrate orphan tasks into the project and team
+  const migrated = await prisma.task.updateMany({
+    where: { projectId: null },
+    data: { projectId: project.id, teamId: team.id },
+  });
+  console.log(`[seed] Migrated ${migrated.count} orphan tasks into project`);
 }
 
 main()
