@@ -589,7 +589,8 @@ export async function executeTask({ taskId, userId }: ExecuteTaskParams): Promis
   }
 
   let accessToken: string | null = null;
-  let project;
+  let useLocalPath: string | null = null;
+  let project: { id: string; name: string; fullName: string; cloneUrl: string; defaultBranch: string } | null = null;
 
   if (userId) {
     const user = await prisma.user.findUnique({
@@ -597,7 +598,25 @@ export async function executeTask({ taskId, userId }: ExecuteTaskParams): Promis
       select: { accessToken: true },
     });
     accessToken = user?.accessToken ?? null;
+  }
 
+  const taskWithProject = await prisma.task.findUnique({
+    where: { id: taskId },
+    include: {
+      project: { include: { repository: true } },
+      labels: { include: { label: true } },
+    },
+  });
+
+  if (!taskWithProject) {
+    return { success: false, error: 'Task not found' };
+  }
+
+  if (taskWithProject.project?.localPath) {
+    useLocalPath = taskWithProject.project.localPath;
+  } else if (taskWithProject.project?.repository) {
+    project = taskWithProject.project.repository;
+  } else if (userId) {
     project = await prisma.repository.findFirst({
       where: { userId, isActive: true },
     });
@@ -607,27 +626,30 @@ export async function executeTask({ taskId, userId }: ExecuteTaskParams): Promis
     });
   }
 
-  if (!project) {
+  if (!project && !useLocalPath) {
     return { success: false, error: 'No active project selected' };
   }
 
-  const task = await prisma.task.findUnique({
-    where: { id: taskId },
-    include: { labels: { include: { label: true } } },
-  });
-
-  if (!task) {
-    return { success: false, error: 'Task not found' };
-  }
-
   const branchName = `openlinear/${taskId.slice(0, 8)}`;
-  const repoPath = join(REPOS_DIR, project.name, taskId.slice(0, 8));
+  let repoPath: string;
+
+  if (useLocalPath) {
+    repoPath = useLocalPath;
+  } else if (project) {
+    repoPath = join(REPOS_DIR, project.name, taskId.slice(0, 8));
+  } else {
+    return { success: false, error: 'No active project selected' };
+  }
 
   try {
     // Step 1: Clone
-    broadcastProgress(taskId, 'cloning', 'Cloning repository...');
-    await cloneRepository(project.cloneUrl, repoPath, accessToken, project.defaultBranch);
-    await createBranch(repoPath, branchName);
+    if (useLocalPath) {
+      broadcastProgress(taskId, 'cloning', 'Using local repository...');
+    } else if (project) {
+      broadcastProgress(taskId, 'cloning', 'Cloning repository...');
+      await cloneRepository(project.cloneUrl, repoPath, accessToken, project.defaultBranch);
+      await createBranch(repoPath, branchName);
+    }
 
     broadcastProgress(taskId, 'executing', 'Starting OpenCode agent...');
 
@@ -635,7 +657,7 @@ export async function executeTask({ taskId, userId }: ExecuteTaskParams): Promis
     
     const sessionResponse = await client.session.create({
       body: { 
-        title: task.title,
+        title: taskWithProject.title,
       },
       query: {
         directory: repoPath,
@@ -659,7 +681,7 @@ export async function executeTask({ taskId, userId }: ExecuteTaskParams): Promis
     // Register in both maps
     const executionState: ExecutionState = {
       taskId,
-      projectId: project.id,
+      projectId: project?.id || taskWithProject?.project?.id || 'local',
       sessionId,
       repoPath,
       branchName,
@@ -681,8 +703,12 @@ export async function executeTask({ taskId, userId }: ExecuteTaskParams): Promis
     getOrCreateBuffer(taskId, (msg) => addLogEntry(taskId, 'agent', msg));
 
     // Add initial log entries
-    addLogEntry(taskId, 'info', 'Repository cloned successfully');
-    addLogEntry(taskId, 'info', `Branch created: ${branchName}`);
+    if (useLocalPath) {
+      addLogEntry(taskId, 'info', `Using local repository: ${repoPath}`);
+    } else {
+      addLogEntry(taskId, 'info', 'Repository cloned successfully');
+      addLogEntry(taskId, 'info', `Branch created: ${branchName}`);
+    }
     addLogEntry(taskId, 'info', 'OpenCode agent started');
 
     await updateTaskStatus(taskId, 'in_progress', sessionId, {
@@ -692,12 +718,12 @@ export async function executeTask({ taskId, userId }: ExecuteTaskParams): Promis
     });
 
     // Build prompt
-    let prompt = task.title;
-    if (task.description) {
-      prompt += `\n\n${task.description}`;
+    let prompt = taskWithProject.title;
+    if (taskWithProject.description) {
+      prompt += `\n\n${taskWithProject.description}`;
     }
-    if (task.labels.length > 0) {
-      const labelNames = task.labels.map((tl: TaskLabelRelation) => tl.label.name).join(', ');
+    if (taskWithProject.labels.length > 0) {
+      const labelNames = taskWithProject.labels.map((tl: TaskLabelRelation) => tl.label.name).join(', ');
       prompt += `\n\nLabels: ${labelNames}`;
     }
 

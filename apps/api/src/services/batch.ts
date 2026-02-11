@@ -37,11 +37,24 @@ export async function createBatch(params: CreateBatchParams): Promise<BatchState
     conflictBehavior: (settings?.conflictBehavior as 'skip' | 'fail') ?? 'skip',
   };
 
-  const project = await prisma.repository.findFirst({
-    where: params.userId
-      ? { userId: params.userId, isActive: true }
-      : { userId: null, isActive: true },
+  // Try to get repository from tasks' project first
+  const firstTask = await prisma.task.findFirst({
+    where: { id: { in: params.taskIds } },
+    include: { project: { include: { repository: true } } },
   });
+
+  let project: { id: string; name: string; fullName: string; cloneUrl: string; defaultBranch: string } | null = null;
+
+  if (firstTask?.project?.repository) {
+    project = firstTask.project.repository;
+  } else {
+    // Fallback: global active repository
+    project = await prisma.repository.findFirst({
+      where: params.userId
+        ? { userId: params.userId, isActive: true }
+        : { userId: null, isActive: true },
+    });
+  }
 
   if (!project) {
     throw new Error('No active project selected');
