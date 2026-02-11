@@ -1,8 +1,9 @@
 {
-  "active_plan": "/home/kaizen/openlinear/.sisyphus/plans/parallel-execution.md",
-  "started_at": "2026-02-08T00:00:00.000Z",
+  "active_plan": "/home/kaizen/openlinear/.sisyphus/plans/dual-auth-project-repo.md",
+  "started_at": "2026-02-11T19:53:43.870Z",
   "session_ids": [
-    "ses_3cae739e9ffeSFizFCRcV6jPi8"
+    "ses_3b1bbb7c8ffejq2kBdT9sRTw2c",
+    "ses_3b1a1f66cffeC7Kdg89Opw78Jb"
   ],
-  "plan_name": "parallel-execution"
+  "plan_name": "dual-auth-project-repo"
 }
