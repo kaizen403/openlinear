@@ -12,7 +12,7 @@ import { TaskDetailView } from "@/components/task-detail-view"
 import { Plus, Loader2, Check, GitPullRequest, ExternalLink, GripVertical } from "lucide-react"
 import { useSSE, SSEEventType, SSEEventData } from "@/hooks/use-sse"
 import { useAuth } from "@/hooks/use-auth"
-import { getActivePublicRepository, PublicRepository } from "@/lib/api"
+import { getActivePublicRepository, PublicRepository, Project } from "@/lib/api"
 import { openExternal } from "@/lib/utils"
 import { Task, ExecutionProgress, ExecutionLogEntry } from "@/types/task"
 
@@ -38,7 +38,12 @@ interface ActiveBatch {
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001"
 const SSE_URL = `${API_BASE_URL}/api/events`
 
-export function KanbanBoard() {
+interface KanbanBoardProps {
+  projectId?: string | null
+  projects?: Project[]
+}
+
+export function KanbanBoard({ projectId, projects = [] }: KanbanBoardProps) {
   const [tasks, setTasks] = useState<Task[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -93,6 +98,26 @@ export function KanbanBoard() {
       return next
     })
   }
+
+  const toggleColumnSelectAll = useCallback((status: Task['status']) => {
+    const columnTasks = tasks.filter(task => task.status === status)
+    const columnTaskIds = columnTasks.map(task => task.id)
+    const allSelected = columnTaskIds.every(id => selectedTaskIds.has(id))
+    
+    setSelectedTaskIds(prev => {
+      const next = new Set(prev)
+      if (allSelected) {
+        columnTaskIds.forEach(id => next.delete(id))
+      } else {
+        columnTaskIds.forEach(id => {
+          if (!batchTaskIds.includes(id)) {
+            next.add(id)
+          }
+        })
+      }
+      return next
+    })
+  }, [tasks, selectedTaskIds, batchTaskIds])
 
   const clearSelection = () => {
     setSelectedTaskIds(new Set())
@@ -228,7 +253,10 @@ export function KanbanBoard() {
     let shouldStopLoading = showLoading
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/tasks`)
+      const url = projectId
+        ? `${API_BASE_URL}/api/tasks?projectId=${encodeURIComponent(projectId)}`
+        : `${API_BASE_URL}/api/tasks`
+      const response = await fetch(url)
       if (!response.ok) {
         throw new Error(`Failed to fetch tasks: ${response.statusText}`)
       }
@@ -264,12 +292,16 @@ export function KanbanBoard() {
         setLoading(false)
       }
     }
-  }, [])
+  }, [projectId])
 
   const handleSSEEvent = useCallback((eventType: SSEEventType, data: SSEEventData) => {
     switch (eventType) {
       case 'task:created':
         if (data.id && data.title && data.status) {
+          const taskProjectId = (data as unknown as { projectId?: string }).projectId
+          if (projectId && taskProjectId !== projectId) {
+            break
+          }
           const newTask: Task = {
             id: data.id,
             title: data.title,
@@ -733,6 +765,7 @@ export function KanbanBoard() {
                     onAddTask={() => handleAddTask(column.status)}
                     selectionActive={selectionActive}
                     onToggleSelection={!hasParallelGroup ? () => toggleColumnSelection(column.id) : undefined}
+                    onSelectAll={selectionActive ? () => toggleColumnSelectAll(column.status) : undefined}
                     innerRef={provided.innerRef}
                     droppableProps={provided.droppableProps}
                     isDraggingOver={snapshot.isDraggingOver}
@@ -795,7 +828,7 @@ export function KanbanBoard() {
                                       <GripVertical className="w-3 h-3 text-zinc-500/60 cursor-grab active:cursor-grabbing" />
                                       <Loader2 className="w-3 h-3 animate-spin text-zinc-500" />
                                       <span className="text-[11px] text-zinc-500 font-medium uppercase tracking-wider">
-                                        {activeBatch.mode === 'queue' ? 'Queue' : 'Parallel'} Execution
+                                        {activeBatch.mode === 'queue' ? 'Queue' : 'Parallel'} Issues
                                       </span>
                                     </div>
                                     <div className="space-y-0">
@@ -880,7 +913,7 @@ export function KanbanBoard() {
                                             <GripVertical className="w-3 h-3 text-purple-400/60 cursor-grab active:cursor-grabbing flex-shrink-0" />
                                             <Check className="w-3 h-3 text-purple-400 flex-shrink-0" />
                                             <span className="text-[11px] text-purple-400/80 font-medium uppercase tracking-wider truncate">
-                                              {groupMode === 'queue' ? 'Queue' : 'Parallel'} Execution
+                                              {groupMode === 'queue' ? 'Queue' : 'Parallel'} Issues
                                             </span>
                                           </div>
                                           {groupPrUrl && (
@@ -936,6 +969,8 @@ export function KanbanBoard() {
           open={isTaskFormOpen}
           onOpenChange={setIsTaskFormOpen}
           defaultStatus={defaultStatus}
+          defaultProjectId={projectId}
+          projects={projects}
         />
 
         <TaskDetailView

@@ -123,7 +123,7 @@ export default function ProjectsPage() {
     name: "",
     description: "",
     status: "planned" as StatusType,
-    teamIds: [] as string[],
+    teamId: "" as string,
     targetDate: "",
   })
   const [formErrors, setFormErrors] = useState<Record<string, string>>({})
@@ -202,7 +202,7 @@ export default function ProjectsPage() {
         name: formData.name.trim(),
         description: formData.description.trim() || undefined,
         status: formData.status,
-        teamIds: formData.teamIds.length > 0 ? formData.teamIds : undefined,
+        teamIds: formData.teamId ? [formData.teamId] : undefined,
         targetDate: formData.targetDate || undefined,
         color: "#3b82f6",
       })
@@ -211,7 +211,7 @@ export default function ProjectsPage() {
         name: "",
         description: "",
         status: "planned",
-        teamIds: [],
+        teamId: "",
         targetDate: "",
       })
       setIsCreateDialogOpen(false)
@@ -239,14 +239,7 @@ export default function ProjectsPage() {
     }
   }
 
-  const toggleTeamSelection = (teamId: string) => {
-    setFormData(prev => ({
-      ...prev,
-      teamIds: prev.teamIds.includes(teamId)
-        ? prev.teamIds.filter(id => id !== teamId)
-        : [...prev.teamIds, teamId]
-    }))
-  }
+
 
   return (
     <AppShell>
@@ -366,29 +359,32 @@ export default function ProjectsPage() {
                       </div>
                       
                       <div className="space-y-2">
-                        <Label className="text-linear-text">Teams</Label>
-                        <div className="max-h-32 overflow-y-auto space-y-2 border border-linear-border rounded-md p-3 bg-linear-bg-tertiary">
-                          {teams.length === 0 ? (
-                            <p className="text-sm text-linear-text-tertiary">No teams available</p>
-                          ) : (
-                            teams.map((team) => (
-                              <div key={team.id} className="flex items-center space-x-2">
-                                <Checkbox
-                                  id={`team-${team.id}`}
-                                  checked={formData.teamIds.includes(team.id)}
-                                  onCheckedChange={() => toggleTeamSelection(team.id)}
-                                  className="border-linear-border data-[state=checked]:bg-linear-accent data-[state=checked]:border-linear-accent"
-                                />
-                                <Label
-                                  htmlFor={`team-${team.id}`}
-                                  className="text-sm text-linear-text cursor-pointer"
+                        <Label htmlFor="team" className="text-linear-text">Team</Label>
+                        <Select
+                          value={formData.teamId}
+                          onValueChange={(value) => setFormData(prev => ({ ...prev, teamId: value }))}
+                        >
+                          <SelectTrigger className="bg-linear-bg-tertiary border-linear-border text-linear-text">
+                            <SelectValue placeholder="Select a team" />
+                          </SelectTrigger>
+                          <SelectContent className="bg-linear-bg border-linear-border">
+                            {teams.length === 0 ? (
+                              <SelectItem value="no-teams" disabled className="text-linear-text-tertiary">
+                                No teams available
+                              </SelectItem>
+                            ) : (
+                              teams.map((team) => (
+                                <SelectItem
+                                  key={team.id}
+                                  value={team.id}
+                                  className="text-linear-text focus:bg-linear-bg-tertiary focus:text-linear-text"
                                 >
                                   {team.name}
-                                </Label>
-                              </div>
-                            ))
-                          )}
-                        </div>
+                                </SelectItem>
+                              ))
+                            )}
+                          </SelectContent>
+                        </Select>
                       </div>
                       
                       <div className="space-y-2">

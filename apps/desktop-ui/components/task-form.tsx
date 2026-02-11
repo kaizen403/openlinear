@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Loader2 } from "lucide-react"
+import { Loader2, FolderKanban } from "lucide-react"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import * as z from "zod"
@@ -29,22 +29,26 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { LabelPicker } from "@/components/label-picker"
+import { Project } from "@/lib/api"
 
-const formSchema = z.object({
+const getFormSchema = (hasProjects: boolean) => z.object({
   title: z.string().min(1, "Title is required"),
   description: z.string().optional(),
   status: z.enum(["todo", "in_progress", "done", "cancelled"]),
   priority: z.enum(["low", "medium", "high"]),
   labelIds: z.array(z.string()),
+  projectId: hasProjects ? z.string().min(1, "Project is required") : z.string().optional(),
 })
 
-type FormValues = z.infer<typeof formSchema>
+type FormValues = z.infer<ReturnType<typeof getFormSchema>>
 
 interface TaskFormDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   onSuccess?: () => void
   defaultStatus?: "todo" | "in_progress" | "done" | "cancelled"
+  defaultProjectId?: string | null
+  projects?: Project[]
 }
 
 const API_BASE_URL = "http://localhost:3001/api"
@@ -80,26 +84,30 @@ export function TaskFormDialog({
   onOpenChange,
   onSuccess,
   defaultStatus,
+  defaultProjectId,
+  projects = [],
 }: TaskFormDialogProps) {
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const hasProjects = projects.length > 0
 
   const form = useForm<FormValues>({
-    resolver: zodResolver(formSchema),
+    resolver: zodResolver(getFormSchema(hasProjects)),
     defaultValues: {
       title: "",
       description: "",
       status: defaultStatus || "todo",
       priority: "medium",
       labelIds: [],
+      projectId: defaultProjectId || (hasProjects ? "" : undefined),
     },
   })
 
-  // Reset status when defaultStatus changes or dialog opens
   useEffect(() => {
     if (open) {
       form.setValue("status", defaultStatus || "todo")
+      form.setValue("projectId", defaultProjectId || (hasProjects ? "" : undefined))
     }
-  }, [defaultStatus, open, form])
+  }, [defaultStatus, defaultProjectId, open, form, hasProjects])
 
   // ⌘+Enter keyboard shortcut
   useEffect(() => {
@@ -131,6 +139,7 @@ export function TaskFormDialog({
           status: values.status,
           priority: values.priority,
           labelIds: values.labelIds.length > 0 ? values.labelIds : undefined,
+          projectId: values.projectId || undefined,
         }),
       })
 
@@ -355,6 +364,52 @@ export function TaskFormDialog({
                   </FormItem>
                 )}
               />
+
+              {hasProjects && (
+                <FormField
+                  control={form.control}
+                  name="projectId"
+                  render={({ field }) => (
+                    <FormItem className="space-y-0">
+                      <Select
+                        onValueChange={field.onChange}
+                        value={field.value || ""}
+                      >
+                        <FormControl>
+                          <SelectTrigger className="h-7 w-auto px-2.5 text-xs rounded-md bg-transparent border-none hover:bg-white/[0.06] text-[#a0a0a0] gap-1.5 focus:ring-0 shadow-none data-[state=error]:border-red-500">
+                            <div className="flex items-center gap-1.5">
+                              <FolderKanban className="w-3 h-3 text-[#6a6a6a]" />
+                              <SelectValue placeholder="Select project">
+                                {field.value
+                                  ? projects.find((p) => p.id === field.value)?.name
+                                  : "Select project"}
+                              </SelectValue>
+                            </div>
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent className="bg-[#1a1a1a] border-[#2a2a2a]">
+                          {projects.map((project) => (
+                            <SelectItem
+                              key={project.id}
+                              value={project.id}
+                              className="text-[#f5f5f5] focus:bg-white/[0.06] focus:text-[#f5f5f5] text-xs"
+                            >
+                              <div className="flex items-center gap-2">
+                                <div
+                                  className="w-2 h-2 rounded-full"
+                                  style={{ backgroundColor: project.color }}
+                                />
+                                {project.name}
+                              </div>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage className="text-red-400 text-xs" />
+                    </FormItem>
+                  )}
+                />
+              )}
             </div>
 
             <div className="border-b border-[#2a2a2a]" />

@@ -15,7 +15,7 @@ const createProjectSchema = z.object({
   startDate: z.string().datetime().optional(),
   targetDate: z.string().datetime().optional(),
   leadId: z.string().uuid().optional(),
-  teamIds: z.array(z.string().uuid()).optional().default([]),
+  teamIds: z.array(z.string().uuid()).min(1).max(1),
 });
 
 const updateProjectSchema = z.object({
@@ -27,7 +27,7 @@ const updateProjectSchema = z.object({
   startDate: z.string().datetime().nullable().optional(),
   targetDate: z.string().datetime().nullable().optional(),
   leadId: z.string().uuid().nullable().optional(),
-  teamIds: z.array(z.string().uuid()).optional(),
+  teamIds: z.array(z.string().uuid()).min(1).max(1).optional(),
 });
 
 function transformProject(project: { projectTeams: { team: unknown }[]; [key: string]: unknown }) {

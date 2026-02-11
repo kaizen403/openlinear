@@ -68,6 +68,27 @@ function flattenLabels(task: any) {
   };
 }
 
+async function resolveProjectTeamId(projectId: string): Promise<{ teamId: string } | { error: string }> {
+  const project = await prisma.project.findUnique({
+    where: { id: projectId },
+    select: { projectTeams: { select: { teamId: true } } },
+  });
+
+  if (!project) {
+    return { error: 'Project not found' };
+  }
+
+  if (project.projectTeams.length === 0) {
+    return { error: 'Project must have a team' };
+  }
+
+  if (project.projectTeams.length > 1) {
+    return { error: 'Project must have exactly one team' };
+  }
+
+  return { teamId: project.projectTeams[0].teamId };
+}
+
 const taskInclude = {
   labels: { include: { label: true } },
   team: { select: { id: true, name: true, key: true, color: true } },
@@ -151,28 +172,31 @@ router.post('/', async (req: Request, res: Response) => {
 
     const { title, description, priority, labelIds, teamId, projectId } = parsed.data;
 
-    if (teamId) {
-      const team = await prisma.team.findUnique({ where: { id: teamId } });
+    let resolvedTeamId = teamId;
+
+    if (projectId) {
+      const projectTeam = await resolveProjectTeamId(projectId);
+      if ('error' in projectTeam) {
+        res.status(400).json({ error: projectTeam.error });
+        return;
+      }
+      resolvedTeamId = projectTeam.teamId;
+    }
+
+    if (resolvedTeamId && !projectId) {
+      const team = await prisma.team.findUnique({ where: { id: resolvedTeamId } });
       if (!team) {
         res.status(400).json({ error: 'Team not found' });
         return;
       }
     }
 
-    if (projectId && !teamId) {
-      const project = await prisma.project.findUnique({ where: { id: projectId } });
-      if (!project) {
-        res.status(400).json({ error: 'Project not found' });
-        return;
-      }
-    }
-
     let task;
 
-    if (teamId) {
+    if (resolvedTeamId) {
       task = await prisma.$transaction(async (tx) => {
         const team = await tx.team.update({
-          where: { id: teamId },
+          where: { id: resolvedTeamId },
           data: { nextIssueNumber: { increment: 1 } },
           select: { key: true, nextIssueNumber: true },
         });
@@ -184,7 +208,7 @@ router.post('/', async (req: Request, res: Response) => {
             title,
             description,
             priority,
-            teamId,
+            teamId: resolvedTeamId,
             projectId: projectId || undefined,
             number,
             identifier,
@@ -259,8 +283,30 @@ router.patch('/:id', async (req: Request, res: Response) => {
     }
 
     const data: Record<string, unknown> = { ...updateData };
-    if (teamId !== undefined) data.teamId = teamId;
-    if (projectId !== undefined) data.projectId = projectId;
+
+    if (projectId !== undefined) {
+      if (projectId) {
+        const projectTeam = await resolveProjectTeamId(projectId);
+        if ('error' in projectTeam) {
+          res.status(400).json({ error: projectTeam.error });
+          return;
+        }
+        data.projectId = projectId;
+        data.teamId = projectTeam.teamId;
+      } else {
+        data.projectId = null;
+        data.teamId = null;
+      }
+    } else if (teamId !== undefined) {
+      if (teamId) {
+        const team = await prisma.team.findUnique({ where: { id: teamId } });
+        if (!team) {
+          res.status(400).json({ error: 'Team not found' });
+          return;
+        }
+      }
+      data.teamId = teamId;
+    }
     if (labelIds !== undefined) {
       data.labels = {
         deleteMany: {},
@@ -322,6 +368,92 @@ router.post('/:id/execute', optionalAuth, async (req: AuthRequest, res: Response
   } catch (error) {
     console.error('[Tasks] Error executing task:', error);
     res.status(500).json({ error: 'Failed to execute task' });
+  }
+});
+
+router.post('/:id/refresh-pr', optionalAuth, async (req: AuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    const task = await prisma.task.findUnique({
+      where: { id },
+      select: { prUrl: true, batchId: true },
+    });
+
+    if (!task) {
+      res.status(404).json({ error: 'Task not found' });
+      return;
+    }
+
+    if (!task.prUrl || !task.prUrl.includes('/compare/')) {
+      res.json({ prUrl: task.prUrl, refreshed: false });
+      return;
+    }
+
+    const match = task.prUrl.match(/github\.com\/([^/]+)\/([^/]+)\/compare\/.+\.\.\.(.+)$/);
+    if (!match) {
+      res.json({ prUrl: task.prUrl, refreshed: false });
+      return;
+    }
+
+    const [, owner, repo, rawBranch] = match;
+    const branch = decodeURIComponent(rawBranch);
+
+    let accessToken: string | null = null;
+    if (req.userId) {
+      const user = await prisma.user.findUnique({
+        where: { id: req.userId },
+        select: { accessToken: true },
+      });
+      accessToken = user?.accessToken ?? null;
+    }
+
+    if (!accessToken) {
+      res.status(400).json({ error: 'GitHub authentication required to refresh PR status' });
+      return;
+    }
+
+    const response = await fetch(
+      `https://api.github.com/repos/${owner}/${repo}/pulls?head=${owner}:${branch}&state=all&per_page=1`,
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          Accept: 'application/vnd.github.v3+json',
+        },
+      }
+    );
+
+    if (!response.ok) {
+      res.status(502).json({ error: 'GitHub API request failed' });
+      return;
+    }
+
+    const pulls = (await response.json()) as Array<{ html_url: string }>;
+    if (pulls.length > 0) {
+      const newPrUrl = pulls[0].html_url;
+      const oldPrUrl = task.prUrl;
+
+      const updated = await prisma.task.update({
+        where: { id },
+        data: { prUrl: newPrUrl },
+        include: taskInclude,
+      });
+
+      if (task.batchId) {
+        await prisma.task.updateMany({
+          where: { batchId: task.batchId, prUrl: oldPrUrl },
+          data: { prUrl: newPrUrl },
+        });
+      }
+
+      broadcast('task:updated', flattenLabels(updated));
+      res.json({ prUrl: newPrUrl, refreshed: true });
+      return;
+    }
+
+    res.json({ prUrl: task.prUrl, refreshed: false, message: 'No PR found for this branch yet' });
+  } catch (error) {
+    console.error('[Tasks] Error refreshing PR:', error);
+    res.status(500).json({ error: 'Failed to refresh PR status' });
   }
 });
 
