@@ -105,11 +105,12 @@ model Settings {
 
 model User {
   id            String    @id @default(uuid())
-  githubId      Int       @unique
-  username      String
+  githubId      Int?      @unique
+  username      String    @unique
   email         String?
   avatarUrl     String?
-  accessToken   String
+  accessToken   String?
+  passwordHash  String?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
   repositories    Repository[]
