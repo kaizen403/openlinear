@@ -3,6 +3,7 @@ import { prisma } from '@openlinear/db';
 import { z } from 'zod';
 import { broadcast } from '../sse';
 import { requireAuth, AuthRequest } from '../middleware/auth';
+import { addRepositoryByUrl } from '../services/github';
 
 const router: Router = Router();
 
@@ -16,6 +17,8 @@ const createProjectSchema = z.object({
   targetDate: z.string().datetime().optional(),
   leadId: z.string().uuid().optional(),
   teamIds: z.array(z.string().uuid()).min(1).max(1),
+  repoUrl: z.string().optional(),
+  localPath: z.string().optional(),
 });
 
 const updateProjectSchema = z.object({
@@ -28,9 +31,11 @@ const updateProjectSchema = z.object({
   targetDate: z.string().datetime().nullable().optional(),
   leadId: z.string().uuid().nullable().optional(),
   teamIds: z.array(z.string().uuid()).min(1).max(1).optional(),
+  repoUrl: z.string().nullable().optional(),
+  localPath: z.string().nullable().optional(),
 });
 
-function transformProject(project: { projectTeams: { team: unknown }[]; [key: string]: unknown }) {
+function transformProject(project: { projectTeams: { team: unknown }[]; repository?: unknown; [key: string]: unknown }) {
   return {
     ...project,
     teams: project.projectTeams.map((pt) => pt.team),
