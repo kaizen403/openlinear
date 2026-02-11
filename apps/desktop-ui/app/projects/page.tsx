@@ -12,7 +12,8 @@ import {
   Calendar,
   TrendingUp,
   Trash2,
-  Loader2
+  Loader2,
+  Pencil
 } from "lucide-react"
 import { AppShell } from "@/components/layout/app-shell"
 import { cn } from "@/lib/utils"
@@ -37,10 +38,8 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Checkbox } from "@/components/ui/checkbox"
-import { fetchProjects, fetchTeams, createProject, deleteProject, type Project, type Team } from "@/lib/api"
-import { useSSE } from "@/hooks/use-sse"
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
+import { fetchProjects, fetchTeams, createProject, updateProject, deleteProject, type Project, type Team } from "@/lib/api"
+import { useSSESubscription } from "@/providers/sse-provider"
 
 type StatusType = 'planned' | 'in_progress' | 'paused' | 'completed' | 'cancelled'
 
@@ -119,6 +118,8 @@ export default function ProjectsPage() {
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   const [projectToDelete, setProjectToDelete] = useState<Project | null>(null)
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
+  const [editProject, setEditProject] = useState<Project | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
   
   // Form state
@@ -131,6 +132,13 @@ export default function ProjectsPage() {
     sourceType: "none" as "none" | "repo" | "local",
     repoUrl: "",
     localPath: "",
+  })
+  const [editFormData, setEditFormData] = useState({
+    name: "",
+    description: "",
+    status: "planned" as StatusType,
+    teamId: "",
+    targetDate: "",
   })
   const [formErrors, setFormErrors] = useState<Record<string, string>>({})
 
@@ -159,7 +167,7 @@ export default function ProjectsPage() {
     })
   }, [loadProjects, loadTeams])
 
-  useSSE(`${API_URL}/api/events`, (eventType) => {
+  useSSESubscription((eventType) => {
     if (['project:created', 'project:updated', 'project:deleted'].includes(eventType)) {
       loadProjects()
     }
@@ -236,7 +244,7 @@ export default function ProjectsPage() {
 
   const handleDeleteProject = async () => {
     if (!projectToDelete) return
-    
+
     setIsSubmitting(true)
     try {
       await deleteProject(projectToDelete.id)
@@ -250,7 +258,30 @@ export default function ProjectsPage() {
     }
   }
 
+  const handleEditProject = async (e: React.FormEvent) => {
+    e.preventDefault()
 
+    if (!editProject) return
+
+    setIsSubmitting(true)
+    try {
+      await updateProject(editProject.id, {
+        name: editFormData.name.trim(),
+        description: editFormData.description.trim() || null,
+        status: editFormData.status,
+        teamIds: editFormData.teamId ? [editFormData.teamId] : [],
+        targetDate: editFormData.targetDate || null,
+      })
+
+      setIsEditDialogOpen(false)
+      setEditProject(null)
+      loadProjects()
+    } catch (error) {
+      console.error("Failed to update project:", error)
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
 
   return (
     <AppShell>
@@ -586,15 +617,34 @@ export default function ProjectsPage() {
                         </span>
                       </td>
                       <td className="py-3 px-4">
-                        <button 
-                          onClick={() => {
-                            setProjectToDelete(project)
-                            setIsDeleteDialogOpen(true)
-                          }}
-                          className="opacity-0 group-hover:opacity-100 p-1.5 rounded-md hover:bg-linear-bg-tertiary transition-all"
-                        >
-                          <Trash2 className="w-4 h-4 text-red-400" />
-                        </button>
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setEditProject(project)
+                              setEditFormData({
+                                name: project.name,
+                                description: project.description || "",
+                                status: project.status,
+                                teamId: project.teams?.[0]?.id || "",
+                                targetDate: project.targetDate ? project.targetDate.split('T')[0] : "",
+                              })
+                              setIsEditDialogOpen(true)
+                            }}
+                            className="opacity-0 group-hover:opacity-100 p-1.5 rounded-md hover:bg-linear-bg-tertiary transition-all"
+                          >
+                            <Pencil className="w-4 h-4 text-linear-text-secondary" />
+                          </button>
+                          <button
+                            onClick={() => {
+                              setProjectToDelete(project)
+                              setIsDeleteDialogOpen(true)
+                            }}
+                            className="opacity-0 group-hover:opacity-100 p-1.5 rounded-md hover:bg-linear-bg-tertiary transition-all"
+                          >
+                            <Trash2 className="w-4 h-4 text-red-400" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))
@@ -639,6 +689,130 @@ export default function ProjectsPage() {
               )}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
+        <DialogContent className="sm:max-w-[500px] bg-linear-bg border-linear-border">
+          <DialogHeader>
+            <DialogTitle className="text-linear-text">Edit Project</DialogTitle>
+            <DialogDescription className="text-linear-text-secondary">
+              Update the project details.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleEditProject} className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="edit-name" className="text-linear-text">
+                Name <span className="text-red-500">*</span>
+              </Label>
+              <Input
+                id="edit-name"
+                value={editFormData.name}
+                onChange={(e) => setEditFormData(prev => ({ ...prev, name: e.target.value }))}
+                placeholder="Project name"
+                className="bg-linear-bg-tertiary border-linear-border text-linear-text placeholder:text-linear-text-tertiary"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="edit-description" className="text-linear-text">Description</Label>
+              <Input
+                id="edit-description"
+                value={editFormData.description}
+                onChange={(e) => setEditFormData(prev => ({ ...prev, description: e.target.value }))}
+                placeholder="Project description (optional)"
+                className="bg-linear-bg-tertiary border-linear-border text-linear-text placeholder:text-linear-text-tertiary"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="edit-status" className="text-linear-text">Status</Label>
+              <Select
+                value={editFormData.status}
+                onValueChange={(value) => setEditFormData(prev => ({ ...prev, status: value as StatusType }))}
+              >
+                <SelectTrigger className="bg-linear-bg-tertiary border-linear-border text-linear-text">
+                  <SelectValue placeholder="Select status" />
+                </SelectTrigger>
+                <SelectContent className="bg-linear-bg border-linear-border">
+                  {statusOptions.map((option) => (
+                    <SelectItem
+                      key={option.value}
+                      value={option.value}
+                      className="text-linear-text focus:bg-linear-bg-tertiary focus:text-linear-text"
+                    >
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="edit-team" className="text-linear-text">Team</Label>
+              <Select
+                value={editFormData.teamId}
+                onValueChange={(value) => setEditFormData(prev => ({ ...prev, teamId: value }))}
+              >
+                <SelectTrigger className="bg-linear-bg-tertiary border-linear-border text-linear-text">
+                  <SelectValue placeholder="Select a team" />
+                </SelectTrigger>
+                <SelectContent className="bg-linear-bg border-linear-border">
+                  <SelectItem value="" className="text-linear-text focus:bg-linear-bg-tertiary focus:text-linear-text">
+                    No team
+                  </SelectItem>
+                  {teams.map((team) => (
+                    <SelectItem
+                      key={team.id}
+                      value={team.id}
+                      className="text-linear-text focus:bg-linear-bg-tertiary focus:text-linear-text"
+                    >
+                      {team.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="edit-targetDate" className="text-linear-text">Target Date</Label>
+              <Input
+                id="edit-targetDate"
+                type="date"
+                value={editFormData.targetDate}
+                onChange={(e) => setEditFormData(prev => ({ ...prev, targetDate: e.target.value }))}
+                className="bg-linear-bg-tertiary border-linear-border text-linear-text"
+              />
+            </div>
+
+            <DialogFooter className="gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setIsEditDialogOpen(false)
+                  setEditProject(null)
+                }}
+                className="border-linear-border text-linear-text hover:bg-linear-bg-tertiary"
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                disabled={isSubmitting}
+                className="bg-linear-accent hover:bg-linear-accent-hover text-white"
+              >
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  "Save Changes"
+                )}
+              </Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
     </AppShell>
