@@ -6,7 +6,7 @@ import { usePathname, useSearchParams } from "next/navigation"
 import {
     Home, Inbox, Layers, Settings,
     PanelLeftClose, LogOut, Archive,
-    ChevronRight, ChevronDown, CircleDot, FolderKanban, Pencil, Plus
+    ChevronRight, ChevronDown, CircleDot, Hexagon, Pencil, Plus
 } from "lucide-react"
 import { ProjectSelector } from "@/components/auth/project-selector"
 import { useAuth } from "@/hooks/use-auth"
@@ -91,7 +91,7 @@ function TeamSection({ team, pathname, searchParams }: { team: Team; pathname: s
                         href={`/projects?teamId=${team.id}`}
                         className={subNavItemClass(isProjectsActive)}
                     >
-                        <FolderKanban className="w-3.5 h-3.5 flex-shrink-0" />
+                        <Hexagon className="w-3.5 h-3.5 flex-shrink-0" />
                         <span>Projects</span>
                     </Link>
                 </div>
@@ -244,6 +244,13 @@ export function Sidebar({ open, onClose, width, animating }: SidebarProps) {
                                     searchParams={searchParams}
                                 />
                             ))}
+                            <Link
+                                href="/teams"
+                                className={subNavItemClass(pathname === "/teams")}
+                            >
+                                <Settings className="w-3.5 h-3.5 flex-shrink-0" />
+                                <span>Manage</span>
+                            </Link>
                         </div>
                     ) : (
                         <Link

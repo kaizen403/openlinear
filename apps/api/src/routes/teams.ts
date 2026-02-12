@@ -1,10 +1,16 @@
 import { Router, Response } from 'express';
 import { prisma } from '@openlinear/db';
 import { z } from 'zod';
+import crypto from 'crypto';
 import { broadcast } from '../sse';
 import { requireAuth, optionalAuth, AuthRequest } from '../middleware/auth';
 
 const router: Router = Router();
+
+function generateInviteCode(key: string): string {
+  const random = crypto.randomBytes(4).toString('hex').toUpperCase();
+  return `${key}-${random}`;
+}
 
 const createTeamSchema = z.object({
   name: z.string().min(1).max(50),
@@ -64,6 +70,7 @@ router.post('/', optionalAuth, async (req: AuthRequest, res: Response) => {
     const team = await prisma.team.create({
       data: {
         ...parsed.data,
+        inviteCode: generateInviteCode(parsed.data.key),
         ...(req.userId && {
           members: {
             create: {
@@ -92,6 +99,60 @@ router.post('/', optionalAuth, async (req: AuthRequest, res: Response) => {
     }
     console.error('[Teams] Error creating team:', error);
     res.status(500).json({ error: 'Failed to create team' });
+  }
+});
+
+const joinTeamSchema = z.object({
+  inviteCode: z.string().min(1),
+});
+
+router.post('/join', requireAuth, async (req: AuthRequest, res: Response) => {
+  try {
+    const parsed = joinTeamSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: 'Invite code is required' });
+      return;
+    }
+
+    const team = await prisma.team.findUnique({
+      where: { inviteCode: parsed.data.inviteCode },
+    });
+
+    if (!team) {
+      res.status(404).json({ error: 'Invalid invite code' });
+      return;
+    }
+
+    const existing = await prisma.teamMember.findUnique({
+      where: { teamId_userId: { teamId: team.id, userId: req.userId! } },
+    });
+
+    if (existing) {
+      res.status(409).json({ error: 'You are already a member of this team' });
+      return;
+    }
+
+    await prisma.teamMember.create({
+      data: {
+        teamId: team.id,
+        userId: req.userId!,
+        role: 'member',
+      },
+    });
+
+    const result = await prisma.team.findUnique({
+      where: { id: team.id },
+      include: {
+        members: { include: { user: true } },
+        _count: { select: { members: true } },
+      },
+    });
+
+    broadcast('team:updated', result);
+    res.json(result);
+  } catch (error) {
+    console.error('[Teams] Error joining team:', error);
+    res.status(500).json({ error: 'Failed to join team' });
   }
 });
 

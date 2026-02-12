@@ -1,6 +1,12 @@
 import { PrismaClient } from "@prisma/client";
+import crypto from "crypto";
 
 const prisma = new PrismaClient();
+
+function generateInviteCode(key: string): string {
+  const random = crypto.randomBytes(4).toString("hex").toUpperCase();
+  return `${key}-${random}`;
+}
 
 // Pre-computed bcrypt hash of "kaz" with 10 salt rounds
 // Generated via: bcrypt.hash('kaz', 10)
@@ -88,9 +94,23 @@ async function main() {
       id: "seed-team-default",
       name: "Default",
       key: "DEF",
+      inviteCode: generateInviteCode("DEF"),
     },
   });
   console.log(`[seed] Upserted team "${team.name}" (${team.key})`);
+
+  const teamsWithoutCode = await prisma.team.findMany({
+    where: { inviteCode: null },
+  });
+  for (const t of teamsWithoutCode) {
+    await prisma.team.update({
+      where: { id: t.id },
+      data: { inviteCode: generateInviteCode(t.key) },
+    });
+  }
+  if (teamsWithoutCode.length > 0) {
+    console.log(`[seed] Backfilled invite codes for ${teamsWithoutCode.length} teams`);
+  }
 
   // 4. Link kaz to Default team
   await prisma.teamMember.upsert({

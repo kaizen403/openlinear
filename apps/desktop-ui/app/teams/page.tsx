@@ -9,7 +9,9 @@ import {
   Users,
   Trash2,
   X,
-  Pencil
+  Pencil,
+  Copy,
+  Check,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -17,19 +19,23 @@ import { Label } from "@/components/ui/label"
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { AppShell } from "@/components/layout/app-shell"
-import { fetchTeams, createTeam, deleteTeam, updateTeam, type Team } from "@/lib/api"
+import { fetchTeams, createTeam, deleteTeam, updateTeam, joinTeam, type Team } from "@/lib/api"
 import { useSSESubscription } from "@/providers/sse-provider"
+
+type CreateDialogTab = "create" | "join"
 
 export default function TeamsPage() {
   const router = useRouter()
   const [teams, setTeams] = useState<Team[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
+  const [createDialogTab, setCreateDialogTab] = useState<CreateDialogTab>("create")
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
   const [editTeam, setEditTeam] = useState<Team | null>(null)
   const [editFormData, setEditFormData] = useState({ name: "", description: "", color: "#6366f1" })
@@ -41,6 +47,11 @@ export default function TeamsPage() {
     color: "#6366f1",
   })
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [createdTeam, setCreatedTeam] = useState<Team | null>(null)
+  const [joinCode, setJoinCode] = useState("")
+  const [joinError, setJoinError] = useState("")
+  const [copiedTeamId, setCopiedTeamId] = useState<string | null>(null)
+  const [copiedCreatedCode, setCopiedCreatedCode] = useState(false)
 
   const loadTeams = useCallback(async () => {
     try {
@@ -64,19 +75,40 @@ export default function TeamsPage() {
     }
   })
 
+  const handleCopyInviteCode = async (inviteCode: string, teamId: string) => {
+    try {
+      await navigator.clipboard.writeText(inviteCode)
+      setCopiedTeamId(teamId)
+      setTimeout(() => setCopiedTeamId(null), 2000)
+    } catch (error) {
+      console.error("Failed to copy:", error)
+    }
+  }
+
+  const handleCopyCreatedCode = async () => {
+    if (!createdTeam?.inviteCode) return
+    try {
+      await navigator.clipboard.writeText(createdTeam.inviteCode)
+      setCopiedCreatedCode(true)
+      setTimeout(() => setCopiedCreatedCode(false), 2000)
+    } catch (error) {
+      console.error("Failed to copy:", error)
+    }
+  }
+
   const handleCreateTeam = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!formData.name.trim() || !formData.key.trim()) return
 
     try {
       setIsSubmitting(true)
-      await createTeam({
+      const team = await createTeam({
         name: formData.name,
         key: formData.key.toUpperCase(),
         description: formData.description || undefined,
         color: formData.color,
       })
-      setIsDialogOpen(false)
+      setCreatedTeam(team)
       setFormData({ name: "", key: "", description: "", color: "#6366f1" })
       loadTeams()
     } catch (error) {
@@ -84,6 +116,32 @@ export default function TeamsPage() {
     } finally {
       setIsSubmitting(false)
     }
+  }
+
+  const handleJoinTeam = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!joinCode.trim()) return
+
+    try {
+      setIsSubmitting(true)
+      setJoinError("")
+      await joinTeam(joinCode.trim())
+      setJoinCode("")
+      setIsDialogOpen(false)
+      loadTeams()
+    } catch (error) {
+      setJoinError(error instanceof Error ? error.message : "Failed to join team")
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  const handleCloseCreateDialog = () => {
+    setIsDialogOpen(false)
+    setCreatedTeam(null)
+    setJoinCode("")
+    setJoinError("")
+    setCreateDialogTab("create")
   }
 
   const handleDeleteTeam = async (teamId: string) => {
@@ -142,11 +200,83 @@ export default function TeamsPage() {
                       <span className="hidden sm:inline">Create team</span>
                     </Button>
                   </DialogTrigger>
-                  <DialogContent className="bg-linear-bg-secondary border-linear-border">
+                  <DialogContent className="bg-linear-bg-secondary border-linear-border" onCloseAutoFocus={handleCloseCreateDialog}>
                     <DialogHeader>
-                      <DialogTitle className="text-linear-text">Create new team</DialogTitle>
+                      <DialogTitle className="text-linear-text">
+                        {createdTeam ? "Team Created!" : "Create or Join Team"}
+                      </DialogTitle>
+                      {!createdTeam && (
+                        <DialogDescription className="text-linear-text-secondary">
+                          Create a new team or join an existing one with an invite code.
+                        </DialogDescription>
+                      )}
                     </DialogHeader>
-                    <form onSubmit={handleCreateTeam} className="space-y-4 mt-4">
+                    {createdTeam ? (
+                      <div className="space-y-6 mt-4">
+                        <div className="p-4 rounded-lg bg-green-500/10 border border-green-500/20">
+                          <div className="text-sm text-green-600 dark:text-green-400 font-medium mb-2">
+                            Team created successfully!
+                          </div>
+                          <div className="text-sm text-linear-text-secondary mb-4">
+                            Share this invite code with others to let them join your team.
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <code className="flex-1 px-3 py-2 rounded-md bg-linear-bg-tertiary border border-linear-border font-mono text-sm text-linear-text">
+                              {createdTeam.inviteCode}
+                            </code>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={handleCopyCreatedCode}
+                              className="border-linear-border hover:bg-linear-bg-tertiary"
+                            >
+                              {copiedCreatedCode ? (
+                                <Check className="w-4 h-4 text-green-500" />
+                              ) : (
+                                <Copy className="w-4 h-4" />
+                              )}
+                            </Button>
+                          </div>
+                        </div>
+                        <div className="flex justify-end">
+                          <Button
+                            type="button"
+                            onClick={handleCloseCreateDialog}
+                            className="bg-linear-accent hover:bg-linear-accent-hover text-white"
+                          >
+                            Done
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="mt-4">
+                        <div className="flex gap-1 p-1 rounded-lg bg-linear-bg-tertiary border border-linear-border mb-4">
+                          <button
+                            type="button"
+                            onClick={() => setCreateDialogTab("create")}
+                            className={`flex-1 px-4 py-2 text-sm font-medium rounded-md transition-colors ${
+                              createDialogTab === "create"
+                                ? "bg-linear-bg text-linear-text shadow-sm"
+                                : "text-linear-text-secondary hover:text-linear-text"
+                            }`}
+                          >
+                            Create
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setCreateDialogTab("join")}
+                            className={`flex-1 px-4 py-2 text-sm font-medium rounded-md transition-colors ${
+                              createDialogTab === "join"
+                                ? "bg-linear-bg text-linear-text shadow-sm"
+                                : "text-linear-text-secondary hover:text-linear-text"
+                            }`}
+                          >
+                            Join
+                          </button>
+                        </div>
+                        {createDialogTab === "create" ? (
+                          <form onSubmit={handleCreateTeam} className="space-y-4">
                       <div className="space-y-2">
                         <Label htmlFor="name" className="text-linear-text-secondary">Name</Label>
                         <Input
@@ -211,8 +341,53 @@ export default function TeamsPage() {
                         </Button>
                       </div>
                     </form>
-                  </DialogContent>
-                </Dialog>
+                  ) : (
+                    <form onSubmit={handleJoinTeam} className="space-y-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="inviteCode" className="text-linear-text-secondary">Invite Code</Label>
+                        <Input
+                          id="inviteCode"
+                          value={joinCode}
+                          onChange={(e) => {
+                            setJoinCode(e.target.value.toUpperCase())
+                            setJoinError("")
+                          }}
+                          placeholder="KEY-XXXXXXXX"
+                          className="bg-linear-bg-tertiary border-linear-border text-linear-text font-mono"
+                          required
+                        />
+                        <p className="text-xs text-linear-text-tertiary">
+                          Enter the invite code you received (format: KEY-XXXXXXXX)
+                        </p>
+                      </div>
+                      {joinError && (
+                        <div className="text-sm text-red-500">
+                          {joinError}
+                        </div>
+                      )}
+                      <div className="flex justify-end gap-2 pt-4">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => setIsDialogOpen(false)}
+                          className="border-linear-border text-linear-text-secondary hover:bg-linear-bg-tertiary"
+                        >
+                          Cancel
+                        </Button>
+                        <Button
+                          type="submit"
+                          disabled={isSubmitting || !joinCode.trim()}
+                          className="bg-linear-accent hover:bg-linear-accent-hover text-white"
+                        >
+                          {isSubmitting ? "Joining..." : "Join Team"}
+                        </Button>
+                      </div>
+                    </form>
+                  )}
+                </div>
+              )}
+            </DialogContent>
+          </Dialog>
                 <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
                   <DialogContent className="bg-linear-bg-secondary border-linear-border">
                     <DialogHeader>
@@ -329,6 +504,9 @@ export default function TeamsPage() {
                     <th className="text-left py-3 px-4 text-xs font-medium text-linear-text-tertiary uppercase tracking-wider w-[100px]">
                       Key
                     </th>
+                    <th className="text-left py-3 px-4 text-xs font-medium text-linear-text-tertiary uppercase tracking-wider w-[180px]">
+                      Invite Code
+                    </th>
                     <th className="text-left py-3 px-4 text-xs font-medium text-linear-text-tertiary uppercase tracking-wider w-[140px]">
                       Members
                     </th>
@@ -362,6 +540,31 @@ export default function TeamsPage() {
                       </td>
                       <td className="py-3 px-4">
                         <span className="text-sm text-linear-text-secondary font-mono">{team.key}</span>
+                      </td>
+                      <td className="py-3 px-4">
+                        {team.inviteCode ? (
+                          <div className="flex items-center gap-2">
+                            <code className="text-sm font-mono text-linear-text-secondary">
+                              {team.inviteCode}
+                            </code>
+                            <button
+                              onClick={(e: React.MouseEvent) => {
+                                e.stopPropagation()
+                                handleCopyInviteCode(team.inviteCode!, team.id)
+                              }}
+                              className="p-1 rounded hover:bg-linear-bg-tertiary transition-colors"
+                              title="Copy invite code"
+                            >
+                              {copiedTeamId === team.id ? (
+                                <Check className="w-3.5 h-3.5 text-green-500" />
+                              ) : (
+                                <Copy className="w-3.5 h-3.5 text-linear-text-tertiary" />
+                              )}
+                            </button>
+                          </div>
+                        ) : (
+                          <span className="text-sm text-linear-text-tertiary">—</span>
+                        )}
                       </td>
                       <td className="py-3 px-4">
                         <div className="flex items-center gap-1">
