@@ -751,14 +751,14 @@ export default function ProjectsPage() {
             <div className="space-y-2">
               <Label htmlFor="edit-team" className="text-linear-text">Team</Label>
               <Select
-                value={editFormData.teamId}
-                onValueChange={(value) => setEditFormData(prev => ({ ...prev, teamId: value }))}
+                value={editFormData.teamId || "__none__"}
+                onValueChange={(value) => setEditFormData(prev => ({ ...prev, teamId: value === "__none__" ? "" : value }))}
               >
                 <SelectTrigger className="bg-linear-bg-tertiary border-linear-border text-linear-text">
                   <SelectValue placeholder="Select a team" />
                 </SelectTrigger>
                 <SelectContent className="bg-linear-bg border-linear-border">
-                  <SelectItem value="" className="text-linear-text focus:bg-linear-bg-tertiary focus:text-linear-text">
+                  <SelectItem value="__none__" className="text-linear-text focus:bg-linear-bg-tertiary focus:text-linear-text">
                     No team
                   </SelectItem>
                   {teams.map((team) => (

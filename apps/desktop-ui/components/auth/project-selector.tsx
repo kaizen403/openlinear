@@ -25,7 +25,7 @@ export function ProjectSelector() {
       setIsLoading(true);
       fetchGitHubRepos()
         .then(setRepos)
-        .catch(console.error)
+        .catch(() => setRepos([]))
         .finally(() => setIsLoading(false));
     }
   }, [isOpen, isAuthenticated]);
