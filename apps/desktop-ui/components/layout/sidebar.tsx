@@ -6,7 +6,7 @@ import { usePathname, useSearchParams } from "next/navigation"
 import {
     Home, Inbox, Layers, Settings,
     PanelLeftClose, LogOut, Archive,
-    ChevronRight, ChevronDown, CircleDot, FolderKanban, Eye, Plus
+    ChevronRight, ChevronDown, CircleDot, FolderKanban, Pencil, Plus
 } from "lucide-react"
 import { ProjectSelector } from "@/components/auth/project-selector"
 import { useAuth } from "@/hooks/use-auth"
@@ -42,29 +42,37 @@ function TeamSection({ team, pathname, searchParams }: { team: Team; pathname: s
 
     const isIssuesActive = pathname === "/" && teamId === team.id
     const isProjectsActive = pathname === "/projects" && teamId === team.id
-    const isViewsActive = pathname === "/views" && teamId === team.id
 
     return (
-        <div>
-            <button
-                onClick={() => setExpanded(!expanded)}
-                className="flex items-center gap-2 w-full px-3 py-1.5 rounded-md text-[13px] font-medium text-linear-text-secondary hover:text-linear-text hover:bg-linear-bg-tertiary/50 transition-colors"
-            >
-                {expanded ? (
-                    <ChevronDown className="w-3 h-3 flex-shrink-0 text-linear-text-tertiary" />
-                ) : (
-                    <ChevronRight className="w-3 h-3 flex-shrink-0 text-linear-text-tertiary" />
-                )}
-                <div
-                    className="w-4 h-4 rounded flex items-center justify-center flex-shrink-0"
-                    style={{ backgroundColor: `${team.color}25` }}
+        <div className="group/team">
+            <div className="flex items-center">
+                <button
+                    onClick={() => setExpanded(!expanded)}
+                    className="flex items-center gap-2 flex-1 min-w-0 px-3 py-1.5 rounded-md text-[13px] font-medium text-linear-text-secondary hover:text-linear-text hover:bg-linear-bg-tertiary/50 transition-colors"
                 >
-                    <span className="text-[9px] font-bold" style={{ color: team.color }}>
-                        {team.name.charAt(0).toUpperCase()}
-                    </span>
-                </div>
-                <span className="truncate">{team.name}</span>
-            </button>
+                    {expanded ? (
+                        <ChevronDown className="w-3 h-3 flex-shrink-0 text-linear-text-tertiary" />
+                    ) : (
+                        <ChevronRight className="w-3 h-3 flex-shrink-0 text-linear-text-tertiary" />
+                    )}
+                    <div
+                        className="w-4 h-4 rounded flex items-center justify-center flex-shrink-0"
+                        style={{ backgroundColor: `${team.color}25` }}
+                    >
+                        <span className="text-[9px] font-bold" style={{ color: team.color }}>
+                            {team.name.charAt(0).toUpperCase()}
+                        </span>
+                    </div>
+                    <span className="truncate">{team.name}</span>
+                </button>
+                <Link
+                    href={`/teams/${team.id}`}
+                    className="opacity-0 group-hover/team:opacity-100 p-1 mr-2 rounded hover:bg-linear-bg-tertiary transition-all text-linear-text-tertiary hover:text-linear-text"
+                    title="Edit team"
+                >
+                    <Pencil className="w-3 h-3" />
+                </Link>
+            </div>
 
             {expanded && (
                 <div className="ml-3 pl-3 border-l border-white/[0.06] mt-0.5 space-y-0.5">
@@ -81,13 +89,6 @@ function TeamSection({ team, pathname, searchParams }: { team: Team; pathname: s
                     >
                         <FolderKanban className="w-3.5 h-3.5 flex-shrink-0" />
                         <span>Projects</span>
-                    </Link>
-                    <Link
-                        href={`/views?teamId=${team.id}`}
-                        className={subNavItemClass(isViewsActive)}
-                    >
-                        <Eye className="w-3.5 h-3.5 flex-shrink-0" />
-                        <span>Views</span>
                     </Link>
                 </div>
             )}
