@@ -284,6 +284,12 @@ router.patch('/:id', async (req: Request, res: Response) => {
 
     const data: Record<string, unknown> = { ...updateData };
 
+    if (updateData.status === 'in_progress' && existing.status !== 'in_progress') {
+      data.executionStartedAt = null;
+      data.executionPausedAt = null;
+      data.executionElapsedMs = null;
+    }
+
     if (projectId !== undefined) {
       if (projectId) {
         const projectTeam = await resolveProjectTeamId(projectId);
