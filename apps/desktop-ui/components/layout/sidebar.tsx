@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import Link from "next/link"
 import { usePathname, useSearchParams } from "next/navigation"
 import {
@@ -12,6 +12,10 @@ import { ProjectSelector } from "@/components/auth/project-selector"
 import { useAuth } from "@/hooks/use-auth"
 import { cn } from "@/lib/utils"
 import { fetchInboxCount, fetchTeams, type Team } from "@/lib/api"
+import { useSSESubscription } from "@/providers/sse-provider"
+
+// Module-level cache so teams survive sidebar remounts during page navigation
+let cachedTeams: Team[] = []
 
 const navItemClass = (isActive: boolean) =>
     cn(
@@ -102,7 +106,14 @@ export function Sidebar({ open, onClose, width, animating }: SidebarProps) {
     const { user, isAuthenticated, isLoading, logout } = useAuth()
     const [isTauri, setIsTauri] = useState(false)
     const [inboxCount, setInboxCount] = useState(0)
-    const [teams, setTeams] = useState<Team[]>([])
+    const [teams, setTeams] = useState<Team[]>(cachedTeams)
+
+    const loadTeams = useCallback(() => {
+        fetchTeams().then((data) => {
+            cachedTeams = data
+            setTeams(data)
+        }).catch(() => setTeams([]))
+    }, [])
 
     useEffect(() => {
         setIsTauri(typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window)
@@ -113,8 +124,14 @@ export function Sidebar({ open, onClose, width, animating }: SidebarProps) {
     }, [pathname])
 
     useEffect(() => {
-        fetchTeams().then(setTeams).catch(() => setTeams([]))
-    }, [])
+        loadTeams()
+    }, [loadTeams])
+
+    useSSESubscription((eventType) => {
+        if (['team:created', 'team:updated', 'team:deleted'].includes(eventType)) {
+            loadTeams()
+        }
+    })
 
     const handleClose = async () => {
         const { getCurrentWindow } = await import('@tauri-apps/api/window')
