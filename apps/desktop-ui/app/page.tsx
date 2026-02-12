@@ -74,6 +74,12 @@ function HomeContent() {
   if (!selectedProjectId && !urlProjectId && !urlTeamId) {
     return (
       <AppShell>
+        <header className="h-14 border-b border-linear-border flex items-center px-4 sm:px-6 bg-linear-bg gap-2 sm:gap-4" data-tauri-drag-region>
+          <div className="flex items-center gap-4 min-w-0">
+            <h1 className="text-lg font-semibold truncate">Dashboard</h1>
+          </div>
+          <div className="flex-1 h-full" data-tauri-drag-region />
+        </header>
         <div className="flex-1 flex items-center justify-center p-6">
           <div className="w-full max-w-md">
             <div className="text-center mb-8">
