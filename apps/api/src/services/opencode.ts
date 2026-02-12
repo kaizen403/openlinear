@@ -7,6 +7,8 @@ const OPENCODE_STARTUP_TIMEOUT = parseInt(process.env.OPENCODE_STARTUP_TIMEOUT |
 const HEALTH_CHECK_INTERVAL = 10000;
 const MAX_RETRY_ATTEMPTS = 3;
 const RETRY_DELAY = 2000;
+const MAX_HEALTH_RESTARTS = 5;
+const HEALTH_RESTART_BACKOFF_BASE = 5000;
 
 interface OpenCodeServerState {
   status: 'stopped' | 'starting' | 'running' | 'error';
@@ -18,6 +20,8 @@ interface OpenCodeServerState {
 let serverInstance: { url: string; close: () => void } | null = null;
 let clientInstance: OpencodeClient | null = null;
 let healthCheckInterval: NodeJS.Timeout | null = null;
+let isRestarting = false;
+let consecutiveHealthFailures = 0;
 let state: OpenCodeServerState = {
   status: 'stopped',
   url: null,
@@ -67,18 +71,49 @@ function startHealthCheck(): void {
     clearInterval(healthCheckInterval);
   }
   
+  consecutiveHealthFailures = 0;
+  
   healthCheckInterval = setInterval(async () => {
-    if (state.status !== 'running') return;
+    if (state.status !== 'running' || isRestarting) return;
     
     const healthy = await checkHealth();
-    if (!healthy) {
-      console.warn('[OpenCode] Server unhealthy, attempting restart...');
-      state.status = 'error';
-      state.error = 'Health check failed';
-      broadcast('opencode:status', { status: 'unhealthy' });
-      
+    if (healthy) {
+      consecutiveHealthFailures = 0;
+      return;
+    }
+    
+    consecutiveHealthFailures++;
+    
+    if (consecutiveHealthFailures >= MAX_HEALTH_RESTARTS) {
+      console.error(`[OpenCode] Server failed ${MAX_HEALTH_RESTARTS} consecutive health checks, giving up. Manual restart required.`);
+      stopHealthCheck();
+      state = {
+        status: 'error',
+        url: null,
+        error: `Server unreachable after ${MAX_HEALTH_RESTARTS} restart attempts`,
+        startedAt: null,
+      };
+      broadcast('opencode:status', { status: 'error', error: state.error });
+      return;
+    }
+    
+    const backoff = HEALTH_RESTART_BACKOFF_BASE * Math.pow(2, consecutiveHealthFailures - 1);
+    console.warn(`[OpenCode] Server unhealthy (failure ${consecutiveHealthFailures}/${MAX_HEALTH_RESTARTS}), restarting after ${backoff}ms backoff...`);
+    state.status = 'error';
+    state.error = 'Health check failed';
+    broadcast('opencode:status', { status: 'unhealthy' });
+    
+    isRestarting = true;
+    try {
       await stopOpenCodeServer();
+      await new Promise(resolve => setTimeout(resolve, backoff));
       await startOpenCodeServer();
+      consecutiveHealthFailures = 0;
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : 'Unknown error';
+      console.error(`[OpenCode] Restart failed (attempt ${consecutiveHealthFailures}/${MAX_HEALTH_RESTARTS}):`, msg);
+    } finally {
+      isRestarting = false;
     }
   }, HEALTH_CHECK_INTERVAL);
 }

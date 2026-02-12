@@ -142,7 +142,7 @@ async function main() {
       id: "seed-project-openlinear",
       name: "OpenLinear",
       leadId: user.id,
-      ...(activeRepo ? { repositoryId: activeRepo.id } : {}),
+      ...(activeRepo ? { repositoryId: activeRepo.id, repoUrl: `https://github.com/${activeRepo.fullName}` } : {}),
     },
   });
   console.log(`[seed] Upserted project "${project.name}"`);

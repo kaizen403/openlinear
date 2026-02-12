@@ -162,7 +162,7 @@ router.patch('/:id', requireAuth, async (req: AuthRequest, res: Response) => {
       return;
     }
 
-    const { teamIds, startDate, targetDate, ...updateData } = parsed.data;
+    const { teamIds, startDate, targetDate, repoUrl, localPath, ...updateData } = parsed.data;
 
     const dateFields: Record<string, Date | null | undefined> = {};
     if (startDate !== undefined) {
@@ -170,6 +170,21 @@ router.patch('/:id', requireAuth, async (req: AuthRequest, res: Response) => {
     }
     if (targetDate !== undefined) {
       dateFields.targetDate = targetDate ? new Date(targetDate) : null;
+    }
+
+    let repositoryId: string | null | undefined;
+    if (repoUrl !== undefined) {
+      if (repoUrl) {
+        try {
+          const repo = await addRepositoryByUrl(repoUrl);
+          repositoryId = repo.id;
+        } catch (err) {
+          res.status(400).json({ error: `Failed to connect repository: ${(err as Error).message}` });
+          return;
+        }
+      } else {
+        repositoryId = null;
+      }
     }
 
     const project = await prisma.$transaction(async (tx) => {
@@ -183,7 +198,13 @@ router.patch('/:id', requireAuth, async (req: AuthRequest, res: Response) => {
       }
       return tx.project.update({
         where: { id },
-        data: { ...updateData, ...dateFields },
+        data: {
+          ...updateData,
+          ...dateFields,
+          ...(repoUrl !== undefined ? { repoUrl } : {}),
+          ...(localPath !== undefined ? { localPath } : {}),
+          ...(repositoryId !== undefined ? { repositoryId } : {}),
+        },
         include: projectInclude,
       });
     });

@@ -169,6 +169,16 @@ export interface Project {
   startDate: string | null
   targetDate: string | null
   leadId: string | null
+  repoUrl: string | null
+  localPath: string | null
+  repositoryId: string | null
+  repository?: {
+    id: string
+    name: string
+    fullName: string
+    cloneUrl: string
+    defaultBranch: string
+  } | null
   createdAt: string
   updatedAt: string
   teams?: Team[]
@@ -307,7 +317,7 @@ export async function createProject(data: { name: string; description?: string; 
   return res.json()
 }
 
-export async function updateProject(id: string, data: Partial<{ name: string; description: string | null; status: string; color: string; icon: string | null; teamIds: string[]; startDate: string | null; targetDate: string | null; leadId: string | null }>): Promise<Project> {
+export async function updateProject(id: string, data: Partial<{ name: string; description: string | null; status: string; color: string; icon: string | null; teamIds: string[]; startDate: string | null; targetDate: string | null; leadId: string | null; repoUrl: string | null; localPath: string | null }>): Promise<Project> {
   const res = await fetch(`${API_URL}/api/projects/${id}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json', ...getAuthHeader() },

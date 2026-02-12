@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, Suspense } from "react"
 import { useSearchParams } from "next/navigation"
 import { 
   Search, 
@@ -37,7 +37,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Checkbox } from "@/components/ui/checkbox"
 import { fetchProjects, fetchTeams, createProject, updateProject, deleteProject, type Project, type Team } from "@/lib/api"
 import { useSSESubscription } from "@/providers/sse-provider"
 
@@ -107,7 +106,7 @@ function formatDate(dateString: string | null): string {
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
-export default function ProjectsPage() {
+function ProjectsContent() {
   const searchParams = useSearchParams()
   const filterTeamId = searchParams.get("teamId") || undefined
   const [activeTab, setActiveTab] = useState("all")
@@ -139,6 +138,9 @@ export default function ProjectsPage() {
     status: "planned" as StatusType,
     teamId: "",
     targetDate: "",
+    sourceType: "none" as "none" | "repo" | "local",
+    repoUrl: "",
+    localPath: "",
   })
   const [formErrors, setFormErrors] = useState<Record<string, string>>({})
 
@@ -271,6 +273,8 @@ export default function ProjectsPage() {
         status: editFormData.status,
         teamIds: editFormData.teamId ? [editFormData.teamId] : [],
         targetDate: editFormData.targetDate || null,
+        repoUrl: editFormData.sourceType === "repo" ? editFormData.repoUrl.trim() : null,
+        localPath: editFormData.sourceType === "local" ? editFormData.localPath.trim() : null,
       })
 
       setIsEditDialogOpen(false)
@@ -628,6 +632,9 @@ export default function ProjectsPage() {
                                 status: project.status,
                                 teamId: project.teams?.[0]?.id || "",
                                 targetDate: project.targetDate ? project.targetDate.split('T')[0] : "",
+                                sourceType: project.repoUrl ? "repo" : project.localPath ? "local" : "none",
+                                repoUrl: project.repoUrl || "",
+                                localPath: project.localPath || "",
                               })
                               setIsEditDialogOpen(true)
                             }}
@@ -785,6 +792,63 @@ export default function ProjectsPage() {
               />
             </div>
 
+            <div className="space-y-2">
+              <Label className="text-linear-text">Source</Label>
+              <div className="flex items-center gap-4">
+                <label className="flex items-center gap-2 text-sm text-linear-text-secondary cursor-pointer">
+                  <input
+                    type="radio"
+                    name="edit-sourceType"
+                    value="none"
+                    checked={editFormData.sourceType === "none"}
+                    onChange={() => setEditFormData(prev => ({ ...prev, sourceType: "none", repoUrl: "", localPath: "" }))}
+                    className="accent-[hsl(var(--linear-accent))]"
+                  />
+                  None
+                </label>
+                <label className="flex items-center gap-2 text-sm text-linear-text-secondary cursor-pointer">
+                  <input
+                    type="radio"
+                    name="edit-sourceType"
+                    value="repo"
+                    checked={editFormData.sourceType === "repo"}
+                    onChange={() => setEditFormData(prev => ({ ...prev, sourceType: "repo", localPath: "" }))}
+                    className="accent-[hsl(var(--linear-accent))]"
+                  />
+                  GitHub Repo
+                </label>
+                <label className="flex items-center gap-2 text-sm text-linear-text-secondary cursor-pointer">
+                  <input
+                    type="radio"
+                    name="edit-sourceType"
+                    value="local"
+                    checked={editFormData.sourceType === "local"}
+                    onChange={() => setEditFormData(prev => ({ ...prev, sourceType: "local", repoUrl: "" }))}
+                    className="accent-[hsl(var(--linear-accent))]"
+                  />
+                  Local Folder
+                </label>
+              </div>
+
+              {editFormData.sourceType === "repo" && (
+                <Input
+                  value={editFormData.repoUrl}
+                  onChange={(e) => setEditFormData(prev => ({ ...prev, repoUrl: e.target.value }))}
+                  placeholder="https://github.com/owner/repo"
+                  className="bg-linear-bg-tertiary border-linear-border text-linear-text placeholder:text-linear-text-tertiary"
+                />
+              )}
+
+              {editFormData.sourceType === "local" && (
+                <Input
+                  value={editFormData.localPath}
+                  onChange={(e) => setEditFormData(prev => ({ ...prev, localPath: e.target.value }))}
+                  placeholder="/absolute/path/to/project"
+                  className="bg-linear-bg-tertiary border-linear-border text-linear-text placeholder:text-linear-text-tertiary"
+                />
+              )}
+            </div>
+
             <DialogFooter className="gap-2">
               <Button
                 type="button"
@@ -816,5 +880,13 @@ export default function ProjectsPage() {
         </DialogContent>
       </Dialog>
     </AppShell>
+  )
+}
+
+export default function ProjectsPage() {
+  return (
+    <Suspense>
+      <ProjectsContent />
+    </Suspense>
   )
 }

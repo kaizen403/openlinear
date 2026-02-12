@@ -13,7 +13,7 @@ import { Plus, Loader2, Check, GitPullRequest, ExternalLink, GripVertical } from
 import { SSEEventType, SSEEventData } from "@/hooks/use-sse"
 import { useSSESubscription } from "@/providers/sse-provider"
 import { useAuth } from "@/hooks/use-auth"
-import { getActivePublicRepository, PublicRepository, Project } from "@/lib/api"
+import { Project } from "@/lib/api"
 import { openExternal } from "@/lib/utils"
 import { Task, ExecutionProgress, ExecutionLogEntry } from "@/types/task"
 
@@ -51,7 +51,6 @@ export function KanbanBoard({ projectId, teamId, projects = [] }: KanbanBoardPro
   const [executionProgress, setExecutionProgress] = useState<Record<string, ExecutionProgress>>({})
   const [isTaskFormOpen, setIsTaskFormOpen] = useState(false)
   const [defaultStatus, setDefaultStatus] = useState<Task['status']>('todo')
-  const [publicProject, setPublicProject] = useState<PublicRepository | null>(null)
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
   const [taskLogs, setTaskLogs] = useState<Record<string, ExecutionLogEntry[]>>({})
   const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set())
@@ -180,26 +179,12 @@ export function KanbanBoard({ projectId, teamId, projects = [] }: KanbanBoardPro
     }
   }
 
-  const refreshPublicProject = useCallback(async () => {
-    try {
-      const project = await getActivePublicRepository()
-      setPublicProject(project)
-    } catch {
-      setPublicProject(null)
-    }
-  }, [])
-
-  useEffect(() => {
-    refreshPublicProject()
-  }, [refreshPublicProject])
-
   useEffect(() => {
     const handleVisibility = () => {
       if (document.visibilityState !== 'visible') return
       if (isAuthenticated) {
         refreshActiveRepository()
       }
-      refreshPublicProject()
     }
 
     document.addEventListener('visibilitychange', handleVisibility)
@@ -209,9 +194,10 @@ export function KanbanBoard({ projectId, teamId, projects = [] }: KanbanBoardPro
       document.removeEventListener('visibilitychange', handleVisibility)
       window.removeEventListener('focus', handleVisibility)
     }
-  }, [isAuthenticated, refreshActiveRepository, refreshPublicProject])
+  }, [isAuthenticated, refreshActiveRepository])
 
-  const canExecute = !!activeRepository || !!publicProject
+  const selectedProject = projects.find(p => p.id === projectId)
+  const canExecute = !!(selectedProject?.repositoryId || selectedProject?.localPath || activeRepository)
 
   const handleAddTask = (status: Task['status']) => {
     setDefaultStatus(status)
@@ -394,7 +380,6 @@ export function KanbanBoard({ projectId, teamId, projects = [] }: KanbanBoardPro
         if (isAuthenticated) {
           refreshActiveRepository()
         }
-        refreshPublicProject()
         break
 
       case 'batch:created':
@@ -509,7 +494,7 @@ export function KanbanBoard({ projectId, teamId, projects = [] }: KanbanBoardPro
       default:
         break
     }
-  }, [fetchTasks, isAuthenticated, refreshActiveRepository, refreshPublicProject, projectId, teamId])
+  }, [fetchTasks, isAuthenticated, refreshActiveRepository, projectId, teamId])
 
   useSSESubscription(handleSSEEvent)
 

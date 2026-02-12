@@ -5,7 +5,6 @@ import { useSearchParams, useRouter } from "next/navigation"
 import { Search, Plus, FolderKanban } from "lucide-react"
 import { KanbanBoard } from "@/components/board/kanban-board"
 import { TaskFormDialog } from "@/components/task-form"
-import { RepoConnector } from "@/components/repo-connector"
 
 import { AppShell } from "@/components/layout/app-shell"
 import { useAuth } from "@/hooks/use-auth"
@@ -25,7 +24,7 @@ function HomeContent() {
 
   const [isTaskFormOpen, setIsTaskFormOpen] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
-  const { isAuthenticated, isLoading, activeRepository, refreshActiveRepository } = useAuth()
+  const { isAuthenticated, isLoading, activeRepository } = useAuth()
   const router = useRouter()
   const [projects, setProjects] = useState<Project[]>([])
   const [teams, setTeams] = useState<Team[]>([])
@@ -60,11 +59,6 @@ function HomeContent() {
     setRefreshKey((prev) => prev + 1)
   }, [])
 
-  const handleRepoConnected = useCallback(() => {
-    refreshActiveRepository()
-    setRefreshKey((prev) => prev + 1)
-  }, [refreshActiveRepository])
-
   const headerLabel = selectedTeamId
     ? teams.find(t => t.id === selectedTeamId)?.name || "Team Issues"
     : selectedProjectId
@@ -84,7 +78,6 @@ function HomeContent() {
           <h1 className="text-lg font-semibold truncate">
             {headerLabel}
           </h1>
-          <RepoConnector onRepoConnected={handleRepoConnected} />
         </div>
         <div className="flex-1 h-full" data-tauri-drag-region />
         <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
@@ -154,7 +147,12 @@ function HomeContent() {
         </div>
       </header>
 
-      <KanbanBoard key={refreshKey} projectId={selectedProjectId} teamId={selectedTeamId} />
+      <KanbanBoard
+        key={refreshKey}
+        projectId={selectedProjectId}
+        teamId={selectedTeamId}
+        projects={projects}
+      />
       <TaskFormDialog
         open={isTaskFormOpen}
         onOpenChange={setIsTaskFormOpen}
