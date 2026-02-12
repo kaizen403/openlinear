@@ -2,10 +2,12 @@
 
 import { createContext, useContext, useEffect, useRef, useCallback, useState, type ReactNode } from "react"
 import type { SSEEventType, SSEEventData } from "@/hooks/use-sse"
+import { useAuth } from "@/hooks/use-auth"
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
 const SSE_URL = `${API_URL}/api/events`
 const SSE_RECONNECT_DELAY = 3000
+const SSE_MAX_RETRIES = 10
 
 type SSEListener = (eventType: SSEEventType, data: SSEEventData) => void
 
@@ -46,9 +48,11 @@ const ALL_EVENT_TYPES: SSEEventType[] = [
 ]
 
 export function SSEProvider({ children }: { children: ReactNode }) {
+  const { isAuthenticated } = useAuth()
   const listenersRef = useRef<Set<SSEListener>>(new Set())
   const eventSourceRef = useRef<EventSource | null>(null)
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const retryCountRef = useRef(0)
   const [isConnected, setIsConnected] = useState(false)
 
   const broadcast = useCallback((eventType: SSEEventType, data: SSEEventData) => {
@@ -63,6 +67,7 @@ export function SSEProvider({ children }: { children: ReactNode }) {
 
   const connect = useCallback(() => {
     if (typeof window === 'undefined') return
+    if (!isAuthenticated) return
 
     if (eventSourceRef.current) {
       eventSourceRef.current.close()
@@ -74,6 +79,7 @@ export function SSEProvider({ children }: { children: ReactNode }) {
     eventSource.onopen = () => {
       console.log("[SSE Provider] Connected to", SSE_URL)
       setIsConnected(true)
+      retryCountRef.current = 0
     }
 
     eventSource.onmessage = (event) => {
@@ -99,10 +105,17 @@ export function SSEProvider({ children }: { children: ReactNode }) {
     }
 
     eventSource.onerror = () => {
-      console.log("[SSE Provider] Connection error, reconnecting in", SSE_RECONNECT_DELAY, "ms")
       eventSource.close()
       eventSourceRef.current = null
       setIsConnected(false)
+
+      if (retryCountRef.current >= SSE_MAX_RETRIES) {
+        console.warn("[SSE Provider] Max retries reached, stopping reconnect")
+        return
+      }
+
+      retryCountRef.current++
+      console.log(`[SSE Provider] Connection error, retry ${retryCountRef.current}/${SSE_MAX_RETRIES} in ${SSE_RECONNECT_DELAY}ms`)
 
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current)
@@ -112,7 +125,7 @@ export function SSEProvider({ children }: { children: ReactNode }) {
         connect()
       }, SSE_RECONNECT_DELAY)
     }
-  }, [broadcast])
+  }, [broadcast, isAuthenticated])
 
   useEffect(() => {
     connect()
@@ -126,6 +139,7 @@ export function SSEProvider({ children }: { children: ReactNode }) {
         clearTimeout(reconnectTimeoutRef.current)
         reconnectTimeoutRef.current = null
       }
+      retryCountRef.current = 0
     }
   }, [connect])
 
