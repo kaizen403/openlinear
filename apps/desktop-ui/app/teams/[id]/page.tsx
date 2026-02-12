@@ -5,26 +5,41 @@ import { useRouter, useParams } from "next/navigation"
 import {
   ArrowLeft,
   Users,
-  Plus,
   Trash2,
   User,
   Crown,
   Shield,
-  Mail,
+  Copy,
+  Check,
+  Pencil,
+  Settings,
+  AlertTriangle,
+  FolderKanban,
+  ListTodo,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { AppShell } from "@/components/layout/app-shell"
 import {
   fetchTeam,
-  addTeamMember,
+  updateTeam,
+  deleteTeam,
+  fetchProjects,
   removeTeamMember,
   type Team,
   type TeamMember,
+  type Project,
 } from "@/lib/api"
-import { useSSE } from "@/hooks/use-sse"
+import { useSSESubscription } from "@/providers/sse-provider"
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
 
@@ -40,6 +55,14 @@ const roleColors = {
   member: "bg-linear-text-tertiary/10 text-linear-text-secondary border-linear-border",
 }
 
+interface Task {
+  id: string
+  title: string
+  status: string
+  priority: string
+  identifier: string | null
+}
+
 export default function TeamDetailPage() {
   const router = useRouter()
   const params = useParams()
@@ -47,9 +70,17 @@ export default function TeamDetailPage() {
 
   const [team, setTeam] = useState<Team | null>(null)
   const [isLoading, setIsLoading] = useState(true)
-  const [memberEmail, setMemberEmail] = useState("")
-  const [selectedRole, setSelectedRole] = useState<'member' | 'admin' | 'owner'>('member')
-  const [isAddingMember, setIsAddingMember] = useState(false)
+  const [teamName, setTeamName] = useState("")
+  const [teamDescription, setTeamDescription] = useState("")
+  const [teamColor, setTeamColor] = useState("#6366f1")
+  const [isSavingTeam, setIsSavingTeam] = useState(false)
+  const [copiedInviteCode, setCopiedInviteCode] = useState(false)
+  const [tasks, setTasks] = useState<Task[]>([])
+  const [isLoadingTasks, setIsLoadingTasks] = useState(false)
+  const [projects, setProjects] = useState<Project[]>([])
+  const [isLoadingProjects, setIsLoadingProjects] = useState(false)
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
 
   const loadTeam = useCallback(async () => {
     if (!teamId) return
@@ -57,6 +88,9 @@ export default function TeamDetailPage() {
       setIsLoading(true)
       const data = await fetchTeam(teamId)
       setTeam(data)
+      setTeamName(data.name)
+      setTeamDescription(data.description || "")
+      setTeamColor(data.color)
     } catch (error) {
       console.error("Failed to fetch team:", error)
     } finally {
@@ -64,32 +98,80 @@ export default function TeamDetailPage() {
     }
   }, [teamId])
 
+  const loadTasks = useCallback(async () => {
+    if (!teamId) return
+    try {
+      setIsLoadingTasks(true)
+      const res = await fetch(`${API_URL}/api/tasks?teamId=${teamId}`)
+      if (res.ok) {
+        const data = await res.json()
+        setTasks(data)
+      }
+    } catch (error) {
+      console.error("Failed to fetch tasks:", error)
+    } finally {
+      setIsLoadingTasks(false)
+    }
+  }, [teamId])
+
+  const loadProjects = useCallback(async () => {
+    if (!teamId) return
+    try {
+      setIsLoadingProjects(true)
+      const data = await fetchProjects(teamId)
+      setProjects(data)
+    } catch (error) {
+      console.error("Failed to fetch projects:", error)
+    } finally {
+      setIsLoadingProjects(false)
+    }
+  }, [teamId])
+
   useEffect(() => {
     loadTeam()
-  }, [loadTeam])
+    loadTasks()
+    loadProjects()
+  }, [loadTeam, loadTasks, loadProjects])
 
-  useSSE(`${API_URL}/api/events`, (eventType) => {
+  useSSESubscription((eventType) => {
     if (['team:created', 'team:updated', 'team:deleted'].includes(eventType)) {
       loadTeam()
     }
+    if (['task:created', 'task:updated', 'task:deleted'].includes(eventType)) {
+      loadTasks()
+    }
+    if (['project:created', 'project:updated', 'project:deleted'].includes(eventType)) {
+      loadProjects()
+    }
   })
 
-  const handleAddMember = async (e: React.FormEvent) => {
+  const handleSaveTeamInfo = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!memberEmail.trim() || !teamId) return
+    if (!teamId || !teamName.trim()) return
 
     try {
-      setIsAddingMember(true)
-      await addTeamMember(teamId, {
-        email: memberEmail,
-        role: selectedRole,
+      setIsSavingTeam(true)
+      await updateTeam(teamId, {
+        name: teamName,
+        description: teamDescription || null,
+        color: teamColor,
       })
-      setMemberEmail("")
       loadTeam()
     } catch (error) {
-      console.error("Failed to add team member:", error)
+      console.error("Failed to update team:", error)
     } finally {
-      setIsAddingMember(false)
+      setIsSavingTeam(false)
+    }
+  }
+
+  const handleCopyInviteCode = async () => {
+    if (!team?.inviteCode) return
+    try {
+      await navigator.clipboard.writeText(team.inviteCode)
+      setCopiedInviteCode(true)
+      setTimeout(() => setCopiedInviteCode(false), 2000)
+    } catch (error) {
+      console.error("Failed to copy:", error)
     }
   }
 
@@ -105,6 +187,20 @@ export default function TeamDetailPage() {
     }
   }
 
+  const handleDeleteTeam = async () => {
+    if (!teamId) return
+
+    try {
+      setIsDeleting(true)
+      await deleteTeam(teamId)
+      setIsDeleteDialogOpen(false)
+      router.push('/teams')
+    } catch (error) {
+      console.error("Failed to delete team:", error)
+      setIsDeleting(false)
+    }
+  }
+
   const getInitials = (name: string) => {
     return name
       .split(' ')
@@ -112,6 +208,60 @@ export default function TeamDetailPage() {
       .join('')
       .toUpperCase()
       .slice(0, 2)
+  }
+
+  const getPriorityColor = (priority: string) => {
+    switch (priority.toLowerCase()) {
+      case 'high':
+        return 'bg-red-500/10 text-red-500 border-red-500/20'
+      case 'medium':
+        return 'bg-yellow-500/10 text-yellow-500 border-yellow-500/20'
+      case 'low':
+        return 'bg-green-500/10 text-green-500 border-green-500/20'
+      default:
+        return 'bg-linear-text-tertiary/10 text-linear-text-secondary border-linear-border'
+    }
+  }
+
+  const getStatusColor = (status: string) => {
+    switch (status.toLowerCase()) {
+      case 'done':
+      case 'completed':
+        return 'bg-green-500/10 text-green-500 border-green-500/20'
+      case 'in_progress':
+        return 'bg-blue-500/10 text-blue-500 border-blue-500/20'
+      case 'todo':
+      case 'backlog':
+        return 'bg-linear-text-tertiary/10 text-linear-text-secondary border-linear-border'
+      default:
+        return 'bg-linear-text-tertiary/10 text-linear-text-secondary border-linear-border'
+    }
+  }
+
+  const getProjectStatusColor = (status: string) => {
+    switch (status) {
+      case 'planned':
+        return 'bg-linear-text-tertiary/10 text-linear-text-secondary border-linear-border'
+      case 'in_progress':
+        return 'bg-blue-500/10 text-blue-500 border-blue-500/20'
+      case 'paused':
+        return 'bg-yellow-500/10 text-yellow-500 border-yellow-500/20'
+      case 'completed':
+        return 'bg-green-500/10 text-green-500 border-green-500/20'
+      case 'cancelled':
+        return 'bg-red-500/10 text-red-500 border-red-500/20'
+      default:
+        return 'bg-linear-text-tertiary/10 text-linear-text-secondary border-linear-border'
+    }
+  }
+
+  const formatDate = (dateString: string | null) => {
+    if (!dateString) return '—'
+    return new Date(dateString).toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    })
   }
 
   if (isLoading) {
@@ -186,53 +336,102 @@ export default function TeamDetailPage() {
         </div>
 
         <div className="flex-1 overflow-auto">
-          <div className="max-w-3xl mx-auto p-6">
-            <div className="mb-8">
+          <div className="max-w-3xl mx-auto p-6 space-y-8">
+            <section>
+              <h2 className="text-lg font-medium text-linear-text mb-4 flex items-center gap-2">
+                <Settings className="w-5 h-5 text-linear-text-secondary" />
+                Team Info
+              </h2>
+              <div className="p-4 rounded-lg bg-linear-bg-secondary border border-linear-border">
+                <form onSubmit={handleSaveTeamInfo} className="space-y-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="teamName" className="text-linear-text-secondary">Name</Label>
+                      <Input
+                        id="teamName"
+                        value={teamName}
+                        onChange={(e) => setTeamName(e.target.value)}
+                        placeholder="Team name"
+                        className="bg-linear-bg-tertiary border-linear-border text-linear-text"
+                        required
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="teamKey" className="text-linear-text-secondary">Key</Label>
+                      <Input
+                        id="teamKey"
+                        value={team.key}
+                        disabled
+                        className="bg-linear-bg-tertiary border-linear-border text-linear-text-secondary font-mono opacity-60"
+                      />
+                      <p className="text-xs text-linear-text-tertiary">Team key cannot be changed</p>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="teamDescription" className="text-linear-text-secondary">Description</Label>
+                    <Input
+                      id="teamDescription"
+                      value={teamDescription}
+                      onChange={(e) => setTeamDescription(e.target.value)}
+                      placeholder="Describe your team"
+                      className="bg-linear-bg-tertiary border-linear-border text-linear-text"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="teamColor" className="text-linear-text-secondary">Color</Label>
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="color"
+                        id="teamColor"
+                        value={teamColor}
+                        onChange={(e) => setTeamColor(e.target.value)}
+                        className="w-10 h-10 rounded-md border border-linear-border cursor-pointer"
+                      />
+                      <span className="text-sm text-linear-text-secondary font-mono">{teamColor}</span>
+                    </div>
+                  </div>
+                  {team.inviteCode && (
+                    <div className="space-y-2">
+                      <Label className="text-linear-text-secondary">Invite Code</Label>
+                      <div className="flex items-center gap-2">
+                        <code className="flex-1 px-3 py-2 rounded-md bg-linear-bg-tertiary border border-linear-border font-mono text-sm text-linear-text">
+                          {team.inviteCode}
+                        </code>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={handleCopyInviteCode}
+                          className="border-linear-border hover:bg-linear-bg-tertiary"
+                        >
+                          {copiedInviteCode ? (
+                            <Check className="w-4 h-4 text-green-500" />
+                          ) : (
+                            <Copy className="w-4 h-4" />
+                          )}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                  <div className="flex justify-end pt-2">
+                    <Button
+                      type="submit"
+                      disabled={isSavingTeam || !teamName.trim()}
+                      className="bg-linear-accent hover:bg-linear-accent-hover text-white"
+                    >
+                      <Pencil className="w-4 h-4 mr-1.5" />
+                      {isSavingTeam ? "Saving..." : "Save changes"}
+                    </Button>
+                  </div>
+                </form>
+              </div>
+            </section>
+
+            <section>
               <h2 className="text-lg font-medium text-linear-text mb-4 flex items-center gap-2">
                 <Users className="w-5 h-5 text-linear-text-secondary" />
                 Members ({members.length})
               </h2>
-
-              <form onSubmit={handleAddMember} className="mb-6 p-4 rounded-lg bg-linear-bg-secondary border border-linear-border">
-                <div className="flex flex-col sm:flex-row gap-3">
-                  <div className="flex-1">
-                    <Label htmlFor="email" className="sr-only">Email</Label>
-                    <div className="relative">
-                      <Mail className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-linear-text-tertiary" />
-                      <Input
-                        id="email"
-                        type="email"
-                        value={memberEmail}
-                        onChange={(e) => setMemberEmail(e.target.value)}
-                        placeholder="member@example.com"
-                        className="pl-10 bg-linear-bg-tertiary border-linear-border text-linear-text"
-                        required
-                      />
-                    </div>
-                  </div>
-                  <div className="w-full sm:w-32">
-                    <Label htmlFor="role" className="sr-only">Role</Label>
-                    <select
-                      id="role"
-                      value={selectedRole}
-                      onChange={(e) => setSelectedRole(e.target.value as 'member' | 'admin' | 'owner')}
-                      className="w-full h-10 rounded-md bg-linear-bg-tertiary border border-linear-border text-linear-text px-3 text-sm focus:outline-none focus:border-linear-border-hover"
-                    >
-                      <option value="member">Member</option>
-                      <option value="admin">Admin</option>
-                      <option value="owner">Owner</option>
-                    </select>
-                  </div>
-                  <Button
-                    type="submit"
-                    disabled={isAddingMember || !memberEmail.trim()}
-                    className="bg-linear-accent hover:bg-linear-accent-hover text-white"
-                  >
-                    <Plus className="w-4 h-4 mr-1.5" />
-                    Add
-                  </Button>
-                </div>
-              </form>
 
               {members.length > 0 ? (
                 <div className="space-y-2">
@@ -291,10 +490,193 @@ export default function TeamDetailPage() {
                   <p className="text-xs text-linear-text-tertiary">Add members to collaborate on issues</p>
                 </div>
               )}
-            </div>
+            </section>
+
+            <section>
+              <h2 className="text-lg font-medium text-linear-text mb-4 flex items-center gap-2">
+                <ListTodo className="w-5 h-5 text-linear-text-secondary" />
+                Issues ({tasks.length})
+              </h2>
+              <div className="rounded-lg bg-linear-bg-secondary border border-linear-border overflow-hidden">
+                {isLoadingTasks ? (
+                  <div className="py-8 text-center text-linear-text-tertiary">Loading issues...</div>
+                ) : tasks.length > 0 ? (
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b border-linear-border bg-linear-bg-tertiary/50">
+                        <th className="text-left py-2 px-4 text-xs font-medium text-linear-text-tertiary uppercase tracking-wider">
+                          Title
+                        </th>
+                        <th className="text-left py-2 px-4 text-xs font-medium text-linear-text-tertiary uppercase tracking-wider w-[100px]">
+                          Status
+                        </th>
+                        <th className="text-left py-2 px-4 text-xs font-medium text-linear-text-tertiary uppercase tracking-wider w-[100px]">
+                          Priority
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {tasks.map((task) => (
+                        <tr
+                          key={task.id}
+                          className="border-b border-linear-border/50 hover:bg-linear-bg-tertiary/30 transition-colors cursor-pointer"
+                          onClick={() => router.push(`/?teamId=${teamId}`)}
+                        >
+                          <td className="py-3 px-4">
+                            <div className="flex items-center gap-2">
+                              {task.identifier && (
+                                <span className="text-xs font-mono text-linear-text-tertiary">{task.identifier}</span>
+                              )}
+                              <span className="text-sm text-linear-text truncate">{task.title}</span>
+                            </div>
+                          </td>
+                          <td className="py-3 px-4">
+                            <Badge variant="outline" className={`${getStatusColor(task.status)} text-xs capitalize`}>
+                              {task.status.replace('_', ' ')}
+                            </Badge>
+                          </td>
+                          <td className="py-3 px-4">
+                            <Badge variant="outline" className={`${getPriorityColor(task.priority)} text-xs capitalize`}>
+                              {task.priority}
+                            </Badge>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                ) : (
+                  <div className="text-center py-8">
+                    <ListTodo className="w-8 h-8 text-linear-text-tertiary mx-auto mb-2" />
+                    <p className="text-sm text-linear-text-secondary">No issues yet</p>
+                    <p className="text-xs text-linear-text-tertiary">Issues assigned to this team will appear here</p>
+                  </div>
+                )}
+              </div>
+            </section>
+
+            <section>
+              <h2 className="text-lg font-medium text-linear-text mb-4 flex items-center gap-2">
+                <FolderKanban className="w-5 h-5 text-linear-text-secondary" />
+                Projects ({projects.length})
+              </h2>
+              <div className="rounded-lg bg-linear-bg-secondary border border-linear-border overflow-hidden">
+                {isLoadingProjects ? (
+                  <div className="py-8 text-center text-linear-text-tertiary">Loading projects...</div>
+                ) : projects.length > 0 ? (
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b border-linear-border bg-linear-bg-tertiary/50">
+                        <th className="text-left py-2 px-4 text-xs font-medium text-linear-text-tertiary uppercase tracking-wider">
+                          Name
+                        </th>
+                        <th className="text-left py-2 px-4 text-xs font-medium text-linear-text-tertiary uppercase tracking-wider w-[120px]">
+                          Status
+                        </th>
+                        <th className="text-left py-2 px-4 text-xs font-medium text-linear-text-tertiary uppercase tracking-wider w-[120px]">
+                          Target Date
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {projects.map((project) => (
+                        <tr
+                          key={project.id}
+                          className="border-b border-linear-border/50 hover:bg-linear-bg-tertiary/30 transition-colors"
+                        >
+                          <td className="py-3 px-4">
+                            <div className="flex items-center gap-2">
+                              <div
+                                className="w-6 h-6 rounded flex items-center justify-center text-xs font-bold"
+                                style={{ backgroundColor: `${project.color}20`, color: project.color }}
+                              >
+                                {project.icon || project.name.charAt(0)}
+                              </div>
+                              <span className="text-sm text-linear-text">{project.name}</span>
+                            </div>
+                          </td>
+                          <td className="py-3 px-4">
+                            <Badge variant="outline" className={`${getProjectStatusColor(project.status)} text-xs capitalize`}>
+                              {project.status.replace('_', ' ')}
+                            </Badge>
+                          </td>
+                          <td className="py-3 px-4">
+                            <span className="text-sm text-linear-text-secondary">{formatDate(project.targetDate)}</span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                ) : (
+                  <div className="text-center py-8">
+                    <FolderKanban className="w-8 h-8 text-linear-text-tertiary mx-auto mb-2" />
+                    <p className="text-sm text-linear-text-secondary">No projects yet</p>
+                    <p className="text-xs text-linear-text-tertiary">Projects associated with this team will appear here</p>
+                  </div>
+                )}
+              </div>
+            </section>
+
+            <section>
+              <h2 className="text-lg font-medium text-red-500 mb-4 flex items-center gap-2">
+                <AlertTriangle className="w-5 h-5" />
+                Danger Zone
+              </h2>
+              <div className="p-4 rounded-lg bg-red-500/5 border border-red-500/20">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                  <div>
+                    <h3 className="text-sm font-medium text-linear-text">Delete this team</h3>
+                    <p className="text-sm text-linear-text-secondary mt-1">
+                      Once deleted, this team and all its data cannot be recovered.
+                    </p>
+                  </div>
+                  <Button
+                    variant="outline"
+                    onClick={() => setIsDeleteDialogOpen(true)}
+                    className="border-red-500/30 text-red-500 hover:bg-red-500/10 hover:text-red-500"
+                  >
+                    <Trash2 className="w-4 h-4 mr-1.5" />
+                    Delete team
+                  </Button>
+                </div>
+              </div>
+            </section>
           </div>
         </div>
       </div>
+
+      <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+        <DialogContent className="bg-linear-bg-secondary border-linear-border">
+          <DialogHeader>
+            <DialogTitle className="text-linear-text flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5 text-red-500" />
+              Delete Team
+            </DialogTitle>
+            <DialogDescription className="text-linear-text-secondary">
+              Are you sure you want to delete <strong>{team.name}</strong>? This action cannot be undone.
+              All team data, including members and associated issues, will be permanently removed.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex justify-end gap-2 mt-4">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setIsDeleteDialogOpen(false)}
+              disabled={isDeleting}
+              className="border-linear-border text-linear-text-secondary hover:bg-linear-bg-tertiary"
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={handleDeleteTeam}
+              disabled={isDeleting}
+              className="bg-red-500 hover:bg-red-600 text-white"
+            >
+              {isDeleting ? "Deleting..." : "Delete team"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </AppShell>
   )
 }

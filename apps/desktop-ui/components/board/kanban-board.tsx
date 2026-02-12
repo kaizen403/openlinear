@@ -213,7 +213,7 @@ export function KanbanBoard({ projectId, teamId, projects = [] }: KanbanBoardPro
     }
   }, [isAuthenticated, refreshActiveRepository, refreshPublicProject])
 
-  const canExecute = isAuthenticated ? !!activeRepository : !!publicProject
+  const canExecute = !!activeRepository || !!publicProject
 
   const handleAddTask = (status: Task['status']) => {
     setDefaultStatus(status)
@@ -1010,7 +1010,6 @@ export function KanbanBoard({ projectId, teamId, projects = [] }: KanbanBoardPro
             <BatchControls
               selectedCount={selectedTaskIds.size}
               mode={mode}
-              onExecuteParallel={() => handleBatchExecute('parallel')}
               onExecuteQueue={() => handleBatchExecute('queue')}
               onMoveToInProgress={handleBatchMoveToInProgress}
               onClearSelection={clearSelection}

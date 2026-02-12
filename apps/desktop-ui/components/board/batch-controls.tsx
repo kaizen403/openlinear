@@ -1,21 +1,20 @@
 "use client"
 
 import { Button } from "@/components/ui/button"
-import { Play, ListOrdered, ArrowRight, X } from "lucide-react"
+import { ListOrdered, ArrowRight, X } from "lucide-react"
 
 type BatchMode = 'execute' | 'move' | 'mixed' | 'view'
 
 interface BatchControlsProps {
   selectedCount: number
   mode: BatchMode
-  onExecuteParallel: () => void
   onExecuteQueue: () => void
   onMoveToInProgress: () => void
   onClearSelection: () => void
   disabled?: boolean
 }
 
-export function BatchControls({ selectedCount, mode, onExecuteParallel, onExecuteQueue, onMoveToInProgress, onClearSelection, disabled }: BatchControlsProps) {
+export function BatchControls({ selectedCount, mode, onExecuteQueue, onMoveToInProgress, onClearSelection, disabled }: BatchControlsProps) {
   if (selectedCount === 0) return null
 
   return (
@@ -25,27 +24,15 @@ export function BatchControls({ selectedCount, mode, onExecuteParallel, onExecut
       </span>
       <div className="w-px h-6 bg-linear-border" />
       {(mode === 'execute' || mode === 'mixed') && (
-        <>
-          <Button
-            size="sm"
-            onClick={onExecuteParallel}
-            disabled={disabled}
-            className="bg-linear-accent hover:bg-linear-accent-hover text-white gap-1.5"
-          >
-            <Play className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Execute Parallel</span>
-          </Button>
-          <Button
-            size="sm"
-            onClick={onExecuteQueue}
-            disabled={disabled}
-            variant="outline"
-            className="border-linear-border text-linear-text hover:bg-linear-bg-tertiary gap-1.5"
-          >
-            <ListOrdered className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Execute Queue</span>
-          </Button>
-        </>
+        <Button
+          size="sm"
+          onClick={onExecuteQueue}
+          disabled={disabled}
+          className="bg-linear-accent hover:bg-linear-accent-hover text-white gap-1.5"
+        >
+          <ListOrdered className="w-3.5 h-3.5" />
+          <span className="hidden sm:inline">Execute Queue</span>
+        </Button>
       )}
       {(mode === 'move' || mode === 'mixed') && (
         <Button

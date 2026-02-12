@@ -84,7 +84,7 @@ function HomeContent() {
           <h1 className="text-lg font-semibold truncate">
             {headerLabel}
           </h1>
-          {!isAuthenticated && <RepoConnector onRepoConnected={handleRepoConnected} />}
+          <RepoConnector onRepoConnected={handleRepoConnected} />
         </div>
         <div className="flex-1 h-full" data-tauri-drag-region />
         <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
