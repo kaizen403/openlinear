@@ -181,15 +181,13 @@ export function KanbanBoard({ projectId, teamId, projects = [] }: KanbanBoardPro
   }
 
   const refreshPublicProject = useCallback(async () => {
-    if (!isAuthenticated) {
-      try {
-        const project = await getActivePublicRepository()
-        setPublicProject(project)
-      } catch {
-        setPublicProject(null)
-      }
+    try {
+      const project = await getActivePublicRepository()
+      setPublicProject(project)
+    } catch {
+      setPublicProject(null)
     }
-  }, [isAuthenticated])
+  }, [])
 
   useEffect(() => {
     refreshPublicProject()
@@ -1010,6 +1008,7 @@ export function KanbanBoard({ projectId, teamId, projects = [] }: KanbanBoardPro
             <BatchControls
               selectedCount={selectedTaskIds.size}
               mode={mode}
+              onExecuteParallel={() => handleBatchExecute('parallel')}
               onExecuteQueue={() => handleBatchExecute('queue')}
               onMoveToInProgress={handleBatchMoveToInProgress}
               onClearSelection={clearSelection}
