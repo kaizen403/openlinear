@@ -22,9 +22,9 @@ interface ColumnProps {
 export function Column({ id, title, taskCount, children, onAddTask, selectionActive, onToggleSelection, onSelectAll, innerRef, droppableProps, isDraggingOver }: ColumnProps) {
   return (
     <div className="flex flex-col h-full border-r border-white/[0.06] last:border-r-0 min-w-[280px] md:min-w-0 snap-start bg-gradient-to-b from-white/[0.02] to-transparent">
-      <div className="flex items-center justify-between px-4 py-3 backdrop-blur-sm bg-white/[0.02] border-b border-white/[0.04]">
-        <div className="flex items-center gap-2">
-          <h3 className="text-zinc-400 text-xs font-medium uppercase tracking-wider">{title}</h3>
+      <div className="flex items-center justify-between px-4 py-3 backdrop-blur-sm bg-white/[0.02] border-b border-white/[0.04] gap-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <h3 className="text-zinc-400 text-xs font-medium uppercase tracking-wider whitespace-nowrap">{title}</h3>
           <Badge 
             variant="secondary" 
             className="bg-white/[0.06] text-zinc-400 text-xs px-2 py-0 h-5 backdrop-blur-sm border border-white/[0.08]"
@@ -32,7 +32,7 @@ export function Column({ id, title, taskCount, children, onAddTask, selectionAct
             {taskCount}
           </Badge>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-shrink-0">
           {onToggleSelection && (
             <button
               onClick={onToggleSelection}

@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Loader2, FolderKanban } from "lucide-react"
+import { Loader2, FolderKanban, CalendarDays } from "lucide-react"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import * as z from "zod"
@@ -38,6 +38,7 @@ const getFormSchema = (hasProjects: boolean) => z.object({
   priority: z.enum(["low", "medium", "high"]),
   labelIds: z.array(z.string()),
   projectId: hasProjects ? z.string().min(1, "Project is required") : z.string().optional(),
+  dueDate: z.string().optional(),
 })
 
 type FormValues = z.infer<ReturnType<typeof getFormSchema>>
@@ -99,6 +100,7 @@ export function TaskFormDialog({
       priority: "medium",
       labelIds: [],
       projectId: defaultProjectId || (hasProjects ? "" : undefined),
+      dueDate: "",
     },
   })
 
@@ -133,14 +135,15 @@ export function TaskFormDialog({
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          title: values.title,
-          description: values.description || undefined,
-          status: values.status,
-          priority: values.priority,
-          labelIds: values.labelIds.length > 0 ? values.labelIds : undefined,
-          projectId: values.projectId || undefined,
-        }),
+         body: JSON.stringify({
+           title: values.title,
+           description: values.description || undefined,
+           status: values.status,
+           priority: values.priority,
+           labelIds: values.labelIds.length > 0 ? values.labelIds : undefined,
+           projectId: values.projectId || undefined,
+           dueDate: values.dueDate ? new Date(values.dueDate).toISOString() : undefined,
+         }),
       })
 
       if (!response.ok) {
@@ -359,6 +362,39 @@ export function TaskFormDialog({
                         onChange={field.onChange}
                         triggerClassName="h-7 w-auto px-2.5 text-xs rounded-md bg-transparent border-none hover:bg-white/[0.06] hover:border-none text-[#a0a0a0] shadow-none"
                       />
+                    </FormControl>
+                    <FormMessage className="text-red-400 text-xs" />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="dueDate"
+                render={({ field }) => (
+                  <FormItem className="space-y-0">
+                    <FormControl>
+                      <div className="relative">
+                        <button
+                          type="button"
+                          className="h-7 w-auto px-2.5 text-xs rounded-md bg-transparent border-none hover:bg-white/[0.06] text-[#a0a0a0] flex items-center gap-1.5 cursor-pointer"
+                          onClick={() => {
+                            const input = document.getElementById('dueDate-input') as HTMLInputElement
+                            input?.showPicker?.()
+                            input?.focus()
+                          }}
+                        >
+                          <CalendarDays className="w-3 h-3 text-[#6a6a6a]" />
+                          {field.value ? new Date(field.value).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'Due date'}
+                        </button>
+                        <input
+                          id="dueDate-input"
+                          type="date"
+                          className="absolute inset-0 opacity-0 cursor-pointer"
+                          value={field.value || ""}
+                          onChange={(e) => field.onChange(e.target.value)}
+                        />
+                      </div>
                     </FormControl>
                     <FormMessage className="text-red-400 text-xs" />
                   </FormItem>

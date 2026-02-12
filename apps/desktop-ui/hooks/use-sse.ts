@@ -29,6 +29,7 @@ export interface SSEEventData {
   inboxRead?: boolean
   identifier?: string | null
   number?: number | null
+  dueDate?: string | null
   taskId?: string
   mode?: string
   tasks?: Array<{

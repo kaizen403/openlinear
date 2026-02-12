@@ -112,6 +112,12 @@ function InboxTaskRow({
 
       <div className={cn("w-2 h-2 rounded-full flex-shrink-0", priorityDots[task.priority])} />
 
+      {task.status === 'cancelled' && (
+        <span className="text-[10px] px-1.5 py-0.5 rounded border border-red-500/20 bg-red-500/10 text-red-400 flex-shrink-0">
+          Cancelled
+        </span>
+      )}
+
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
           {task.identifier && (
@@ -121,7 +127,8 @@ function InboxTaskRow({
           )}
           <span className={cn(
             "text-sm truncate",
-            task.inboxRead ? "text-linear-text-secondary" : "text-linear-text"
+            task.inboxRead ? "text-linear-text-secondary" : "text-linear-text",
+            task.status === 'cancelled' && "line-through opacity-70"
           )}>
             {task.title}
           </span>
@@ -177,7 +184,7 @@ function InboxTaskRow({
       {!task.inboxRead && (
         <button
           onClick={(e) => { e.stopPropagation(); onMarkRead(task.id) }}
-          className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-white/[0.06] transition-all flex-shrink-0"
+          className="p-1 rounded hover:bg-white/[0.06] transition-all flex-shrink-0"
           title="Mark as read"
         >
           <Check className="w-3.5 h-3.5 text-linear-text-tertiary" />
@@ -190,7 +197,7 @@ function InboxTaskRow({
 export default function InboxPage() {
   const [tasks, setTasks] = useState<InboxTask[]>([])
   const [loading, setLoading] = useState(true)
-  const [unreadCount, setUnreadCount] = useState(0)
+  const [inboxStats, setInboxStats] = useState({ total: 0, unread: 0 })
 
   const loadData = useCallback(async () => {
     try {
@@ -199,7 +206,7 @@ export default function InboxPage() {
         fetchInboxCount(),
       ])
       setTasks(inboxTasks)
-      setUnreadCount(count)
+      setInboxStats(count)
     } catch (err) {
       console.error("Failed to load inbox:", err)
     } finally {
@@ -225,14 +232,14 @@ export default function InboxPage() {
   useSSE(SSE_URL, handleSSEEvent)
 
   const handleMarkRead = async (taskId: string) => {
-    setTasks(prev => prev.map(t => t.id === taskId ? { ...t, inboxRead: true } : t))
-    setUnreadCount(prev => Math.max(0, prev - 1))
+    setTasks((prev: InboxTask[]) => prev.map(t => t.id === taskId ? { ...t, inboxRead: true } : t))
+    setInboxStats(prev => ({ ...prev, unread: Math.max(0, prev.unread - 1) }))
     await markInboxRead(taskId)
   }
 
   const handleMarkAllRead = async () => {
-    setTasks(prev => prev.map(t => ({ ...t, inboxRead: true })))
-    setUnreadCount(0)
+    setTasks((prev: InboxTask[]) => prev.map(t => ({ ...t, inboxRead: true })))
+    setInboxStats(prev => ({ ...prev, unread: 0 }))
     await markAllInboxRead()
   }
 
@@ -255,14 +262,14 @@ export default function InboxPage() {
         <div className="flex items-center gap-3 min-w-0">
           <Inbox className="w-5 h-5 text-linear-text-secondary flex-shrink-0" />
           <h1 className="text-lg font-semibold truncate">Inbox</h1>
-          {unreadCount > 0 && (
+          {inboxStats.unread > 0 && (
             <span className="text-xs text-linear-text-tertiary bg-linear-bg-tertiary px-1.5 py-0.5 rounded">
-              {unreadCount}
+              {inboxStats.unread}
             </span>
           )}
         </div>
         <div className="flex-1 h-full" data-tauri-drag-region />
-        {unreadCount > 0 && (
+        {inboxStats.unread > 0 && (
           <button
             onClick={handleMarkAllRead}
             className="flex items-center gap-1.5 h-8 px-3 rounded-md text-xs font-medium text-linear-text-secondary hover:text-linear-text hover:bg-linear-bg-tertiary transition-colors"

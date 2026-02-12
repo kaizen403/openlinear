@@ -25,6 +25,7 @@ export interface Task {
   inboxRead: boolean
   identifier: string | null
   number: number | null
+  dueDate: string | null
 }
 
 export interface ExecutionProgress {

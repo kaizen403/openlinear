@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Loader2, GitBranch, Code, GitPullRequest, Check, X, ExternalLink, Play, ArrowRight, Archive, Clock } from "lucide-react"
+import { Loader2, GitBranch, Code, GitPullRequest, Check, X, ExternalLink, Play, ArrowRight, Archive, Clock, CalendarDays } from "lucide-react"
 import { cn, openExternal } from "@/lib/utils"
 import { Task, ExecutionProgress, formatDuration } from "@/types/task"
 
@@ -27,6 +27,32 @@ const priorityColors = {
   low: "bg-emerald-700",
   medium: "bg-yellow-700",
   high: "bg-red-700",
+}
+
+const priorityLabels: Record<string, string> = {
+  low: "Low",
+  medium: "Medium",
+  high: "High",
+}
+
+const priorityTextColors: Record<string, string> = {
+  low: "text-emerald-400",
+  medium: "text-yellow-400",
+  high: "text-red-400",
+}
+
+function formatDueDate(dateStr: string): { text: string; isOverdue: boolean } {
+  const due = new Date(dateStr)
+  const now = new Date()
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const dueDay = new Date(due.getFullYear(), due.getMonth(), due.getDate())
+  const diffMs = dueDay.getTime() - today.getTime()
+  const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24))
+
+  if (diffDays < 0) return { text: "Overdue", isOverdue: true }
+  if (diffDays === 0) return { text: "Today", isOverdue: false }
+  if (diffDays === 1) return { text: "Tomorrow", isOverdue: false }
+  return { text: due.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }), isOverdue: false }
 }
 
 const progressConfig = {
@@ -209,6 +235,21 @@ export function TaskCard({ task, onExecute, onCancel, onDelete, onMoveToInProgre
             <span className="text-[11px] text-linear-text-tertiary font-mono opacity-60">
               {task.identifier || (task.number ? `#${task.number}` : task.id.slice(0, 6))}
             </span>
+            <span className={cn("text-[11px] font-medium", priorityTextColors[task.priority])}>
+              {priorityLabels[task.priority]}
+            </span>
+            {task.dueDate && (() => {
+              const { text, isOverdue } = formatDueDate(task.dueDate)
+              return (
+                <span className={cn(
+                  "text-[11px] flex items-center gap-0.5 whitespace-nowrap",
+                  isOverdue ? "text-red-400" : "text-linear-text-tertiary"
+                )}>
+                  <CalendarDays className="w-3 h-3 flex-shrink-0" />
+                  {text}
+                </span>
+              )
+            })()}
             {(task.status === 'in_progress' || task.status === 'done' || task.status === 'cancelled') && (
               (task.status === 'in_progress' && task.executionStartedAt && !task.executionPausedAt && liveElapsedMs >= 1000) ||
               ((task.status === 'in_progress' && task.executionPausedAt && (task.executionElapsedMs ?? 0) > 0)) ||

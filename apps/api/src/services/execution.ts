@@ -717,6 +717,11 @@ export async function executeTask({ taskId, userId }: ExecuteTaskParams): Promis
       executionProgress: 0,
     });
 
+    await prisma.task.update({
+      where: { id: taskId },
+      data: { batchId: null },
+    });
+
     // Build prompt
     let prompt = taskWithProject.title;
     if (taskWithProject.description) {

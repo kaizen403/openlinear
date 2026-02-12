@@ -15,6 +15,7 @@ const CreateTaskSchema = z.object({
   labelIds: z.array(z.string().uuid()).optional().default([]),
   teamId: z.string().uuid().optional(),
   projectId: z.string().uuid().optional(),
+  dueDate: z.string().datetime().nullable().optional(),
 });
 
 const UpdateTaskSchema = z.object({
@@ -25,6 +26,7 @@ const UpdateTaskSchema = z.object({
   labelIds: z.array(z.string().uuid()).optional(),
   teamId: z.string().uuid().nullable().optional(),
   projectId: z.string().uuid().nullable().optional(),
+  dueDate: z.string().datetime().nullable().optional(),
 });
 
 interface Label {
@@ -170,7 +172,7 @@ router.post('/', async (req: Request, res: Response) => {
       return;
     }
 
-    const { title, description, priority, labelIds, teamId, projectId } = parsed.data;
+    const { title, description, priority, labelIds, teamId, projectId, dueDate } = parsed.data;
 
     let resolvedTeamId = teamId;
 
@@ -212,6 +214,7 @@ router.post('/', async (req: Request, res: Response) => {
             projectId: projectId || undefined,
             number,
             identifier,
+            dueDate: dueDate ? new Date(dueDate) : undefined,
             labels: {
               create: labelIds.map((labelId) => ({ labelId })),
             },
@@ -227,6 +230,7 @@ router.post('/', async (req: Request, res: Response) => {
           description,
           priority,
           projectId: projectId || undefined,
+          dueDate: dueDate ? new Date(dueDate) : undefined,
           labels: {
             create: labelIds.map((labelId) => ({ labelId })),
           },
@@ -274,7 +278,7 @@ router.patch('/:id', async (req: Request, res: Response) => {
       return;
     }
 
-    const { labelIds, teamId, projectId, ...updateData } = parsed.data;
+    const { labelIds, teamId, projectId, dueDate, ...updateData } = parsed.data;
 
     const existing = await prisma.task.findUnique({ where: { id } });
     if (!existing) {
@@ -283,6 +287,10 @@ router.patch('/:id', async (req: Request, res: Response) => {
     }
 
     const data: Record<string, unknown> = { ...updateData };
+
+    if (dueDate !== undefined) {
+      data.dueDate = dueDate ? new Date(dueDate) : null;
+    }
 
     if (updateData.status === 'in_progress' && existing.status !== 'in_progress') {
       data.executionStartedAt = null;

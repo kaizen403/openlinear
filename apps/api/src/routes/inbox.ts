@@ -5,20 +5,33 @@ const router: Router = Router();
 
 router.get('/count', async (_req: Request, res: Response) => {
   try {
-    const count = await prisma.task.count({
-      where: { status: 'done', inboxRead: false, archived: false },
+    const total = await prisma.task.count({
+      where: {
+        OR: [{ status: 'done' }, { status: 'cancelled' }],
+        archived: false,
+      },
     });
-    res.json({ count });
+    const unread = await prisma.task.count({
+      where: {
+        OR: [{ status: 'done' }, { status: 'cancelled' }],
+        inboxRead: false,
+        archived: false,
+      },
+    });
+    res.json({ total, unread });
   } catch (error) {
-    console.error('[Inbox] Error counting unread:', error);
-    res.status(500).json({ error: 'Failed to count unread inbox items' });
+    console.error('[Inbox] Error counting inbox items:', error);
+    res.status(500).json({ error: 'Failed to count inbox items' });
   }
 });
 
 router.get('/', async (_req: Request, res: Response) => {
   try {
     const tasks = await prisma.task.findMany({
-      where: { status: 'done', archived: false },
+      where: {
+        OR: [{ status: 'done' }, { status: 'cancelled' }],
+        archived: false,
+      },
       include: {
         labels: { include: { label: true } },
         team: { select: { id: true, name: true, key: true, color: true } },
@@ -56,7 +69,11 @@ router.patch('/read/:id', async (req: Request, res: Response) => {
 router.patch('/read-all', async (_req: Request, res: Response) => {
   try {
     await prisma.task.updateMany({
-      where: { status: 'done', inboxRead: false, archived: false },
+      where: {
+        OR: [{ status: 'done' }, { status: 'cancelled' }],
+        inboxRead: false,
+        archived: false,
+      },
       data: { inboxRead: true },
     });
     res.json({ success: true });

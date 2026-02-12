@@ -2,17 +2,18 @@
 
 import { useState, useEffect, useCallback } from "react"
 import Link from "next/link"
-import { usePathname, useSearchParams } from "next/navigation"
+import { usePathname, useSearchParams, useRouter } from "next/navigation"
 import {
     Home, Inbox, Layers, Settings,
     PanelLeftClose, LogOut, Archive,
-    ChevronRight, ChevronDown, CircleDot, Hexagon, Pencil, Plus
+    ChevronRight, ChevronDown, CircleDot, Hexagon, MoreHorizontal, Pencil, Trash2, Plus
 } from "lucide-react"
 import { ProjectSelector } from "@/components/auth/project-selector"
 import { useAuth } from "@/hooks/use-auth"
 import { cn } from "@/lib/utils"
-import { fetchInboxCount, fetchTeams, type Team } from "@/lib/api"
+import { fetchInboxCount, fetchTeams, deleteTeam, type Team } from "@/lib/api"
 import { useSSESubscription } from "@/providers/sse-provider"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 
 // Module-level cache so teams survive sidebar remounts during page navigation
 let cachedTeams: Team[] = []
@@ -40,8 +41,9 @@ interface SidebarProps {
     animating: boolean
 }
 
-function TeamSection({ team, pathname, searchParams }: { team: Team; pathname: string; searchParams: URLSearchParams }) {
+function TeamSection({ team, pathname, searchParams, onDelete }: { team: Team; pathname: string; searchParams: URLSearchParams; onDelete: (teamId: string, teamName: string) => void }) {
     const [expanded, setExpanded] = useState(true)
+    const [menuOpen, setMenuOpen] = useState(false)
     const teamId = searchParams.get("teamId")
 
     const isIssuesActive = pathname === "/" && teamId === team.id
@@ -69,13 +71,33 @@ function TeamSection({ team, pathname, searchParams }: { team: Team; pathname: s
                     </div>
                     <span className="truncate">{team.name}</span>
                 </button>
-                <Link
-                    href={`/teams/${team.id}`}
-                    className="opacity-0 group-hover/team:opacity-100 p-1 mr-2 rounded hover:bg-linear-bg-tertiary transition-all text-linear-text-tertiary hover:text-linear-text"
-                    title="Edit team"
-                >
-                    <Pencil className="w-3 h-3" />
-                </Link>
+                <Popover open={menuOpen} onOpenChange={setMenuOpen}>
+                    <PopoverTrigger asChild>
+                        <button
+                            className="opacity-0 group-hover/team:opacity-100 p-1 mr-2 rounded hover:bg-linear-bg-tertiary transition-all text-linear-text-tertiary hover:text-linear-text"
+                            title="Team options"
+                        >
+                            <MoreHorizontal className="w-3 h-3" />
+                        </button>
+                    </PopoverTrigger>
+                    <PopoverContent align="start" side="bottom" className="w-36 p-1 bg-linear-bg-secondary border-linear-border">
+                        <Link
+                            href={`/teams/${team.id}`}
+                            onClick={() => setMenuOpen(false)}
+                            className="flex items-center gap-2 px-2 py-1.5 rounded-md text-sm text-linear-text-secondary hover:text-linear-text hover:bg-linear-bg-tertiary transition-colors w-full"
+                        >
+                            <Pencil className="w-3.5 h-3.5" />
+                            Edit
+                        </Link>
+                        <button
+                            onClick={() => { setMenuOpen(false); onDelete(team.id, team.name) }}
+                            className="flex items-center gap-2 px-2 py-1.5 rounded-md text-sm text-red-500 hover:bg-red-500/10 transition-colors w-full"
+                        >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            Delete
+                        </button>
+                    </PopoverContent>
+                </Popover>
             </div>
 
             {expanded && (
@@ -103,9 +125,10 @@ function TeamSection({ team, pathname, searchParams }: { team: Team; pathname: s
 export function Sidebar({ open, onClose, width, animating }: SidebarProps) {
     const pathname = usePathname()
     const searchParams = useSearchParams()
+    const router = useRouter()
     const { user, isAuthenticated, isLoading, logout } = useAuth()
     const [isTauri, setIsTauri] = useState(false)
-    const [inboxCount, setInboxCount] = useState(0)
+    const [inboxCount, setInboxCount] = useState<{ total: number; unread: number }>({ total: 0, unread: 0 })
     const [teams, setTeams] = useState<Team[]>(cachedTeams)
 
     const loadTeams = useCallback(() => {
@@ -120,7 +143,7 @@ export function Sidebar({ open, onClose, width, animating }: SidebarProps) {
     }, [])
 
     useEffect(() => {
-        fetchInboxCount().then(setInboxCount).catch(() => setInboxCount(0))
+        fetchInboxCount().then(setInboxCount).catch(() => setInboxCount({ total: 0, unread: 0 }))
     }, [pathname])
 
     useEffect(() => {
@@ -132,6 +155,19 @@ export function Sidebar({ open, onClose, width, animating }: SidebarProps) {
             loadTeams()
         }
     })
+
+    const handleDeleteTeam = useCallback(async (teamId: string, teamName: string) => {
+        if (!confirm(`Delete "${teamName}"? This action cannot be undone.`)) return
+        try {
+            await deleteTeam(teamId)
+            loadTeams()
+            if (searchParams.get("teamId") === teamId || pathname.startsWith(`/teams/${teamId}`)) {
+                router.push('/')
+            }
+        } catch (error) {
+            console.error("Failed to delete team:", error)
+        }
+    }, [loadTeams, searchParams, pathname, router])
 
     const handleClose = async () => {
         const { getCurrentWindow } = await import('@tauri-apps/api/window')
@@ -192,12 +228,6 @@ export function Sidebar({ open, onClose, width, animating }: SidebarProps) {
                 </div>
             </div>
 
-            {isAuthenticated && (
-                <div className="p-3 border-b border-linear-border min-w-0">
-                    <ProjectSelector />
-                </div>
-            )}
-
             <nav className="flex-1 overflow-y-auto py-2 min-w-0">
                 <div className="px-3 space-y-0.5">
                     <Link href="/" className={navItemClass(isHomeNoFilter)}>
@@ -207,9 +237,14 @@ export function Sidebar({ open, onClose, width, animating }: SidebarProps) {
                     <Link href="/inbox" className={navItemClass(pathname === "/inbox")}>
                         <Inbox className="w-4 h-4 flex-shrink-0" />
                         <span>Inbox</span>
-                        {inboxCount > 0 && (
-                            <span className="ml-auto text-xs text-linear-text-tertiary bg-linear-bg-tertiary px-1.5 py-0.5 rounded">
-                                {inboxCount}
+                        {inboxCount.total > 0 && (
+                            <span className={cn(
+                                "ml-auto text-xs px-1.5 py-0.5 rounded",
+                                inboxCount.unread > 0
+                                    ? "text-linear-accent bg-linear-accent/10"
+                                    : "text-linear-text-tertiary bg-linear-bg-tertiary"
+                            )}>
+                                {inboxCount.total}
                             </span>
                         )}
                     </Link>
@@ -223,7 +258,7 @@ export function Sidebar({ open, onClose, width, animating }: SidebarProps) {
                 {/* Team hierarchy */}
                 <div className="mt-4 px-3">
                     <div className="flex items-center justify-between px-3 mb-1">
-                        <span className="text-[11px] font-medium uppercase tracking-wider text-linear-text-tertiary">
+                        <span className="text-xs font-semibold uppercase tracking-wider text-linear-text-tertiary">
                             Your teams
                         </span>
                         <Link
@@ -231,7 +266,7 @@ export function Sidebar({ open, onClose, width, animating }: SidebarProps) {
                             className="p-0.5 rounded hover:bg-linear-bg-tertiary transition-colors text-linear-text-tertiary hover:text-linear-text"
                             title="Manage teams"
                         >
-                            <Plus className="w-3 h-3" />
+                            <Settings className="w-3.5 h-3.5" />
                         </Link>
                     </div>
                     {teams.length > 0 ? (
@@ -242,6 +277,7 @@ export function Sidebar({ open, onClose, width, animating }: SidebarProps) {
                                     team={team}
                                     pathname={pathname}
                                     searchParams={searchParams}
+                                    onDelete={handleDeleteTeam}
                                 />
                             ))}
                             <Link

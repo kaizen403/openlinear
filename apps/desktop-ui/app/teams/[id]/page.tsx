@@ -34,6 +34,7 @@ import {
   updateTeam,
   deleteTeam,
   fetchProjects,
+  deleteProject,
   removeTeamMember,
   type Team,
   type TeamMember,
@@ -198,6 +199,17 @@ export default function TeamDetailPage() {
     } catch (error) {
       console.error("Failed to delete team:", error)
       setIsDeleting(false)
+    }
+  }
+
+  const handleDeleteProject = async (projectId: string, projectName: string) => {
+    if (!confirm(`Are you sure you want to delete "${projectName}"? This cannot be undone.`)) return
+
+    try {
+      await deleteProject(projectId)
+      loadProjects()
+    } catch (error) {
+      console.error("Failed to delete project:", error)
     }
   }
 
@@ -575,6 +587,8 @@ export default function TeamDetailPage() {
                         <th className="text-left py-2 px-4 text-xs font-medium text-linear-text-tertiary uppercase tracking-wider w-[120px]">
                           Target Date
                         </th>
+                        <th className="py-2 px-4 text-xs font-medium text-linear-text-tertiary uppercase tracking-wider w-[60px]">
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
@@ -601,6 +615,15 @@ export default function TeamDetailPage() {
                           </td>
                           <td className="py-3 px-4">
                             <span className="text-sm text-linear-text-secondary">{formatDate(project.targetDate)}</span>
+                          </td>
+                          <td className="py-3 px-4">
+                            <button
+                              onClick={() => handleDeleteProject(project.id, project.name)}
+                              className="p-1.5 rounded-md hover:bg-red-500/10 transition-colors"
+                              title="Delete project"
+                            >
+                              <Trash2 className="w-4 h-4 text-red-500" />
+                            </button>
                           </td>
                         </tr>
                       ))}

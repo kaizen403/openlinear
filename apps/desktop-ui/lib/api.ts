@@ -341,11 +341,15 @@ export async function fetchInboxTasks(): Promise<InboxTask[]> {
   return res.json()
 }
 
-export async function fetchInboxCount(): Promise<number> {
+export interface InboxCount {
+  total: number
+  unread: number
+}
+
+export async function fetchInboxCount(): Promise<InboxCount> {
   const res = await fetch(`${API_URL}/api/inbox/count`)
-  if (!res.ok) return 0
-  const data = await res.json()
-  return data.count
+  if (!res.ok) return { total: 0, unread: 0 }
+  return res.json()
 }
 
 export async function markInboxRead(taskId: string): Promise<void> {
@@ -373,7 +377,7 @@ export interface InboxTask {
   title: string
   description: string | null
   priority: 'low' | 'medium' | 'high'
-  status: 'done'
+  status: 'done' | 'cancelled'
   createdAt: string
   updatedAt: string
   prUrl: string | null

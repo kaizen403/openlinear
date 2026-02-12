@@ -66,6 +66,7 @@ model Task {
   project            Project?  @relation(fields: [projectId], references: [id], onDelete: SetNull)
   number             Int? // team-scoped issue number
   identifier         String? // e.g. "ENG-1"
+  dueDate            DateTime?
 
   @@map("tasks")
 }

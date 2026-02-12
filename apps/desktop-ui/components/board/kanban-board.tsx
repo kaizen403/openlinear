@@ -315,6 +315,7 @@ export function KanbanBoard({ projectId, teamId, projects = [] }: KanbanBoardPro
             inboxRead: data.inboxRead ?? false,
             identifier: data.identifier ?? null,
             number: data.number ?? null,
+            dueDate: data.dueDate ?? null,
           }
           setTasks((prev) => [...prev, newTask])
         }
@@ -341,6 +342,7 @@ export function KanbanBoard({ projectId, teamId, projects = [] }: KanbanBoardPro
                     ...(data.prUrl !== undefined && { prUrl: data.prUrl }),
                     ...(data.outcome !== undefined && { outcome: data.outcome }),
                     ...(data.batchId !== undefined && { batchId: data.batchId }),
+                    ...(data.dueDate !== undefined && { dueDate: data.dueDate }),
                   }
                 : task
             )
