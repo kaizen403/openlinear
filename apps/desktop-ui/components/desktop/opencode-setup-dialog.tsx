@@ -185,7 +185,7 @@ export function OpencodeSetupDialog({
             OpenCode Required
           </DialogTitle>
           <DialogDescription>
-            OpenLinear requires OpenCode to execute AI-powered tasks.
+            KazCode requires OpenCode to execute AI-powered tasks.
           </DialogDescription>
         </DialogHeader>
 

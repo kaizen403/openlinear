@@ -14,8 +14,8 @@ export const viewport: Viewport = {
 }
 
 export const metadata: Metadata = {
-  title: "OpenLinear - Linear Clone",
-  description: "A Linear-inspired issue tracking application",
+  title: "KazCode",
+  description: "AI-powered issue tracking and code execution",
   other: {
     "theme-color": "#111111",
     "color-scheme": "dark",

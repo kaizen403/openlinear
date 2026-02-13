@@ -215,7 +215,7 @@ export function Sidebar({ open, onClose, width, animating }: SidebarProps) {
                             />
                         </div>
                     )}
-                    <span className="text-base font-semibold text-linear-text">OpenLinear</span>
+                    <span className="text-base font-semibold text-linear-text">KazCode</span>
                 </div>
                 <div className="flex items-center gap-1">
                     <button

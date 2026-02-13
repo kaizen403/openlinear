@@ -467,7 +467,7 @@ export function GlobalQuickCapture() {
                     by
                   </span>
                   <span className="text-[14px] font-medium tracking-wider text-zinc-500 uppercase">
-                    OpenLinear
+                    KazCode
                   </span>
                 </div>
                 <button

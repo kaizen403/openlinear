@@ -286,6 +286,20 @@ export function TaskDetailView({ task, logs, progress, open, onClose, onDelete, 
                         <p className="text-sm text-linear-text-secondary">{task.outcome}</p>
                       </div>
                     )}
+                    {(() => {
+                      const agentLogs = logs.filter(l => l.type === 'agent' && l.message.trim())
+                      const lastAgentMessage = agentLogs.length > 0 ? agentLogs[agentLogs.length - 1].message : null
+                      if (!lastAgentMessage) return null
+                      return (
+                        <div className="mt-3 pt-3 border-t border-linear-border">
+                          <div className="flex items-center gap-1.5 mb-1.5">
+                            <Bot className="w-3.5 h-3.5 text-linear-accent" />
+                            <span className="text-xs font-medium text-linear-text-tertiary uppercase tracking-wide">Conclusion</span>
+                          </div>
+                          <p className="text-sm text-linear-text-secondary leading-relaxed whitespace-pre-wrap">{lastAgentMessage}</p>
+                        </div>
+                      )
+                    })()}
                   </div>
                 )}
 
@@ -450,7 +464,7 @@ export function TaskDetailView({ task, logs, progress, open, onClose, onDelete, 
                         <span className="text-sm text-linear-text-secondary">Project</span>
                         <Folder className="w-3.5 h-3.5 text-linear-text-tertiary" />
                       </div>
-                      <span className="text-sm text-linear-text">OpenLinear</span>
+                      <span className="text-sm text-linear-text">KazCode</span>
                     </div>
 
                     <div className="py-2">
