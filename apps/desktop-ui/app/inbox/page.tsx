@@ -13,9 +13,9 @@ import {
   type InboxTask
 } from "@/lib/api"
 import { useSSE, SSEEventType, SSEEventData } from "@/hooks/use-sse"
+import { API_URL } from "@/lib/api/client"
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001"
-const SSE_URL = `${API_BASE_URL}/api/events`
+const SSE_URL = `${API_URL}/api/events`
 
 interface InboxGroup {
   type: "batch" | "single"

@@ -51,7 +51,9 @@ interface TaskFormDialogProps {
   projects?: Project[]
 }
 
-const API_BASE_URL = "http://localhost:3001/api"
+import { API_URL } from "@/lib/api/client"
+
+const API_BASE_URL = `${API_URL}/api`
 
 const statusColors = {
   todo: "#a0a0a0",

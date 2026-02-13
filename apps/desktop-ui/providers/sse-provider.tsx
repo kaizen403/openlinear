@@ -3,8 +3,8 @@
 import { createContext, useContext, useEffect, useRef, useCallback, useState, type ReactNode } from "react"
 import type { SSEEventType, SSEEventData } from "@/hooks/use-sse"
 import { useAuth } from "@/hooks/use-auth"
+import { API_URL } from "@/lib/api/client"
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
 const SSE_URL = `${API_URL}/api/events`
 const SSE_RECONNECT_DELAY = 3000
 const SSE_MAX_RETRIES = 10

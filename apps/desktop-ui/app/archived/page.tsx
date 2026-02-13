@@ -12,8 +12,9 @@ import {
 import { cn } from "@/lib/utils"
 import { AppShell } from "@/components/layout/app-shell"
 import { Task } from "@/types/task"
+import { API_URL } from "@/lib/api/client"
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001"
+const API_BASE_URL = API_URL
 
 const PRIORITY_TABS = ["all", "high", "medium", "low"] as const
 type PriorityTab = (typeof PRIORITY_TABS)[number]

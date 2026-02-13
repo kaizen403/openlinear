@@ -9,7 +9,9 @@ interface ApiLoadingScreenProps {
   onError?: (error: string) => void
 }
 
-const HEALTH_ENDPOINT = "http://localhost:3001/health"
+import { API_URL } from "@/lib/api/client"
+
+const HEALTH_ENDPOINT = `${API_URL}/health`
 const POLL_INTERVAL = 500
 const TIMEOUT_MS = 30000
 

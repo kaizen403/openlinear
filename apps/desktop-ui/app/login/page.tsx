@@ -60,9 +60,11 @@ export default function LoginPage() {
       <div className="w-full max-w-md">
         {/* Logo / Header */}
         <div className="text-center mb-8">
-          <h1 className="text-2xl font-semibold text-linear-text mb-2">
-            Welcome to KazCode
-          </h1>
+          <img
+            src="/logo.png"
+            alt="KazCode"
+            className="h-12 mx-auto mb-4"
+          />
           <p className="text-sm text-linear-text-secondary">
             Sign in to continue
           </p>
