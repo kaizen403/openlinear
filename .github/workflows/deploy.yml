@@ -1,0 +1,72 @@
+name: Deploy to Production
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  checks:
+    name: Checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma client
+        run: pnpm --filter @openlinear/db db:generate
+
+      - name: Typecheck
+        run: pnpm --filter @openlinear/api typecheck
+
+      - name: Build API
+        run: pnpm --filter @openlinear/api build
+
+      - name: Build Web
+        run: pnpm --filter @openlinear/desktop-ui build
+        env:
+          NEXT_PUBLIC_API_URL: http://206.189.139.212
+
+      - name: Test
+        run: pnpm --filter @openlinear/api test
+        continue-on-error: true
+
+  deploy:
+    name: Deploy
+    needs: checks
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Deploy to droplet
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script_stop: true
+          script: /opt/openlinear/deploy.sh
+
+      - name: Verify deployment
+        run: |
+          sleep 5
+          HTTP_STATUS=$(curl -s -o /dev/null -w '%{http_code}' http://${{ secrets.DEPLOY_HOST }}/health)
+          if [ "$HTTP_STATUS" = "200" ]; then
+            echo "✓ Deployment verified — health check returned $HTTP_STATUS"
+          else
+            echo "✗ Health check failed — returned $HTTP_STATUS"
+            exit 1
+          fi
