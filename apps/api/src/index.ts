@@ -5,28 +5,20 @@ config({ path: resolve(import.meta.dirname, '../../../.env') });
 
 import { createApp } from './app';
 import { broadcast, sendToClient, getClientCount } from './sse';
-import { ensureOpenCodeServer, registerShutdownHandlers, getOpenCodeStatus } from './services/opencode';
-import { initEventSubscription } from './services/execution';
+import { initOpenCode, registerShutdownHandlers } from './services/opencode';
 
 const app = createApp();
 const PORT = Number(process.env.API_PORT ?? 3001);
 
 registerShutdownHandlers();
 
-app.get('/api/opencode/status', (_req, res) => {
-  res.json(getOpenCodeStatus());
-});
-
 async function start() {
   try {
-    await ensureOpenCodeServer();
-    console.log('[API] OpenCode server ready');
-    
-    initEventSubscription();
-    console.log('[API] Event subscription initialized');
+    await initOpenCode();
+    console.log('[API] Container-per-user mode ready');
   } catch (error) {
-    console.error('[API] Failed to start OpenCode server:', error);
-    console.warn('[API] Continuing without OpenCode - task execution will fail');
+    console.error('[API] Failed to initialize container manager:', error);
+    console.warn('[API] Continuing without containers - task execution will fail');
   }
 
   app.listen(PORT, () => {

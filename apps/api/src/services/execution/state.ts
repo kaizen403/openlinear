@@ -62,12 +62,6 @@ export interface PullRequestResult {
 export const activeExecutions = new Map<string, ExecutionState>();
 export const sessionToTask = new Map<string, string>();
 
-export let eventSubscriptionActive = false;
-
-export function setEventSubscriptionActive(value: boolean) {
-  eventSubscriptionActive = value;
-}
-
 export function getRunningTaskCount(): number {
   return activeExecutions.size;
 }

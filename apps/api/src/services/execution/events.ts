@@ -1,5 +1,4 @@
 import { prisma } from '@openlinear/db';
-import { getClient } from '../opencode';
 
 import type { OpencodeClient } from '@opencode-ai/sdk';
 import { appendTextDelta, appendReasoningDelta, flushDeltaBuffer, markThinking } from '../delta-buffer';
@@ -7,7 +6,6 @@ import { appendTextDelta, appendReasoningDelta, flushDeltaBuffer, markThinking }
 import { commitAndPush, createPullRequest } from './git';
 import {
   activeExecutions,
-  eventSubscriptionActive,
   broadcastProgress,
   addLogEntry,
   updateTaskStatus,
@@ -15,7 +13,6 @@ import {
   cleanupExecution,
   getTaskTitle,
   findTaskBySessionId,
-  setEventSubscriptionActive,
 } from './state';
 
 async function handleSessionComplete(taskId: string): Promise<void> {
@@ -244,31 +241,6 @@ async function handleOpenCodeEvent(event: { type: string; properties?: Record<st
 
     default:
       break;
-  }
-}
-
-export async function initEventSubscription(): Promise<void> {
-  if (eventSubscriptionActive) return;
-
-  try {
-    const events = await getClient().event.subscribe();
-    setEventSubscriptionActive(true);
-    console.log('[Execution] Global event subscription initialized');
-
-    (async () => {
-      try {
-        for await (const event of events.stream) {
-          await handleOpenCodeEvent(event);
-        }
-      } catch (error) {
-        console.error('[Execution] Event stream error:', error);
-        setEventSubscriptionActive(false);
-        setTimeout(() => initEventSubscription(), 5000);
-      }
-    })();
-  } catch (error) {
-    console.error('[Execution] Failed to initialize event subscription:', error);
-    setEventSubscriptionActive(false);
   }
 }
 

@@ -1,6 +1,6 @@
 import { join } from 'path';
 import { prisma } from '@openlinear/db';
-import { getClientForDirectory } from '../opencode';
+import { getClientForUser } from '../opencode';
 import { getOrCreateBuffer } from '../delta-buffer';
 
 import { cloneRepository, createBranch } from './git';
@@ -98,7 +98,11 @@ export async function executeTask({ taskId, userId }: ExecuteTaskParams): Promis
 
     broadcastProgress(taskId, 'executing', 'Starting OpenCode agent...');
 
-    const client = getClientForDirectory(repoPath);
+    if (!userId) {
+      return { success: false, error: 'userId is required for container-per-user execution' };
+    }
+
+    const client = await getClientForUser(userId, repoPath);
     
     const sessionResponse = await client.session.create({
       body: { 

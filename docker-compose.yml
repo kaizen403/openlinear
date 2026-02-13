@@ -18,5 +18,13 @@ services:
       start_period: 10s
     restart: unless-stopped
 
+  opencode-worker:
+    build:
+      context: ./docker/opencode-worker
+      dockerfile: Dockerfile
+    image: opencode-worker:latest
+    profiles:
+      - build-only
+
 volumes:
   postgres_data:

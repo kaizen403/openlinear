@@ -3,7 +3,7 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import { prisma } from '@openlinear/db';
 import { broadcast } from '../sse';
-import { getClientForDirectory } from './opencode';
+import { getClientForUser } from './opencode';
 import { ensureMainRepo, createWorktree, cleanupBatch, mergeBranch, createBatchBranch, pushBranch } from './worktree';
 import type { BatchState, BatchTask, BatchSettings, CreateBatchParams, BatchEventType } from '../types/batch';
 import type { OpencodeClient } from '@opencode-ai/sdk';
@@ -142,6 +142,10 @@ async function startTask(batch: BatchState, taskIndex: number): Promise<void> {
   task.status = 'running';
   task.startedAt = new Date();
 
+  if (!batch.userId) {
+    throw new Error('Cannot start task without an authenticated user (userId is required for container isolation)');
+  }
+
   try {
     const project = await prisma.repository.findUnique({ where: { id: batch.projectId } });
 
@@ -153,7 +157,7 @@ async function startTask(batch: BatchState, taskIndex: number): Promise<void> {
     );
     task.worktreePath = worktreePath;
 
-    const client = getClientForDirectory(worktreePath);
+    const client = await getClientForUser(batch.userId, worktreePath);
 
     const sessionResponse = await client.session.create({
       body: { title: task.title },
@@ -599,9 +603,9 @@ export async function cancelBatch(batchId: string): Promise<void> {
   batch.status = 'cancelled';
 
   for (const task of batch.tasks) {
-    if (task.status === 'running' && task.sessionId && task.worktreePath) {
+    if (task.status === 'running' && task.sessionId && task.worktreePath && batch.userId) {
       try {
-        const client = getClientForDirectory(task.worktreePath);
+        const client = await getClientForUser(batch.userId, task.worktreePath);
         await client.session.abort({ path: { id: task.sessionId } });
       } catch (error) {
         console.error(`[Batch] Failed to abort session for task ${task.taskId.slice(0, 8)}:`, error);
@@ -637,9 +641,9 @@ export async function cancelTask(batchId: string, taskId: string): Promise<void>
   task.status = 'cancelled';
   task.completedAt = new Date();
 
-  if (task.sessionId && task.worktreePath) {
+  if (task.sessionId && task.worktreePath && batch.userId) {
     try {
-      const client = getClientForDirectory(task.worktreePath);
+      const client = await getClientForUser(batch.userId, task.worktreePath);
       await client.session.abort({ path: { id: task.sessionId } });
     } catch (error) {
       console.error(`[Batch] Failed to abort session for task ${taskId.slice(0, 8)}:`, error);
