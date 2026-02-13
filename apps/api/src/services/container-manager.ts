@@ -18,6 +18,23 @@ const STARTUP_WAIT_MS = 8_000;
 const MAX_STARTUP_RETRIES = 30;
 const STARTUP_RETRY_DELAY_MS = 1_000;
 
+// Path mapping between host and container filesystems.
+// The host clones repos into HOST_REPOS_DIR; the container sees them at CONTAINER_REPOS_DIR
+// via a bind mount. When passing `directory` to the OpenCode SDK we must use the container path.
+const HOST_REPOS_DIR = process.env.REPOS_DIR || '/tmp/openlinear-repos';
+const CONTAINER_REPOS_DIR = '/home/opencode/repos';
+
+/**
+ * Translate a host-side repo path to the equivalent container-side path.
+ * E.g. /tmp/openlinear-repos/proj/abc → /home/opencode/repos/proj/abc
+ */
+export function toContainerPath(hostPath: string): string {
+  if (hostPath.startsWith(HOST_REPOS_DIR)) {
+    return hostPath.replace(HOST_REPOS_DIR, CONTAINER_REPOS_DIR);
+  }
+  return hostPath;
+}
+
 export interface UserContainer {
   containerId: string;
   userId: string;
@@ -119,9 +136,9 @@ async function createContainer(userId: string): Promise<UserContainer> {
       name,
       Image: OPENCODE_IMAGE,
       Env: [
-        `OPENCODE_PORT=${CONTAINER_PORT}`,
-        `REPOS_DIR=/home/opencode/repos`,
-      ],
+          `OPENCODE_PORT=${CONTAINER_PORT}`,
+          `REPOS_DIR=${CONTAINER_REPOS_DIR}`,
+        ],
       ExposedPorts: {
         [`${CONTAINER_PORT}/tcp`]: {},
       },
@@ -134,10 +151,10 @@ async function createContainer(userId: string): Promise<UserContainer> {
         PidsLimit: 256,
         // Named volumes for persistence
         Binds: [
-          `opencode-auth-${userId}:/home/opencode/.local/share/opencode`,
-          `opencode-config-${userId}:/home/opencode/.config/opencode`,
-          `opencode-repos-${userId}:/home/opencode/repos`,
-        ],
+            `opencode-auth-${userId}:/home/opencode/.local/share/opencode`,
+            `opencode-config-${userId}:/home/opencode/.config/opencode`,
+            `${HOST_REPOS_DIR}:${CONTAINER_REPOS_DIR}`,
+          ],
         RestartPolicy: { Name: 'on-failure', MaximumRetryCount: 3 },
       },
       Labels: {
@@ -296,9 +313,11 @@ export async function getClientForUser(userId: string, directory?: string): Prom
 
   entry.lastActivity = new Date();
 
+  const containerDir = directory ? toContainerPath(directory) : undefined;
+
   return createOpencodeClient({
     baseUrl: entry.baseUrl,
-    ...(directory ? { directory } : {}),
+    ...(containerDir ? { directory: containerDir } : {}),
   });
 }
 

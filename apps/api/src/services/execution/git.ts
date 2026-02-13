@@ -30,6 +30,7 @@ export async function cloneRepository(
   
   console.log(`[Execution] Cloning ${cloneUrl} (branch: ${defaultBranch})...`);
   await execAsync(`git clone --depth 1 --branch ${defaultBranch} ${url} ${repoPath}`);
+  await execAsync(`chmod -R a+rwX ${repoPath}`);
   console.log(`[Execution] Clone complete`);
 }
 
@@ -61,7 +62,8 @@ export async function commitAndPush(
     await execAsync(`git commit -m "${commitMessage}"`, { cwd: repoPath });
     
     console.log(`[Execution] Pushing to origin/${branchName}...`);
-    await execAsync(`git push -u origin ${branchName}`, { cwd: repoPath });
+    // Force push is safe here: these are ephemeral task branches we create fresh each run
+    await execAsync(`git push --force -u origin ${branchName}`, { cwd: repoPath });
     console.log(`[Execution] Push complete`);
     
     return true;

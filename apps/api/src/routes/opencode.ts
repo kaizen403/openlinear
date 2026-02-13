@@ -25,17 +25,32 @@ router.get('/setup-status', requireAuth, async (req: AuthRequest, res: Response)
       try {
         const client = await getClientForUser(req.userId!);
         const providerList = await client.provider.list();
-        const authInfo = await client.provider.auth();
 
         if (providerList.data?.all) {
           const connectedSet = new Set(providerList.data.connected ?? []);
-          const authData = authInfo.data ?? {};
 
-          providers = providerList.data.all.map((provider) => ({
-            id: provider.id,
-            name: provider.name || provider.id,
-            authenticated: connectedSet.has(provider.id) || (Array.isArray(authData[provider.id]) && authData[provider.id].length > 0),
-          }));
+          const popularProviderIds = new Set([
+            'anthropic',
+            'openai',
+            'google',
+            'github-copilot',
+            'groq',
+            'deepseek',
+            'mistral',
+            'xai',
+            'openrouter',
+            'amazon-bedrock',
+          ]);
+
+          providers = providerList.data.all
+            .filter((provider) => popularProviderIds.has(provider.id))
+            .map((provider) => ({
+              id: provider.id,
+              name: provider.name || provider.id,
+              // Only use the `connected` set — /provider/auth returns available auth
+              // methods (oauth, api), NOT whether credentials are actually configured
+              authenticated: connectedSet.has(provider.id),
+            }));
         }
 
         ready = providers.some(p => p.authenticated);

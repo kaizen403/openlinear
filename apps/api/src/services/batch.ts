@@ -3,7 +3,7 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import { prisma } from '@openlinear/db';
 import { broadcast } from '../sse';
-import { getClientForUser } from './opencode';
+import { getClientForUser, toContainerPath } from './opencode';
 import { ensureMainRepo, createWorktree, cleanupBatch, mergeBranch, createBatchBranch, pushBranch } from './worktree';
 import type { BatchState, BatchTask, BatchSettings, CreateBatchParams, BatchEventType } from '../types/batch';
 import type { OpencodeClient } from '@opencode-ai/sdk';
@@ -159,9 +159,10 @@ async function startTask(batch: BatchState, taskIndex: number): Promise<void> {
 
     const client = await getClientForUser(batch.userId, worktreePath);
 
+    const containerPath = toContainerPath(worktreePath);
     const sessionResponse = await client.session.create({
       body: { title: task.title },
-      query: { directory: worktreePath },
+      query: { directory: containerPath },
     });
 
     const sessionId = sessionResponse.data?.id;

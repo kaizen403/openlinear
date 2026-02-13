@@ -8,6 +8,7 @@ import {
   touchContainer,
   ensureContainer,
   destroyContainer,
+  toContainerPath,
 } from './container-manager';
 
 export {
@@ -17,6 +18,7 @@ export {
   ensureContainer,
   destroyContainer,
   listContainers,
+  toContainerPath,
 };
 
 export interface OpenCodeStatus {

@@ -1,6 +1,6 @@
 import { join } from 'path';
 import { prisma } from '@openlinear/db';
-import { getClientForUser } from '../opencode';
+import { getClientForUser, toContainerPath } from '../opencode';
 import { getOrCreateBuffer } from '../delta-buffer';
 
 import { cloneRepository, createBranch } from './git';
@@ -104,12 +104,13 @@ export async function executeTask({ taskId, userId }: ExecuteTaskParams): Promis
 
     const client = await getClientForUser(userId, repoPath);
     
+    const containerPath = toContainerPath(repoPath);
     const sessionResponse = await client.session.create({
       body: { 
         title: taskWithProject.title,
       },
       query: {
-        directory: repoPath,
+        directory: containerPath,
       },
     });
 
