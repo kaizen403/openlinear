@@ -39,7 +39,7 @@ jobs:
       - name: Build Web
         run: pnpm --filter @openlinear/desktop-ui build
         env:
-          NEXT_PUBLIC_API_URL: http://206.189.139.212
+          NEXT_PUBLIC_API_URL: https://rixie.in
 
       - name: Test
         run: pnpm --filter @openlinear/api test
@@ -62,8 +62,8 @@ jobs:
 
       - name: Verify deployment
         run: |
-          sleep 5
-          HTTP_STATUS=$(curl -s -o /dev/null -w '%{http_code}' http://${{ secrets.DEPLOY_HOST }}/health)
+          sleep 10
+          HTTP_STATUS=$(curl -s -o /dev/null -w '%{http_code}' https://rixie.in/health)
           if [ "$HTTP_STATUS" = "200" ]; then
             echo "✓ Deployment verified — health check returned $HTTP_STATUS"
           else
