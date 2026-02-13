@@ -17,7 +17,7 @@ RUN npm install -g @opencode-ai/sdk
 ENV NODE_PATH=/usr/local/lib/node_modules
 
 # Create non-root user
-RUN useradd -m -u 1000 -s /bin/bash opencode
+RUN useradd -m -u 1001 -s /bin/bash opencode
 
 # Create directories for config, data, and repos
 RUN mkdir -p /home/opencode/.local/share/opencode \
