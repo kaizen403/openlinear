@@ -238,7 +238,7 @@ export function Sidebar({ open, onClose, width, animating }: SidebarProps) {
                             />
                         </div>
                     )}
-                    <img src="/logo.png" alt="KazCode" className="h-[22px]" />
+                    <img src="/logo.png" alt="KazCode" className="h-[16px]" />
                 </div>
                 <div className="flex items-center gap-1">
                     <button
