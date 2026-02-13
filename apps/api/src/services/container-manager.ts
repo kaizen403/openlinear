@@ -138,7 +138,7 @@ async function createContainer(userId: string): Promise<UserContainer> {
           `opencode-config-${userId}:/home/opencode/.config/opencode`,
           `opencode-repos-${userId}:/home/opencode/repos`,
         ],
-        RestartPolicy: { Name: 'unless-stopped', MaximumRetryCount: 3 },
+        RestartPolicy: { Name: 'on-failure', MaximumRetryCount: 3 },
       },
       Labels: {
         'app': 'openlinear',

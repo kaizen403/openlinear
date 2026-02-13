@@ -1,7 +1,10 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'openlinear-dev-secret-change-in-production';
+/** Lazy read to avoid ESM module-load-time race with dotenv */
+function getJwtSecret(): string {
+  return process.env.JWT_SECRET || 'openlinear-dev-secret-change-in-production';
+}
 
 export interface AuthRequest extends Request {
   userId?: string;
@@ -14,7 +17,7 @@ export function optionalAuth(req: AuthRequest, _res: Response, next: NextFunctio
   if (authHeader?.startsWith('Bearer ')) {
     try {
       const token = authHeader.substring(7);
-      const decoded = jwt.verify(token, JWT_SECRET) as { userId: string; username: string };
+      const decoded = jwt.verify(token, getJwtSecret()) as { userId: string; username: string };
       req.userId = decoded.userId;
       req.username = decoded.username;
     } catch {
@@ -34,7 +37,7 @@ export function requireAuth(req: AuthRequest, res: Response, next: NextFunction)
 
   try {
     const token = authHeader.substring(7);
-    const decoded = jwt.verify(token, JWT_SECRET) as { userId: string; username: string };
+    const decoded = jwt.verify(token, getJwtSecret()) as { userId: string; username: string };
     req.userId = decoded.userId;
     req.username = decoded.username;
     next();
