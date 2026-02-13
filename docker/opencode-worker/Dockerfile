@@ -1,13 +1,23 @@
-FROM node:20-alpine
+FROM node:20-slim
 
-# Install system dependencies
-RUN apk add --no-cache git curl openssh-client
+# Install system dependencies (glibc-based image for opencode binary compatibility)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git curl openssh-client ca-certificates bash \
+    && rm -rf /var/lib/apt/lists/*
 
-# Install opencode CLI and SDK globally
-RUN npm install -g @opencode-ai/opencode @opencode-ai/sdk
+# Install opencode CLI binary via official installer
+RUN curl -fsSL https://opencode.ai/install | bash 2>/dev/null || true
+# Move opencode to a standard PATH location
+RUN cp /root/.opencode/bin/opencode /usr/local/bin/opencode && chmod +x /usr/local/bin/opencode
+
+# Install the OpenCode SDK globally
+RUN npm install -g @opencode-ai/sdk
+
+# Set NODE_PATH so server.mjs can resolve global npm modules
+ENV NODE_PATH=/usr/local/lib/node_modules
 
 # Create non-root user
-RUN adduser -D -u 1000 -h /home/opencode opencode
+RUN useradd -m -u 1000 -s /bin/bash opencode
 
 # Create directories for config, data, and repos
 RUN mkdir -p /home/opencode/.local/share/opencode \
@@ -43,7 +53,7 @@ ENV REPOS_DIR=/home/opencode/repos
 
 EXPOSE 4096
 
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=5 \
   CMD curl -f http://localhost:4096/ || exit 1
 
 USER opencode
