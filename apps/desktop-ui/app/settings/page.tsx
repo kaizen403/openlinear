@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, Suspense } from "react"
 import {
   Settings,
   Loader2,
@@ -73,7 +73,7 @@ const NAV_ITEMS: {
   { id: "database", label: "Database", icon: Database },
 ]
 
-export default function SettingsPage() {
+function SettingsContent() {
   const searchParams = useSearchParams()
   const initialSection = (searchParams.get("section") as SettingsSection) || "general"
   const [activeSection, setActiveSection] =
@@ -1128,5 +1128,13 @@ export default function SettingsPage() {
         </main>
       </div>
     </AppShell>
+  )
+}
+
+export default function SettingsPage() {
+  return (
+    <Suspense fallback={<div className="flex items-center justify-center h-screen bg-linear-bg"><Loader2 className="w-6 h-6 animate-spin text-linear-text-secondary" /></div>}>
+      <SettingsContent />
+    </Suspense>
   )
 }
