@@ -1,16 +1,16 @@
-# OpenLinear
+# KazCode
 
 A desktop kanban board for managing and executing coding tasks through AI agents.
 
 ## Architecture
 
 <p align="center">
-  <img src="docs/diagrams/architecture.svg" alt="OpenLinear Architecture" width="100%"/>
+  <img src="docs/diagrams/architecture.svg" alt="KazCode Architecture" width="100%"/>
 </p>
 
 ## Task Execution
 
-OpenLinear supports two execution modes for running coding tasks: **parallel** and **queue**. Both modes use git worktrees to isolate each task in its own branch and working directory, and merge results into a single batched PR.
+KazCode supports two execution modes for running coding tasks: **parallel** and **queue**. Both modes use git worktrees to isolate each task in its own branch and working directory, and merge results into a single batched PR.
 
 ### Parallel Execution
 
@@ -60,7 +60,7 @@ Each task follows a complete lifecycle: clone → branch → agent session → c
 
 The execution engine streams real-time events (SSE) to the UI — you see every tool call, file edit, and status change as it happens.
 
-Currently integrated with the OpenCode SDK. The agent layer is designed to support multiple providers:
+Each user gets a dedicated Docker container running OpenCode for isolated task execution. The agent layer is designed to support multiple providers:
 
 | Agent | Status |
 |-------|--------|
@@ -68,6 +68,13 @@ Currently integrated with the OpenCode SDK. The agent layer is designed to suppo
 | Claude Code | Planned |
 | Codex | Planned |
 | Aider | Planned |
+
+## Authentication
+
+KazCode supports two authentication methods:
+
+- **Email/password** — register with name, email, and password
+- **GitHub OAuth** — sign in with GitHub for repo access and PR creation
 
 ## Quick Start
 

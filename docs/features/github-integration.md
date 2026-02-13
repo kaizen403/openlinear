@@ -1,10 +1,16 @@
 # GitHub Integration
 
-OpenLinear integrates with GitHub for authentication, repository management, and pull request creation.
+KazCode integrates with GitHub for authentication, repository management, and pull request creation.
 
-## OAuth Authentication
+## Authentication
 
-### Flow
+KazCode supports two authentication methods:
+
+### Email/Password
+
+Users can register with email and password via `POST /api/auth/register` (requires name, email, password). Login via `POST /api/auth/login`. This is sufficient for basic task management, but GitHub OAuth is needed for repo import, cloning private repos, and PR creation.
+
+### GitHub OAuth
 
 1. User clicks "Sign in with GitHub" in the sidebar
 2. `GET /api/auth/github` redirects to GitHub's authorization page
@@ -36,7 +42,7 @@ OpenLinear integrates with GitHub for authentication, repository management, and
 ### With Authentication (private + public repos)
 
 1. `GET /api/repos/github` -- fetch all repos from GitHub (paginated, sorted by updated)
-2. `POST /api/repos/import` -- import a repo into OpenLinear
+2. `POST /api/repos/import` -- import a repo into KazCode
 3. `POST /api/repos/:id/activate` -- set as active repository
 4. `GET /api/repos/active` -- get current active repository
 5. `GET /api/repos` -- list all imported repositories

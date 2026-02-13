@@ -1,10 +1,10 @@
 # Task Execution (Single)
 
-Running a single task through an AI agent. This is the core feature of OpenLinear.
+Running a single task through an AI agent. This is the core feature of KazCode.
 
 ## Execution Flow
 
-1. **Clone** -- shallow clone (`git clone --depth 1`) of the active repository into `/tmp/openlinear-repos/{repoName}/{taskId}`
+1. **Clone** -- shallow clone (`git clone --depth 1`) of the active repository into `{REPOS_DIR}/{repoName}/{taskId}`
 2. **Branch** -- create and checkout `openlinear/{taskId}`
 3. **Session** -- create an OpenCode session scoped to the cloned directory via `client.session.create()`
 4. **Prompt** -- send the task's title + description + labels as a text prompt via `client.session.prompt()`
@@ -90,3 +90,16 @@ The UI shows a slide-out drawer with:
 - Live scrolling log entries with colored icons
 - Elapsed time
 - PR link on completion
+
+## Task Outcome
+
+After execution completes, the system generates a brief outcome summary stored on the task. The outcome is a short description of what happened:
+
+- If there were code changes: `"{N} file(s) changed, {M} tools executed"`
+- If there were no changes: `"Completed with no changes"`
+
+The outcome is displayed in the task detail view, giving a quick summary of what the AI agent accomplished without opening the full log.
+
+## Container Isolation
+
+Task execution runs inside per-user Docker containers. Each user's OpenCode instance is isolated with its own filesystem, resources, and provider credentials. See [OpenCode Integration](opencode-integration.md) for details on the container-per-user architecture.

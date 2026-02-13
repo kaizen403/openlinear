@@ -1,6 +1,6 @@
-# OpenLinear Feature Documentation
+# KazCode Feature Documentation
 
-Complete documentation for every feature in OpenLinear.
+Complete documentation for every feature in KazCode.
 
 ## Getting Started
 
@@ -14,13 +14,13 @@ Complete documentation for every feature in OpenLinear.
 - [Batch Execution](batch-execution.md) -- running multiple tasks in parallel or queue mode
 - [Brainstorm](brainstorm.md) -- AI-powered task generation from natural language goals
 - [God Mode](god-mode.md) -- floating quick-access input overlay
-- [Inbox](inbox.md) -- completed task notifications
-- [Teams](teams.md) -- team management and scoped issue numbering
-- [Projects](projects.md) -- project tracking with status, dates, and team associations
+- [Inbox](inbox.md) -- completed and cancelled task notifications
+- [Teams](teams.md) -- team management, invite codes, and scoped issue numbering
+- [Projects](projects.md) -- project tracking with status, dates, repo linking, and team associations
 
 ## Integrations
 
-- [OpenCode Integration](opencode-integration.md) -- how OpenLinear manages the AI agent lifecycle
+- [OpenCode Integration](opencode-integration.md) -- container-per-user AI agent architecture
 - [GitHub Integration](github-integration.md) -- OAuth, repository management, PR creation
 
 ## Configuration
@@ -29,6 +29,6 @@ Complete documentation for every feature in OpenLinear.
 
 ## Technical Reference
 
-- [Architecture](architecture.md) -- monorepo structure, database, environment variables
+- [Architecture](architecture.md) -- monorepo structure, container architecture, deployment
 - [Real-time Events](real-time-events.md) -- SSE event catalog
 - [API Reference](api-reference.md) -- all REST endpoints

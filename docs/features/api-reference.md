@@ -19,6 +19,24 @@ Returns server status and connected SSE client count.
 
 ## Authentication
 
+### `POST /api/auth/register`
+Create a new account with username and password.
+
+Body: `{ "username": "string (2-50 chars, alphanumeric/-/_)", "password": "string (3-100 chars)", "email": "string (optional)" }`
+
+Response (201): `{ "token": "jwt...", "user": { "id", "username", "email" } }`
+
+Errors: 400 (validation), 409 (username taken).
+
+### `POST /api/auth/login`
+Log in with username and password.
+
+Body: `{ "username": "string", "password": "string" }`
+
+Response: `{ "token": "jwt...", "user": { "id", "username", "email", "avatarUrl" } }`
+
+Errors: 401 (invalid credentials).
+
 ### `GET /api/auth/github`
 Redirects to GitHub OAuth authorization page.
 
@@ -26,7 +44,7 @@ Redirects to GitHub OAuth authorization page.
 Handles OAuth callback. Exchanges code for token, creates/updates user, redirects to frontend with JWT.
 
 ### `GET /api/auth/me`
-**Auth: required**. Returns the authenticated user (excludes access token).
+**Auth: required**. Returns the authenticated user (excludes access token and password hash).
 
 ### `POST /api/auth/logout`
 Returns `{ success: true }`. Client should clear the stored JWT.
@@ -82,6 +100,7 @@ Body:
   "title": "Fix login button",
   "description": "Optional longer description",
   "priority": "high",
+  "dueDate": "2025-03-15T17:00:00.000Z",
   "labelIds": ["uuid-1"],
   "teamId": "uuid",
   "projectId": "uuid"
@@ -203,6 +222,13 @@ List team members.
 ### `DELETE /api/teams/:id/members/:userId`
 **Auth: optional**. Remove a member.
 
+### `POST /api/teams/join`
+**Auth: required**. Join a team using an invite code.
+
+Body: `{ "inviteCode": "string" }`
+
+Response: the team object with members. Errors: 400 (missing code), 404 (invalid code), 409 (already a member).
+
 ---
 
 ## Projects
@@ -227,7 +253,7 @@ Get project with team associations.
 ## Inbox
 
 ### `GET /api/inbox`
-List completed (done, non-archived) tasks with labels, team, and project.
+List completed and cancelled (done or cancelled, non-archived) tasks with labels, team, and project.
 
 ### `GET /api/inbox/count`
 Get count of unread inbox items.
@@ -250,4 +276,40 @@ SSE endpoint. Optional query param: `clientId`. See [Real-time Events](real-time
 ## OpenCode
 
 ### `GET /api/opencode/status`
-Returns OpenCode server state: `{ status, url, error, startedAt }`.
+Returns OpenCode system state: `{ mode, activeContainers, containers[] }`.
+
+### `GET /api/opencode/container`
+**Auth: required.** Get the authenticated user's container status. Returns `{ status: "none" }` if no container exists.
+
+### `POST /api/opencode/container`
+**Auth: required.** Create or start a container for the authenticated user. Idempotent.
+
+Response: `{ status, hostPort, baseUrl }`
+
+### `DELETE /api/opencode/container`
+**Auth: required.** Stop and remove the authenticated user's container.
+
+Response: `{ success: true }`
+
+### `GET /api/opencode/providers`
+**Auth: required.** List available LLM providers from the user's OpenCode instance.
+
+### `GET /api/opencode/providers/auth`
+**Auth: required.** Get provider authentication status.
+
+### `POST /api/opencode/auth`
+**Auth: required.** Set an API key for a provider.
+
+Body: `{ "providerId": "anthropic", "apiKey": "sk-..." }`
+
+Response: `{ success: true, providerId: "anthropic" }`
+
+### `POST /api/opencode/auth/oauth/authorize`
+**Auth: required.** Start an OAuth authorization flow for a provider.
+
+Body: `{ "providerId": "...", "method": 0 }`
+
+### `POST /api/opencode/auth/oauth/callback`
+**Auth: required.** Complete an OAuth authorization flow.
+
+Body: `{ "providerId": "...", "code": "...", "method": 0 }`

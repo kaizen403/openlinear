@@ -11,6 +11,7 @@ Tasks are created via the task form dialog (+ button in any column) or through t
 | title | yes | string (min 1 char) | -- | |
 | description | no | string | null | Sent to the AI agent as part of the prompt |
 | priority | no | enum: low, medium, high | medium | |
+| dueDate | no | ISO 8601 datetime | null | Optional deadline for the task |
 | labels | no | array of label IDs | [] | |
 | teamId | no | UUID | null | Enables team-scoped numbering |
 | projectId | no | UUID | null | Associates task with a project |

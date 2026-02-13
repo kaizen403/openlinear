@@ -35,6 +35,27 @@ Team members have one of three roles:
 
 Members are added by email or userId. A user cannot be added to the same team twice.
 
+## Invite Codes
+
+Every team has an `inviteCode` -- a 10-character alphanumeric string generated automatically when the team is created. Users can join a team by submitting its invite code via `POST /api/teams/join`.
+
+The invite code is displayed in the team detail view and in the teams list UI. It cannot be changed after creation.
+
+### Joining a Team
+
+`POST /api/teams/join` (requires auth)
+
+Body: `{ "inviteCode": "aBcDeFgHiJ" }`
+
+The endpoint looks up the team by invite code, verifies the user is not already a member, and adds them with the `member` role. Returns the full team object with members.
+
+| Status | Condition |
+|--------|-----------|
+| 200 | Successfully joined |
+| 400 | Missing invite code |
+| 404 | Invalid invite code |
+| 409 | Already a member |
+
 ## Deletion
 
 Deleting a team:
@@ -54,6 +75,7 @@ All operations happen in a single transaction.
 | `GET` | `/api/teams/:id` | Get team with members and project associations |
 | `PATCH` | `/api/teams/:id` | Update team |
 | `DELETE` | `/api/teams/:id` | Delete team (cascading) |
+| `POST` | `/api/teams/join` | Join a team via invite code (requires auth) |
 | `GET` | `/api/teams/:id/members` | List team members |
 | `POST` | `/api/teams/:id/members` | Add member (requires auth) |
 | `DELETE` | `/api/teams/:id/members/:userId` | Remove member |

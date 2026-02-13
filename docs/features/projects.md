@@ -14,11 +14,26 @@ Projects represent higher-level initiatives that group tasks and span across tea
 | startDate | no | ISO 8601 datetime | null |
 | targetDate | no | ISO 8601 datetime | null |
 | leadId | no | user UUID | null |
-| teamIds | no | array of team UUIDs | [] |
+| teamIds | yes | array of team UUIDs (exactly 1) | -- |
+| repoUrl | no | string (GitHub URL) | null |
+| localPath | no | string (local filesystem path) | null |
 
 ## Team Associations
 
 Projects can be associated with multiple teams via the `ProjectTeam` join table. Updating `teamIds` replaces all existing associations.
+
+## Repository Linking
+
+A project can be linked to a GitHub repository in two ways:
+
+- **`repoUrl`**: A GitHub URL (e.g. `https://github.com/owner/repo`). When provided during creation, the system automatically imports the repository and sets `repositoryId`.
+- **`localPath`**: A local filesystem path for the project's working directory.
+
+The linked repository appears in the project API response with its name, clone URL, and default branch.
+
+## Project Selector
+
+After first login, users see a project selector screen where they choose or create a project. This sets the active project context for the board, filtering tasks to the selected project.
 
 ## Task Assignment
 

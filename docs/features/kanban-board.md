@@ -23,6 +23,7 @@ Each card shows:
 - Title
 - Priority indicator (low / medium / high)
 - Assigned labels (colored badges)
+- Due date with overdue indicator (if set)
 - Execution status (when running: cloning, executing, committing, etc.)
 - PR link (when execution is complete)
 
