@@ -1,5 +1,11 @@
 import { API_URL, getAuthHeader } from './client';
-import type { InboxCount, InboxTask } from './types';
+import type { InboxCount, InboxTask, MyIssueTask } from './types';
+
+export async function fetchMyIssues(): Promise<MyIssueTask[]> {
+  const res = await fetch(`${API_URL}/api/tasks`)
+  if (!res.ok) throw new Error('Failed to fetch tasks')
+  return res.json()
+}
 
 export async function executeTaskPublic(taskId: string): Promise<void> {
   const res = await fetch(`${API_URL}/api/tasks/${taskId}/execute`, {

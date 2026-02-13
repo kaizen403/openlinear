@@ -97,6 +97,24 @@ export interface Project {
   _count?: { tasks: number }
 }
 
+export interface MyIssueTask {
+  id: string
+  title: string
+  description: string | null
+  priority: 'low' | 'medium' | 'high'
+  status: 'todo' | 'in_progress' | 'done' | 'cancelled'
+  createdAt: string
+  updatedAt: string
+  prUrl: string | null
+  executionElapsedMs: number
+  executionProgress: number | null
+  labels: Array<{ id: string; name: string; color: string; priority: number }>
+  team?: { id: string; name: string; key: string; color: string } | null
+  project?: { id: string; name: string; status: string; color: string } | null
+  identifier?: string | null
+  dueDate?: string | null
+}
+
 export interface InboxCount {
   total: number
   unread: number

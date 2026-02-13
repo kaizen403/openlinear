@@ -1,5 +1,5 @@
 // Types
-export type { User, Repository, GitHubRepo, PublicRepository, Team, TeamMember, Project, InboxCount, InboxTask } from './types';
+export type { User, Repository, GitHubRepo, PublicRepository, Team, TeamMember, Project, InboxCount, InboxTask, MyIssueTask } from './types';
 
 // Auth
 export { fetchCurrentUser, loginUser, registerUser, getLoginUrl, logout } from './auth';
@@ -14,4 +14,4 @@ export { fetchTeams, fetchTeam, createTeam, updateTeam, deleteTeam, addTeamMembe
 export { fetchProjects, createProject, updateProject, deleteProject } from './projects';
 
 // Tasks & Inbox
-export { executeTaskPublic, refreshTaskPr, fetchInboxTasks, fetchInboxCount, markInboxRead, markAllInboxRead } from './tasks';
+export { fetchMyIssues, executeTaskPublic, refreshTaskPr, fetchInboxTasks, fetchInboxCount, markInboxRead, markAllInboxRead } from './tasks';
