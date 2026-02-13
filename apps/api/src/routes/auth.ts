@@ -13,8 +13,13 @@ import { z } from 'zod';
 
 const router: Router = Router();
 
-const JWT_SECRET = process.env.JWT_SECRET || 'openlinear-dev-secret-change-in-production';
-const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
+function getJwtSecret() {
+  return process.env.JWT_SECRET || 'openlinear-dev-secret-change-in-production';
+}
+
+function getFrontendUrl() {
+  return process.env.FRONTEND_URL || 'http://localhost:3000';
+}
 
 function generateState(): string {
   return crypto.randomUUID();
@@ -61,7 +66,7 @@ router.post('/register', async (req: Request, res: Response) => {
 
     const token = jwt.sign(
       { userId: user.id, username: user.username },
-      JWT_SECRET,
+      getJwtSecret(),
       { expiresIn: '7d' }
     );
 
@@ -96,7 +101,7 @@ router.post('/login', async (req: Request, res: Response) => {
 
     const token = jwt.sign(
       { userId: user.id, username: user.username },
-      JWT_SECRET,
+      getJwtSecret(),
       { expiresIn: '7d' }
     );
 
@@ -120,12 +125,12 @@ router.get('/github/callback', async (req: Request, res: Response) => {
 
   if (error) {
     console.error('[Auth] GitHub OAuth error:', error, error_description);
-    res.redirect(`${FRONTEND_URL}?error=${encodeURIComponent(String(error_description || error))}`);
+    res.redirect(`${getFrontendUrl()}?error=${encodeURIComponent(String(error_description || error))}`);
     return;
   }
 
   if (!code || typeof code !== 'string') {
-    res.redirect(`${FRONTEND_URL}?error=missing_code`);
+    res.redirect(`${getFrontendUrl()}?error=missing_code`);
     return;
   }
 
@@ -136,14 +141,14 @@ router.get('/github/callback', async (req: Request, res: Response) => {
 
     const token = jwt.sign(
       { userId: user.id, username: user.username },
-      JWT_SECRET,
+      getJwtSecret(),
       { expiresIn: '7d' }
     );
 
-    res.redirect(`${FRONTEND_URL}?token=${token}`);
+    res.redirect(`${getFrontendUrl()}?token=${token}`);
   } catch (err) {
     console.error('[Auth] OAuth callback error:', err);
-    res.redirect(`${FRONTEND_URL}?error=auth_failed`);
+    res.redirect(`${getFrontendUrl()}?error=auth_failed`);
   }
 });
 
@@ -158,7 +163,7 @@ router.get('/me', async (req: Request, res: Response) => {
   const token = authHeader.substring(7);
 
   try {
-    const decoded = jwt.verify(token, JWT_SECRET) as { userId: string };
+    const decoded = jwt.verify(token, getJwtSecret()) as { userId: string };
     const user = await getUserById(decoded.userId);
 
     if (!user) {

@@ -1,8 +1,13 @@
 import { prisma } from '@openlinear/db';
 
-const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID || '';
-const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET || '';
-const GITHUB_REDIRECT_URI = process.env.GITHUB_REDIRECT_URI || 'http://localhost:3001/api/auth/github/callback';
+// Read env vars lazily to avoid ESM import hoisting issues with dotenv
+function getGitHubConfig() {
+  return {
+    clientId: process.env.GITHUB_CLIENT_ID || '',
+    clientSecret: process.env.GITHUB_CLIENT_SECRET || '',
+    redirectUri: process.env.GITHUB_REDIRECT_URI || 'http://localhost:3001/api/auth/github/callback',
+  };
+}
 
 export interface GitHubUser {
   id: number;
@@ -116,9 +121,10 @@ export async function addRepositoryByUrl(url: string): Promise<{
 }
 
 export function getAuthorizationUrl(state: string): string {
+  const { clientId, redirectUri } = getGitHubConfig();
   const params = new URLSearchParams({
-    client_id: GITHUB_CLIENT_ID,
-    redirect_uri: GITHUB_REDIRECT_URI,
+    client_id: clientId,
+    redirect_uri: redirectUri,
     scope: 'read:user user:email repo',
     state,
   });
@@ -132,6 +138,7 @@ interface TokenResponse {
 }
 
 export async function exchangeCodeForToken(code: string): Promise<string> {
+  const { clientId, clientSecret } = getGitHubConfig();
   const response = await fetch('https://github.com/login/oauth/access_token', {
     method: 'POST',
     headers: {
@@ -139,8 +146,8 @@ export async function exchangeCodeForToken(code: string): Promise<string> {
       Accept: 'application/json',
     },
     body: JSON.stringify({
-      client_id: GITHUB_CLIENT_ID,
-      client_secret: GITHUB_CLIENT_SECRET,
+      client_id: clientId,
+      client_secret: clientSecret,
       code,
     }),
   });
