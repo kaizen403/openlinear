@@ -168,7 +168,7 @@ export default function ArchivedPage() {
                 )}
               </div>
               {tasks.length > 0 && (
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1 sm:gap-2 flex-wrap">
                   {selectedCount > 0 && (
                     <button
                       onClick={handleDeleteSelected}
@@ -277,7 +277,7 @@ export default function ArchivedPage() {
                         <p className="text-xs text-linear-text-tertiary truncate mt-0.5">{task.description}</p>
                       )}
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-shrink-0">
                       <span className={cn(
                         "text-xs px-1.5 py-0.5 rounded",
                         task.priority === "high" && "bg-red-500/10 text-red-600",
@@ -289,7 +289,7 @@ export default function ArchivedPage() {
                       <button
                         onClick={() => handleDeleteOne(task.id)}
                         disabled={deletingIds.has(task.id)}
-                        className="opacity-0 group-hover:opacity-100 p-1.5 rounded-md text-linear-text-tertiary hover:text-red-400 hover:bg-red-500/10 transition-all disabled:opacity-50"
+                        className="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 p-1.5 rounded-md text-linear-text-tertiary hover:text-red-400 hover:bg-red-500/10 transition-all disabled:opacity-50"
                         title="Delete permanently"
                       >
                         {deletingIds.has(task.id) ? (

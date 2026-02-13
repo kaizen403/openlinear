@@ -2,18 +2,20 @@
 
 import { useState, useEffect, useCallback, Suspense } from "react"
 import { useSearchParams } from "next/navigation"
-import { 
-  Search, 
-  Plus, 
-  FolderKanban, 
-  Target, 
-  Hexagon, 
+import {
+  Search,
+  Plus,
+  FolderKanban,
+  Target,
+  Hexagon,
   Filter,
   Calendar,
   TrendingUp,
   Trash2,
   Loader2,
-  Pencil
+  Pencil,
+  GitBranch,
+  Lock,
 } from "lucide-react"
 import { AppShell } from "@/components/layout/app-shell"
 import { cn } from "@/lib/utils"
@@ -37,7 +39,18 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { fetchProjects, fetchTeams, createProject, updateProject, deleteProject, type Project, type Team } from "@/lib/api"
+import {
+  fetchProjects,
+  fetchTeams,
+  createProject,
+  updateProject,
+  deleteProject,
+  fetchGitHubRepos,
+  getLoginUrl,
+  type Project,
+  type Team,
+  type GitHubRepo,
+} from "@/lib/api"
 import { useSSESubscription } from "@/providers/sse-provider"
 
 type StatusType = 'planned' | 'in_progress' | 'paused' | 'completed' | 'cancelled'
@@ -143,6 +156,49 @@ function ProjectsContent() {
     localPath: "",
   })
   const [formErrors, setFormErrors] = useState<Record<string, string>>({})
+
+  const [repoMode, setRepoMode] = useState<'url' | 'picker'>('url')
+  const [githubRepos, setGithubRepos] = useState<GitHubRepo[]>([])
+  const [reposLoading, setReposLoading] = useState(false)
+  const [repoSearch, setRepoSearch] = useState('')
+  const [githubError, setGithubError] = useState<string | null>(null)
+
+  const [editRepoMode, setEditRepoMode] = useState<'url' | 'picker'>('url')
+  const [editGithubRepos, setEditGithubRepos] = useState<GitHubRepo[]>([])
+  const [editReposLoading, setEditReposLoading] = useState(false)
+  const [editRepoSearch, setEditRepoSearch] = useState('')
+  const [editGithubError, setEditGithubError] = useState<string | null>(null)
+
+  const loadGitHubRepos = useCallback(async (isEdit = false) => {
+    if (isEdit) {
+      setEditReposLoading(true)
+      setEditGithubError(null)
+    } else {
+      setReposLoading(true)
+      setGithubError(null)
+    }
+
+    try {
+      const repos = await fetchGitHubRepos()
+      if (isEdit) {
+        setEditGithubRepos(repos)
+      } else {
+        setGithubRepos(repos)
+      }
+    } catch {
+      if (isEdit) {
+        setEditGithubError('Failed to fetch GitHub repos')
+      } else {
+        setGithubError('Failed to fetch GitHub repos')
+      }
+    } finally {
+      if (isEdit) {
+        setEditReposLoading(false)
+      } else {
+        setReposLoading(false)
+      }
+    }
+  }, [])
 
   const loadProjects = useCallback(async () => {
     try {
@@ -464,7 +520,10 @@ function ProjectsContent() {
                               name="sourceType"
                               value="repo"
                               checked={formData.sourceType === "repo"}
-                              onChange={() => setFormData(prev => ({ ...prev, sourceType: "repo", localPath: "" }))}
+                              onChange={() => {
+                                setFormData(prev => ({ ...prev, sourceType: "repo", localPath: "" }))
+                                setRepoMode('url')
+                              }}
                               className="accent-[hsl(var(--linear-accent))]"
                             />
                             GitHub Repo
@@ -483,12 +542,108 @@ function ProjectsContent() {
                         </div>
 
                         {formData.sourceType === "repo" && (
-                          <Input
-                            value={formData.repoUrl}
-                            onChange={(e) => setFormData(prev => ({ ...prev, repoUrl: e.target.value }))}
-                            placeholder="https://github.com/owner/repo"
-                            className="bg-linear-bg-tertiary border-linear-border text-linear-text placeholder:text-linear-text-tertiary"
-                          />
+                          <div className="space-y-3">
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => setRepoMode('url')}
+                                className={cn(
+                                  "px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
+                                  repoMode === 'url'
+                                    ? "bg-linear-bg-tertiary text-linear-text"
+                                    : "text-linear-text-secondary hover:text-linear-text hover:bg-linear-bg-tertiary/50"
+                                )}
+                              >
+                                Enter URL
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setRepoMode('picker')
+                                  if (githubRepos.length === 0 && !githubError) {
+                                    loadGitHubRepos()
+                                  }
+                                }}
+                                className={cn(
+                                  "px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
+                                  repoMode === 'picker'
+                                    ? "bg-linear-bg-tertiary text-linear-text"
+                                    : "text-linear-text-secondary hover:text-linear-text hover:bg-linear-bg-tertiary/50"
+                                )}
+                              >
+                                My Repos
+                              </button>
+                            </div>
+
+                            {repoMode === 'url' && (
+                              <Input
+                                value={formData.repoUrl}
+                                onChange={(e) => setFormData(prev => ({ ...prev, repoUrl: e.target.value }))}
+                                placeholder="https://github.com/owner/repo"
+                                className="bg-linear-bg-tertiary border-linear-border text-linear-text placeholder:text-linear-text-tertiary"
+                              />
+                            )}
+
+                            {repoMode === 'picker' && (
+                              <div className="space-y-2">
+                                {reposLoading ? (
+                                  <div className="flex items-center justify-center py-8">
+                                    <Loader2 className="w-5 h-5 animate-spin text-linear-text-tertiary" />
+                                  </div>
+                                ) : githubError ? (
+                                  <div className="text-sm text-linear-text-secondary py-4">
+                                    Connect your GitHub account to browse repos.{" "}
+                                    <a
+                                      href={getLoginUrl()}
+                                      className="text-linear-accent hover:underline"
+                                    >
+                                      Connect GitHub
+                                    </a>
+                                  </div>
+                                ) : (
+                                  <>
+                                    <Input
+                                      value={repoSearch}
+                                      onChange={(e) => setRepoSearch(e.target.value)}
+                                      placeholder="Search repositories..."
+                                      className="bg-linear-bg-tertiary border-linear-border text-linear-text placeholder:text-linear-text-tertiary"
+                                    />
+                                    <div className="max-h-[200px] overflow-y-auto space-y-1">
+                                      {githubRepos
+                                        .filter(repo =>
+                                          repo.full_name.toLowerCase().includes(repoSearch.toLowerCase()) ||
+                                          (repo.description?.toLowerCase() || '').includes(repoSearch.toLowerCase())
+                                        )
+                                        .map(repo => (
+                                          <button
+                                            key={repo.id}
+                                            type="button"
+                                            onClick={() => {
+                                              setFormData(prev => ({ ...prev, repoUrl: `https://github.com/${repo.full_name}` }))
+                                              setRepoMode('url')
+                                            }}
+                                            className="w-full text-left p-2 rounded-md hover:bg-linear-bg-tertiary transition-colors"
+                                          >
+                                            <div className="flex items-center gap-2">
+                                              <GitBranch className="w-4 h-4 text-linear-text-tertiary" />
+                                              <span className="text-sm font-medium text-linear-text">{repo.full_name}</span>
+                                              {repo.private && (
+                                                <Lock className="w-3 h-3 text-linear-text-tertiary" />
+                                              )}
+                                            </div>
+                                            {repo.description && (
+                                              <p className="text-xs text-linear-text-secondary ml-6 line-clamp-1">
+                                                {repo.description}
+                                              </p>
+                                            )}
+                                          </button>
+                                        ))}
+                                    </div>
+                                  </>
+                                )}
+                              </div>
+                            )}
+                          </div>
                         )}
 
                         {formData.sourceType === "local" && (
@@ -551,113 +706,195 @@ function ProjectsContent() {
         </div>
 
         <div className="flex-1 overflow-auto">
-          <div className="min-w-[800px]">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-linear-border">
-                  <th className="text-left py-3 px-6 text-xs font-medium text-linear-text-tertiary uppercase tracking-wider">
-                    Name
-                  </th>
-                  <th className="text-left py-3 px-4 text-xs font-medium text-linear-text-tertiary uppercase tracking-wider w-[120px]">
-                    Status
-                  </th>
-                  <th className="text-left py-3 px-4 text-xs font-medium text-linear-text-tertiary uppercase tracking-wider w-[180px]">
-                    Teams
-                  </th>
-                  <th className="text-left py-3 px-4 text-xs font-medium text-linear-text-tertiary uppercase tracking-wider w-[130px]">
-                    Target date
-                  </th>
-                  <th className="text-left py-3 px-4 text-xs font-medium text-linear-text-tertiary uppercase tracking-wider w-[100px]">
-                    Tasks
-                  </th>
-                  <th className="w-12"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {isLoading ? (
-                  <tr>
-                    <td colSpan={6} className="py-12 text-center">
-                      <Loader2 className="w-6 h-6 animate-spin mx-auto text-linear-text-tertiary" />
-                    </td>
+          <div className="hidden md:block">
+            <div className="min-w-[800px]">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-linear-border">
+                    <th className="text-left py-3 px-6 text-xs font-medium text-linear-text-tertiary uppercase tracking-wider">
+                      Name
+                    </th>
+                    <th className="text-left py-3 px-4 text-xs font-medium text-linear-text-tertiary uppercase tracking-wider w-[120px]">
+                      Status
+                    </th>
+                    <th className="text-left py-3 px-4 text-xs font-medium text-linear-text-tertiary uppercase tracking-wider w-[180px]">
+                      Teams
+                    </th>
+                    <th className="text-left py-3 px-4 text-xs font-medium text-linear-text-tertiary uppercase tracking-wider w-[130px]">
+                      Target date
+                    </th>
+                    <th className="text-left py-3 px-4 text-xs font-medium text-linear-text-tertiary uppercase tracking-wider w-[100px]">
+                      Tasks
+                    </th>
+                    <th className="w-12"></th>
                   </tr>
-                ) : filteredProjects.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="py-12 text-center text-linear-text-tertiary">
-                      {searchQuery ? "No projects match your search" : "No projects yet. Create your first project!"}
-                    </td>
-                  </tr>
-                ) : (
-                  filteredProjects.map((project) => (
-                    <tr 
-                      key={project.id} 
-                      className="border-b border-linear-border/50 hover:bg-linear-bg-secondary/50 transition-colors cursor-pointer group"
-                    >
-                      <td className="py-3 px-6">
-                        <div className="flex items-center gap-3">
-                          <ProjectIcon type={project.icon} color={project.color} />
-                          <div>
-                            <div className="text-sm font-medium text-linear-text">{project.name}</div>
-                            {project.description && (
-                              <div className="text-xs text-linear-text-tertiary line-clamp-1">{project.description}</div>
-                            )}
-                          </div>
-                        </div>
-                      </td>
-                      <td className="py-3 px-4">
-                        <StatusBadge status={project.status} />
-                      </td>
-                      <td className="py-3 px-4">
-                        <TeamBadges teams={project.teams} />
-                      </td>
-                      <td className="py-3 px-4">
-                        <div className="flex items-center gap-2 text-sm text-linear-text-secondary">
-                          <Calendar className="w-3.5 h-3.5 text-linear-text-tertiary" />
-                          {formatDate(project.targetDate)}
-                        </div>
-                      </td>
-                      <td className="py-3 px-4">
-                        <span className="text-sm text-linear-text-secondary">
-                          {project._count?.tasks || 0}
-                        </span>
-                      </td>
-                      <td className="py-3 px-4">
-                        <div className="flex items-center gap-1">
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              setEditProject(project)
-                              setEditFormData({
-                                name: project.name,
-                                description: project.description || "",
-                                status: project.status,
-                                teamId: project.teams?.[0]?.id || "",
-                                targetDate: project.targetDate ? project.targetDate.split('T')[0] : "",
-                                sourceType: project.repoUrl ? "repo" : project.localPath ? "local" : "none",
-                                repoUrl: project.repoUrl || "",
-                                localPath: project.localPath || "",
-                              })
-                              setIsEditDialogOpen(true)
-                            }}
-                            className="opacity-0 group-hover:opacity-100 p-1.5 rounded-md hover:bg-linear-bg-tertiary transition-all"
-                          >
-                            <Pencil className="w-4 h-4 text-linear-text-secondary" />
-                          </button>
-                          <button
-                            onClick={() => {
-                              setProjectToDelete(project)
-                              setIsDeleteDialogOpen(true)
-                            }}
-                            className="opacity-0 group-hover:opacity-100 p-1.5 rounded-md hover:bg-linear-bg-tertiary transition-all"
-                          >
-                            <Trash2 className="w-4 h-4 text-red-400" />
-                          </button>
-                        </div>
+                </thead>
+                <tbody>
+                  {isLoading ? (
+                    <tr>
+                      <td colSpan={6} className="py-12 text-center">
+                        <Loader2 className="w-6 h-6 animate-spin mx-auto text-linear-text-tertiary" />
                       </td>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+                  ) : filteredProjects.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="py-12 text-center text-linear-text-tertiary">
+                        {searchQuery ? "No projects match your search" : "No projects yet. Create your first project!"}
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredProjects.map((project) => (
+                      <tr
+                        key={project.id}
+                        className="border-b border-linear-border/50 hover:bg-linear-bg-secondary/50 transition-colors cursor-pointer group"
+                      >
+                        <td className="py-3 px-6">
+                          <div className="flex items-center gap-3">
+                            <ProjectIcon type={project.icon} color={project.color} />
+                            <div>
+                              <div className="text-sm font-medium text-linear-text">{project.name}</div>
+                              {project.description && (
+                                <div className="text-xs text-linear-text-tertiary line-clamp-1">{project.description}</div>
+                              )}
+                            </div>
+                          </div>
+                        </td>
+                        <td className="py-3 px-4">
+                          <StatusBadge status={project.status} />
+                        </td>
+                        <td className="py-3 px-4">
+                          <TeamBadges teams={project.teams} />
+                        </td>
+                        <td className="py-3 px-4">
+                          <div className="flex items-center gap-2 text-sm text-linear-text-secondary">
+                            <Calendar className="w-3.5 h-3.5 text-linear-text-tertiary" />
+                            {formatDate(project.targetDate)}
+                          </div>
+                        </td>
+                        <td className="py-3 px-4">
+                          <span className="text-sm text-linear-text-secondary">
+                            {project._count?.tasks || 0}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4">
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setEditProject(project)
+                                setEditFormData({
+                                  name: project.name,
+                                  description: project.description || "",
+                                  status: project.status,
+                                  teamId: project.teams?.[0]?.id || "",
+                                  targetDate: project.targetDate ? project.targetDate.split('T')[0] : "",
+                                  sourceType: project.repoUrl ? "repo" : project.localPath ? "local" : "none",
+                                  repoUrl: project.repoUrl || "",
+                                  localPath: project.localPath || "",
+                                })
+                                setIsEditDialogOpen(true)
+                              }}
+                              className="opacity-0 group-hover:opacity-100 p-1.5 rounded-md hover:bg-linear-bg-tertiary transition-all"
+                            >
+                              <Pencil className="w-4 h-4 text-linear-text-secondary" />
+                            </button>
+                            <button
+                              onClick={() => {
+                                setProjectToDelete(project)
+                                setIsDeleteDialogOpen(true)
+                              }}
+                              className="opacity-0 group-hover:opacity-100 p-1.5 rounded-md hover:bg-linear-bg-tertiary transition-all"
+                            >
+                              <Trash2 className="w-4 h-4 text-red-400" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div className="block md:hidden space-y-3 p-4">
+            {isLoading ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 className="w-6 h-6 animate-spin text-linear-text-tertiary" />
+              </div>
+            ) : filteredProjects.length === 0 ? (
+              <div className="text-center py-12 text-linear-text-tertiary">
+                {searchQuery ? "No projects match your search" : "No projects yet. Create your first project!"}
+              </div>
+            ) : (
+              filteredProjects.map((project) => (
+                <div
+                  key={project.id}
+                  className="bg-linear-bg-secondary border border-linear-border rounded-lg p-4"
+                >
+                  <div className="flex items-start gap-3">
+                    <ProjectIcon type={project.icon} color={project.color} />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <div className="text-sm font-medium text-linear-text">{project.name}</div>
+                        <StatusBadge status={project.status} />
+                      </div>
+                      {project.description && (
+                        <div className="text-xs text-linear-text-tertiary line-clamp-1 mt-1">{project.description}</div>
+                      )}
+                      <div className="mt-2">
+                        <TeamBadges teams={project.teams} />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between mt-3 pt-3 border-t border-linear-border/50">
+                    <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-1.5 text-sm text-linear-text-secondary">
+                        <Calendar className="w-3.5 h-3.5 text-linear-text-tertiary" />
+                        <span className="text-xs">{formatDate(project.targetDate)}</span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <FolderKanban className="w-3.5 h-3.5 text-linear-text-tertiary" />
+                        <span className="text-xs text-linear-text-secondary">
+                          {project._count?.tasks || 0}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => {
+                          setEditProject(project)
+                          setEditFormData({
+                            name: project.name,
+                            description: project.description || "",
+                            status: project.status,
+                            teamId: project.teams?.[0]?.id || "",
+                            targetDate: project.targetDate ? project.targetDate.split('T')[0] : "",
+                            sourceType: project.repoUrl ? "repo" : project.localPath ? "local" : "none",
+                            repoUrl: project.repoUrl || "",
+                            localPath: project.localPath || "",
+                          })
+                          setIsEditDialogOpen(true)
+                        }}
+                        className="p-1.5 rounded-md hover:bg-linear-bg-tertiary transition-all"
+                      >
+                        <Pencil className="w-4 h-4 text-linear-text-secondary" />
+                      </button>
+                      <button
+                        onClick={() => {
+                          setProjectToDelete(project)
+                          setIsDeleteDialogOpen(true)
+                        }}
+                        className="p-1.5 rounded-md hover:bg-linear-bg-tertiary transition-all"
+                      >
+                        <Trash2 className="w-4 h-4 text-red-400" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         </div>
       </div>
@@ -812,7 +1049,10 @@ function ProjectsContent() {
                     name="edit-sourceType"
                     value="repo"
                     checked={editFormData.sourceType === "repo"}
-                    onChange={() => setEditFormData(prev => ({ ...prev, sourceType: "repo", localPath: "" }))}
+                    onChange={() => {
+                      setEditFormData(prev => ({ ...prev, sourceType: "repo", localPath: "" }))
+                      setEditRepoMode('url')
+                    }}
                     className="accent-[hsl(var(--linear-accent))]"
                   />
                   GitHub Repo
@@ -831,12 +1071,108 @@ function ProjectsContent() {
               </div>
 
               {editFormData.sourceType === "repo" && (
-                <Input
-                  value={editFormData.repoUrl}
-                  onChange={(e) => setEditFormData(prev => ({ ...prev, repoUrl: e.target.value }))}
-                  placeholder="https://github.com/owner/repo"
-                  className="bg-linear-bg-tertiary border-linear-border text-linear-text placeholder:text-linear-text-tertiary"
-                />
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setEditRepoMode('url')}
+                      className={cn(
+                        "px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
+                        editRepoMode === 'url'
+                          ? "bg-linear-bg-tertiary text-linear-text"
+                          : "text-linear-text-secondary hover:text-linear-text hover:bg-linear-bg-tertiary/50"
+                      )}
+                    >
+                      Enter URL
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditRepoMode('picker')
+                        if (editGithubRepos.length === 0 && !editGithubError) {
+                          loadGitHubRepos(true)
+                        }
+                      }}
+                      className={cn(
+                        "px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
+                        editRepoMode === 'picker'
+                          ? "bg-linear-bg-tertiary text-linear-text"
+                          : "text-linear-text-secondary hover:text-linear-text hover:bg-linear-bg-tertiary/50"
+                      )}
+                    >
+                      My Repos
+                    </button>
+                  </div>
+
+                  {editRepoMode === 'url' && (
+                    <Input
+                      value={editFormData.repoUrl}
+                      onChange={(e) => setEditFormData(prev => ({ ...prev, repoUrl: e.target.value }))}
+                      placeholder="https://github.com/owner/repo"
+                      className="bg-linear-bg-tertiary border-linear-border text-linear-text placeholder:text-linear-text-tertiary"
+                    />
+                  )}
+
+                  {editRepoMode === 'picker' && (
+                    <div className="space-y-2">
+                      {editReposLoading ? (
+                        <div className="flex items-center justify-center py-8">
+                          <Loader2 className="w-5 h-5 animate-spin text-linear-text-tertiary" />
+                        </div>
+                      ) : editGithubError ? (
+                        <div className="text-sm text-linear-text-secondary py-4">
+                          Connect your GitHub account to browse repos.{" "}
+                          <a
+                            href={getLoginUrl()}
+                            className="text-linear-accent hover:underline"
+                          >
+                            Connect GitHub
+                          </a>
+                        </div>
+                      ) : (
+                        <>
+                          <Input
+                            value={editRepoSearch}
+                            onChange={(e) => setEditRepoSearch(e.target.value)}
+                            placeholder="Search repositories..."
+                            className="bg-linear-bg-tertiary border-linear-border text-linear-text placeholder:text-linear-text-tertiary"
+                          />
+                          <div className="max-h-[200px] overflow-y-auto space-y-1">
+                            {editGithubRepos
+                              .filter(repo =>
+                                repo.full_name.toLowerCase().includes(editRepoSearch.toLowerCase()) ||
+                                (repo.description?.toLowerCase() || '').includes(editRepoSearch.toLowerCase())
+                              )
+                              .map(repo => (
+                                <button
+                                  key={repo.id}
+                                  type="button"
+                                  onClick={() => {
+                                    setEditFormData(prev => ({ ...prev, repoUrl: `https://github.com/${repo.full_name}` }))
+                                    setEditRepoMode('url')
+                                  }}
+                                  className="w-full text-left p-2 rounded-md hover:bg-linear-bg-tertiary transition-colors"
+                                >
+                                  <div className="flex items-center gap-2">
+                                    <GitBranch className="w-4 h-4 text-linear-text-tertiary" />
+                                    <span className="text-sm font-medium text-linear-text">{repo.full_name}</span>
+                                    {repo.private && (
+                                      <Lock className="w-3 h-3 text-linear-text-tertiary" />
+                                    )}
+                                  </div>
+                                  {repo.description && (
+                                    <p className="text-xs text-linear-text-secondary ml-6 line-clamp-1">
+                                      {repo.description}
+                                    </p>
+                                  )}
+                                </button>
+                              ))}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
               )}
 
               {editFormData.sourceType === "local" && (

@@ -59,7 +59,7 @@ function SkeletonCard() {
 export function DashboardLoading() {
   return (
     <div className="flex-1 overflow-hidden relative bg-[#111111]">
-      <div className="grid grid-cols-4 h-full">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 h-full">
         {COLUMNS.map((column) => (
           <SkeletonColumn
             key={column.id}

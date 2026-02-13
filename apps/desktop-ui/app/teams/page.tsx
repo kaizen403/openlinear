@@ -494,57 +494,159 @@ export default function TeamsPage() {
               <div className="text-linear-text-tertiary">Loading teams...</div>
             </div>
           ) : filteredTeams.length > 0 ? (
-            <div className="min-w-[800px]">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-linear-border">
-                    <th className="text-left py-3 px-6 text-xs font-medium text-linear-text-tertiary uppercase tracking-wider">
-                      Team
-                    </th>
-                    <th className="text-left py-3 px-4 text-xs font-medium text-linear-text-tertiary uppercase tracking-wider w-[100px]">
-                      Key
-                    </th>
-                    <th className="text-left py-3 px-4 text-xs font-medium text-linear-text-tertiary uppercase tracking-wider w-[180px]">
-                      Invite Code
-                    </th>
-                    <th className="text-left py-3 px-4 text-xs font-medium text-linear-text-tertiary uppercase tracking-wider w-[140px]">
-                      Members
-                    </th>
-                    <th className="w-12"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredTeams.map((team) => (
-                    <tr
-                      key={team.id}
-                      onClick={() => router.push(`/teams/${team.id}`)}
-                      className="border-b border-linear-border/50 hover:bg-linear-bg-secondary/50 transition-colors cursor-pointer group"
-                    >
-                      <td className="py-3 px-6">
-                        <div className="flex items-center gap-3">
-                          <div
-                            className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 border border-linear-border"
-                            style={{ backgroundColor: `${team.color}20` }}
-                          >
-                            <span className="text-xs font-bold" style={{ color: team.color }}>
-                              {team.name.charAt(0)}
-                            </span>
-                          </div>
-                          <div>
-                            <div className="text-sm font-medium text-linear-text">{team.name}</div>
-                            {team.description && (
-                              <div className="text-xs text-linear-text-tertiary">{team.description}</div>
+            <>
+              <div className="hidden md:block">
+                <div className="min-w-[800px]">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b border-linear-border">
+                        <th className="text-left py-3 px-6 text-xs font-medium text-linear-text-tertiary uppercase tracking-wider">
+                          Team
+                        </th>
+                        <th className="text-left py-3 px-4 text-xs font-medium text-linear-text-tertiary uppercase tracking-wider w-[100px]">
+                          Key
+                        </th>
+                        <th className="text-left py-3 px-4 text-xs font-medium text-linear-text-tertiary uppercase tracking-wider w-[180px]">
+                          Invite Code
+                        </th>
+                        <th className="text-left py-3 px-4 text-xs font-medium text-linear-text-tertiary uppercase tracking-wider w-[140px]">
+                          Members
+                        </th>
+                        <th className="w-12"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredTeams.map((team) => (
+                        <tr
+                          key={team.id}
+                          onClick={() => router.push(`/teams/${team.id}`)}
+                          className="border-b border-linear-border/50 hover:bg-linear-bg-secondary/50 transition-colors cursor-pointer group"
+                        >
+                          <td className="py-3 px-6">
+                            <div className="flex items-center gap-3">
+                              <div
+                                className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 border border-linear-border"
+                                style={{ backgroundColor: `${team.color}20` }}
+                              >
+                                <span className="text-xs font-bold" style={{ color: team.color }}>
+                                  {team.name.charAt(0)}
+                                </span>
+                              </div>
+                              <div>
+                                <div className="text-sm font-medium text-linear-text">{team.name}</div>
+                                {team.description && (
+                                  <div className="text-xs text-linear-text-tertiary">{team.description}</div>
+                                )}
+                              </div>
+                            </div>
+                          </td>
+                          <td className="py-3 px-4">
+                            <span className="text-sm text-linear-text-secondary font-mono">{team.key}</span>
+                          </td>
+                          <td className="py-3 px-4">
+                            {team.inviteCode ? (
+                              <div className="flex items-center gap-2">
+                                <code className="text-sm font-mono text-linear-text-secondary">
+                                  {team.inviteCode}
+                                </code>
+                                <button
+                                  onClick={(e: React.MouseEvent) => {
+                                    e.stopPropagation()
+                                    handleCopyInviteCode(team.inviteCode!, team.id)
+                                  }}
+                                  className="p-1 rounded hover:bg-linear-bg-tertiary transition-colors"
+                                  title="Copy invite code"
+                                >
+                                  {copiedTeamId === team.id ? (
+                                    <Check className="w-3.5 h-3.5 text-green-500" />
+                                  ) : (
+                                    <Copy className="w-3.5 h-3.5 text-linear-text-tertiary" />
+                                  )}
+                                </button>
+                              </div>
+                            ) : (
+                              <span className="text-sm text-linear-text-tertiary">—</span>
                             )}
-                          </div>
+                          </td>
+                          <td className="py-3 px-4">
+                            <div className="flex items-center gap-1">
+                              <Users className="w-4 h-4 text-linear-text-tertiary" />
+                              <span className="text-sm text-linear-text-secondary">
+                                {team._count?.members ?? team.members?.length ?? 0}
+                              </span>
+                            </div>
+                          </td>
+                          <td className="py-3 px-4">
+                            <div className="flex items-center gap-1">
+                              <button
+                                onClick={(e: React.MouseEvent) => {
+                                  e.stopPropagation()
+                                  setEditTeam(team)
+                                  setEditFormData({
+                                    name: team.name,
+                                    description: team.description || "",
+                                    color: team.color,
+                                  })
+                                  setIsEditDialogOpen(true)
+                                }}
+                                className="opacity-0 group-hover:opacity-100 p-1.5 rounded-md hover:bg-linear-bg-tertiary transition-all"
+                                title="Edit team"
+                              >
+                                <Pencil className="w-4 h-4 text-linear-text-secondary" />
+                              </button>
+                              <button
+                                onClick={(e: React.MouseEvent) => {
+                                  e.stopPropagation()
+                                  handleDeleteTeam(team.id)
+                                }}
+                                className="opacity-0 group-hover:opacity-100 p-1.5 rounded-md hover:bg-red-500/10 transition-all"
+                                title="Delete team"
+                              >
+                                <Trash2 className="w-4 h-4 text-red-500" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div className="block md:hidden space-y-3 p-4">
+                {filteredTeams.map((team) => (
+                  <div
+                    key={team.id}
+                    onClick={() => router.push(`/teams/${team.id}`)}
+                    className="bg-linear-bg-secondary border border-linear-border rounded-lg p-4 cursor-pointer"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div
+                          className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 border border-linear-border"
+                          style={{ backgroundColor: `${team.color}20` }}
+                        >
+                          <span className="text-sm font-bold" style={{ color: team.color }}>
+                            {team.name.charAt(0)}
+                          </span>
                         </div>
-                      </td>
-                      <td className="py-3 px-4">
-                        <span className="text-sm text-linear-text-secondary font-mono">{team.key}</span>
-                      </td>
-                      <td className="py-3 px-4">
-                        {team.inviteCode ? (
+                        <div className="min-w-0">
                           <div className="flex items-center gap-2">
-                            <code className="text-sm font-mono text-linear-text-secondary">
+                            <div className="text-sm font-medium text-linear-text truncate">{team.name}</div>
+                            <span className="text-xs text-linear-text-secondary font-mono bg-linear-bg-tertiary px-1.5 py-0.5 rounded">{team.key}</span>
+                          </div>
+                          {team.description && (
+                            <div className="text-xs text-linear-text-tertiary line-clamp-1">{team.description}</div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between mt-3 pt-3 border-t border-linear-border/50">
+                      <div className="flex items-center gap-3">
+                        {team.inviteCode ? (
+                          <div className="flex items-center gap-1.5">
+                            <code className="text-xs font-mono text-linear-text-secondary">
                               {team.inviteCode}
                             </code>
                             <button
@@ -556,59 +658,55 @@ export default function TeamsPage() {
                               title="Copy invite code"
                             >
                               {copiedTeamId === team.id ? (
-                                <Check className="w-3.5 h-3.5 text-green-500" />
+                                <Check className="w-3 h-3 text-green-500" />
                               ) : (
-                                <Copy className="w-3.5 h-3.5 text-linear-text-tertiary" />
+                                <Copy className="w-3 h-3 text-linear-text-tertiary" />
                               )}
                             </button>
                           </div>
                         ) : (
-                          <span className="text-sm text-linear-text-tertiary">—</span>
+                          <span className="text-xs text-linear-text-tertiary">—</span>
                         )}
-                      </td>
-                      <td className="py-3 px-4">
                         <div className="flex items-center gap-1">
-                          <Users className="w-4 h-4 text-linear-text-tertiary" />
-                          <span className="text-sm text-linear-text-secondary">
+                          <Users className="w-3.5 h-3.5 text-linear-text-tertiary" />
+                          <span className="text-xs text-linear-text-secondary">
                             {team._count?.members ?? team.members?.length ?? 0}
                           </span>
                         </div>
-                      </td>
-                      <td className="py-3 px-4">
-                        <div className="flex items-center gap-1">
-                          <button
-                            onClick={(e: React.MouseEvent) => {
-                              e.stopPropagation()
-                              setEditTeam(team)
-                              setEditFormData({
-                                name: team.name,
-                                description: team.description || "",
-                                color: team.color,
-                              })
-                              setIsEditDialogOpen(true)
-                            }}
-                            className="opacity-0 group-hover:opacity-100 p-1.5 rounded-md hover:bg-linear-bg-tertiary transition-all"
-                            title="Edit team"
-                          >
-                            <Pencil className="w-4 h-4 text-linear-text-secondary" />
-                          </button>
-                          <button
-                            onClick={(e: React.MouseEvent) => {
-                              e.stopPropagation()
-                              handleDeleteTeam(team.id)
-                            }}
-                            className="opacity-0 group-hover:opacity-100 p-1.5 rounded-md hover:bg-red-500/10 transition-all"
-                            title="Delete team"
-                          >
-                            <Trash2 className="w-4 h-4 text-red-500" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={(e: React.MouseEvent) => {
+                            e.stopPropagation()
+                            setEditTeam(team)
+                            setEditFormData({
+                              name: team.name,
+                              description: team.description || "",
+                              color: team.color,
+                            })
+                            setIsEditDialogOpen(true)
+                          }}
+                          className="p-1.5 rounded-md hover:bg-linear-bg-tertiary transition-all"
+                          title="Edit team"
+                        >
+                          <Pencil className="w-4 h-4 text-linear-text-secondary" />
+                        </button>
+                        <button
+                          onClick={(e: React.MouseEvent) => {
+                            e.stopPropagation()
+                            handleDeleteTeam(team.id)
+                          }}
+                          className="p-1.5 rounded-md hover:bg-red-500/10 transition-all"
+                          title="Delete team"
+                        >
+                          <Trash2 className="w-4 h-4 text-red-500" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
           ) : (
             <div className="flex-1 flex flex-col items-center justify-center py-24">
               <div className="w-12 h-12 rounded-xl bg-linear-bg-tertiary border border-linear-border flex items-center justify-center mb-4">

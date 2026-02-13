@@ -168,25 +168,25 @@ export function TaskDetailView({ task, logs, progress, open, onClose, onDelete, 
               {task.identifier || task.id.slice(0, 8)}
             </span>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1 sm:gap-2">
             {isExecuting ? (
               onCancel && (
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="h-8 px-3 text-linear-text-secondary hover:text-yellow-400 hover:bg-yellow-400/10"
+                  className="h-8 px-2 sm:px-3 text-linear-text-secondary hover:text-yellow-400 hover:bg-yellow-400/10"
                   disabled={cancelling}
                   onClick={() => { setCancelling(true); onCancel(task.id) }}
                 >
                   {cancelling ? (
                     <>
                       <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
-                      Stopping
+                      <span className="hidden sm:inline">Stopping</span>
                     </>
                   ) : (
                     <>
                       <Square className="h-3.5 w-3.5 mr-1.5 fill-current" />
-                      Stop
+                      <span className="hidden sm:inline">Stop</span>
                     </>
                   )}
                 </Button>
@@ -196,11 +196,11 @@ export function TaskDetailView({ task, logs, progress, open, onClose, onDelete, 
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="h-8 px-3 text-linear-text-secondary hover:text-green-400 hover:bg-green-400/10"
+                  className="h-8 px-2 sm:px-3 text-linear-text-secondary hover:text-green-400 hover:bg-green-400/10"
                   onClick={() => onExecute(task.id)}
                 >
                   <Play className="h-3.5 w-3.5 mr-1.5 fill-current" />
-                  Execute
+                  <span className="hidden sm:inline">Execute</span>
                 </Button>
               )
             )}
@@ -208,11 +208,11 @@ export function TaskDetailView({ task, logs, progress, open, onClose, onDelete, 
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-8 px-3 text-linear-text-secondary hover:text-linear-accent hover:bg-linear-accent/10"
+                className="h-8 px-2 sm:px-3 text-linear-text-secondary hover:text-linear-accent hover:bg-linear-accent/10"
                 onClick={() => onDelete(task.id)}
               >
                 <Archive className="h-3.5 w-3.5 mr-1.5" />
-                Archive
+                <span className="hidden sm:inline">Archive</span>
               </Button>
             )}
             <Button
@@ -345,9 +345,9 @@ export function TaskDetailView({ task, logs, progress, open, onClose, onDelete, 
                     Activity
                   </h2>
 
-                  <div 
+                  <div
                     ref={logsContainerRef}
-                    className="max-h-[400px] overflow-y-auto space-y-3 pr-2"
+                    className="max-h-[300px] sm:max-h-[400px] overflow-y-auto space-y-3 pr-2"
                   >
                     {logs.length === 0 ? (
                       <div className="flex flex-col items-center justify-center py-12 text-linear-text-tertiary">

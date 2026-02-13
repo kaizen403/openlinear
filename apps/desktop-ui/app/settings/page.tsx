@@ -212,7 +212,7 @@ export default function SettingsPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="flex items-center justify-between py-3">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 py-3">
             <div>
               <p className="text-sm text-linear-text">Language</p>
               <p className="text-xs text-linear-text-tertiary">
@@ -220,7 +220,7 @@ export default function SettingsPage() {
               </p>
             </div>
             <Select value={language} onValueChange={setLanguage}>
-              <SelectTrigger className="w-40 bg-linear-bg border-linear-border text-linear-text">
+              <SelectTrigger className="w-full sm:w-40 bg-linear-bg border-linear-border text-linear-text">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent className="bg-linear-bg-secondary border-linear-border">
@@ -233,7 +233,7 @@ export default function SettingsPage() {
             </Select>
           </div>
 
-          <div className="flex items-center justify-between py-3 border-t border-linear-border">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 py-3 border-t border-linear-border">
             <div>
               <p className="text-sm text-linear-text">Timezone</p>
               <p className="text-xs text-linear-text-tertiary">
@@ -241,7 +241,7 @@ export default function SettingsPage() {
               </p>
             </div>
             <Select value={timezone} onValueChange={setTimezone}>
-              <SelectTrigger className="w-48 bg-linear-bg border-linear-border text-linear-text">
+              <SelectTrigger className="w-full sm:w-48 bg-linear-bg border-linear-border text-linear-text">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent className="bg-linear-bg-secondary border-linear-border">
@@ -637,7 +637,7 @@ export default function SettingsPage() {
                 />
               </div>
 
-              <div className="flex items-center justify-between py-3 border-t border-linear-border">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 py-3 border-t border-linear-border">
                 <div>
                   <p className="text-sm text-linear-text">
                     Merge Conflict Behavior
@@ -650,7 +650,7 @@ export default function SettingsPage() {
                   value={conflictBehavior}
                   onValueChange={setConflictBehavior}
                 >
-                  <SelectTrigger className="w-32 bg-linear-bg border-linear-border text-linear-text">
+                  <SelectTrigger className="w-full sm:w-32 bg-linear-bg border-linear-border text-linear-text">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent className="bg-linear-bg-secondary border-linear-border">
@@ -729,7 +729,7 @@ export default function SettingsPage() {
             />
           </div>
 
-          <div className="flex items-center justify-between py-3 border-t border-linear-border">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 py-3 border-t border-linear-border">
             <div>
               <p className="text-sm text-linear-text">Session timeout</p>
               <p className="text-xs text-linear-text-tertiary">
@@ -740,7 +740,7 @@ export default function SettingsPage() {
               value={sessionTimeout}
               onValueChange={setSessionTimeout}
             >
-              <SelectTrigger className="w-36 bg-linear-bg border-linear-border text-linear-text">
+              <SelectTrigger className="w-full sm:w-36 bg-linear-bg border-linear-border text-linear-text">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent className="bg-linear-bg-secondary border-linear-border">
@@ -933,7 +933,7 @@ export default function SettingsPage() {
       </header>
 
       <div className="flex flex-col md:flex-row flex-1 overflow-hidden">
-        <nav className="flex-shrink-0 border-b md:border-b-0 md:border-r border-linear-border bg-linear-bg overflow-x-auto md:overflow-y-auto md:w-52 py-2 md:py-3 px-2">
+        <nav className="flex-shrink-0 border-b md:border-b-0 md:border-r border-linear-border bg-linear-bg overflow-x-auto md:overflow-y-auto md:w-52 py-2 md:py-3 px-2 [&::-webkit-scrollbar]:hidden" style={{ scrollbarWidth: 'none' }}>
           <div className="flex md:flex-col gap-1 min-w-max md:min-w-0">
           {NAV_ITEMS.map((item) => {
             const Icon = item.icon

@@ -100,7 +100,7 @@ function InboxTaskRow({
   return (
     <div
       className={cn(
-        "flex items-center gap-3 px-4 py-3 transition-colors group",
+        "flex items-start sm:items-center gap-3 px-4 py-3 transition-colors group flex-wrap",
         !compact && "hover:bg-white/[0.03]",
         !task.inboxRead && "bg-white/[0.02]"
       )}
@@ -118,7 +118,7 @@ function InboxTaskRow({
         </span>
       )}
 
-      <div className="flex-1 min-w-0">
+      <div className="flex-1 min-w-0 w-full sm:w-auto">
         <div className="flex items-center gap-2">
           {task.identifier && (
             <span className="text-[11px] text-linear-text-tertiary font-mono flex-shrink-0">
@@ -312,7 +312,7 @@ export default function InboxPage() {
                   "border-l-2 transition-colors",
                   allRead ? "border-l-transparent" : "border-l-purple-500/40"
                 )}>
-                  <div className="flex items-center gap-2 px-4 py-2.5 bg-white/[0.015]">
+                  <div className="flex items-center gap-2 px-4 py-2.5 bg-white/[0.015] flex-wrap">
                     <GitMerge className="w-3.5 h-3.5 text-purple-400 flex-shrink-0" />
                     <span className="text-[11px] text-purple-400/80 font-medium uppercase tracking-wider">
                       Parallel Batch · {group.tasks.length} tasks
