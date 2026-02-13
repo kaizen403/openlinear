@@ -295,7 +295,7 @@ router.patch('/:id', async (req: Request, res: Response) => {
     if (updateData.status === 'in_progress' && existing.status !== 'in_progress') {
       data.executionStartedAt = null;
       data.executionPausedAt = null;
-      data.executionElapsedMs = null;
+      data.executionElapsedMs = 0;
     }
 
     if (projectId !== undefined) {
