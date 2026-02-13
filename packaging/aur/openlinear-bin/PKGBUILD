@@ -1,7 +1,7 @@
 pkgname=openlinear-bin
 pkgver=0.1.0
 pkgrel=1
-pkgdesc="OpenLinear desktop app (AppImage)"
+pkgdesc="KazCode desktop app (AppImage)"
 arch=('x86_64')
 url="https://github.com/kaizen403/openlinear"
 license=('MIT')

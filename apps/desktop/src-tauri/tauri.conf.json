@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "OpenLinear",
+  "productName": "KazCode",
   "version": "0.1.0",
   "identifier": "com.openlinear.app",
   "build": {
@@ -11,7 +11,7 @@
     "security": { "csp": null },
     "windows": [
       {
-        "title": "OpenLinear",
+        "title": "KazCode",
         "width": 1200,
         "height": 800,
         "center": true,
