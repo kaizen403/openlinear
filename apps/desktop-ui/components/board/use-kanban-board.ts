@@ -5,6 +5,8 @@ import { useSSESubscription } from "@/providers/sse-provider"
 import { useAuth } from "@/hooks/use-auth"
 import { Project } from "@/lib/api"
 import { Task, ExecutionProgress, ExecutionLogEntry } from "@/types/task"
+import { API_URL } from "@/lib/api/client"
+import { getSetupStatus } from "@/lib/api/opencode"
 
 export const COLUMNS = [
   { id: 'todo', title: 'Todo', status: 'todo' as const },
@@ -25,7 +27,7 @@ export interface ActiveBatch {
   prUrl: string | null
 }
 
-export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001"
+export const API_BASE_URL = API_URL
 
 export interface KanbanBoardProps {
   projectId?: string | null
@@ -77,6 +79,9 @@ export interface UseKanbanBoardReturn {
     resetRetry?: boolean
     silent?: boolean
   }) => Promise<void>
+  showProviderSetup: boolean
+  setShowProviderSetup: (show: boolean) => void
+  handleProviderSetupComplete: () => void
 }
 
 export function useKanbanBoard({ projectId, teamId, projects = [] }: KanbanBoardProps): UseKanbanBoardReturn {
@@ -92,6 +97,8 @@ export function useKanbanBoard({ projectId, teamId, projects = [] }: KanbanBoard
   const [selectingColumns, setSelectingColumns] = useState<Set<string>>(new Set())
   const [activeBatch, setActiveBatch] = useState<ActiveBatch | null>(null)
   const [completedBatch, setCompletedBatch] = useState<{ taskIds: string[]; prUrl: string | null; mode: string } | null>(null)
+  const [showProviderSetup, setShowProviderSetup] = useState(false)
+  const [pendingExecuteTaskId, setPendingExecuteTaskId] = useState<string | null>(null)
   const { isAuthenticated, activeRepository, refreshActiveRepository } = useAuth()
 
   const batchTaskIds = activeBatch?.tasks.map(t => t.taskId) ?? []
@@ -648,6 +655,16 @@ export function useKanbanBoard({ projectId, teamId, projects = [] }: KanbanBoard
     }
 
     try {
+      const status = await getSetupStatus();
+      if (!status.ready) {
+        setPendingExecuteTaskId(taskId);
+        setShowProviderSetup(true);
+        return;
+      }
+    } catch {
+    }
+
+    try {
       const token = localStorage.getItem('token')
       const headers: HeadersInit = token ? { Authorization: `Bearer ${token}` } : {}
       const response = await fetch(`${API_BASE_URL}/api/tasks/${taskId}/execute`, {
@@ -662,6 +679,25 @@ export function useKanbanBoard({ projectId, teamId, projects = [] }: KanbanBoard
       console.error("Error executing task:", err)
     }
   }
+
+  const handleProviderSetupComplete = useCallback(async () => {
+    setShowProviderSetup(false);
+    if (pendingExecuteTaskId) {
+      const taskId = pendingExecuteTaskId;
+      setPendingExecuteTaskId(null);
+      // Retry execution
+      try {
+        const token = localStorage.getItem('token');
+        const headers: HeadersInit = token ? { Authorization: `Bearer ${token}` } : {};
+        await fetch(`${API_BASE_URL}/api/tasks/${taskId}/execute`, {
+          method: "POST",
+          headers,
+        });
+      } catch (err) {
+        console.error("Error executing task:", err);
+      }
+    }
+  }, [pendingExecuteTaskId]);
 
   const handleCancel = async (taskId: string) => {
     try {
@@ -779,5 +815,8 @@ export function useKanbanBoard({ projectId, teamId, projects = [] }: KanbanBoard
     toggleColumnSelectAll,
     clearSelection,
     fetchTasks,
+    showProviderSetup,
+    setShowProviderSetup,
+    handleProviderSetupComplete,
   }
 }

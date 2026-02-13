@@ -14,6 +14,49 @@ router.get('/status', (_req, res: Response) => {
   res.json(getOpenCodeStatus());
 });
 
+router.get('/setup-status', requireAuth, async (req: AuthRequest, res: Response) => {
+  try {
+    const containerStatus = getContainerStatus(req.userId!);
+
+    let providers: Array<{ id: string; name: string; authenticated: boolean }> = [];
+    let ready = false;
+
+    if (containerStatus?.status === 'running') {
+      try {
+        const client = await getClientForUser(req.userId!);
+        const providerList = await client.provider.list();
+        const authInfo = await client.provider.auth();
+
+        if (providerList.data?.all) {
+          const connectedSet = new Set(providerList.data.connected ?? []);
+          const authData = authInfo.data ?? {};
+
+          providers = providerList.data.all.map((provider) => ({
+            id: provider.id,
+            name: provider.name || provider.id,
+            authenticated: connectedSet.has(provider.id) || (Array.isArray(authData[provider.id]) && authData[provider.id].length > 0),
+          }));
+        }
+
+        ready = providers.some(p => p.authenticated);
+      } catch {
+        // Container running but can't query providers — still return container status
+      }
+    }
+
+    res.json({
+      container: containerStatus ? {
+        status: containerStatus.status,
+        hostPort: containerStatus.hostPort,
+      } : null,
+      providers,
+      ready,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : 'Failed to get setup status' });
+  }
+});
+
 router.get('/container', requireAuth, (req: AuthRequest, res: Response) => {
   const status = getContainerStatus(req.userId!);
   if (!status) {

@@ -5,7 +5,7 @@ import Link from "next/link"
 import { usePathname, useSearchParams, useRouter } from "next/navigation"
 import {
     Home, Inbox, Layers, Settings,
-    PanelLeftClose, LogOut, Archive,
+    PanelLeftClose, LogOut, Archive, Brain,
     ChevronRight, ChevronDown, CircleDot, Hexagon, MoreHorizontal, Pencil, Trash2, Plus
 } from "lucide-react"
 import { ProjectSelector } from "@/components/auth/project-selector"
@@ -238,7 +238,7 @@ export function Sidebar({ open, onClose, width, animating }: SidebarProps) {
                             />
                         </div>
                     )}
-                    <span className="text-base font-semibold text-linear-text">KazCode</span>
+                    <img src="/logo.png" alt="KazCode" className="h-[22px]" />
                 </div>
                 <div className="flex items-center gap-1">
                     <button
@@ -326,6 +326,10 @@ export function Sidebar({ open, onClose, width, animating }: SidebarProps) {
                     <Link href="/archived" className={navItemClass(pathname === "/archived")}>
                         <Archive className="w-4 h-4 flex-shrink-0" />
                         <span>Archived</span>
+                    </Link>
+                    <Link href="/settings?section=ai-providers" className={navItemClass(pathname === "/settings" && searchParams.get("section") === "ai-providers")}>
+                        <Brain className="w-4 h-4 flex-shrink-0" />
+                        <span>Connect Provider</span>
                     </Link>
                 </div>
             </nav>

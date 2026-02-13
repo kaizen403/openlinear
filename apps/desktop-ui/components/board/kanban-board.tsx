@@ -8,6 +8,7 @@ import { BatchProgress } from "./batch-progress"
 import { DashboardLoading } from "./dashboard-loading"
 import { TaskFormDialog } from "@/components/task-form"
 import { TaskDetailView } from "@/components/task-detail-view"
+import { ProviderSetupDialog } from "@/components/provider-setup-dialog"
 import { Plus } from "lucide-react"
 import { Task } from "@/types/task"
 import { useKanbanBoard, COLUMNS, KanbanBoardProps } from "./use-kanban-board"
@@ -52,6 +53,9 @@ export function KanbanBoard(props: KanbanBoardProps) {
     toggleColumnSelectAll,
     clearSelection,
     fetchTasks,
+    showProviderSetup,
+    setShowProviderSetup,
+    handleProviderSetupComplete,
   } = useKanbanBoard(props)
 
   const renderTask = (task: Task, index: number, isCompletedBatch?: boolean) => (
@@ -220,6 +224,12 @@ export function KanbanBoard(props: KanbanBoardProps) {
           onExecute={selectedTaskId && batchTaskIds.includes(selectedTaskId) ? undefined : handleExecute}
           onUpdate={handleUpdateTask}
           isExecuting={selectedTask?.status === 'in_progress'}
+        />
+
+        <ProviderSetupDialog
+          open={showProviderSetup}
+          onOpenChange={setShowProviderSetup}
+          onSetupComplete={handleProviderSetupComplete}
         />
 
         {(() => {

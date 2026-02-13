@@ -20,9 +20,12 @@ import {
   Sun,
   Laptop,
   Check,
+  Brain,
+  AlertCircle,
 } from "lucide-react"
 import { Slider } from "@/components/ui/slider"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import {
   Card,
   CardContent,
@@ -38,15 +41,19 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { useSearchParams } from "next/navigation"
 import { toast } from "sonner"
 import { DatabaseSettings } from "@/components/desktop/database-settings"
+import { ensureContainer, getSetupStatus, setProviderApiKey, ProviderInfo, SetupStatus } from "@/lib/api/opencode"
 import { AppShell } from "@/components/layout/app-shell"
+import { API_URL } from "@/lib/api/client"
 
 type SettingsSection =
   | "general"
   | "appearance"
   | "notifications"
   | "ai-execution"
+  | "ai-providers"
   | "security"
   | "api-keys"
   | "database"
@@ -60,14 +67,17 @@ const NAV_ITEMS: {
   { id: "appearance", label: "Appearance", icon: Palette },
   { id: "notifications", label: "Notifications", icon: Bell },
   { id: "ai-execution", label: "AI Execution", icon: Cpu },
+  { id: "ai-providers", label: "AI Providers", icon: Brain },
   { id: "security", label: "Security & Privacy", icon: Shield },
   { id: "api-keys", label: "API Keys", icon: Key },
   { id: "database", label: "Database", icon: Database },
 ]
 
 export default function SettingsPage() {
+  const searchParams = useSearchParams()
+  const initialSection = (searchParams.get("section") as SettingsSection) || "general"
   const [activeSection, setActiveSection] =
-    useState<SettingsSection>("general")
+    useState<SettingsSection>(initialSection)
 
   const [language, setLanguage] = useState("en")
   const [timezone, setTimezone] = useState("UTC")
@@ -100,6 +110,10 @@ export default function SettingsPage() {
   const maskedKey = "sk-ol-************************************a3f7"
   const fullKey = "sk-ol-9d8f7e6c5b4a3f2e1d0c9b8a7f6e5d4c3b2a3f7"
 
+  const [providersLoading, setProvidersLoading] = useState(false)
+  const [providerSetupStatus, setProviderSetupStatus] = useState<SetupStatus | null>(null)
+  const [providerInputs, setProviderInputs] = useState<Record<string, { key: string; saving: boolean }>>({})
+
   const ACCENT_PRESETS = [
     { name: "Blue", accent: "#3b82f6", hover: "#2563eb" },
     { name: "Purple", accent: "#8b5cf6", hover: "#7c3aed" },
@@ -126,7 +140,7 @@ export default function SettingsPage() {
   useEffect(() => {
     const fetchSettings = async () => {
       try {
-        const response = await fetch("http://localhost:3001/api/settings")
+        const response = await fetch(`${API_URL}/api/settings`)
         if (response.ok) {
           const data = await response.json()
           setParallelLimit(data.parallelLimit)
@@ -159,10 +173,36 @@ export default function SettingsPage() {
     }
   }, [])
 
+  useEffect(() => {
+    if (activeSection !== "ai-providers") return
+
+    const fetchProviderStatus = async () => {
+      setProvidersLoading(true)
+      try {
+        await ensureContainer()
+        const status = await getSetupStatus()
+        setProviderSetupStatus(status)
+        
+        const inputs: Record<string, { key: string; saving: boolean }> = {}
+        status.providers.forEach((provider) => {
+          inputs[provider.id] = { key: "", saving: false }
+        })
+        setProviderInputs(inputs)
+      } catch (error) {
+        console.error("Failed to fetch provider status:", error)
+        toast.error("Failed to load AI provider status")
+      } finally {
+        setProvidersLoading(false)
+      }
+    }
+
+    fetchProviderStatus()
+  }, [activeSection])
+
   const handleSave = async () => {
     setSaving(true)
     try {
-      const response = await fetch("http://localhost:3001/api/settings", {
+      const response = await fetch(`${API_URL}/api/settings`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
@@ -194,6 +234,37 @@ export default function SettingsPage() {
     toast.success("API key copied to clipboard")
   }
 
+  const handleSaveProviderKey = async (providerId: string) => {
+    const input = providerInputs[providerId]
+    if (!input?.key.trim()) return
+
+    setProviderInputs((prev) => ({
+      ...prev,
+      [providerId]: { ...prev[providerId], saving: true },
+    }))
+
+    try {
+      await setProviderApiKey(providerId, input.key)
+
+      setProviderInputs((prev) => ({
+        ...prev,
+        [providerId]: { key: "", saving: false },
+      }))
+
+      toast.success("API key saved")
+
+      const status = await getSetupStatus()
+      setProviderSetupStatus(status)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to save API key"
+      toast.error(message)
+
+      setProviderInputs((prev) => ({
+        ...prev,
+        [providerId]: { ...prev[providerId], saving: false },
+      }))
+    }
+  }
 
   const renderGeneral = () => (
     <div className="space-y-6">
@@ -890,6 +961,100 @@ export default function SettingsPage() {
     </div>
   )
 
+  const renderAIProviders = () => (
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-lg font-semibold text-linear-text">AI Providers</h2>
+        <p className="text-sm text-linear-text-tertiary mt-1">
+          Configure your LLM provider API keys for AI task execution.
+        </p>
+      </div>
+
+      <Card className="bg-linear-bg-secondary border-linear-border">
+        <CardHeader>
+          <CardTitle className="text-linear-text">Provider Configuration</CardTitle>
+          <CardDescription className="text-linear-text-secondary">
+            Set up API keys for your preferred LLM providers.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {providersLoading ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="w-6 h-6 animate-spin text-linear-text-secondary" />
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {providerSetupStatus?.providers.map((provider) => (
+                <div
+                  key={provider.id}
+                  className="p-4 rounded-lg bg-linear-bg border border-linear-border"
+                >
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-sm font-medium text-linear-text">
+                      {provider.name}
+                    </span>
+                    {provider.authenticated ? (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-500/20 text-green-400 border border-green-500/30">
+                        <Check className="w-3 h-3" />
+                        Configured
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-linear-bg-tertiary text-linear-text-tertiary border border-linear-border">
+                        <AlertCircle className="w-3 h-3" />
+                        Not configured
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="flex gap-2">
+                    <Input
+                      type="password"
+                      placeholder="Enter API key"
+                      value={providerInputs[provider.id]?.key || ""}
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                        setProviderInputs((prev) => ({
+                          ...prev,
+                          [provider.id]: {
+                            ...prev[provider.id],
+                            key: e.target.value,
+                          },
+                        }))
+                      }
+                      disabled={providerInputs[provider.id]?.saving}
+                      className="flex-1 bg-linear-bg-secondary border-linear-border text-linear-text placeholder:text-linear-text-tertiary focus-visible:ring-linear-accent"
+                    />
+                    <Button
+                      size="sm"
+                      onClick={() => handleSaveProviderKey(provider.id)}
+                      disabled={
+                        !providerInputs[provider.id]?.key.trim() ||
+                        providerInputs[provider.id]?.saving
+                      }
+                      className="bg-linear-accent hover:bg-linear-accent-hover text-white disabled:opacity-50"
+                    >
+                      {providerInputs[provider.id]?.saving ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        "Save"
+                      )}
+                    </Button>
+                  </div>
+                </div>
+              ))}
+
+              {providerSetupStatus?.providers.length === 0 && (
+                <div className="text-center py-8 text-linear-text-secondary">
+                  <AlertCircle className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                  <p>No providers available</p>
+                </div>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  )
+
   const renderDatabase = () => (
     <div className="space-y-6">
       <div>
@@ -913,6 +1078,8 @@ export default function SettingsPage() {
         return renderNotifications()
       case "ai-execution":
         return renderAIExecution()
+      case "ai-providers":
+        return renderAIProviders()
       case "security":
         return renderSecurity()
       case "api-keys":

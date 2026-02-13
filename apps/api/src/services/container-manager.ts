@@ -1,6 +1,8 @@
 import Docker from 'dockerode';
 import getPort from 'get-port';
 import { createOpencodeClient, OpencodeClient } from '@opencode-ai/sdk';
+import path from 'path';
+import { execSync } from 'child_process';
 
 const OPENCODE_IMAGE = process.env.OPENCODE_IMAGE || 'opencode-worker:latest';
 const CONTAINER_PORT = 4096;
@@ -410,6 +412,26 @@ export async function initContainerManager(): Promise<void> {
     console.error('[ContainerManager] Cannot connect to Docker daemon:', err);
     console.error('[ContainerManager] Ensure Docker is running and the socket is accessible');
     return;
+  }
+
+  try {
+    const images = await docker.listImages({
+      filters: { reference: [OPENCODE_IMAGE] },
+    });
+    if (images.length === 0) {
+      console.log('[ContainerManager] Worker image not found, building...');
+      const projectRoot = path.resolve(__dirname, '..', '..', '..', '..');
+      execSync(`docker build -t ${OPENCODE_IMAGE} docker/opencode-worker/`, {
+        cwd: projectRoot,
+        stdio: 'inherit',
+      });
+      console.log('[ContainerManager] Worker image built successfully');
+    } else {
+      console.log(`[ContainerManager] Worker image ${OPENCODE_IMAGE} found`);
+    }
+  } catch (err) {
+    console.error('[ContainerManager] Failed to build worker image:', err);
+    console.error('[ContainerManager] Container creation will fail until image is available');
   }
 
   // Discover existing containers
