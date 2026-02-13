@@ -215,7 +215,7 @@ export function Sidebar({ open, onClose, width, animating }: SidebarProps) {
                             />
                         </div>
                     )}
-                    <span className="text-base font-semibold text-linear-text">KazCode</span>
+                    <span className="text-base font-semibold text-linear-text">OpenLinear</span>
                 </div>
                 <div className="flex items-center gap-1">
                     <button
@@ -280,7 +280,13 @@ export function Sidebar({ open, onClose, width, animating }: SidebarProps) {
                                     onDelete={handleDeleteTeam}
                                 />
                             ))}
-
+                            <Link
+                                href="/teams"
+                                className={subNavItemClass(pathname === "/teams")}
+                            >
+                                <Settings className="w-3.5 h-3.5 flex-shrink-0" />
+                                <span>Manage</span>
+                            </Link>
                         </div>
                     ) : (
                         <Link
