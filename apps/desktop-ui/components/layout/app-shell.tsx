@@ -102,9 +102,9 @@ export function AppShell({ children }: AppShellProps) {
             {!isMobile && sidebarOpen && (
                 <div
                     onMouseDown={handleMouseDown}
-                    className="w-1 flex-shrink-0 cursor-col-resize relative group z-10 -ml-px"
+                    className="w-2 flex-shrink-0 cursor-col-resize relative group z-10 -ml-1"
                 >
-                    <div className="absolute inset-y-0 left-0 w-0.5 bg-transparent group-hover:bg-linear-accent/40 transition-colors duration-150" />
+                    <div className="absolute inset-y-0 left-1/2 -translate-x-1/2 w-[2px] bg-transparent group-hover:bg-linear-accent/60 transition-colors duration-150" />
                 </div>
             )}
 

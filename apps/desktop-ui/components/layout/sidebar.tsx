@@ -130,6 +130,7 @@ export function Sidebar({ open, onClose, width, animating }: SidebarProps) {
     const [isTauri, setIsTauri] = useState(false)
     const [inboxCount, setInboxCount] = useState<{ total: number; unread: number }>({ total: 0, unread: 0 })
     const [teams, setTeams] = useState<Team[]>(cachedTeams)
+    const [isFullscreen, setIsFullscreen] = useState(false)
 
     const loadTeams = useCallback(() => {
         fetchTeams().then((data) => {
@@ -139,7 +140,22 @@ export function Sidebar({ open, onClose, width, animating }: SidebarProps) {
     }, [])
 
     useEffect(() => {
-        setIsTauri(typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window)
+        const tauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
+        setIsTauri(tauri)
+        if (!tauri) return
+
+        let unlisten: (() => void) | undefined
+
+        const setup = async () => {
+            const { getCurrentWindow } = await import('@tauri-apps/api/window')
+            const win = getCurrentWindow()
+            setIsFullscreen(await win.isFullscreen())
+            unlisten = await win.onResized(async () => {
+                setIsFullscreen(await win.isFullscreen())
+            })
+        }
+        setup()
+        return () => { unlisten?.() }
     }, [])
 
     useEffect(() => {
@@ -171,7 +187,7 @@ export function Sidebar({ open, onClose, width, animating }: SidebarProps) {
 
     const handleClose = async () => {
         const { getCurrentWindow } = await import('@tauri-apps/api/window')
-        getCurrentWindow().close()
+        getCurrentWindow().minimize()
     }
 
     const handleMinimize = async () => {
@@ -181,7 +197,14 @@ export function Sidebar({ open, onClose, width, animating }: SidebarProps) {
 
     const handleMaximize = async () => {
         const { getCurrentWindow } = await import('@tauri-apps/api/window')
-        getCurrentWindow().toggleMaximize()
+        const isMac = navigator.platform.toUpperCase().includes('MAC')
+        if (isMac) {
+            const win = getCurrentWindow()
+            const fs = await win.isFullscreen()
+            await win.setFullscreen(!fs)
+        } else {
+            getCurrentWindow().toggleMaximize()
+        }
     }
 
     const isHomeNoFilter = pathname === "/" && !searchParams.get("teamId") && !searchParams.get("projectId")

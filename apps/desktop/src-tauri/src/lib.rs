@@ -9,6 +9,7 @@ pub fn run() {
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_store::Builder::default().build())
+        .plugin(tauri_plugin_os::init())
         .setup(|app| {
             deeplink::setup_deep_link_handler(app);
             Ok(())
