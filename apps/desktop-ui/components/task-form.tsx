@@ -35,7 +35,6 @@ const getFormSchema = (hasProjects: boolean) => z.object({
   title: z.string().min(1, "Title is required"),
   description: z.string().optional(),
   status: z.enum(["todo", "in_progress", "done", "cancelled"]),
-  priority: z.enum(["low", "medium", "high"]),
   labelIds: z.array(z.string()),
   projectId: hasProjects ? z.string().min(1, "Project is required") : z.string().optional(),
   dueDate: z.string().optional(),
@@ -53,18 +52,6 @@ interface TaskFormDialogProps {
 }
 
 const API_BASE_URL = "http://localhost:3001/api"
-
-const priorityColors = {
-  low: "bg-blue-700",
-  medium: "bg-yellow-700",
-  high: "bg-red-700",
-}
-
-const priorityLabels = {
-  low: "Low",
-  medium: "Medium",
-  high: "High",
-}
 
 const statusColors = {
   todo: "#a0a0a0",
@@ -97,7 +84,6 @@ export function TaskFormDialog({
       title: "",
       description: "",
       status: defaultStatus || "todo",
-      priority: "medium",
       labelIds: [],
       projectId: defaultProjectId || (hasProjects ? "" : undefined),
       dueDate: "",
@@ -139,7 +125,6 @@ export function TaskFormDialog({
            title: values.title,
            description: values.description || undefined,
            status: values.status,
-           priority: values.priority,
            labelIds: values.labelIds.length > 0 ? values.labelIds : undefined,
            projectId: values.projectId || undefined,
            dueDate: values.dueDate ? new Date(values.dueDate).toISOString() : undefined,
@@ -178,7 +163,7 @@ export function TaskFormDialog({
       <DialogContent className="sm:max-w-[520px] bg-[#1a1a1a] border-[#2a2a2a] p-0 gap-0 overflow-hidden">
         <DialogTitle className="sr-only">Create Task</DialogTitle>
         <DialogDescription className="sr-only">
-          Create a new task with title, description, priority, and labels
+          Create a new task with title, description, due date, and labels
         </DialogDescription>
 
         <Form {...form}>
@@ -284,64 +269,6 @@ export function TaskFormDialog({
                           <div className="flex items-center gap-2">
                             <div className="w-2 h-2 rounded-full" style={{ backgroundColor: statusColors.cancelled }} />
                             Cancelled
-                          </div>
-                        </SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <FormMessage className="text-red-400 text-xs" />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name="priority"
-                render={({ field }) => (
-                  <FormItem className="space-y-0">
-                    <Select
-                      onValueChange={field.onChange}
-                      defaultValue={field.value}
-                    >
-                      <FormControl>
-                        <SelectTrigger className="h-7 w-auto px-2.5 text-xs rounded-md bg-transparent border-none hover:bg-white/[0.06] text-[#a0a0a0] gap-1.5 focus:ring-0 shadow-none">
-                          <div className="flex items-center gap-1.5">
-                            <div
-                              className={`w-2 h-2 rounded-full ${
-                                priorityColors[field.value as keyof typeof priorityColors]
-                              }`}
-                            />
-                            <SelectValue placeholder="Priority">
-                              {priorityLabels[field.value as keyof typeof priorityLabels]}
-                            </SelectValue>
-                          </div>
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent className="bg-[#1a1a1a] border-[#2a2a2a]">
-                        <SelectItem
-                          value="low"
-                          className="text-[#f5f5f5] focus:bg-white/[0.06] focus:text-[#f5f5f5] text-xs"
-                        >
-                          <div className="flex items-center gap-2">
-                            <div className="w-2 h-2 rounded-full bg-blue-400" />
-                            Low
-                          </div>
-                        </SelectItem>
-                        <SelectItem
-                          value="medium"
-                          className="text-[#f5f5f5] focus:bg-white/[0.06] focus:text-[#f5f5f5] text-xs"
-                        >
-                          <div className="flex items-center gap-2">
-                            <div className="w-2 h-2 rounded-full bg-yellow-400" />
-                            Medium
-                          </div>
-                        </SelectItem>
-                        <SelectItem
-                          value="high"
-                          className="text-[#f5f5f5] focus:bg-white/[0.06] focus:text-[#f5f5f5] text-xs"
-                        >
-                          <div className="flex items-center gap-2">
-                            <div className="w-2 h-2 rounded-full bg-red-400" />
-                            High
                           </div>
                         </SelectItem>
                       </SelectContent>

@@ -23,24 +23,6 @@ interface TaskCardProps {
   isDragging?: boolean
 }
 
-const priorityColors = {
-  low: "bg-emerald-700",
-  medium: "bg-yellow-700",
-  high: "bg-red-700",
-}
-
-const priorityLabels: Record<string, string> = {
-  low: "Low",
-  medium: "Medium",
-  high: "High",
-}
-
-const priorityTextColors: Record<string, string> = {
-  low: "text-emerald-400",
-  medium: "text-yellow-400",
-  high: "text-red-400",
-}
-
 function formatDueDate(dateStr: string): { text: string; isOverdue: boolean } {
   const due = new Date(dateStr)
   const now = new Date()
@@ -158,10 +140,6 @@ export function TaskCard({ task, onExecute, onCancel, onDelete, onMoveToInProgre
               </div>
             </div>
           )}
-          <div className={cn(
-            "w-2 h-2 rounded-full mt-1.5 flex-shrink-0",
-            priorityColors[task.priority]
-          )} />
           <h4 className="text-sm font-light leading-tight line-clamp-2 flex-1">{task.title}</h4>
           {(isBatchTask || isActiveProgress) && (
             task.status === 'done' ? (
@@ -234,9 +212,6 @@ export function TaskCard({ task, onExecute, onCancel, onDelete, onMoveToInProgre
           <div className="flex items-center gap-2 min-w-0">
             <span className="text-[11px] text-linear-text-tertiary font-mono opacity-60">
               {task.identifier || (task.number ? `#${task.number}` : task.id.slice(0, 6))}
-            </span>
-            <span className={cn("text-[11px] font-medium", priorityTextColors[task.priority])}>
-              {priorityLabels[task.priority]}
             </span>
             {task.dueDate && (() => {
               const { text, isOverdue } = formatDueDate(task.dueDate)

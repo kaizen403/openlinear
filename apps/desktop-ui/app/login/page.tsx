@@ -61,7 +61,7 @@ export default function LoginPage() {
         {/* Logo / Header */}
         <div className="text-center mb-8">
           <h1 className="text-2xl font-semibold text-linear-text mb-2">
-            Welcome to OpenLinear
+            Welcome to KazCode
           </h1>
           <p className="text-sm text-linear-text-secondary">
             Sign in to continue
@@ -170,7 +170,7 @@ export default function LoginPage() {
             {activeTab === "github" && (
               <div className="space-y-4">
                 <p className="text-sm text-linear-text-secondary text-center">
-                  Sign in with your GitHub account to access OpenLinear
+                  Sign in with your GitHub account to access KazCode
                 </p>
 
                 {error && (

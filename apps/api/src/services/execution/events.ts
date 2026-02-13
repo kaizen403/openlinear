@@ -1,5 +1,5 @@
 import { prisma } from '@openlinear/db';
-import { getClient, getClientForDirectory } from '../opencode';
+import { getClient } from '../opencode';
 
 import type { OpencodeClient } from '@opencode-ai/sdk';
 import { appendTextDelta, appendReasoningDelta, flushDeltaBuffer, markThinking } from '../delta-buffer';
@@ -7,7 +7,6 @@ import { appendTextDelta, appendReasoningDelta, flushDeltaBuffer, markThinking }
 import { commitAndPush, createPullRequest } from './git';
 import {
   activeExecutions,
-  sessionToTask,
   eventSubscriptionActive,
   broadcastProgress,
   addLogEntry,
@@ -18,7 +17,6 @@ import {
   findTaskBySessionId,
   setEventSubscriptionActive,
 } from './state';
-import type { ExecutionState } from './state';
 
 async function handleSessionComplete(taskId: string): Promise<void> {
   const execution = activeExecutions.get(taskId);
@@ -44,16 +42,33 @@ async function handleSessionComplete(taskId: string): Promise<void> {
       broadcastProgress(taskId, 'creating_pr', 'Creating pull request...');
       addLogEntry(taskId, 'info', 'Creating pull request...');
 
-      const project = await prisma.repository.findUnique({
+      const repository = await prisma.repository.findUnique({
         where: { id: execution.projectId },
       });
+      const task = await prisma.task.findUnique({ where: { id: taskId } });
 
-      if (project) {
-        const task = await prisma.task.findUnique({ where: { id: taskId } });
+      let repoInfo = repository
+        ? { fullName: repository.fullName, defaultBranch: repository.defaultBranch }
+        : null;
+
+      if (!repoInfo && task?.projectId) {
+        const project = await prisma.project.findUnique({
+          where: { id: task.projectId },
+          include: { repository: true },
+        });
+        if (project?.repository) {
+          repoInfo = {
+            fullName: project.repository.fullName,
+            defaultBranch: project.repository.defaultBranch,
+          };
+        }
+      }
+
+      if (repoInfo) {
         const result = await createPullRequest(
-          project.fullName,
+          repoInfo.fullName,
           execution.branchName,
-          project.defaultBranch,
+          repoInfo.defaultBranch,
           task?.title || 'Task',
           task?.description || null,
           execution.accessToken
