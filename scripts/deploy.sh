@@ -60,13 +60,16 @@ done
 
 # Ensure DATABASE_URL is set for Prisma (matches the docker container creds above)
 export DATABASE_URL="${DATABASE_URL:-postgresql://openlinear:openlinear@localhost:5432/openlinear}"
+# packages/db/.env is gitignored so it doesn't exist on the droplet.
+# Prisma reads .env from the schema directory — write it so prisma db push can find it.
+echo "DATABASE_URL=${DATABASE_URL}" > packages/db/.env
 
 step "Generating Prisma client..."
 pnpm --filter @openlinear/db db:generate
 ok "Prisma client generated"
 
 step "Pushing database schema..."
-pnpm db:push
+pnpm --filter @openlinear/db db:push
 ok "Schema synced"
 
 # ── Build worker Docker image ────────────────────────────────────
