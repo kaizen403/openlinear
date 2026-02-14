@@ -58,6 +58,9 @@ for i in $(seq 1 30); do
     sleep 1
 done
 
+# Ensure DATABASE_URL is set for Prisma (matches the docker container creds above)
+export DATABASE_URL="${DATABASE_URL:-postgresql://openlinear:openlinear@localhost:5432/openlinear}"
+
 step "Generating Prisma client..."
 pnpm --filter @openlinear/db db:generate
 ok "Prisma client generated"
