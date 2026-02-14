@@ -32,17 +32,26 @@ export NODE_ENV="${_saved_node_env}"
 ok "Dependencies installed"
 
 # ── Database ─────────────────────────────────────────────────────
-dc() {
-    if command -v docker-compose &>/dev/null; then
-        docker-compose "$@"
-    else
-        docker compose "$@"
-    fi
-}
-
+# Start postgres directly — no docker-compose/plugin dependency.
+# Check running → check stopped → create new.
 step "Starting database..."
-dc up -d postgres
-ok "PostgreSQL running"
+if docker ps --format '{{.Names}}' | grep -qx 'openlinear-db'; then
+    ok "PostgreSQL already running"
+elif docker ps -a --format '{{.Names}}' | grep -qx 'openlinear-db'; then
+    docker start openlinear-db
+    ok "PostgreSQL started (existing container)"
+else
+    docker run -d \
+        --name openlinear-db \
+        -e POSTGRES_DB=openlinear \
+        -e POSTGRES_USER=openlinear \
+        -e POSTGRES_PASSWORD=openlinear \
+        -p 5432:5432 \
+        -v postgres_data:/var/lib/postgresql/data \
+        --restart unless-stopped \
+        postgres:16-alpine
+    ok "PostgreSQL created and started"
+fi
 
 step "Waiting for database..."
 for i in $(seq 1 30); do
