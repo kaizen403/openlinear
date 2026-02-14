@@ -32,8 +32,16 @@ export NODE_ENV="${_saved_node_env}"
 ok "Dependencies installed"
 
 # ── Database ─────────────────────────────────────────────────────
+dc() {
+    if docker compose version &>/dev/null; then
+        docker compose "$@"
+    else
+        docker-compose "$@"
+    fi
+}
+
 step "Starting database..."
-docker compose up -d postgres
+dc up -d postgres
 ok "PostgreSQL running"
 
 step "Waiting for database..."
