@@ -98,9 +98,9 @@ if command -v pm2 &>/dev/null; then
     pm2 restart openlinear-api 2>/dev/null || \
         pm2 start apps/api/dist/index.js --name openlinear-api
     pm2 restart openlinear-web 2>/dev/null || \
-        pm2 start node_modules/.bin/next --name openlinear-web -- start -p 3000 --cwd apps/desktop-ui
+        (cd apps/desktop-ui && pm2 start node_modules/next/dist/bin/next --name openlinear-web -- start -p 3000)
     pm2 restart openlinear-landing 2>/dev/null || \
-        pm2 start node_modules/.bin/next --name openlinear-landing -- start -p 3002 --cwd apps/landing
+        (cd apps/landing && pm2 start node_modules/next/dist/bin/next --name openlinear-landing -- start -p 3002)
     pm2 save
     ok "Services restarted (pm2)"
 elif systemctl is-active --quiet openlinear-api 2>/dev/null; then
