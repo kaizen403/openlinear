@@ -210,9 +210,18 @@ export async function executeTask({ taskId, userId }: ExecuteTaskParams): Promis
       console.log(`[Execution] Prompt sent to session ${sessionId}`);
       executionState.promptSent = true;
       addLogEntry(taskId, 'info', 'Task prompt sent to agent');
-    }).catch((err: Error) => {
+    }).catch(async (err: Error) => {
       console.error(`[Execution] Prompt error for task ${taskId}:`, err);
-      addLogEntry(taskId, 'error', 'Failed to send prompt to agent', err.message);
+      const msg = err.message || 'Unknown error';
+      const isAuth = msg.toLowerCase().includes('api key') || msg.toLowerCase().includes('unauthorized') || msg.toLowerCase().includes('401');
+      const headline = isAuth
+        ? 'Invalid API key — update it in Settings → AI Providers'
+        : 'Failed to send prompt to agent';
+      addLogEntry(taskId, 'error', headline, msg);
+      broadcastProgress(taskId, 'error', headline);
+      await updateTaskStatus(taskId, 'cancelled', null);
+      await persistLogs(taskId);
+      await cleanupExecution(taskId);
     });
 
     console.log(`[Execution] Started for task ${taskId} in ${repoPath}`);

@@ -45,7 +45,7 @@ import {
 import { useSearchParams } from "next/navigation"
 import { toast } from "sonner"
 import { DatabaseSettings } from "@/components/desktop/database-settings"
-import { ensureContainer, getSetupStatus, setProviderApiKey, getProviderAuthMethods, oauthAuthorize, addConfiguredProvider, ProviderInfo, SetupStatus, ProviderAuthMethods } from "@/lib/api/opencode"
+import { ensureContainer, getSetupStatus, setProviderApiKey, getProviderAuthMethods, oauthAuthorize, addConfiguredProvider, getModels, getModelConfig, setModel, ProviderInfo, SetupStatus, ProviderAuthMethods, ProviderModels } from "@/lib/api/opencode"
 import { AppShell } from "@/components/layout/app-shell"
 import { API_URL } from "@/lib/api/client"
 
@@ -118,6 +118,9 @@ function SettingsContent() {
   const [providerAuthMethodsMap, setProviderAuthMethodsMap] = useState<ProviderAuthMethods>({})
   const [oauthLoadingProvider, setOauthLoadingProvider] = useState<string | null>(null)
   const [oauthWaitingProvider, setOauthWaitingProvider] = useState<string | null>(null)
+  const [providerModelsList, setProviderModelsList] = useState<ProviderModels[]>([])
+  const [currentModel, setCurrentModel] = useState<string | null>(null)
+  const [modelSaving, setModelSaving] = useState(false)
 
   const ACCENT_PRESETS = [
     { name: "Blue", accent: "#3b82f6", hover: "#2563eb" },
@@ -183,12 +186,16 @@ function SettingsContent() {
     setProviderError(null)
     try {
       await ensureContainer()
-      const [status, authMethods] = await Promise.all([
+      const [status, authMethods, modelsData, modelConfig] = await Promise.all([
         getSetupStatus(),
         getProviderAuthMethods().catch(() => ({} as ProviderAuthMethods)),
+        getModels().catch(() => ({ providers: [] as ProviderModels[] })),
+        getModelConfig().catch(() => ({ model: null, small_model: null })),
       ])
       setProviderSetupStatus(status)
       setProviderAuthMethodsMap(authMethods)
+      setProviderModelsList(modelsData.providers)
+      setCurrentModel(modelConfig.model)
 
       const inputs: Record<string, { key: string; saving: boolean; saved: boolean }> = {}
       status.providers.forEach((provider) => {
@@ -279,6 +286,10 @@ function SettingsContent() {
 
       toast.success("API key saved successfully")
 
+      getModels()
+        .then((data) => setProviderModelsList(data.providers))
+        .catch(() => {})
+
       setTimeout(() => {
         setProviderInputs((prev) => ({
           ...prev,
@@ -333,6 +344,20 @@ function SettingsContent() {
       }
     } catch {
       toast.error("Failed to refresh provider status")
+    }
+  }
+
+  const handleModelSelect = async (modelValue: string) => {
+    setModelSaving(true)
+    try {
+      await setModel(modelValue)
+      setCurrentModel(modelValue)
+      toast.success("Model updated")
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to set model"
+      toast.error(message)
+    } finally {
+      setModelSaving(false)
     }
   }
 
@@ -496,8 +521,8 @@ function SettingsContent() {
                   />
                   {accentColor === preset.accent && (
                     <Check className="absolute inset-0 m-auto w-4 h-4 text-white" />
-                  )}
-                </div>
+                    )}
+                  </div>
                 <span className="text-xs text-linear-text-secondary">
                   {preset.name}
                 </span>
@@ -1243,6 +1268,38 @@ function SettingsContent() {
                         </Button>
                       </div>
                     )}
+
+                    {provider.authenticated && (() => {
+                      const models = providerModelsList.find((p) => p.id === provider.id)?.models || []
+                      const selectedForProvider = currentModel?.startsWith(`${provider.id}/`) ? currentModel : undefined
+                      if (models.length === 0) return null
+                      return (
+                        <div className="pt-2 border-t border-linear-border">
+                          <label className="text-xs text-linear-text-tertiary mb-1.5 block">Model</label>
+                          <Select
+                            value={selectedForProvider || ""}
+                            onValueChange={(value) => handleModelSelect(value)}
+                            disabled={modelSaving}
+                          >
+                            <SelectTrigger className="bg-linear-bg border-linear-border text-linear-text h-9">
+                              <SelectValue placeholder="Select a model" />
+                            </SelectTrigger>
+                            <SelectContent className="bg-linear-bg-secondary border-linear-border max-h-60">
+                              {models.map((m) => (
+                                <SelectItem key={m.id} value={`${provider.id}/${m.id}`}>
+                                  <div className="flex items-center gap-2">
+                                    <span>{m.name || m.id}</span>
+                                    {m.reasoning && (
+                                      <span className="text-[10px] px-1 py-0.5 rounded bg-purple-500/10 text-purple-400">reasoning</span>
+                                    )}
+                                  </div>
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      )
+                    })()}
                   </div>
                 </CardContent>
               </Card>

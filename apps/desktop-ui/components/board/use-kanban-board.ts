@@ -9,7 +9,7 @@ import { API_URL } from "@/lib/api/client"
 import { getSetupStatus, hasConfiguredProviders } from "@/lib/api/opencode"
 
 export const COLUMNS = [
-  { id: 'todo', title: 'Dashboard', status: 'todo' as const },
+  { id: 'todo', title: 'All Issues', status: 'todo' as const },
   { id: 'in_progress', title: 'In Progress', status: 'in_progress' as const },
   { id: 'done', title: 'Done', status: 'done' as const },
   { id: 'cancelled', title: 'Cancelled', status: 'cancelled' as const },

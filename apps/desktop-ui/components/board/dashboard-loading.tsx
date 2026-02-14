@@ -1,7 +1,7 @@
 "use client"
 
 const COLUMNS = [
-  { id: "todo", title: "Dashboard", cardCount: 3 },
+  { id: "todo", title: "All Issues", cardCount: 3 },
   { id: "in_progress", title: "In Progress", cardCount: 2 },
   { id: "done", title: "Done", cardCount: 2 },
   { id: "cancelled", title: "Cancelled", cardCount: 1 },
