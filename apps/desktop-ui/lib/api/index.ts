@@ -15,3 +15,7 @@ export { fetchProjects, createProject, updateProject, deleteProject } from './pr
 
 // Tasks & Inbox
 export { fetchMyIssues, executeTaskPublic, refreshTaskPr, fetchInboxTasks, fetchInboxCount, markInboxRead, markAllInboxRead } from './tasks';
+
+// Brainstorm
+export { checkBrainstormAvailability, generateBrainstormQuestions, streamBrainstormTasks } from './brainstorm';
+export type { BrainstormTask, BrainstormAvailability } from './brainstorm';

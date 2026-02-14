@@ -11,6 +11,7 @@ import teamsRouter from './routes/teams';
 import projectsRouter from './routes/projects';
 import inboxRouter from './routes/inbox';
 import opencodeRouter from './routes/opencode';
+import brainstormRouter from './routes/brainstorm';
 import { clients, SSEClient } from './sse';
 
 export function createApp(): Application {
@@ -33,6 +34,7 @@ export function createApp(): Application {
   app.use('/api/projects', projectsRouter);
   app.use('/api/inbox', inboxRouter);
   app.use('/api/opencode', opencodeRouter);
+  app.use('/api/brainstorm', brainstormRouter);
 
   app.get('/health', (_req: Request, res: Response) => {
     res.json({ 

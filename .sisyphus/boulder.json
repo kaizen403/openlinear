@@ -1,9 +1,9 @@
 {
-  "active_plan": "/home/kaizen/openlinear/.sisyphus/plans/dual-auth-project-repo.md",
-  "started_at": "2026-02-11T19:53:43.870Z",
+  "active_plan": "/Users/sriharsha/Developer/openlinear/.sisyphus/plans/landing-pages-redesign.md",
+  "started_at": "2026-02-14T13:00:08.137Z",
   "session_ids": [
-    "ses_3b1bbb7c8ffejq2kBdT9sRTw2c",
-    "ses_3b1a1f66cffeC7Kdg89Opw78Jb"
+    "ses_3a3d7aef6ffeJ1nkNxKguMV4D2"
   ],
-  "plan_name": "dual-auth-project-repo"
+  "plan_name": "landing-pages-redesign",
+  "agent": "atlas"
 }
