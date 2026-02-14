@@ -39,6 +39,9 @@ jobs:
         env:
           NEXT_PUBLIC_API_URL: https://rixie.in
 
+      - name: Build Landing
+        run: pnpm --filter @openlinear/landing build
+
       - name: Test
         run: pnpm --filter @openlinear/api test
         continue-on-error: true

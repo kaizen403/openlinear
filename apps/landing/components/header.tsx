@@ -50,14 +50,14 @@ export function Header() {
 
           {/* Actions */}
           <div className="hidden md:flex items-center gap-4">
-            <a href="#" className="text-sm text-muted-foreground/60 transition-colors duration-250 hover:text-foreground/80">
+            <a href="https://dashboard.rixie.in" className="text-sm text-muted-foreground/60 transition-colors duration-250 hover:text-foreground/80">
               Log in
             </a>
             <a
-              href="#"
+              href="https://dashboard.rixie.in"
               className="btn-primary inline-flex items-center justify-center rounded-full bg-primary px-5 py-[7px] text-[0.8125rem] font-medium text-primary-foreground"
             >
-              Download
+              Dashboard
             </a>
           </div>
 
@@ -82,13 +82,13 @@ export function Header() {
             <a href="/contact" className="text-sm text-foreground/80 py-2.5 transition-colors duration-200 hover:text-primary">Contact us</a>
             <hr className="border-border/15 my-3" />
             <div className="py-2.5">
-              <a href="#" className="text-sm text-foreground/80">Log in</a>
+              <a href="https://dashboard.rixie.in" className="text-sm text-foreground/80">Log in</a>
             </div>
             <a
-              href="#"
+              href="https://dashboard.rixie.in"
               className="btn-primary inline-flex items-center justify-center rounded-full bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground mt-2"
             >
-              Download
+              Dashboard
             </a>
           </div>
         </div>

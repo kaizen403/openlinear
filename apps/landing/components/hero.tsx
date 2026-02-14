@@ -42,13 +42,13 @@ export function Hero() {
 
             <div className="hero-reveal-2 flex flex-wrap items-center gap-3.5 pt-1">
               <a
-                href="#"
+                href="https://dashboard.rixie.in"
                 className="btn-primary inline-flex items-center gap-2.5 rounded-full bg-primary px-7 py-3 text-[0.875rem] font-medium text-primary-foreground"
               >
-                Download for macOS <ArrowRight className="h-3.5 w-3.5" />
+                Get Started <ArrowRight className="h-3.5 w-3.5" />
               </a>
               <a
-                href="#"
+                href="https://github.com/kaizen403/openlinear"
                 className="btn-secondary inline-flex items-center gap-2 rounded-full border border-white/[0.08] bg-white/[0.03] px-7 py-3 text-[0.875rem] font-medium text-[#EDE8D0]/70"
               >
                 View on GitHub

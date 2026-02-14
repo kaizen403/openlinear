@@ -11,7 +11,7 @@ const plans = [
     price: "$0",
     period: "/month",
     description: "For individual developers exploring AI execution.",
-    cta: { label: "Get Started", href: "#", style: "secondary" as const },
+    cta: { label: "Get Started", href: "https://dashboard.rixie.in", style: "secondary" as const },
     features: [
       "Single project",
       "Basic execution",
@@ -26,7 +26,7 @@ const plans = [
     period: "/month",
     description: "For developers who need more power and flexibility.",
     popular: true,
-    cta: { label: "Upgrade to Pro", href: "#", style: "primary" as const },
+    cta: { label: "Upgrade to Pro", href: "https://dashboard.rixie.in", style: "primary" as const },
     features: [
       "Multiple projects",
       "Batch execution (parallel + queue)",
