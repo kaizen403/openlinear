@@ -15,7 +15,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.74.0",
-    "@opencode-ai/sdk": "^1.1.51",
+    "@opencode-ai/sdk": "^1.2.1",
     "@openlinear/db": "workspace:*",
     "bcryptjs": "^2.4.3",
     "cookie-parser": "^1.4.7",

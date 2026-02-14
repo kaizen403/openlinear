@@ -1,9 +1,9 @@
 export function ProductSuite() {
   return (
-    <section className="relative py-32 md:py-40 bg-[hsl(228_14%_97.5%)] dark:bg-[hsl(228_20%_9%)]">
+    <section className="relative py-32 md:py-40 bg-[#161820]">
       <div className="absolute top-0 left-0 right-0 section-divider" />
 
-      <div className="mx-auto max-w-[76rem] px-6 lg:px-10">
+      <div className="mx-auto max-w-none px-[100px]">
         {/* Header row */}
         <div className="mb-16">
           <h2 className="font-display text-[1.625rem] md:text-[2rem] font-bold tracking-[-0.04em] text-foreground">

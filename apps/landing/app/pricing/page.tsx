@@ -8,7 +8,7 @@ export default function PricingPage() {
       <Header />
 
       <section className="relative bg-background pt-40 pb-20">
-        <div className="mx-auto max-w-[76rem] px-6 lg:px-10">
+        <div className="mx-auto max-w-none px-[100px]">
           <span className="text-[0.75rem] font-semibold text-primary/60 mb-5 tracking-[-0.01em] block">
             Pricing
           </span>
@@ -21,9 +21,9 @@ export default function PricingPage() {
         </div>
       </section>
 
-      <section className="relative py-32 md:py-40 bg-[hsl(228_14%_97.5%)]">
+      <section className="relative py-32 md:py-40 bg-[#1a1c26]">
         <div className="absolute top-0 left-0 right-0 section-divider" />
-        <div className="mx-auto max-w-[76rem] px-6 lg:px-10">
+        <div className="mx-auto max-w-none px-[100px]">
           <div className="grid md:grid-cols-2 gap-8 lg:gap-12 max-w-3xl mx-auto">
             <div className="mock-card rounded-2xl p-8 lg:p-10">
               <span className="text-[0.75rem] font-semibold text-primary/60 tracking-[-0.01em] mb-2 block">
@@ -99,7 +99,7 @@ export default function PricingPage() {
 
       <section className="relative py-20 md:py-24 bg-background">
         <div className="absolute top-0 left-0 right-0 section-divider" />
-        <div className="mx-auto max-w-[76rem] px-6 lg:px-10">
+        <div className="mx-auto max-w-none px-[100px]">
           <p className="text-center text-muted-foreground/65 text-[0.9375rem] tracking-[-0.01em]">
             Need something custom? Contact us at{" "}
             <a

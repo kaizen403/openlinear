@@ -8,14 +8,14 @@ export default function EnterprisePage() {
       <Header />
 
       <section className="relative pt-40 pb-32 overflow-hidden">
-        <div className="absolute inset-0 bg-[hsl(230_25%_8%)]" />
-        <div className="absolute top-0 right-0 w-3/4 h-full bg-[radial-gradient(ellipse_60%_70%_at_80%_25%,hsl(240_20%_12%/0.4),transparent_65%)]" />
+        <div className="absolute inset-0 bg-[#161820]" />
+        <div className="absolute top-0 right-0 w-3/4 h-full bg-[radial-gradient(ellipse_60%_70%_at_80%_25%,hsl(45_20%_18%/0.2),transparent_65%)]" />
         <div className="absolute top-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-[hsl(0_0%_100%/0.04)] to-transparent" />
-        <div className="relative mx-auto max-w-[76rem] px-6 lg:px-10">
-          <h1 className="font-display text-[2rem] md:text-[2.75rem] lg:text-[3.25rem] font-bold tracking-[-0.045em] text-[hsl(0_0%_95%)] text-balance leading-[1.04]">
+        <div className="relative mx-auto max-w-none px-[100px]">
+          <h1 className="font-display text-[2rem] md:text-[2.75rem] lg:text-[3.25rem] font-bold tracking-[-0.045em] text-[#EDE8D0] text-balance leading-[1.04]">
             AI execution with control.
           </h1>
-          <p className="text-[hsl(228_10%_45%)] leading-[1.75] text-[0.9375rem] tracking-[-0.01em] max-w-xl mt-6">
+          <p className="text-[#EDE8D0]/40 leading-[1.75] text-[0.9375rem] tracking-[-0.01em] max-w-xl mt-6">
             OpenLinear gives engineering teams a controlled environment for AI-powered code execution. Every action is transparent, every change is reviewable.
           </p>
         </div>
@@ -23,7 +23,7 @@ export default function EnterprisePage() {
 
       <section className="relative py-32 md:py-40 bg-background">
         <div className="absolute top-0 left-0 right-0 section-divider" />
-        <div className="mx-auto max-w-[76rem] px-6 lg:px-10">
+        <div className="mx-auto max-w-none px-[100px]">
           <h2 className="font-display text-[1.625rem] md:text-[2rem] font-bold tracking-[-0.04em] text-foreground">
             Local-first architecture
           </h2>
@@ -46,9 +46,9 @@ export default function EnterprisePage() {
         </div>
       </section>
 
-      <section className="relative py-32 md:py-40 bg-[hsl(228_14%_97.5%)]">
+      <section className="relative py-32 md:py-40 bg-[#1a1c26]">
         <div className="absolute top-0 left-0 right-0 section-divider" />
-        <div className="mx-auto max-w-[76rem] px-6 lg:px-10">
+        <div className="mx-auto max-w-none px-[100px]">
           <h2 className="font-display text-[1.625rem] md:text-[2rem] font-bold tracking-[-0.04em] text-foreground">
             Repository isolation
           </h2>
@@ -73,7 +73,7 @@ export default function EnterprisePage() {
 
       <section className="relative py-32 md:py-40 bg-background">
         <div className="absolute top-0 left-0 right-0 section-divider" />
-        <div className="mx-auto max-w-[76rem] px-6 lg:px-10">
+        <div className="mx-auto max-w-none px-[100px]">
           <h2 className="font-display text-[1.625rem] md:text-[2rem] font-bold tracking-[-0.04em] text-foreground">
             Configurable limits
           </h2>
@@ -96,9 +96,9 @@ export default function EnterprisePage() {
         </div>
       </section>
 
-      <section className="relative py-32 md:py-40 bg-[hsl(228_14%_97.5%)]">
+      <section className="relative py-32 md:py-40 bg-[#1a1c26]">
         <div className="absolute top-0 left-0 right-0 section-divider" />
-        <div className="mx-auto max-w-[76rem] px-6 lg:px-10">
+        <div className="mx-auto max-w-none px-[100px]">
           <h2 className="font-display text-[1.625rem] md:text-[2rem] font-bold tracking-[-0.04em] text-foreground">
             Transparent execution logs
           </h2>
@@ -110,7 +110,7 @@ export default function EnterprisePage() {
 
       <section className="relative py-32 md:py-40 bg-background">
         <div className="absolute top-0 left-0 right-0 section-divider" />
-        <div className="mx-auto max-w-[76rem] px-6 lg:px-10">
+        <div className="mx-auto max-w-none px-[100px]">
           <h2 className="font-display text-[1.625rem] md:text-[2rem] font-bold tracking-[-0.04em] text-foreground">
             Future: self-hosted options
           </h2>
@@ -121,16 +121,16 @@ export default function EnterprisePage() {
       </section>
 
       <section className="relative py-32 md:py-40 overflow-hidden">
-        <div className="absolute inset-0 bg-[hsl(230_25%_8%)]" />
-        <div className="absolute top-0 right-0 w-3/4 h-full bg-[radial-gradient(ellipse_60%_70%_at_80%_25%,hsl(240_20%_12%/0.4),transparent_65%)]" />
+        <div className="absolute inset-0 bg-[#161820]" />
+        <div className="absolute top-0 right-0 w-3/4 h-full bg-[radial-gradient(ellipse_60%_70%_at_80%_25%,hsl(45_20%_18%/0.2),transparent_65%)]" />
         <div className="absolute top-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-[hsl(0_0%_100%/0.04)] to-transparent" />
-        <div className="relative mx-auto max-w-[76rem] px-6 lg:px-10">
-          <h2 className="font-display text-[2rem] md:text-[2.75rem] lg:text-[3.25rem] font-bold tracking-[-0.045em] text-[hsl(0_0%_95%)] text-balance leading-[1.04]">
+        <div className="relative mx-auto max-w-none px-[100px]">
+          <h2 className="font-display text-[2rem] md:text-[2.75rem] lg:text-[3.25rem] font-bold tracking-[-0.045em] text-[#EDE8D0] text-balance leading-[1.04]">
             Ready to evaluate?
           </h2>
           <a
             href="/contact"
-            className="inline-flex items-center gap-2.5 rounded-full border border-[hsl(0_0%_100%/0.06)] px-7 py-3 text-[0.8125rem] font-medium text-[hsl(0_0%_80%)] transition-all duration-[300ms] hover:bg-[hsl(0_0%_100%/0.03)] hover:border-[hsl(0_0%_100%/0.1)] w-fit mt-8"
+            className="inline-flex items-center gap-2.5 rounded-full border border-[#EDE8D0]/[0.06] px-7 py-3 text-[0.8125rem] font-medium text-[#EDE8D0]/70 transition-all duration-[300ms] hover:bg-[#EDE8D0]/[0.03] hover:border-[#EDE8D0]/[0.1] w-fit mt-8"
           >
             Contact Sales <ArrowRight className="h-3.5 w-3.5" />
           </a>

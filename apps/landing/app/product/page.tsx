@@ -8,7 +8,7 @@ export default function ProductPage() {
 
       {/* Hero */}
       <section className="relative bg-background pt-40 pb-20">
-        <div className="mx-auto max-w-[76rem] px-6 lg:px-10">
+        <div className="mx-auto max-w-none px-[100px]">
           <span className="text-[0.75rem] font-semibold text-primary/60 mb-5 tracking-[-0.01em] block">
             Product
           </span>
@@ -22,9 +22,9 @@ export default function ProductPage() {
       </section>
 
       {/* Overview */}
-      <section className="relative py-32 md:py-40 bg-[hsl(228_14%_97.5%)]">
+      <section className="relative py-32 md:py-40 bg-[#1a1c26]">
         <div className="absolute top-0 left-0 right-0 section-divider" />
-        <div className="mx-auto max-w-[76rem] px-6 lg:px-10">
+        <div className="mx-auto max-w-none px-[100px]">
           <h2 className="font-display text-[1.625rem] md:text-[2rem] font-bold tracking-[-0.04em] text-foreground">
             Overview
           </h2>
@@ -62,7 +62,7 @@ export default function ProductPage() {
       {/* Task Model */}
       <section className="relative py-32 md:py-40 bg-background">
         <div className="absolute top-0 left-0 right-0 section-divider" />
-        <div className="mx-auto max-w-[76rem] px-6 lg:px-10">
+        <div className="mx-auto max-w-none px-[100px]">
           <h2 className="font-display text-[1.625rem] md:text-[2rem] font-bold tracking-[-0.04em] text-foreground">
             Task model
           </h2>
@@ -87,9 +87,9 @@ export default function ProductPage() {
       </section>
 
       {/* Execution Engine */}
-      <section className="relative py-32 md:py-40 bg-[hsl(228_14%_97.5%)]">
+      <section className="relative py-32 md:py-40 bg-[#1a1c26]">
         <div className="absolute top-0 left-0 right-0 section-divider" />
-        <div className="mx-auto max-w-[76rem] px-6 lg:px-10">
+        <div className="mx-auto max-w-none px-[100px]">
           <h2 className="font-display text-[1.625rem] md:text-[2rem] font-bold tracking-[-0.04em] text-foreground">
             Execution engine
           </h2>
@@ -116,7 +116,7 @@ export default function ProductPage() {
       {/* Batch System */}
       <section className="relative py-32 md:py-40 bg-background">
         <div className="absolute top-0 left-0 right-0 section-divider" />
-        <div className="mx-auto max-w-[76rem] px-6 lg:px-10">
+        <div className="mx-auto max-w-none px-[100px]">
           <h2 className="font-display text-[1.625rem] md:text-[2rem] font-bold tracking-[-0.04em] text-foreground">
             Batch system
           </h2>
@@ -145,9 +145,9 @@ export default function ProductPage() {
       </section>
 
       {/* GitHub Integration */}
-      <section className="relative py-32 md:py-40 bg-[hsl(228_14%_97.5%)]">
+      <section className="relative py-32 md:py-40 bg-[#1a1c26]">
         <div className="absolute top-0 left-0 right-0 section-divider" />
-        <div className="mx-auto max-w-[76rem] px-6 lg:px-10">
+        <div className="mx-auto max-w-none px-[100px]">
           <h2 className="font-display text-[1.625rem] md:text-[2rem] font-bold tracking-[-0.04em] text-foreground">
             GitHub integration
           </h2>
@@ -173,7 +173,7 @@ export default function ProductPage() {
       {/* Desktop Architecture */}
       <section className="relative py-32 md:py-40 bg-background">
         <div className="absolute top-0 left-0 right-0 section-divider" />
-        <div className="mx-auto max-w-[76rem] px-6 lg:px-10">
+        <div className="mx-auto max-w-none px-[100px]">
           <h2 className="font-display text-[1.625rem] md:text-[2rem] font-bold tracking-[-0.04em] text-foreground">
             Desktop architecture
           </h2>
@@ -197,9 +197,9 @@ export default function ProductPage() {
       </section>
 
       {/* Supported Platforms */}
-      <section className="relative py-32 md:py-40 bg-[hsl(228_14%_97.5%)]">
+      <section className="relative py-32 md:py-40 bg-[#1a1c26]">
         <div className="absolute top-0 left-0 right-0 section-divider" />
-        <div className="mx-auto max-w-[76rem] px-6 lg:px-10">
+        <div className="mx-auto max-w-none px-[100px]">
           <h2 className="font-display text-[1.625rem] md:text-[2rem] font-bold tracking-[-0.04em] text-foreground">
             Supported platforms
           </h2>
@@ -225,7 +225,7 @@ export default function ProductPage() {
       {/* Roadmap */}
       <section className="relative py-32 md:py-40 bg-background">
         <div className="absolute top-0 left-0 right-0 section-divider" />
-        <div className="mx-auto max-w-[76rem] px-6 lg:px-10">
+        <div className="mx-auto max-w-none px-[100px]">
           <h2 className="font-display text-[1.625rem] md:text-[2rem] font-bold tracking-[-0.04em] text-foreground">
             Roadmap
           </h2>

@@ -1433,11 +1433,10 @@ export default function DocsPage() {
               <li key={item.id}>
                 <button
                   onClick={() => scrollTo(item.id)}
-                  className={`block w-full text-left py-1.5 pl-3 text-[0.8125rem] transition-colors duration-200 ${
-                    activeSection === item.id
-                      ? "text-foreground font-medium border-l-2 border-primary"
-                      : "text-muted-foreground/60 hover:text-foreground/80 border-l-2 border-transparent"
-                  }`}
+                  className={`block w-full text-left py-1.5 pl-3 text-[0.8125rem] transition-colors duration-200 ${activeSection === item.id
+                    ? "text-foreground font-medium border-l-2 border-primary"
+                    : "text-muted-foreground/60 hover:text-foreground/80 border-l-2 border-transparent"
+                    }`}
                 >
                   {item.title}
                 </button>
@@ -1454,7 +1453,7 @@ export default function DocsPage() {
       <Header />
 
       <div className="relative bg-background pt-24 min-h-screen">
-        <div className="mx-auto max-w-[76rem] px-6 lg:px-10">
+        <div className="mx-auto max-w-none px-[100px]">
           <div className="pt-10 pb-6 lg:pt-16 lg:pb-10">
             <span className="text-[0.75rem] font-semibold text-primary/60 mb-5 tracking-[-0.01em] block">
               Documentation

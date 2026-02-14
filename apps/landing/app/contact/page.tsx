@@ -20,7 +20,7 @@ export default function ContactPage() {
       <Header />
 
       <section className="relative bg-background pt-40 pb-20">
-        <div className="mx-auto max-w-[76rem] px-6 lg:px-10">
+        <div className="mx-auto max-w-none px-[100px]">
           <span className="text-[0.75rem] font-semibold text-primary/60 mb-5 tracking-[-0.01em] block">
             Contact
           </span>
@@ -33,9 +33,9 @@ export default function ContactPage() {
         </div>
       </section>
 
-      <section className="relative py-32 md:py-40 bg-[hsl(228_14%_97.5%)]">
+      <section className="relative py-32 md:py-40 bg-[#1a1c26]">
         <div className="absolute top-0 left-0 right-0 section-divider" />
-        <div className="mx-auto max-w-[76rem] px-6 lg:px-10">
+        <div className="mx-auto max-w-none px-[100px]">
           <div className="grid lg:grid-cols-2 gap-14 lg:gap-24">
             <form onSubmit={handleSubmit} className="flex flex-col gap-5">
               <div>

@@ -1,7 +1,7 @@
 export function TrustLogos() {
   return (
     <section className="py-20 md:py-24 bg-background relative">
-      <div className="mx-auto max-w-[76rem] px-6 lg:px-10">
+      <div className="mx-auto max-w-none px-[100px]">
         <h2 className="font-display text-[1.625rem] md:text-[2rem] font-bold tracking-[-0.04em] text-foreground text-center">
           Task boards don&apos;t ship code.
         </h2>

@@ -1,56 +1,65 @@
 const footerLinks = {
-  Product: [
+  Products: [
     "Overview",
     "Batch Execution",
     "GitHub Integration",
     "Desktop App",
+    "Agent Store",
   ],
   Company: [
-    "Contact",
-    "GitHub",
+    "Contact Us",
+    "Help Center",
+    "Careers",
+    "Partners",
   ],
   Legal: [
     "Terms",
     "Privacy Policy",
+    "Trust",
+    "Legal Notices",
   ],
 }
+
+const socialLinks = [
+  { name: "LinkedIn", icon: "in" },
+  { name: "X", icon: "𝕏" },
+  { name: "GitHub", icon: "gh" },
+  { name: "Discord", icon: "dc" },
+]
 
 export function Footer() {
   return (
     <footer className="relative overflow-hidden">
-      <div className="absolute inset-0 bg-[hsl(230_22%_7%)] dark:bg-[hsl(230_18%_10%)]" />
+      <div className="absolute inset-0 bg-[#161820]" />
 
-      <div className="relative mx-auto max-w-[76rem] px-6 lg:px-10 pt-20 pb-14">
-        {/* Top */}
-        <div className="flex flex-col lg:flex-row gap-14 lg:gap-28 pb-16 border-b border-[hsl(0_0%_100%/0.04)]">
-          {/* Brand */}
-          <div className="flex flex-col gap-4 lg:max-w-xs">
-            <div className="flex items-center gap-2.5">
-              <div className="h-[22px] w-[22px] rounded-[5px] bg-[hsl(0_0%_100%/0.08)] flex items-center justify-center">
-                <svg width="10" height="10" viewBox="0 0 16 16" fill="none" className="text-[hsl(0_0%_100%/0.55)]">
-                  <path d="M3 8L7 12L13 4" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
-              </div>
-              <span className="font-display text-[0.75rem] font-semibold tracking-[0.08em] text-[hsl(0_0%_70%)] uppercase">
+      <div className="relative mx-auto max-w-none px-[100px] pt-16 pb-8">
+        {/* Main footer content */}
+        <div className="flex flex-col lg:flex-row gap-12 lg:gap-0">
+          {/* Brand — left column */}
+          <div className="flex flex-col gap-5 lg:w-[280px] shrink-0">
+            <div className="flex items-center">
+              <span className="font-display text-[0.8125rem] font-semibold tracking-[0.08em] text-[#EDE8D0] uppercase">
                 OpenLinear
               </span>
             </div>
-            <p className="text-[0.8125rem] text-[hsl(228_10%_35%)] leading-[1.65]">
-              Execute your tasks. Don&apos;t just track them.
+            <p className="text-[0.875rem] text-[#EDE8D0]/40 leading-[1.6]">
+              Execute your tasks.
+              <br />
+              Don&apos;t just track them.
             </p>
           </div>
 
-          {/* Link columns */}
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-10 lg:gap-20 flex-1">
+          {/* Link columns — right side */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-10 lg:gap-16 flex-1">
             {Object.entries(footerLinks).map(([category, links]) => (
               <div key={category} className="flex flex-col gap-5">
-                <p className="text-[0.6875rem] font-medium text-[hsl(0_0%_55%)] tracking-[0.04em]">{category}</p>
-                <ul className="flex flex-col gap-3.5">
+                <p className="text-[0.8125rem] font-semibold text-[#EDE8D0]/90 tracking-[-0.01em]">{category}</p>
+                <ul className="flex flex-col gap-3">
                   {links.map((link) => (
                     <li key={link}>
                       <a
                         href="#"
-                        className="text-[0.8125rem] text-[hsl(228_10%_35%)] hover:text-[hsl(0_0%_60%)] transition-colors duration-[300ms]"
+                        className="text-[0.8125rem] text-[#EDE8D0]/35 hover:text-[#EDE8D0]/70 transition-colors duration-[300ms]"
                       >
                         {link}
                       </a>
@@ -59,25 +68,33 @@ export function Footer() {
                 </ul>
               </div>
             ))}
+
+            {/* Connect column */}
+            <div className="flex flex-col gap-5">
+              <p className="text-[0.8125rem] font-semibold text-[#EDE8D0]/90 tracking-[-0.01em]">Connect</p>
+              <ul className="flex flex-col gap-3">
+                {socialLinks.map((social) => (
+                  <li key={social.name}>
+                    <a
+                      href="#"
+                      className="flex items-center gap-2.5 text-[0.8125rem] text-[#EDE8D0]/35 hover:text-[#EDE8D0]/70 transition-colors duration-[300ms]"
+                    >
+                      <span className="text-[0.6875rem] font-mono w-5 text-center opacity-60">{social.icon}</span>
+                      {social.name}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </div>
           </div>
         </div>
+      </div>
 
-        {/* Bottom */}
-        <div className="pt-10 flex flex-col md:flex-row items-center justify-between gap-4">
-          <p className="text-[0.6875rem] text-[hsl(228_10%_25%)]">
-            {"Built for developers who ship."}
-          </p>
-          <p className="text-[0.6875rem] text-[hsl(228_10%_25%)]">
-            {"2026 OpenLinear. All rights reserved."}
-          </p>
-        </div>
-
-        {/* Large watermark */}
-        <div className="mt-10 overflow-hidden">
-          <p className="font-display text-[6rem] md:text-[10rem] lg:text-[14rem] font-bold tracking-[-0.06em] text-[hsl(0_0%_100%/0.01)] leading-none select-none whitespace-nowrap">
-            OPENLINEAR
-          </p>
-        </div>
+      {/* Large watermark text */}
+      <div className="relative w-full flex justify-center mt-4 pb-10 overflow-hidden">
+        <p className="font-display text-[5rem] md:text-[8rem] lg:text-[12rem] font-bold tracking-[-0.05em] text-[#EDE8D0]/[0.03] leading-none select-none whitespace-nowrap">
+          OPENLINEAR
+        </p>
       </div>
     </footer>
   )

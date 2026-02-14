@@ -1,13 +1,8 @@
 import type { Metadata } from 'next'
-import { Inter, Space_Grotesk } from 'next/font/google'
+import { Space_Grotesk } from 'next/font/google'
 import { ThemeProvider } from '@/components/theme-provider'
 
 import './globals.css'
-
-const _inter = Inter({
-  subsets: ['latin'],
-  variable: '--font-inter',
-})
 
 const _spaceGrotesk = Space_Grotesk({
   subsets: ['latin'],
@@ -25,12 +20,12 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en" className={`${_inter.variable} ${_spaceGrotesk.variable}`} suppressHydrationWarning>
+    <html lang="en" className={`dark ${_spaceGrotesk.variable}`} suppressHydrationWarning>
       <body className="font-sans antialiased">
         <ThemeProvider
           attribute="class"
           defaultTheme="dark"
-          enableSystem
+          forcedTheme="dark"
           disableTransitionOnChange
         >
           {children}

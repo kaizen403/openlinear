@@ -68,7 +68,7 @@ const features: FeatureData[] = [
       ],
     },
     reversed: true,
-    bg: "bg-[hsl(228_14%_97.5%)] dark:bg-[hsl(228_20%_9%)]",
+    bg: "bg-[#161820]",
   },
 ]
 
@@ -105,7 +105,7 @@ function FeatureSection({ feature }: { feature: FeatureData }) {
     <section className={`relative py-32 md:py-40 ${feature.bg}`}>
       <div className="absolute top-0 left-0 right-0 section-divider" />
 
-      <div className="mx-auto max-w-[76rem] px-6 lg:px-10">
+      <div className="mx-auto max-w-none px-[100px]">
         <div className={`grid lg:grid-cols-2 gap-14 lg:gap-24 items-center ${feature.reversed ? "lg:[&>*:first-child]:order-2" : ""}`}>
           {/* Copy */}
           <div className="flex flex-col gap-6">

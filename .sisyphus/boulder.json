@@ -1,9 +1,9 @@
 {
-  "active_plan": "/home/kaizen/openlinear/.sisyphus/plans/dual-auth-project-repo.md",
-  "started_at": "2026-02-11T19:53:43.870Z",
+  "active_plan": "/Users/sriharsha/Developer/openlinear/.sisyphus/plans/brainstorm-feature.md",
+  "started_at": "2026-02-14T10:12:29.151Z",
   "session_ids": [
-    "ses_3b1bbb7c8ffejq2kBdT9sRTw2c",
-    "ses_3b1a1f66cffeC7Kdg89Opw78Jb"
+    "ses_3a47c53f4ffeNszAdws8tw4iA1"
   ],
-  "plan_name": "dual-auth-project-repo"
+  "plan_name": "brainstorm-feature",
+  "agent": "atlas"
 }

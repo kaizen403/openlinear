@@ -3,18 +3,18 @@ import { ArrowRight } from "lucide-react"
 export function VisionSection() {
   return (
     <section className="relative py-40 md:py-52 overflow-hidden">
-      <div className="absolute inset-0 bg-[hsl(230_25%_8%)] dark:bg-[hsl(230_20%_11%)]" />
+      <div className="absolute inset-0 bg-[#161820]" />
 
-      <div className="absolute top-0 right-0 w-3/4 h-full bg-[radial-gradient(ellipse_60%_70%_at_80%_25%,hsl(240_20%_12%/0.4),transparent_65%)] dark:bg-[radial-gradient(ellipse_60%_70%_at_80%_25%,hsl(243_25%_18%/0.3),transparent_65%)]" />
+      <div className="absolute top-0 right-0 w-3/4 h-full bg-[radial-gradient(ellipse_60%_70%_at_80%_25%,hsl(45_20%_18%/0.2),transparent_65%)]" />
 
       <div className="absolute top-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-[hsl(0_0%_100%/0.04)] to-transparent" />
 
-      <div className="relative mx-auto max-w-[76rem] px-6 lg:px-10">
+      <div className="relative mx-auto max-w-none px-[100px]">
         <div className="grid lg:grid-cols-2 gap-16 lg:gap-28 items-center">
           {/* Left - quiet brand presence */}
           <div className="hidden lg:flex items-center justify-center">
             <div className="relative w-64 h-64">
-              <div className="absolute inset-0 rounded-full bg-[radial-gradient(circle,hsl(243_30%_50%/0.04),transparent_70%)]" />
+              <div className="absolute inset-0 rounded-full bg-[radial-gradient(circle,hsl(45_20%_50%/0.04),transparent_70%)]" />
               <div className="absolute inset-0 flex items-center justify-center">
                 <span className="font-display text-7xl font-bold text-[hsl(0_0%_100%/0.02)] tracking-[-0.05em] select-none">
                   OL
