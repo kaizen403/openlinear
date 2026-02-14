@@ -1,27 +1,40 @@
 import type { Metadata } from 'next'
+import { Inter, Space_Grotesk } from 'next/font/google'
+import { ThemeProvider } from '@/components/theme-provider'
+
 import './globals.css'
 
+const _inter = Inter({
+  subsets: ['latin'],
+  variable: '--font-inter',
+})
+
+const _spaceGrotesk = Space_Grotesk({
+  subsets: ['latin'],
+  variable: '--font-space-grotesk',
+})
+
 export const metadata: Metadata = {
-  title: 'KazCode | The kanban board that codes for you',
-  description: 'KazCode is an open source desktop app that combines a Linear-style kanban board with AI coding agents. Create tasks, organize them on a board, and execute them — the AI clones your repo, creates a branch, writes code, and opens a pull request.',
-  keywords: ['kanban', 'AI coding', 'developer tools', 'task management', 'GitHub integration'],
-  authors: [{ name: 'KazCode' }],
-  openGraph: {
-    title: 'KazCode | The kanban board that codes for you',
-    description: 'KazCode is an open source desktop app that combines a Linear-style kanban board with AI coding agents.',
-    type: 'website',
-  },
+  title: 'OpenLinear - Execute your tasks. Don\'t just track them.',
+  description: 'A desktop kanban board that runs AI coding agents on your GitHub repository. Create tasks, execute them, and review real pull requests.',
 }
 
 export default function RootLayout({
   children,
-}: {
+}: Readonly<{
   children: React.ReactNode
-}) {
+}>) {
   return (
-    <html lang="en">
-      <body className="bg-background text-foreground antialiased min-h-screen">
-        {children}
+    <html lang="en" className={`${_inter.variable} ${_spaceGrotesk.variable}`} suppressHydrationWarning>
+      <body className="font-sans antialiased">
+        <ThemeProvider
+          attribute="class"
+          defaultTheme="dark"
+          enableSystem
+          disableTransitionOnChange
+        >
+          {children}
+        </ThemeProvider>
       </body>
     </html>
   )

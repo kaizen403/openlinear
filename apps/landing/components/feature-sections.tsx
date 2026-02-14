@@ -68,7 +68,7 @@ const features: FeatureData[] = [
       ],
     },
     reversed: true,
-    bg: "bg-[hsl(228_14%_97.5%)]",
+    bg: "bg-[hsl(228_14%_97.5%)] dark:bg-[hsl(228_20%_9%)]",
   },
 ]
 

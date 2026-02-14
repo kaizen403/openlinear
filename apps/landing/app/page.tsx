@@ -1,26 +1,22 @@
-import Navbar from '@/components/navbar'
-import AnnouncementBanner from '@/components/announcement-banner'
-import Hero from '@/components/hero'
-import Features from '@/components/features'
-import Stats from '@/components/stats'
-import Privacy from '@/components/privacy'
-import FAQ from '@/components/faq'
-import AgentsCTA from '@/components/agents-cta'
-import Newsletter from '@/components/newsletter'
-import Footer from '@/components/footer'
+import { Header } from "@/components/header"
+import { Hero } from "@/components/hero"
+import { TrustLogos } from "@/components/trust-logos"
+import { ProductSuite } from "@/components/product-suite"
+import { FeatureSections } from "@/components/feature-sections"
+import { VisionSection } from "@/components/vision-section"
+import { CTASection } from "@/components/cta-section"
+import { Footer } from "@/components/footer"
 
-export default function Home() {
+export default function Page() {
   return (
-    <main className="min-h-screen">
-      <Navbar />
-      <AnnouncementBanner />
+    <main>
+      <Header />
       <Hero />
-      <Features />
-      <Stats />
-      <Privacy />
-      <FAQ />
-      <AgentsCTA />
-      <Newsletter />
+      <TrustLogos />
+      <ProductSuite />
+      <FeatureSections />
+      <VisionSection />
+      <CTASection />
       <Footer />
     </main>
   )

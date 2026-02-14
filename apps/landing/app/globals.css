@@ -2,73 +2,249 @@
 @tailwind components;
 @tailwind utilities;
 
-@font-face {
-  font-family: 'Geist';
-  src: url('./fonts/Geist-Variable.woff2') format('woff2');
-  font-display: swap;
-  font-style: normal;
-  font-weight: 100 900;
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 228 20% 10%;
+    --card: 228 14% 98.5%;
+    --card-foreground: 228 20% 10%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 228 20% 10%;
+    --primary: 243 40% 46%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 228 14% 95.5%;
+    --secondary-foreground: 228 20% 10%;
+    --muted: 228 12% 96.5%;
+    --muted-foreground: 228 8% 46%;
+    --accent: 243 40% 46%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 228 10% 90%;
+    --input: 228 10% 90%;
+    --ring: 243 40% 46%;
+    --chart-1: 243 40% 46%;
+    --chart-2: 173 58% 39%;
+    --chart-3: 197 37% 24%;
+    --chart-4: 43 74% 66%;
+    --chart-5: 27 87% 67%;
+    --radius: 0.75rem;
+    --sidebar-background: 0 0% 98%;
+    --sidebar-foreground: 240 5.3% 26.1%;
+    --sidebar-primary: 243 40% 46%;
+    --sidebar-primary-foreground: 0 0% 98%;
+    --sidebar-accent: 240 4.8% 95.9%;
+    --sidebar-accent-foreground: 240 5.9% 10%;
+    --sidebar-border: 220 13% 91%;
+    --sidebar-ring: 243 40% 46%;
+  }
+
+  .dark {
+    --background: 228 25% 7%;
+    --foreground: 0 0% 97%;
+    --card: 228 20% 11%;
+    --card-foreground: 0 0% 97%;
+    --popover: 228 25% 7%;
+    --popover-foreground: 0 0% 97%;
+    --primary: 243 40% 60%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 228 15% 16%;
+    --secondary-foreground: 0 0% 97%;
+    --muted: 228 15% 16%;
+    --muted-foreground: 228 10% 56%;
+    --accent: 243 40% 60%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 228 15% 18%;
+    --input: 228 15% 18%;
+    --ring: 243 40% 60%;
+    --chart-1: 220 70% 50%;
+    --chart-2: 160 60% 45%;
+    --chart-3: 30 80% 55%;
+    --chart-4: 280 65% 60%;
+    --chart-5: 340 75% 55%;
+    --sidebar-background: 228 25% 7%;
+    --sidebar-foreground: 240 4.8% 95.9%;
+    --sidebar-primary: 243 40% 60%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 228 15% 13%;
+    --sidebar-accent-foreground: 240 4.8% 95.9%;
+    --sidebar-border: 228 15% 18%;
+    --sidebar-ring: 243 40% 60%;
+  }
 }
 
-@font-face {
-  font-family: 'GeistMono';
-  src: url('./fonts/GeistMono-Variable.woff2') format('woff2');
-  font-display: swap;
-  font-style: normal;
-  font-weight: 100 900;
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
 }
 
-:root {
-  --font-geist: 'Geist', system-ui, -apple-system, sans-serif;
-  --font-mono: 'GeistMono', 'SF Mono', monospace;
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
 }
 
-* {
-  box-sizing: border-box;
-  padding: 0;
-  margin: 0;
-}
-
-html,
-body {
-  max-width: 100vw;
-  overflow-x: hidden;
+html {
   scroll-behavior: smooth;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-body {
-  background-color: #0a0a0a;
-  color: #ededed;
-  font-family: var(--font-geist);
+/* ── Glass card — layered depth, not flat ─────── */
+.glass-card {
+  background: rgba(255, 255, 255, 0.68);
+  backdrop-filter: blur(48px) saturate(1.3);
+  -webkit-backdrop-filter: blur(48px) saturate(1.3);
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  box-shadow:
+    0 0 0 0.5px rgba(0, 0, 0, 0.02),
+    0 1px 2px rgba(0, 0, 0, 0.015),
+    0 2px 6px rgba(0, 0, 0, 0.02),
+    0 8px 24px rgba(0, 0, 0, 0.025),
+    inset 0 1px 0 rgba(255, 255, 255, 0.5);
+  transition: box-shadow 300ms cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+.glass-card:hover {
+  box-shadow:
+    0 0 0 0.5px rgba(0, 0, 0, 0.02),
+    0 1px 2px rgba(0, 0, 0, 0.015),
+    0 4px 12px rgba(0, 0, 0, 0.03),
+    0 12px 32px rgba(0, 0, 0, 0.035),
+    inset 0 1px 0 rgba(255, 255, 255, 0.55);
 }
 
-a {
-  color: inherit;
-  text-decoration: none;
+.dark .glass-card {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow:
+    0 0 0 0.5px rgba(255, 255, 255, 0.02),
+    0 1px 2px rgba(0, 0, 0, 0.2),
+    0 2px 6px rgba(0, 0, 0, 0.15),
+    0 8px 24px rgba(0, 0, 0, 0.15),
+    inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+.dark .glass-card:hover {
+  box-shadow:
+    0 0 0 0.5px rgba(255, 255, 255, 0.03),
+    0 1px 2px rgba(0, 0, 0, 0.2),
+    0 4px 12px rgba(0, 0, 0, 0.2),
+    0 12px 32px rgba(0, 0, 0, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
 }
 
-button {
-  font-family: inherit;
+/* Product mock — pristine, minimal shadow */
+.mock-card {
+  background: hsl(var(--background));
+  border: 1px solid hsl(var(--border) / 0.6);
+  box-shadow:
+    0 0 0 0.5px rgba(0, 0, 0, 0.015),
+    0 1px 3px rgba(0, 0, 0, 0.02),
+    0 4px 16px rgba(0, 0, 0, 0.03),
+    0 12px 48px rgba(0, 0, 0, 0.03);
+  transition: box-shadow 300ms cubic-bezier(0.25, 0.46, 0.45, 0.94),
+              transform 300ms cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+.mock-card:hover {
+  box-shadow:
+    0 0 0 0.5px rgba(0, 0, 0, 0.015),
+    0 1px 3px rgba(0, 0, 0, 0.02),
+    0 8px 24px rgba(0, 0, 0, 0.04),
+    0 16px 56px rgba(0, 0, 0, 0.04);
+  transform: translateY(-1px);
 }
 
-::selection {
-  background-color: rgba(255, 255, 255, 0.2);
+.dark .mock-card {
+  border: 1px solid hsl(var(--border) / 0.4);
+  box-shadow:
+    0 0 0 0.5px rgba(255, 255, 255, 0.02),
+    0 1px 3px rgba(0, 0, 0, 0.3),
+    0 4px 16px rgba(0, 0, 0, 0.2),
+    0 12px 48px rgba(0, 0, 0, 0.15);
+}
+.dark .mock-card:hover {
+  box-shadow:
+    0 0 0 0.5px rgba(255, 255, 255, 0.03),
+    0 1px 3px rgba(0, 0, 0, 0.3),
+    0 8px 24px rgba(0, 0, 0, 0.25),
+    0 16px 56px rgba(0, 0, 0, 0.2);
 }
 
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+/* ── Button system ─────────────────────────────── */
+.btn-primary {
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06),
+              inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  transition: all 250ms cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+.btn-primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05),
+              0 6px 20px hsl(243 40% 46% / 0.15),
+              inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+.btn-primary:active {
+  transform: translateY(0);
+  transition-duration: 80ms;
 }
 
-::-webkit-scrollbar-track {
-  background: #0a0a0a;
+.dark .btn-primary {
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3),
+              inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+.dark .btn-primary:hover {
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2),
+              0 6px 20px hsl(243 40% 60% / 0.25),
+              inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 
-::-webkit-scrollbar-thumb {
-  background: #333;
-  border-radius: 4px;
+.btn-secondary {
+  transition: all 250ms cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+.btn-secondary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  border-color: hsl(var(--border));
+  background: hsl(var(--card));
+}
+.btn-secondary:active {
+  transform: translateY(0);
+  transition-duration: 80ms;
 }
 
-::-webkit-scrollbar-thumb:hover {
-  background: #444;
+.dark .btn-secondary:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+/* ── Animations — glacial, meditative ──────────── */
+@keyframes float-gentle {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  50% { transform: translateY(-5px) rotate(0.3deg); }
+}
+@keyframes float-gentle-alt {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  50% { transform: translateY(-4px) rotate(-0.3deg); }
+}
+
+.animate-float-1 { animation: float-gentle 16s ease-in-out infinite; }
+.animate-float-2 { animation: float-gentle-alt 19s ease-in-out 2s infinite; }
+.animate-float-3 { animation: float-gentle 22s ease-in-out 4s infinite; }
+.animate-float-4 { animation: float-gentle-alt 18s ease-in-out 6s infinite; }
+.animate-float-5 { animation: float-gentle 24s ease-in-out 3s infinite; }
+
+/* ── Section divider — barely there ──────────── */
+.section-divider {
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    hsl(var(--border) / 0.25) 30%,
+    hsl(var(--border) / 0.4) 50%,
+    hsl(var(--border) / 0.25) 70%,
+    transparent 100%
+  );
 }

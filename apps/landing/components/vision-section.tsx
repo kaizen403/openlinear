@@ -3,13 +3,10 @@ import { ArrowRight } from "lucide-react"
 export function VisionSection() {
   return (
     <section className="relative py-40 md:py-52 overflow-hidden">
-      {/* Deep quiet dark */}
-      <div className="absolute inset-0 bg-[hsl(230_25%_8%)]" />
+      <div className="absolute inset-0 bg-[hsl(230_25%_8%)] dark:bg-[hsl(230_20%_11%)]" />
 
-      {/* Single atmospheric glow - very restrained */}
-      <div className="absolute top-0 right-0 w-3/4 h-full bg-[radial-gradient(ellipse_60%_70%_at_80%_25%,hsl(240_20%_12%/0.4),transparent_65%)]" />
+      <div className="absolute top-0 right-0 w-3/4 h-full bg-[radial-gradient(ellipse_60%_70%_at_80%_25%,hsl(240_20%_12%/0.4),transparent_65%)] dark:bg-[radial-gradient(ellipse_60%_70%_at_80%_25%,hsl(243_25%_18%/0.3),transparent_65%)]" />
 
-      {/* Faint horizon line at top */}
       <div className="absolute top-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-[hsl(0_0%_100%/0.04)] to-transparent" />
 
       <div className="relative mx-auto max-w-[76rem] px-6 lg:px-10">

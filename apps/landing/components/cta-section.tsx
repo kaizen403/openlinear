@@ -3,8 +3,7 @@ import { ArrowRight } from "lucide-react"
 export function CTASection() {
   return (
     <section className="relative py-40 md:py-52 overflow-hidden bg-background">
-      {/* Barely perceptible ambient glow */}
-      <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-[600px] h-[350px] rounded-full bg-[hsl(235_18%_94%/0.2)] blur-[160px] pointer-events-none" />
+      <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-[600px] h-[350px] rounded-full bg-[hsl(235_18%_94%/0.2)] dark:bg-[hsl(243_30%_18%/0.15)] blur-[160px] pointer-events-none" />
 
       {/* Top divider */}
       <div className="absolute top-0 left-0 right-0 section-divider" />

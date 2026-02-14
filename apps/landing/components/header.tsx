@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { Menu, X } from "lucide-react"
+import { ThemeToggle } from "@/components/theme-toggle"
 
 export function Header() {
   const [scrolled, setScrolled] = useState(false)
@@ -46,13 +47,17 @@ export function Header() {
             <a href="/pricing" className="text-[0.8125rem] text-muted-foreground/60 transition-colors duration-250 hover:text-foreground/80">
               Pricing
             </a>
+            <a href="/docs" className="text-[0.8125rem] text-muted-foreground/60 transition-colors duration-250 hover:text-foreground/80">
+              Docs
+            </a>
             <a href="/contact" className="text-[0.8125rem] text-muted-foreground/60 transition-colors duration-250 hover:text-foreground/80">
               Contact us
             </a>
           </nav>
 
           {/* Actions */}
-          <div className="hidden md:flex items-center gap-6">
+          <div className="hidden md:flex items-center gap-4">
+            <ThemeToggle />
             <a href="#" className="text-[0.8125rem] text-muted-foreground/60 transition-colors duration-250 hover:text-foreground/80">
               Log in
             </a>
@@ -81,9 +86,13 @@ export function Header() {
             <a href="/product" className="text-sm text-foreground/80 py-2.5 transition-colors duration-200 hover:text-primary">Product</a>
             <a href="/enterprise" className="text-sm text-foreground/80 py-2.5 transition-colors duration-200 hover:text-primary">Enterprise</a>
             <a href="/pricing" className="text-sm text-foreground/80 py-2.5 transition-colors duration-200 hover:text-primary">Pricing</a>
+            <a href="/docs" className="text-sm text-foreground/80 py-2.5 transition-colors duration-200 hover:text-primary">Docs</a>
             <a href="/contact" className="text-sm text-foreground/80 py-2.5 transition-colors duration-200 hover:text-primary">Contact us</a>
             <hr className="border-border/15 my-3" />
-            <a href="#" className="text-sm text-foreground/80 py-2.5">Log in</a>
+            <div className="flex items-center justify-between py-2.5">
+              <a href="#" className="text-sm text-foreground/80">Log in</a>
+              <ThemeToggle />
+            </div>
             <a
               href="#"
               className="btn-primary inline-flex items-center justify-center rounded-full bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground mt-2"
