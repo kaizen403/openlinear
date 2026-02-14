@@ -33,10 +33,10 @@ ok "Dependencies installed"
 
 # ── Database ─────────────────────────────────────────────────────
 dc() {
-    if docker compose version &>/dev/null; then
-        docker compose "$@"
-    else
+    if command -v docker-compose &>/dev/null; then
         docker-compose "$@"
+    else
+        docker compose "$@"
     fi
 }
 
