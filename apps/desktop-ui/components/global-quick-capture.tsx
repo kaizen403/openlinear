@@ -4,9 +4,6 @@ import { useState, useRef, useCallback, useEffect } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import {
   Plus,
-  Globe,
-  Telescope,
-  Type,
   ArrowRight,
   Sparkles,
   X,
@@ -14,6 +11,7 @@ import {
   Flag,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { checkBrainstormAvailability, generateBrainstormQuestions } from "@/lib/api/brainstorm"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -26,8 +24,6 @@ interface GeneratedTask {
   priority: "high" | "medium" | "low"
   inserted: boolean
 }
-
-type ToggleId = "web" | "research" | "writing"
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -56,40 +52,6 @@ const PRIORITY_ICONS: Record<
   low: Flag,
 }
 
-const MOCK_TASKS: GeneratedTask[] = [
-  {
-    id: "1",
-    title: "Refactor authentication middleware to support OAuth2 PKCE flow",
-    reasoning:
-      "Current auth uses implicit grant which is deprecated. PKCE provides better security for public clients without a client secret.",
-    priority: "high",
-    inserted: false,
-  },
-  {
-    id: "2",
-    title: "Add rate limiting to public API endpoints",
-    reasoning:
-      "Prevents abuse and ensures fair resource allocation. Should implement sliding window algorithm with Redis backing.",
-    priority: "high",
-    inserted: false,
-  },
-  {
-    id: "3",
-    title: "Create E2E test suite for task execution pipeline",
-    reasoning:
-      "Execution pipeline has no integration coverage. Critical path from clone to PR creation needs automated verification.",
-    priority: "medium",
-    inserted: false,
-  },
-  {
-    id: "4",
-    title: "Update README with new environment variable documentation",
-    reasoning:
-      "Several new env vars were added in recent PRs but docs are stale. Quick win for developer onboarding.",
-    priority: "low",
-    inserted: false,
-  },
-]
 
 // ---------------------------------------------------------------------------
 // Sub-components
@@ -228,49 +190,19 @@ function TaskCard({
   )
 }
 
-function ToggleButton({
-  id,
-  icon: Icon,
-  label,
-  active,
-  onToggle,
-}: {
-  id: ToggleId
-  icon: React.ComponentType<{ className?: string }>
-  label: string
-  active: boolean
-  onToggle: (id: ToggleId) => void
-}) {
-  return (
-    <button
-      onClick={() => onToggle(id)}
-      title={label}
-      className={cn(
-        "flex h-6 w-6 items-center justify-center rounded-md transition-all duration-150",
-        active
-          ? "bg-white/[0.1] text-zinc-200 shadow-[0_0_8px_rgba(255,255,255,0.06)]"
-          : "text-zinc-600 hover:text-zinc-400 hover:bg-white/[0.04]"
-      )}
-    >
-      <Icon className="h-3 w-3" />
-    </button>
-  )
-}
 
 // ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
 
 export function GlobalQuickCapture() {
-  const [phase, setPhase] = useState<"ghost" | "input" | "stream">("ghost")
+  const [phase, setPhase] = useState<"ghost" | "input" | "questions" | "stream">("ghost")
   const [query, setQuery] = useState("")
   const [loading, setLoading] = useState(false)
   const [tasks, setTasks] = useState<GeneratedTask[]>([])
-  const [toggles, setToggles] = useState<Record<ToggleId, boolean>>({
-    web: true,
-    research: false,
-    writing: false,
-  })
+  const [questions, setQuestions] = useState<string[]>([])
+  const [answers, setAnswers] = useState<Record<string, string>>({})
+  const [questionsLoading, setQuestionsLoading] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const sidebarRef = useRef<HTMLDivElement>(null)
 
@@ -317,19 +249,26 @@ export function GlobalQuickCapture() {
       if (!query) return
 
       setQuery(query)
-      setPhase("stream")
-      setLoading(true)
-      setTasks([])
-
-      const showDelay = 1800
-      setTimeout(() => {
-        setLoading(false)
-        MOCK_TASKS.forEach((task, i) => {
-          setTimeout(() => {
-            setTasks((prev) => [...prev, { ...task, id: `${task.id}-${Date.now()}` }])
-          }, i * 280)
-        })
-      }, showDelay)
+      setPhase("input")
+      // Auto-submit after setting query
+      setTimeout(async () => {
+        setQuestionsLoading(true)
+        try {
+          const availability = await checkBrainstormAvailability()
+          if (!availability.available) {
+            setQuestionsLoading(false)
+            return
+          }
+          const generatedQuestions = await generateBrainstormQuestions(query)
+          setQuestions(generatedQuestions)
+          setAnswers({})
+          setPhase("questions")
+        } catch (err) {
+          console.error("Failed to generate questions:", err)
+        } finally {
+          setQuestionsLoading(false)
+        }
+      }, 100)
     }
 
     window.addEventListener("brainstorm-query", handleBrainstorm)
@@ -341,35 +280,34 @@ export function GlobalQuickCapture() {
     setQuery("")
     setTasks([])
     setLoading(false)
+    setQuestions([])
+    setAnswers({})
+    setQuestionsLoading(false)
   }, [])
 
   const handleGhostClick = useCallback(() => {
     setPhase("input")
   }, [])
 
-  const handleToggle = useCallback((id: ToggleId) => {
-    setToggles((prev) => ({ ...prev, [id]: !prev[id] }))
-  }, [])
-
-  const handleSubmit = useCallback(() => {
+  const handleSubmit = useCallback(async () => {
     if (!query.trim()) return
 
-    setPhase("stream")
-    setLoading(true)
-    setTasks([])
-
-    // Simulate AI loading → staggered card arrival
-    const showDelay = 1800
-    setTimeout(() => {
-      setLoading(false)
-
-      // Stagger each card
-      MOCK_TASKS.forEach((task, i) => {
-        setTimeout(() => {
-          setTasks((prev) => [...prev, { ...task, id: `${task.id}-${Date.now()}` }])
-        }, i * 280)
-      })
-    }, showDelay)
+    setQuestionsLoading(true)
+    try {
+      const availability = await checkBrainstormAvailability()
+      if (!availability.available) {
+        setQuestionsLoading(false)
+        return
+      }
+      const generatedQuestions = await generateBrainstormQuestions(query)
+      setQuestions(generatedQuestions)
+      setAnswers({})
+      setPhase("questions")
+    } catch (err) {
+      console.error("Failed to generate questions:", err)
+    } finally {
+      setQuestionsLoading(false)
+    }
   }, [query])
 
   const handleInsert = useCallback((id: string) => {
@@ -445,7 +383,7 @@ export function GlobalQuickCapture() {
               animate={{
                 x: 0,
                 opacity: 1,
-                width: phase === "stream" ? "min(400px, 100vw)" : "min(360px, 100vw)",
+                width: phase === "stream" || phase === "questions" ? "min(400px, 100vw)" : "min(360px, 100vw)",
               }}
               exit={{ x: "100%", opacity: 0 }}
               transition={SPRING}
@@ -480,7 +418,7 @@ export function GlobalQuickCapture() {
               </div>
 
               {/* ---------- Divider ---------- */}
-              {phase === "stream" && (
+              {(phase === "stream" || phase === "questions") && (
                 <motion.div
                   initial={{ opacity: 0, scaleX: 0 }}
                   animate={{ opacity: 1, scaleX: 1 }}
@@ -550,6 +488,91 @@ export function GlobalQuickCapture() {
                           />
                         ))}
                       </AnimatePresence>
+                    </motion.div>
+                  )}
+
+                  {phase === "questions" && (
+                    <motion.div
+                      key="questions"
+                      initial={{ opacity: 0, y: 12 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -8 }}
+                      transition={SPRING}
+                      className="space-y-4"
+                    >
+                      <div className="rounded-lg bg-white/[0.03] border border-white/[0.06] px-4 py-3">
+                        <p className="text-[11px] text-zinc-600 mb-1">Your prompt</p>
+                        <p className="text-[13px] text-zinc-300 leading-relaxed">{query}</p>
+                      </div>
+
+                      {questionsLoading ? (
+                        <div className="flex items-center gap-2 py-8 justify-center">
+                          <motion.div
+                            animate={{ rotate: 360 }}
+                            transition={{ repeat: Infinity, duration: 2, ease: "linear" }}
+                          >
+                            <Sparkles className="h-3 w-3 text-zinc-600" />
+                          </motion.div>
+                          <span className="text-[11px] text-zinc-600">Generating questions...</span>
+                        </div>
+                      ) : (
+                        <>
+                          <div className="space-y-3">
+                            {questions.map((question, index) => (
+                              <motion.div
+                                key={index}
+                                initial={{ opacity: 0, y: 10 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                transition={{ ...SPRING, delay: index * 0.08 }}
+                                className="space-y-1.5"
+                              >
+                                <label className="flex items-start gap-2">
+                                  <span className="text-[11px] font-mono text-zinc-600 mt-0.5 shrink-0">
+                                    {index + 1}
+                                  </span>
+                                  <span className="text-[12px] text-zinc-400 leading-snug">
+                                    {question}
+                                  </span>
+                                </label>
+                                <input
+                                  type="text"
+                                  value={answers[question] || ""}
+                                  onChange={(e) =>
+                                    setAnswers((prev) => ({ ...prev, [question]: e.target.value }))
+                                  }
+                                  placeholder="Your answer..."
+                                  className="w-full ml-5 bg-zinc-900/80 border border-white/[0.06] rounded-md px-3 py-2 text-[13px] text-zinc-200 placeholder:text-zinc-700 outline-none focus:border-white/[0.12] transition-colors"
+                                />
+                              </motion.div>
+                            ))}
+                          </div>
+
+                          <div className="flex items-center justify-between pt-2">
+                            <button
+                              onClick={() => {
+                                setPhase("input")
+                                setQuestions([])
+                                setAnswers({})
+                              }}
+                              className="text-[12px] text-zinc-500 hover:text-zinc-300 transition-colors"
+                            >
+                              ← Back
+                            </button>
+                            <button
+                              onClick={() => {
+                                setPhase("stream")
+                                setLoading(true)
+                                setTasks([])
+                              }}
+                              disabled={Object.values(answers).filter(a => a.trim()).length === 0}
+                              className="flex items-center gap-1.5 rounded-md bg-white/[0.08] px-3 py-1.5 text-[12px] font-medium text-zinc-300 hover:bg-white/[0.12] disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                            >
+                              <Sparkles className="h-3 w-3" />
+                              Generate Tasks
+                            </button>
+                          </div>
+                        </>
+                      )}
                     </motion.div>
                   )}
 
