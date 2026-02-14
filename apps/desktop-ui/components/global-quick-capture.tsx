@@ -4,14 +4,14 @@ import { useState, useRef, useCallback, useEffect } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import {
   Plus,
-  ArrowRight,
   Sparkles,
   X,
-  AlertTriangle,
-  Flag,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { checkBrainstormAvailability, generateBrainstormQuestions } from "@/lib/api/brainstorm"
+import { checkBrainstormAvailability, generateBrainstormQuestions, streamBrainstormTasks, type BrainstormTask } from "@/lib/api/brainstorm"
+import { fetchProjects } from "@/lib/api/projects"
+import type { Project } from "@/lib/api/types"
+import { API_URL, getAuthHeader } from "@/lib/api/client"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -20,9 +20,9 @@ import { checkBrainstormAvailability, generateBrainstormQuestions } from "@/lib/
 interface GeneratedTask {
   id: string
   title: string
-  reasoning: string
+  description: string
   priority: "high" | "medium" | "low"
-  inserted: boolean
+  selected: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -41,15 +41,6 @@ const PRIORITY_DOTS: Record<GeneratedTask["priority"], string> = {
   high: "bg-red-700",
   medium: "bg-yellow-700",
   low: "bg-emerald-700",
-}
-
-const PRIORITY_ICONS: Record<
-  GeneratedTask["priority"],
-  React.ComponentType<{ className?: string }>
-> = {
-  high: AlertTriangle,
-  medium: Flag,
-  low: Flag,
 }
 
 
@@ -74,13 +65,11 @@ function SkeletonCard() {
 
 function TaskCard({
   task,
-  onInsert,
+  onToggle,
 }: {
   task: GeneratedTask
-  onInsert: (id: string) => void
+  onToggle: (id: string) => void
 }) {
-  const PriorityIcon = PRIORITY_ICONS[task.priority]
-
   return (
     <motion.div
       layout
@@ -102,88 +91,39 @@ function TaskCard({
         "group relative rounded-lg border border-white/[0.06] bg-zinc-900/60 backdrop-blur-sm",
         "border-l-2",
         PRIORITY_COLORS[task.priority],
-        task.inserted && "opacity-50"
+        !task.selected && "opacity-50"
       )}
     >
       <div className="p-4 space-y-2">
-        {/* Header row */}
+        {/* Header row with checkbox */}
         <div className="flex items-start gap-2.5">
-          <div
-            className={cn(
-              "mt-0.5 flex h-4 w-4 flex-shrink-0 items-center justify-center rounded",
-              "bg-white/[0.04]"
-            )}
-          >
-            <PriorityIcon className={cn("w-2.5 h-2.5", {
-              "text-red-600": task.priority === "high",
-              "text-yellow-600": task.priority === "medium",
-              "text-emerald-600": task.priority === "low",
-            })} />
-          </div>
+          <input
+            type="checkbox"
+            checked={task.selected}
+            onChange={() => onToggle(task.id)}
+            className="mt-1 h-3.5 w-3.5 rounded border-white/20 bg-transparent accent-white cursor-pointer shrink-0"
+          />
           <h4 className="text-[13px] font-medium leading-snug text-zinc-100 flex-1">
             {task.title}
           </h4>
         </div>
 
-        {/* Reasoning */}
-        <p className="pl-[26px] text-[11px] leading-relaxed text-zinc-500">
-          {task.reasoning}
+        {/* Description */}
+        <p className="pl-[22px] text-[11px] leading-relaxed text-zinc-500">
+          {task.description}
         </p>
 
-        {/* Footer */}
-        <div className="flex items-center justify-between pl-[26px] pt-1">
-          <div className="flex items-center gap-1.5">
-            <span
-              className={cn(
-                "inline-block h-1.5 w-1.5 rounded-full",
-                PRIORITY_DOTS[task.priority]
-              )}
-            />
-            <span className="text-[10px] font-medium uppercase tracking-wider text-zinc-600">
-              {task.priority}
-            </span>
-          </div>
-
-          {/* Insert button */}
-          <motion.button
-            initial={false}
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-            onClick={() => onInsert(task.id)}
-            disabled={task.inserted}
+        {/* Priority badge */}
+        <div className="flex items-center gap-1.5 pl-[22px]">
+          <span
             className={cn(
-              "flex items-center gap-1 rounded-md px-2.5 py-1 text-[11px] font-medium",
-              "opacity-0 translate-y-1 transition-all duration-200",
-              "group-hover:opacity-100 group-hover:translate-y-0",
-              task.inserted
-                ? "bg-emerald-500/10 text-emerald-400 cursor-default opacity-100 translate-y-0"
-                : "bg-white/[0.06] text-zinc-400 hover:bg-white/[0.1] hover:text-zinc-200"
+              "inline-block h-1.5 w-1.5 rounded-full",
+              PRIORITY_DOTS[task.priority]
             )}
-          >
-            {task.inserted ? (
-              <>
-                <svg
-                  className="h-3 w-3"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                  strokeWidth={2.5}
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M5 13l4 4L19 7"
-                  />
-                </svg>
-                Inserted
-              </>
-            ) : (
-              <>
-                <ArrowRight className="h-3 w-3" />
-                Insert
-              </>
-            )}
-          </motion.button>
+          />
+          <span className="text-[10px] font-medium uppercase tracking-wider text-zinc-600">
+            {task.priority}
+          </span>
         </div>
       </div>
     </motion.div>
@@ -203,6 +143,10 @@ export function GlobalQuickCapture() {
   const [questions, setQuestions] = useState<string[]>([])
   const [answers, setAnswers] = useState<Record<string, string>>({})
   const [questionsLoading, setQuestionsLoading] = useState(false)
+  const [projects, setProjects] = useState<Project[]>([])
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
+  const [inserting, setInserting] = useState(false)
+  const [streamingDone, setStreamingDone] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const sidebarRef = useRef<HTMLDivElement>(null)
 
@@ -283,6 +227,10 @@ export function GlobalQuickCapture() {
     setQuestions([])
     setAnswers({})
     setQuestionsLoading(false)
+    setProjects([])
+    setSelectedProjectId(null)
+    setInserting(false)
+    setStreamingDone(false)
   }, [])
 
   const handleGhostClick = useCallback(() => {
@@ -310,11 +258,78 @@ export function GlobalQuickCapture() {
     }
   }, [query])
 
-  const handleInsert = useCallback((id: string) => {
+  const handleToggle = useCallback((id: string) => {
     setTasks((prev) =>
-      prev.map((t) => (t.id === id ? { ...t, inserted: true } : t))
+      prev.map((t) => (t.id === id ? { ...t, selected: !t.selected } : t))
     )
   }, [])
+
+  const startStreaming = useCallback(async () => {
+    setStreamingDone(false)
+
+    const answersArray = Object.entries(answers)
+      .filter(([, v]) => v.trim())
+      .map(([question, answer]) => ({ question, answer }))
+
+    await streamBrainstormTasks(
+      query,
+      answersArray,
+      (task: BrainstormTask) => {
+        const generatedTask: GeneratedTask = {
+          id: `task-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+          title: task.title,
+          description: task.description,
+          priority: task.priority,
+          selected: true,
+        }
+        setTasks((prev) => [...prev, generatedTask])
+        setLoading(false)
+      },
+      () => {
+        setLoading(false)
+        setStreamingDone(true)
+      },
+      (error) => {
+        console.error("Stream error:", error)
+        setLoading(false)
+        setStreamingDone(true)
+      }
+    )
+  }, [query, answers])
+
+  const handleAddToProject = useCallback(async () => {
+    if (!selectedProjectId) return
+    const selectedTasks = tasks.filter((t) => t.selected)
+    if (selectedTasks.length === 0) return
+
+    setInserting(true)
+    try {
+      await Promise.all(
+        selectedTasks.map((task) =>
+          fetch(`${API_URL}/api/tasks`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", ...getAuthHeader() },
+            body: JSON.stringify({
+              title: task.title,
+              description: task.description,
+              priority: task.priority,
+              projectId: selectedProjectId,
+            }),
+          })
+        )
+      )
+      handleClose()
+    } catch (err) {
+      console.error("Failed to add tasks:", err)
+      setInserting(false)
+    }
+  }, [tasks, selectedProjectId, handleClose])
+
+  useEffect(() => {
+    if (phase === "stream") {
+      fetchProjects().then(setProjects).catch(console.error)
+    }
+  }, [phase])
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -484,7 +499,7 @@ export function GlobalQuickCapture() {
                           <TaskCard
                             key={task.id}
                             task={task}
-                            onInsert={handleInsert}
+                            onToggle={handleToggle}
                           />
                         ))}
                       </AnimatePresence>
@@ -563,6 +578,7 @@ export function GlobalQuickCapture() {
                                 setPhase("stream")
                                 setLoading(true)
                                 setTasks([])
+                                startStreaming()
                               }}
                               disabled={Object.values(answers).filter(a => a.trim()).length === 0}
                               className="flex items-center gap-1.5 rounded-md bg-white/[0.08] px-3 py-1.5 text-[12px] font-medium text-zinc-300 hover:bg-white/[0.12] disabled:opacity-40 disabled:cursor-not-allowed transition-all"
@@ -620,28 +636,74 @@ export function GlobalQuickCapture() {
 
               {/* ---------- Bottom status bar ---------- */}
               <AnimatePresence>
-                {phase === "stream" && tasks.length > 0 && !loading && (
+                {phase === "stream" && streamingDone && tasks.length > 0 && (
                   <motion.div
                     initial={{ opacity: 0, y: 8 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: 8 }}
                     transition={SPRING}
-                    className="border-t border-white/[0.06] px-4 py-3 flex items-center justify-between"
+                    className="border-t border-white/[0.06] px-4 py-3 space-y-3"
                   >
-                    <span className="text-[11px] text-zinc-600">
-                      {tasks.filter((t) => t.inserted).length}/{tasks.length}{" "}
-                      inserted
-                    </span>
-                    <button
-                      onClick={() => {
-                        setTasks([])
-                        setQuery("")
-                        setPhase("input")
-                      }}
-                      className="text-[11px] font-medium text-zinc-500 hover:text-zinc-300 transition-colors"
-                    >
-                      New query
-                    </button>
+                    <div className="space-y-1.5">
+                      <label className="text-[11px] text-zinc-500 font-medium">Add to project</label>
+                      <select
+                        value={selectedProjectId || ""}
+                        onChange={(e) => setSelectedProjectId(e.target.value || null)}
+                        className="w-full bg-zinc-900 border border-white/[0.08] rounded-md px-3 py-2 text-[13px] text-zinc-200 outline-none focus:border-white/[0.12] appearance-none cursor-pointer"
+                      >
+                        <option value="">Select a project...</option>
+                        {projects.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] text-zinc-600">
+                        {tasks.filter((t) => t.selected).length}/{tasks.length} selected
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => {
+                            setTasks([])
+                            setQuery("")
+                            setPhase("input")
+                            setStreamingDone(false)
+                          }}
+                          className="text-[11px] font-medium text-zinc-500 hover:text-zinc-300 transition-colors"
+                        >
+                          New query
+                        </button>
+                        <button
+                          onClick={handleAddToProject}
+                          disabled={
+                            inserting ||
+                            !selectedProjectId ||
+                            tasks.filter((t) => t.selected).length === 0
+                          }
+                          className="flex items-center gap-1.5 rounded-md bg-white/[0.08] px-3 py-1.5 text-[12px] font-medium text-zinc-300 hover:bg-white/[0.12] disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                        >
+                          {inserting ? (
+                            <>
+                              <motion.div
+                                animate={{ rotate: 360 }}
+                                transition={{ repeat: Infinity, duration: 1, ease: "linear" }}
+                              >
+                                <Sparkles className="h-3 w-3" />
+                              </motion.div>
+                              Adding...
+                            </>
+                          ) : (
+                            <>
+                              <Plus className="h-3 w-3" />
+                              Add to Project
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </div>
                   </motion.div>
                 )}
               </AnimatePresence>
