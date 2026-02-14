@@ -23,7 +23,7 @@ ok "Code updated"
 
 # ── Install dependencies ─────────────────────────────────────────
 step "Installing dependencies..."
-pnpm install --frozen-lockfile
+NODE_ENV=development pnpm install --frozen-lockfile
 ok "Dependencies installed"
 
 # ── Database ─────────────────────────────────────────────────────
