@@ -32,7 +32,7 @@ export function Hero() {
 
           {/* Copy */}
           <div className="flex flex-col gap-8 z-10">
-            <h1 className="font-display text-[2.75rem] md:text-[3.75rem] lg:text-[4.5rem] font-bold tracking-[-0.05em] text-[#EDE8D0] leading-[1.02]">
+            <h1 className="hero-reveal-1 font-display text-[2.75rem] md:text-[3.75rem] lg:text-[4.5rem] font-bold tracking-[-0.05em] text-[#EDE8D0] leading-[1.02]">
               <span className="text-balance">
                 Execute your tasks.{" "}
                 <br />
@@ -40,7 +40,7 @@ export function Hero() {
               </span>
             </h1>
 
-            <div className="flex flex-wrap items-center gap-3.5 pt-1">
+            <div className="hero-reveal-2 flex flex-wrap items-center gap-3.5 pt-1">
               <a
                 href="#"
                 className="btn-primary inline-flex items-center gap-2.5 rounded-full bg-primary px-7 py-3 text-[0.875rem] font-medium text-primary-foreground"
@@ -57,7 +57,7 @@ export function Hero() {
           </div>
 
           {/* ── Floating glass panels ────────────────── */}
-          <div className="relative h-[560px] hidden lg:block">
+          <div className="hero-reveal-3 relative h-[560px] hidden lg:block">
 
             {/* Card 1 – AI Agent (top-left, main card) */}
             <div className="absolute top-0 left-0 w-[320px] glass-panel rounded-2xl p-5 z-20 animate-float-1">

@@ -3,7 +3,7 @@
 import { useState } from "react"
 import { Header } from "@/components/header"
 import { Footer } from "@/components/footer"
-import { ArrowRight } from "lucide-react"
+import { ArrowRight, Mail, Clock, Github } from "lucide-react"
 
 export default function ContactPage() {
   const [name, setName] = useState("")
@@ -19,25 +19,84 @@ export default function ContactPage() {
     <main>
       <Header />
 
-      <section className="relative bg-background pt-40 pb-20">
-        <div className="mx-auto max-w-none px-[100px]">
-          <span className="text-[0.75rem] font-semibold text-primary/60 mb-5 tracking-[-0.01em] block">
+      {/* ── Hero ─────────────────────────────────── */}
+      <section className="relative min-h-[85svh] flex flex-col justify-center overflow-hidden">
+        <div className="absolute inset-0 bg-[#161820]" />
+        <div className="absolute top-[-15%] left-[30%] w-[600px] h-[500px] rounded-full bg-[hsl(200_40%_25%/0.12)] blur-[180px] pointer-events-none" />
+        <div className="absolute bottom-[-10%] right-[15%] w-[500px] h-[400px] rounded-full bg-[hsl(45_30%_25%/0.1)] blur-[160px] pointer-events-none" />
+        <div className="absolute inset-0 opacity-[0.02]" style={{
+          backgroundImage: `linear-gradient(rgba(255,255,255,0.1) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.1) 1px, transparent 1px)`,
+          backgroundSize: '80px 80px'
+        }} />
+        <div className="absolute bottom-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-white/[0.06] to-transparent" />
+
+        <div className="relative mx-auto max-w-none px-[100px] w-full text-center pt-40 pb-16">
+          <span className="hero-reveal-1 inline-block text-[0.75rem] font-semibold text-[#EDE8D0]/40 tracking-[0.2em] uppercase mb-8">
             Contact
           </span>
-          <h1 className="font-display text-[2rem] md:text-[2.75rem] lg:text-[3.25rem] font-bold tracking-[-0.045em] text-foreground text-balance leading-[1.04] mt-5">
+          <h1 className="hero-reveal-2 font-display text-[2.75rem] md:text-[3.75rem] lg:text-[4.5rem] font-bold tracking-[-0.05em] text-[#EDE8D0] leading-[1.02] max-w-3xl mx-auto">
             Get in touch.
           </h1>
-          <p className="text-muted-foreground/65 leading-[1.7] text-[0.9375rem] tracking-[-0.01em] max-w-xl mt-6">
-            Have a question or want to learn more? Reach out.
+          <p className="hero-reveal-3 text-[#EDE8D0]/40 leading-[1.75] text-[1.0625rem] tracking-[-0.01em] max-w-lg mx-auto mt-8">
+            Have a question, need a demo, or want to discuss enterprise options? We&apos;d love to hear from you.
           </p>
+        </div>
+
+        {/* Info cards — inside the hero */}
+        <div className="hero-reveal-4 relative mx-auto max-w-none px-[100px] w-full pb-20">
+          <div className="grid md:grid-cols-3 gap-5 max-w-3xl mx-auto">
+            {[
+              {
+                icon: Clock,
+                title: "Response Time",
+                detail: "We respond within 24 hours",
+              },
+              {
+                icon: Mail,
+                title: "Email",
+                detail: "hello@openlinear.dev",
+                href: "mailto:hello@openlinear.dev",
+              },
+              {
+                icon: Github,
+                title: "GitHub",
+                detail: "kaizen403/openlinear",
+                href: "https://github.com/kaizen403/openlinear",
+              },
+            ].map((item) => (
+              <div key={item.title} className="glass-panel rounded-xl p-5 flex items-center gap-4 group">
+                <div className="h-10 w-10 rounded-lg bg-[#EDE8D0]/[0.05] border border-[#EDE8D0]/[0.08] flex items-center justify-center shrink-0 group-hover:bg-[#EDE8D0]/[0.08] transition-colors duration-300">
+                  <item.icon className="h-4 w-4 text-[#EDE8D0]/60" />
+                </div>
+                <div>
+                  <p className="text-[0.8125rem] font-medium text-[#EDE8D0]/80 tracking-[-0.01em]">
+                    {item.title}
+                  </p>
+                  {item.href ? (
+                    <a
+                      href={item.href}
+                      className="text-[0.75rem] text-[#EDE8D0]/50 hover:text-[#EDE8D0]/70 transition-colors duration-250"
+                    >
+                      {item.detail}
+                    </a>
+                  ) : (
+                    <p className="text-[0.75rem] text-[#EDE8D0]/35">
+                      {item.detail}
+                    </p>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       </section>
 
+      {/* ── Form + Sidebar ───────────────────────── */}
       <section className="relative py-32 md:py-40 bg-[#1a1c26]">
         <div className="absolute top-0 left-0 right-0 section-divider" />
         <div className="mx-auto max-w-none px-[100px]">
-          <div className="grid lg:grid-cols-2 gap-14 lg:gap-24">
-            <form onSubmit={handleSubmit} className="flex flex-col gap-5">
+          <div className="grid lg:grid-cols-[1.3fr_1fr] gap-14 lg:gap-24 max-w-5xl mx-auto">
+            <form onSubmit={handleSubmit} autoComplete="off" className="flex flex-col gap-5">
               <div>
                 <label htmlFor="name" className="text-[0.8125rem] font-medium text-foreground/80 mb-2 block">
                   Name
@@ -46,6 +105,7 @@ export default function ContactPage() {
                   id="name"
                   type="text"
                   required
+                  autoComplete="off"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   placeholder="Your name"
@@ -60,6 +120,7 @@ export default function ContactPage() {
                   id="email"
                   type="email"
                   required
+                  autoComplete="off"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="you@company.com"
@@ -73,6 +134,7 @@ export default function ContactPage() {
                 <input
                   id="company"
                   type="text"
+                  autoComplete="off"
                   value={company}
                   onChange={(e) => setCompany(e.target.value)}
                   placeholder="Optional"
@@ -86,6 +148,7 @@ export default function ContactPage() {
                 <textarea
                   id="message"
                   required
+                  autoComplete="off"
                   value={message}
                   onChange={(e) => setMessage(e.target.value)}
                   placeholder="Tell us what you need"
@@ -100,26 +163,61 @@ export default function ContactPage() {
               </button>
             </form>
 
-            <div>
-              <h3 className="font-display text-[1.25rem] font-bold tracking-[-0.03em] text-foreground mb-3">
-                Email
-              </h3>
-              <a
-                href="mailto:hello@openlinear.dev"
-                className="text-primary/80 hover:text-primary text-[0.9375rem] transition-colors duration-250"
-              >
-                hello@openlinear.dev
-              </a>
-              <div className="mt-8">
-                <h3 className="font-display text-[1.25rem] font-bold tracking-[-0.03em] text-foreground mb-3">
-                  GitHub
+            {/* What to expect */}
+            <div className="flex flex-col gap-10">
+              <div>
+                <h3 className="font-display text-[1.125rem] font-bold tracking-[-0.03em] text-foreground mb-6">
+                  What to expect
                 </h3>
-                <a
-                  href="https://github.com/kaizen403/openlinear"
-                  className="text-primary/80 hover:text-primary text-[0.9375rem] transition-colors duration-250"
-                >
-                  github.com/kaizen403/openlinear
-                </a>
+                <div className="flex flex-col gap-6">
+                  {[
+                    { step: "01", title: "Submit your message", description: "Fill out the form and we'll receive your inquiry immediately." },
+                    { step: "02", title: "We review your needs", description: "Our team evaluates your use case and prepares a tailored response." },
+                    { step: "03", title: "We respond within 24h", description: "Expect a detailed reply or a call invite within one business day." },
+                  ].map((item) => (
+                    <div key={item.step} className="flex items-start gap-4">
+                      <span className="text-[0.75rem] font-semibold text-primary/50 font-mono mt-0.5 shrink-0 w-6">
+                        {item.step}
+                      </span>
+                      <div>
+                        <p className="text-[0.875rem] font-medium text-foreground/80 tracking-[-0.01em]">
+                          {item.title}
+                        </p>
+                        <p className="text-[0.75rem] text-muted-foreground/45 leading-[1.6] mt-1">
+                          {item.description}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="h-[1px] bg-border/20" />
+
+              <div>
+                <h3 className="font-display text-[1.125rem] font-bold tracking-[-0.03em] text-foreground mb-4">
+                  Direct channels
+                </h3>
+                <div className="flex flex-col gap-3">
+                  <div>
+                    <p className="text-[0.75rem] text-muted-foreground/40 mb-1">Email</p>
+                    <a
+                      href="mailto:hello@openlinear.dev"
+                      className="text-primary/80 hover:text-primary text-[0.875rem] transition-colors duration-250"
+                    >
+                      hello@openlinear.dev
+                    </a>
+                  </div>
+                  <div>
+                    <p className="text-[0.75rem] text-muted-foreground/40 mb-1">GitHub</p>
+                    <a
+                      href="https://github.com/kaizen403/openlinear"
+                      className="text-primary/80 hover:text-primary text-[0.875rem] transition-colors duration-250"
+                    >
+                      github.com/kaizen403/openlinear
+                    </a>
+                  </div>
+                </div>
               </div>
             </div>
           </div>

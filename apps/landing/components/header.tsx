@@ -23,11 +23,11 @@ export function Header() {
       <div className="mx-auto max-w-none px-[100px]">
         <div className="flex h-16 items-center justify-between">
           {/* Logo */}
-          <div className="flex items-center">
+          <a href="/" onClick={() => window.location.href = '/'} className="flex items-center">
             <span className="font-display text-[0.875rem] font-semibold tracking-[0.1em] text-foreground uppercase">
               OpenLinear
             </span>
-          </div>
+          </a>
 
           {/* Nav */}
           <nav className="hidden md:flex items-center gap-9">

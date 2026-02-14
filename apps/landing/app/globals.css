@@ -2,6 +2,74 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ── Custom Scrollbar ────────────────────────── */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(237, 232, 208, 0.1);
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(237, 232, 208, 0.2);
+}
+
+::-webkit-scrollbar-thumb:active {
+  background: rgba(237, 232, 208, 0.3);
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Firefox */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(237, 232, 208, 0.1) transparent;
+}
+
+/* ── Hero Reveal Animations ──────────────────── */
+@keyframes hero-reveal {
+  0% {
+    opacity: 0;
+    transform: translateY(24px);
+    filter: blur(4px);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
+  }
+}
+
+.hero-reveal-1 {
+  animation: hero-reveal 0.9s cubic-bezier(0.16, 1, 0.3, 1) 0.1s both;
+}
+
+.hero-reveal-2 {
+  animation: hero-reveal 0.9s cubic-bezier(0.16, 1, 0.3, 1) 0.25s both;
+}
+
+.hero-reveal-3 {
+  animation: hero-reveal 0.9s cubic-bezier(0.16, 1, 0.3, 1) 0.4s both;
+}
+
+.hero-reveal-4 {
+  animation: hero-reveal 0.9s cubic-bezier(0.16, 1, 0.3, 1) 0.55s both;
+}
+
+.hero-reveal-5 {
+  animation: hero-reveal 0.9s cubic-bezier(0.16, 1, 0.3, 1) 0.7s both;
+}
+
 @layer base {
   :root {
     --background: 0 0% 100%;

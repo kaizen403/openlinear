@@ -1,6 +1,6 @@
 import { Header } from "@/components/header"
 import { Hero } from "@/components/hero"
-import { TrustLogos } from "@/components/trust-logos"
+import { TextHighlighter } from "@/components/text-highlighter"
 import { ProductSuite } from "@/components/product-suite"
 import { FeatureSections } from "@/components/feature-sections"
 import { VisionSection } from "@/components/vision-section"
@@ -12,7 +12,7 @@ export default function Page() {
     <main>
       <Header />
       <Hero />
-      <TrustLogos />
+      <TextHighlighter />
       <ProductSuite />
       <FeatureSections />
       <VisionSection />
