@@ -229,7 +229,7 @@ export default function EnterprisePage() {
             </a>
             <a
               href="/pricing"
-              className="inline-flex items-center gap-2.5 rounded-full border border-[#EDE8D0]/[0.06] px-7 py-3.5 text-[0.8125rem] font-medium text-[#EDE8D0]/60 transition-all duration-[300ms] hover:bg-[#EDE8D0]/[0.03] hover:border-[#EDE8D0]/[0.1]"
+              className="inline-flex items-center gap-2.5 rounded-full border border-[#EDE8D0]/[0.06] px-7 py-3.5 text-[0.8125rem] font-medium text-[#EDE8D0]/60 transition-all duration-300 hover:bg-[#EDE8D0]/[0.03] hover:border-[#EDE8D0]/[0.1]"
             >
               View Plans
             </a>

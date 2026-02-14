@@ -96,7 +96,7 @@ function FAQItem({ q, a }: { q: string; a: string }) {
         />
       </button>
       <div
-        className={`overflow-hidden transition-all duration-300 ease-[cubic-bezier(0.25,0.46,0.45,0.94)] ${open ? "max-h-40 pb-5" : "max-h-0"}`}
+        className={`overflow-hidden transition-all duration-300 ease-smooth ${open ? "max-h-40 pb-5" : "max-h-0"}`}
       >
         <p className="text-[0.875rem] text-muted-foreground/55 leading-[1.7] tracking-[-0.01em]">
           {a}

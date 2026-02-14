@@ -33,7 +33,7 @@ export function VisionSection() {
             </p>
             <a
               href="#"
-              className="inline-flex items-center gap-2.5 rounded-full border border-[hsl(0_0%_100%/0.06)] px-7 py-3 text-[0.8125rem] font-medium text-[hsl(0_0%_80%)] transition-all duration-[300ms] ease-[cubic-bezier(0.25,0.46,0.45,0.94)] hover:bg-[hsl(0_0%_100%/0.03)] hover:border-[hsl(0_0%_100%/0.1)] w-fit"
+              className="inline-flex items-center gap-2.5 rounded-full border border-[hsl(0_0%_100%/0.06)] px-7 py-3 text-[0.8125rem] font-medium text-[hsl(0_0%_80%)] transition-all duration-300 ease-smooth hover:bg-[hsl(0_0%_100%/0.03)] hover:border-[hsl(0_0%_100%/0.1)] w-fit"
             >
               View source on GitHub <ArrowRight className="h-3.5 w-3.5" />
             </a>

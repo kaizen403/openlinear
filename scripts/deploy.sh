@@ -23,7 +23,12 @@ ok "Code updated"
 
 # ── Install dependencies ─────────────────────────────────────────
 step "Installing dependencies..."
-NODE_ENV=development pnpm install --frozen-lockfile
+# Temporarily override NODE_ENV so pnpm installs devDependencies (prisma, etc.)
+# The droplet has NODE_ENV=production globally, which causes pnpm to skip devDeps.
+_saved_node_env="${NODE_ENV:-}"
+export NODE_ENV=development
+pnpm install --frozen-lockfile
+export NODE_ENV="${_saved_node_env}"
 ok "Dependencies installed"
 
 # ── Database ─────────────────────────────────────────────────────

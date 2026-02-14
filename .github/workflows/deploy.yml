@@ -58,7 +58,7 @@ jobs:
           script: |
             set -e
             export CI=true
-            /opt/openlinear/deploy.sh
+            /opt/openlinear/scripts/deploy.sh
 
       - name: Verify deployment
         run: |
