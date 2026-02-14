@@ -147,6 +147,7 @@ export function GlobalQuickCapture() {
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
   const [inserting, setInserting] = useState(false)
   const [streamingDone, setStreamingDone] = useState(false)
+  const [brainstormAvailable, setBrainstormAvailable] = useState<boolean | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const sidebarRef = useRef<HTMLDivElement>(null)
 
@@ -158,6 +159,15 @@ export function GlobalQuickCapture() {
         inputRef.current?.focus()
       }, 100)
       return () => clearTimeout(timeout)
+    }
+  }, [phase])
+
+  // Check brainstorm availability when panel opens
+  useEffect(() => {
+    if (phase === "input") {
+      checkBrainstormAvailability()
+        .then((result) => setBrainstormAvailable(result.available))
+        .catch(() => setBrainstormAvailable(false))
     }
   }, [phase])
 
@@ -203,7 +213,13 @@ export function GlobalQuickCapture() {
             setQuestionsLoading(false)
             return
           }
-          const generatedQuestions = await generateBrainstormQuestions(query)
+          const timeoutPromise = new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error("Questions generation timed out")), 30000)
+          )
+          const generatedQuestions = await Promise.race([
+            generateBrainstormQuestions(query),
+            timeoutPromise,
+          ])
           setQuestions(generatedQuestions)
           setAnswers({})
           setPhase("questions")
@@ -231,6 +247,7 @@ export function GlobalQuickCapture() {
     setSelectedProjectId(null)
     setInserting(false)
     setStreamingDone(false)
+    setBrainstormAvailable(null)
   }, [])
 
   const handleGhostClick = useCallback(() => {
@@ -247,7 +264,13 @@ export function GlobalQuickCapture() {
         setQuestionsLoading(false)
         return
       }
-      const generatedQuestions = await generateBrainstormQuestions(query)
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("Questions generation timed out")), 30000)
+      )
+      const generatedQuestions = await Promise.race([
+        generateBrainstormQuestions(query),
+        timeoutPromise,
+      ])
       setQuestions(generatedQuestions)
       setAnswers({})
       setPhase("questions")
@@ -601,6 +624,14 @@ export function GlobalQuickCapture() {
                       transition={{ ...SPRING, delay: 0.1 }}
                       className="flex flex-col items-center justify-center pt-10 text-center px-6"
                     >
+                      {brainstormAvailable === false && (
+                        <div className="w-full max-w-[280px] rounded-lg bg-yellow-900/20 border border-yellow-700/30 px-4 py-2.5 mb-4">
+                          <p className="text-[11px] text-yellow-400/90 leading-relaxed">
+                            AI provider not configured. Set <code className="text-yellow-300 font-mono">BRAINSTORM_API_KEY</code> in your <code className="text-yellow-300 font-mono">.env</code> file.
+                          </p>
+                        </div>
+                      )}
+
                       <span className="text-[26px] font-bold tracking-tight bg-gradient-to-r from-white via-white to-zinc-300 bg-clip-text text-transparent">
                         Brainstorm
                       </span>
