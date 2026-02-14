@@ -55,8 +55,10 @@ jobs:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
-          script_stop: true
-          script: /opt/openlinear/deploy.sh
+          script: |
+            set -e
+            export CI=true
+            /opt/openlinear/deploy.sh
 
       - name: Verify deployment
         run: |
