@@ -36,7 +36,7 @@ export async function generateBrainstormQuestions(prompt: string): Promise<strin
 
 export async function streamBrainstormTasks(
   prompt: string,
-  answers: Record<string, string>,
+  answers: { question: string; answer: string }[],
   onTask: (task: BrainstormTask) => void,
   onDone: () => void,
   onError: (message: string) => void,
