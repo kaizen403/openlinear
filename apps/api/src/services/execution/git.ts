@@ -1,6 +1,6 @@
 import { exec } from 'child_process';
 import { promisify } from 'util';
-import { existsSync, mkdirSync, rmSync } from 'fs';
+import { existsSync, mkdirSync, rmSync, accessSync, constants } from 'fs';
 import { join } from 'path';
 import { PullRequestResult, REPOS_DIR } from './state';
 
@@ -17,6 +17,12 @@ export async function cloneRepository(
   if (!existsSync(REPOS_DIR)) {
     mkdirSync(REPOS_DIR, { recursive: true });
     console.log(`[Execution] Created repos directory: ${REPOS_DIR}`);
+  }
+
+  try {
+    accessSync(REPOS_DIR, constants.W_OK);
+  } catch {
+    throw new Error(`[Execution] No write access to ${REPOS_DIR}. Check directory ownership.`);
   }
 
   if (existsSync(repoPath)) {

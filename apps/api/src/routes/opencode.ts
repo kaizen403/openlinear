@@ -190,4 +190,75 @@ router.post('/auth/oauth/callback', requireAuth, async (req: AuthRequest, res: R
   }
 });
 
+router.get('/models', requireAuth, async (req: AuthRequest, res: Response) => {
+  try {
+    const client = await getClientForUser(req.userId!);
+    const providerList = await client.provider.list();
+
+    if (!providerList.data?.all) {
+      res.json({ providers: [] });
+      return;
+    }
+
+    const connectedSet = new Set(providerList.data.connected ?? []);
+
+    const providers = providerList.data.all
+      .filter((provider) => connectedSet.has(provider.id))
+      .map((provider) => ({
+        id: provider.id,
+        name: provider.name || provider.id,
+        models: Object.values(provider.models || {}).map((model) => ({
+          id: model.id,
+          provider: model.provider,
+          name: model.name || model.id,
+          status: model.status,
+          reasoning: model.reasoning ?? false,
+          toolCall: model.tool_call ?? false,
+          limit: model.limit,
+          cost: {
+            input: model.cost?.input ?? 0,
+            output: model.cost?.output ?? 0,
+          },
+        })),
+      }));
+
+    res.json({ providers });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : 'Failed to list models' });
+  }
+});
+
+router.get('/config', requireAuth, async (req: AuthRequest, res: Response) => {
+  try {
+    const client = await getClientForUser(req.userId!);
+    const config = await client.config.get();
+
+    res.json({
+      model: config.data?.model ?? null,
+      small_model: config.data?.small_model ?? null,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : 'Failed to get config' });
+  }
+});
+
+router.post('/config/model', requireAuth, async (req: AuthRequest, res: Response) => {
+  try {
+    const { model } = req.body;
+    if (!model || typeof model !== 'string') {
+      res.status(400).json({ error: 'model is required (format: provider/model)' });
+      return;
+    }
+
+    const client = await getClientForUser(req.userId!);
+    await client.config.update({
+      body: { model },
+    });
+
+    res.json({ success: true, model });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : 'Failed to set model' });
+  }
+});
+
 export default router;

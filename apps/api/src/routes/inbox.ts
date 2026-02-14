@@ -1,22 +1,28 @@
-import { Router, Request, Response } from 'express';
+import { Router, Response } from 'express';
 import { prisma } from '@openlinear/db';
+import { optionalAuth, AuthRequest } from '../middleware/auth';
+import { getUserTeamIds } from '../services/team-scope';
 
 const router: Router = Router();
 
-router.get('/count', async (_req: Request, res: Response) => {
+function completedOrCancelled() {
+  return { OR: [{ status: 'done' as const }, { status: 'cancelled' as const }] };
+}
+
+async function teamScope(userId?: string): Promise<Record<string, unknown>> {
+  if (!userId) return {};
+  const teamIds = await getUserTeamIds(userId);
+  return { teamId: { in: teamIds } };
+}
+
+router.get('/count', optionalAuth, async (req: AuthRequest, res: Response) => {
   try {
-    const total = await prisma.task.count({
-      where: {
-        OR: [{ status: 'done' }, { status: 'cancelled' }],
-        archived: false,
-      },
-    });
+    const scope = await teamScope(req.userId);
+    const baseWhere = { ...completedOrCancelled(), archived: false, ...scope };
+
+    const total = await prisma.task.count({ where: baseWhere });
     const unread = await prisma.task.count({
-      where: {
-        OR: [{ status: 'done' }, { status: 'cancelled' }],
-        inboxRead: false,
-        archived: false,
-      },
+      where: { ...baseWhere, inboxRead: false },
     });
     res.json({ total, unread });
   } catch (error) {
@@ -25,12 +31,15 @@ router.get('/count', async (_req: Request, res: Response) => {
   }
 });
 
-router.get('/', async (_req: Request, res: Response) => {
+router.get('/', optionalAuth, async (req: AuthRequest, res: Response) => {
   try {
+    const scope = await teamScope(req.userId);
+
     const tasks = await prisma.task.findMany({
       where: {
-        OR: [{ status: 'done' }, { status: 'cancelled' }],
+        ...completedOrCancelled(),
         archived: false,
+        ...scope,
       },
       include: {
         labels: { include: { label: true } },
@@ -52,7 +61,7 @@ router.get('/', async (_req: Request, res: Response) => {
   }
 });
 
-router.patch('/read/:id', async (req: Request, res: Response) => {
+router.patch('/read/:id', async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
     await prisma.task.update({
@@ -66,13 +75,16 @@ router.patch('/read/:id', async (req: Request, res: Response) => {
   }
 });
 
-router.patch('/read-all', async (_req: Request, res: Response) => {
+router.patch('/read-all', optionalAuth, async (req: AuthRequest, res: Response) => {
   try {
+    const scope = await teamScope(req.userId);
+
     await prisma.task.updateMany({
       where: {
-        OR: [{ status: 'done' }, { status: 'cancelled' }],
+        ...completedOrCancelled(),
         inboxRead: false,
         archived: false,
+        ...scope,
       },
       data: { inboxRead: true },
     });

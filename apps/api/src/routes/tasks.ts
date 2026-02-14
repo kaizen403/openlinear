@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { broadcast } from '../sse';
 import { executeTask, cancelTask, isTaskRunning, getExecutionLogs } from '../services/execution';
 import { optionalAuth, AuthRequest } from '../middleware/auth';
+import { getUserTeamIds } from '../services/team-scope';
 
 const PriorityEnum = z.enum(['low', 'medium', 'high']);
 const StatusEnum = z.enum(['todo', 'in_progress', 'done', 'cancelled']);
@@ -101,10 +102,16 @@ const router: Router = Router();
 
 // --- Archived endpoints (must be before /:id routes) ---
 
-router.get('/archived', async (_req: Request, res: Response) => {
+router.get('/archived', optionalAuth, async (req: AuthRequest, res: Response) => {
   try {
+    const where: Record<string, unknown> = { archived: true };
+    if (req.userId) {
+      const teamIds = await getUserTeamIds(req.userId);
+      where.teamId = { in: teamIds };
+    }
+
     const tasks = await prisma.task.findMany({
-      where: { archived: true },
+      where,
       include: taskInclude,
       orderBy: { updatedAt: 'desc' },
     });
@@ -144,11 +151,16 @@ router.delete('/archived/:id', async (req: Request, res: Response) => {
   }
 });
 
-router.get('/', async (req: Request, res: Response) => {
+router.get('/', optionalAuth, async (req: AuthRequest, res: Response) => {
   try {
     const { teamId, projectId } = req.query;
     const where: Record<string, unknown> = { archived: false };
-    if (teamId) where.teamId = teamId as string;
+    if (teamId) {
+      where.teamId = teamId as string;
+    } else if (req.userId) {
+      const teamIds = await getUserTeamIds(req.userId);
+      where.teamId = { in: teamIds };
+    }
     if (projectId) where.projectId = projectId as string;
 
     const tasks = await prisma.task.findMany({

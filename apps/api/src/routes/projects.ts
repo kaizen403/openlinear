@@ -2,8 +2,9 @@ import { Router, Request, Response } from 'express';
 import { prisma } from '@openlinear/db';
 import { z } from 'zod';
 import { broadcast } from '../sse';
-import { requireAuth, AuthRequest } from '../middleware/auth';
+import { requireAuth, optionalAuth, AuthRequest } from '../middleware/auth';
 import { addRepositoryByUrl } from '../services/github';
+import { getUserTeamIds } from '../services/team-scope';
 
 const router: Router = Router();
 
@@ -55,12 +56,17 @@ const projectInclude = {
   },
 };
 
-router.get('/', async (req: Request, res: Response) => {
+router.get('/', optionalAuth, async (req: AuthRequest, res: Response) => {
   try {
     const teamId = req.query.teamId as string | undefined;
-    const where = teamId
-      ? { projectTeams: { some: { teamId } } }
-      : {};
+
+    let where: Record<string, unknown> = {};
+    if (teamId) {
+      where = { projectTeams: { some: { teamId } } };
+    } else if (req.userId) {
+      const teamIds = await getUserTeamIds(req.userId);
+      where = { projectTeams: { some: { teamId: { in: teamIds } } } };
+    }
 
     const projects = await prisma.project.findMany({
       where,

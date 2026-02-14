@@ -4,6 +4,7 @@ import { z } from 'zod';
 import crypto from 'crypto';
 import { broadcast } from '../sse';
 import { requireAuth, optionalAuth, AuthRequest } from '../middleware/auth';
+import { getUserTeamIds } from '../services/team-scope';
 
 const router: Router = Router();
 
@@ -35,9 +36,14 @@ const addMemberSchema = z.object({
   role: z.enum(['owner', 'admin', 'member']).optional().default('member'),
 }).refine(data => data.email || data.userId, { message: 'Either email or userId is required' });
 
-router.get('/', async (_req: AuthRequest, res: Response) => {
+router.get('/', optionalAuth, async (req: AuthRequest, res: Response) => {
   try {
+    const where = req.userId
+      ? { members: { some: { userId: req.userId } } }
+      : {};
+
     const teams = await prisma.team.findMany({
+      where,
       include: {
         _count: {
           select: { members: true },

@@ -22,6 +22,7 @@ import {
   Check,
   Brain,
   AlertCircle,
+  ExternalLink,
 } from "lucide-react"
 import { Slider } from "@/components/ui/slider"
 import { Button } from "@/components/ui/button"
@@ -44,7 +45,7 @@ import {
 import { useSearchParams } from "next/navigation"
 import { toast } from "sonner"
 import { DatabaseSettings } from "@/components/desktop/database-settings"
-import { ensureContainer, getSetupStatus, setProviderApiKey, ProviderInfo, SetupStatus } from "@/lib/api/opencode"
+import { ensureContainer, getSetupStatus, setProviderApiKey, getProviderAuthMethods, oauthAuthorize, addConfiguredProvider, ProviderInfo, SetupStatus, ProviderAuthMethods } from "@/lib/api/opencode"
 import { AppShell } from "@/components/layout/app-shell"
 import { API_URL } from "@/lib/api/client"
 
@@ -112,7 +113,11 @@ function SettingsContent() {
 
   const [providersLoading, setProvidersLoading] = useState(false)
   const [providerSetupStatus, setProviderSetupStatus] = useState<SetupStatus | null>(null)
-  const [providerInputs, setProviderInputs] = useState<Record<string, { key: string; saving: boolean }>>({})
+  const [providerInputs, setProviderInputs] = useState<Record<string, { key: string; saving: boolean; saved: boolean }>>({})
+  const [providerError, setProviderError] = useState<string | null>(null)
+  const [providerAuthMethodsMap, setProviderAuthMethodsMap] = useState<ProviderAuthMethods>({})
+  const [oauthLoadingProvider, setOauthLoadingProvider] = useState<string | null>(null)
+  const [oauthWaitingProvider, setOauthWaitingProvider] = useState<string | null>(null)
 
   const ACCENT_PRESETS = [
     { name: "Blue", accent: "#3b82f6", hover: "#2563eb" },
@@ -173,30 +178,39 @@ function SettingsContent() {
     }
   }, [])
 
+  const fetchProviderStatus = async () => {
+    setProvidersLoading(true)
+    setProviderError(null)
+    try {
+      await ensureContainer()
+      const [status, authMethods] = await Promise.all([
+        getSetupStatus(),
+        getProviderAuthMethods().catch(() => ({} as ProviderAuthMethods)),
+      ])
+      setProviderSetupStatus(status)
+      setProviderAuthMethodsMap(authMethods)
+
+      const inputs: Record<string, { key: string; saving: boolean; saved: boolean }> = {}
+      status.providers.forEach((provider) => {
+        inputs[provider.id] = { key: "", saving: false, saved: false }
+      })
+      setProviderInputs(inputs)
+    } catch (error) {
+      console.error("Failed to fetch provider status:", error)
+      setProviderError(
+        error instanceof Error
+          ? error.message
+          : "Failed to connect to the AI container. Make sure Docker is running."
+      )
+    } finally {
+      setProvidersLoading(false)
+    }
+  }
+
   useEffect(() => {
     if (activeSection !== "ai-providers") return
-
-    const fetchProviderStatus = async () => {
-      setProvidersLoading(true)
-      try {
-        await ensureContainer()
-        const status = await getSetupStatus()
-        setProviderSetupStatus(status)
-        
-        const inputs: Record<string, { key: string; saving: boolean }> = {}
-        status.providers.forEach((provider) => {
-          inputs[provider.id] = { key: "", saving: false }
-        })
-        setProviderInputs(inputs)
-      } catch (error) {
-        console.error("Failed to fetch provider status:", error)
-        toast.error("Failed to load AI provider status")
-      } finally {
-        setProvidersLoading(false)
-      }
-    }
-
     fetchProviderStatus()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeSection])
 
   const handleSave = async () => {
@@ -240,29 +254,85 @@ function SettingsContent() {
 
     setProviderInputs((prev) => ({
       ...prev,
-      [providerId]: { ...prev[providerId], saving: true },
+      [providerId]: { ...prev[providerId], saving: true, saved: false },
     }))
 
     try {
       await setProviderApiKey(providerId, input.key)
+      addConfiguredProvider(providerId)
+
+      setProviderSetupStatus((prev) => {
+        if (!prev) return prev
+        return {
+          ...prev,
+          providers: prev.providers.map((p) =>
+            p.id === providerId ? { ...p, authenticated: true } : p
+          ),
+          ready: true,
+        }
+      })
 
       setProviderInputs((prev) => ({
         ...prev,
-        [providerId]: { key: "", saving: false },
+        [providerId]: { key: "", saving: false, saved: true },
       }))
 
-      toast.success("API key saved")
+      toast.success("API key saved successfully")
 
-      const status = await getSetupStatus()
-      setProviderSetupStatus(status)
+      setTimeout(() => {
+        setProviderInputs((prev) => ({
+          ...prev,
+          [providerId]: prev[providerId]
+            ? { ...prev[providerId], saved: false }
+            : { key: "", saving: false, saved: false },
+        }))
+      }, 3000)
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to save API key"
       toast.error(message)
 
       setProviderInputs((prev) => ({
         ...prev,
-        [providerId]: { ...prev[providerId], saving: false },
+        [providerId]: { ...prev[providerId], saving: false, saved: false },
       }))
+    }
+  }
+
+  const handleOAuthLogin = async (providerId: string, methodIndex?: number) => {
+    setOauthLoadingProvider(providerId)
+    try {
+      const { url } = await oauthAuthorize(providerId, methodIndex)
+      if (url) {
+        window.open(url, "_blank", "noopener,noreferrer")
+        setOauthWaitingProvider(providerId)
+        toast.info("Complete the login in your browser, then click 'I've logged in'")
+      } else {
+        toast.error("No OAuth URL returned")
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to start OAuth"
+      toast.error(message)
+    } finally {
+      setOauthLoadingProvider(null)
+    }
+  }
+
+  const handleOAuthComplete = async () => {
+    setOauthWaitingProvider(null)
+    toast.info("Checking provider status...")
+    try {
+      const status = await getSetupStatus()
+      setProviderSetupStatus(status)
+      const wasProvider = status.providers.find(
+        (p) => p.authenticated
+      )
+      if (wasProvider) {
+        toast.success("Provider connected successfully")
+      } else {
+        toast.info("Provider status refreshed — check if authentication completed")
+      }
+    } catch {
+      toast.error("Failed to refresh provider status")
     }
   }
 
@@ -970,88 +1040,216 @@ function SettingsContent() {
         </p>
       </div>
 
-      <Card className="bg-linear-bg-secondary border-linear-border">
-        <CardHeader>
-          <CardTitle className="text-linear-text">Provider Configuration</CardTitle>
-          <CardDescription className="text-linear-text-secondary">
-            Set up API keys for your preferred LLM providers.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {providersLoading ? (
-            <div className="flex items-center justify-center py-8">
-              <Loader2 className="w-6 h-6 animate-spin text-linear-text-secondary" />
+      {providersLoading ? (
+        <Card className="bg-linear-bg-secondary border-linear-border">
+          <CardContent className="py-12">
+            <div className="flex flex-col items-center justify-center gap-3">
+              <Loader2 className="w-6 h-6 animate-spin text-linear-accent" />
+              <p className="text-sm text-linear-text-secondary">
+                Starting AI container&hellip;
+              </p>
             </div>
-          ) : (
-            <div className="space-y-4">
-              {providerSetupStatus?.providers.map((provider) => (
-                <div
-                  key={provider.id}
-                  className="p-4 rounded-lg bg-linear-bg border border-linear-border"
-                >
+          </CardContent>
+        </Card>
+      ) : providerError ? (
+        <Card className="bg-linear-bg-secondary border-red-500/20">
+          <CardContent className="py-10">
+            <div className="flex flex-col items-center justify-center gap-4">
+              <div className="w-10 h-10 rounded-full bg-red-500/10 flex items-center justify-center">
+                <AlertCircle className="w-5 h-5 text-red-400" />
+              </div>
+              <div className="text-center space-y-1">
+                <p className="text-sm font-medium text-linear-text">
+                  Failed to load providers
+                </p>
+                <p className="text-xs text-linear-text-tertiary max-w-sm">
+                  {providerError}
+                </p>
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={fetchProviderStatus}
+                className="border-linear-border text-linear-text hover:bg-linear-bg-tertiary"
+              >
+                <RefreshCw className="w-3.5 h-3.5 mr-2" />
+                Retry
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      ) : !providerSetupStatus ? (
+        <Card className="bg-linear-bg-secondary border-linear-border">
+          <CardContent className="py-10">
+            <div className="flex flex-col items-center justify-center gap-3">
+              <Brain className="w-6 h-6 text-linear-text-tertiary opacity-50" />
+              <p className="text-sm text-linear-text-secondary">
+                No provider data available.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      ) : providerSetupStatus.providers.length === 0 ? (
+        <Card className="bg-linear-bg-secondary border-linear-border">
+          <CardContent className="py-10">
+            <div className="flex flex-col items-center justify-center gap-3">
+              <Brain className="w-6 h-6 text-linear-text-tertiary opacity-50" />
+              <div className="text-center space-y-1">
+                <p className="text-sm font-medium text-linear-text">
+                  No providers found
+                </p>
+                <p className="text-xs text-linear-text-tertiary">
+                  The AI container is running but no providers were detected.
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="space-y-3">
+          {providerSetupStatus.providers.map((provider) => {
+            const authMethods = providerAuthMethodsMap[provider.id] || []
+            const hasOAuth = authMethods.some((m) => m.type === "oauth")
+            const hasApiKey = authMethods.some((m) => m.type === "api")
+            const noAuthMethodsReported = authMethods.length === 0
+            const showApiKey = hasApiKey || noAuthMethodsReported
+            const oauthMethodIndex = authMethods.findIndex((m) => m.type === "oauth")
+
+            return (
+              <Card
+                key={provider.id}
+                className="bg-linear-bg-secondary border-linear-border"
+              >
+                <CardContent className="p-4">
                   <div className="flex items-center justify-between mb-3">
-                    <span className="text-sm font-medium text-linear-text">
-                      {provider.name}
-                    </span>
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-lg bg-linear-bg-tertiary flex items-center justify-center">
+                        <Brain className="w-4 h-4 text-linear-text-secondary" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-linear-text">
+                          {provider.name}
+                        </p>
+                        <p className="text-xs text-linear-text-tertiary">
+                          {provider.id}
+                        </p>
+                      </div>
+                    </div>
                     {provider.authenticated ? (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-500/20 text-green-400 border border-green-500/30">
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-green-500/10 text-green-400 border border-green-500/20">
                         <Check className="w-3 h-3" />
-                        Configured
+                        Connected
                       </span>
                     ) : (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-linear-bg-tertiary text-linear-text-tertiary border border-linear-border">
-                        <AlertCircle className="w-3 h-3" />
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium text-linear-text-tertiary bg-linear-bg-tertiary/50 border border-linear-border">
                         Not configured
                       </span>
                     )}
                   </div>
 
-                  <div className="flex gap-2">
-                    <Input
-                      type="password"
-                      placeholder="Enter API key"
-                      value={providerInputs[provider.id]?.key || ""}
-                      onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                        setProviderInputs((prev) => ({
-                          ...prev,
-                          [provider.id]: {
-                            ...prev[provider.id],
-                            key: e.target.value,
-                          },
-                        }))
-                      }
-                      disabled={providerInputs[provider.id]?.saving}
-                      className="flex-1 bg-linear-bg-secondary border-linear-border text-linear-text placeholder:text-linear-text-tertiary focus-visible:ring-linear-accent"
-                    />
-                    <Button
-                      size="sm"
-                      onClick={() => handleSaveProviderKey(provider.id)}
-                      disabled={
-                        !providerInputs[provider.id]?.key.trim() ||
-                        providerInputs[provider.id]?.saving
-                      }
-                      className="bg-linear-accent hover:bg-linear-accent-hover text-white disabled:opacity-50"
-                    >
-                      {providerInputs[provider.id]?.saving ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                      ) : (
-                        "Save"
-                      )}
-                    </Button>
-                  </div>
-                </div>
-              ))}
+                  <div className="space-y-2">
+                    {hasOAuth && (
+                      <div>
+                        {oauthWaitingProvider === provider.id ? (
+                          <div className="flex items-center gap-2">
+                            <Button
+                              size="sm"
+                              onClick={handleOAuthComplete}
+                              className="bg-green-600 hover:bg-green-700 text-white h-9 px-4"
+                            >
+                              <Check className="w-4 h-4 mr-2" />
+                              I&apos;ve logged in
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => setOauthWaitingProvider(null)}
+                              className="border-linear-border text-linear-text-secondary h-9"
+                            >
+                              Cancel
+                            </Button>
+                          </div>
+                        ) : (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleOAuthLogin(provider.id, oauthMethodIndex >= 0 ? oauthMethodIndex : undefined)}
+                            disabled={oauthLoadingProvider === provider.id}
+                            className="border-linear-border text-linear-text hover:bg-linear-bg-tertiary h-9 gap-2"
+                          >
+                            {oauthLoadingProvider === provider.id ? (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <ExternalLink className="w-3.5 h-3.5" />
+                            )}
+                            Login with {provider.name}
+                          </Button>
+                        )}
+                      </div>
+                    )}
 
-              {providerSetupStatus?.providers.length === 0 && (
-                <div className="text-center py-8 text-linear-text-secondary">
-                  <AlertCircle className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                  <p>No providers available</p>
-                </div>
-              )}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+                    {hasOAuth && showApiKey && (
+                      <div className="flex items-center gap-2 text-xs text-linear-text-tertiary">
+                        <div className="flex-1 h-px bg-linear-border" />
+                        <span>or use API key</span>
+                        <div className="flex-1 h-px bg-linear-border" />
+                      </div>
+                    )}
+
+                    {showApiKey && (
+                      <div className="flex gap-2">
+                        <Input
+                          type="password"
+                          placeholder={
+                            provider.authenticated
+                              ? "Enter new API key to update"
+                              : "Enter API key"
+                          }
+                          value={providerInputs[provider.id]?.key || ""}
+                          onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                            setProviderInputs((prev) => ({
+                              ...prev,
+                              [provider.id]: {
+                                ...prev[provider.id],
+                                key: e.target.value,
+                                saved: false,
+                              },
+                            }))
+                          }
+                          disabled={providerInputs[provider.id]?.saving}
+                          className="flex-1 bg-linear-bg border-linear-border text-linear-text placeholder:text-linear-text-tertiary focus-visible:ring-linear-accent h-9"
+                        />
+                        <Button
+                          size="sm"
+                          onClick={() => handleSaveProviderKey(provider.id)}
+                          disabled={
+                            providerInputs[provider.id]?.saved ||
+                            !providerInputs[provider.id]?.key.trim() ||
+                            providerInputs[provider.id]?.saving
+                          }
+                          className={`h-9 px-4 ${
+                            providerInputs[provider.id]?.saved
+                              ? "bg-green-600 hover:bg-green-600 text-white"
+                              : "bg-linear-accent hover:bg-linear-accent-hover text-white disabled:opacity-50"
+                          }`}
+                        >
+                          {providerInputs[provider.id]?.saving ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : providerInputs[provider.id]?.saved ? (
+                            <><Check className="w-4 h-4 mr-1" />Saved</>
+                          ) : (
+                            "Save"
+                          )}
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 
@@ -1124,7 +1322,7 @@ function SettingsContent() {
         </nav>
 
         <main className="flex-1 overflow-y-auto p-6 sm:p-8">
-          <div className="max-w-2xl">{renderContent()}</div>
+          <div className="max-w-2xl pb-8">{renderContent()}</div>
         </main>
       </div>
     </AppShell>

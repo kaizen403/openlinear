@@ -153,7 +153,8 @@ async function handleOpenCodeEvent(event: { type: string; properties?: Record<st
 
     case 'session.error':
       if (taskId) {
-        const errorMsg = (event.properties?.error as string) || 'Unknown error';
+        const rawError = event.properties?.error;
+        const errorMsg = typeof rawError === 'string' ? rawError : rawError ? JSON.stringify(rawError) : 'Unknown error';
         addLogEntry(taskId, 'error', 'Execution failed', errorMsg);
         broadcastProgress(taskId, 'error', 'Execution failed');
         await updateTaskStatus(taskId, 'cancelled', null);

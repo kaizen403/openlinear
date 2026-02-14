@@ -3,6 +3,7 @@ import getPort from 'get-port';
 import { createOpencodeClient, OpencodeClient } from '@opencode-ai/sdk';
 import path from 'path';
 import { execSync } from 'child_process';
+import { mkdirSync, accessSync, constants } from 'fs';
 
 const OPENCODE_IMAGE = process.env.OPENCODE_IMAGE || 'opencode-worker:latest';
 const CONTAINER_PORT = 4096;
@@ -130,6 +131,8 @@ async function createContainer(userId: string): Promise<UserContainer> {
   containers.set(userId, entry);
 
   console.log(`[ContainerManager] Creating container ${name} on port ${hostPort}`);
+
+  mkdirSync(HOST_REPOS_DIR, { recursive: true });
 
   try {
     const container = await docker.createContainer({
