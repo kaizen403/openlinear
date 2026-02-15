@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
-import jwt from 'jsonwebtoken';
 import { prisma } from '@openlinear/db';
+import { requireAuth, AuthRequest } from '../middleware/auth';
 import {
   getGitHubRepos,
   addRepository,
@@ -12,29 +12,8 @@ import {
 } from '../services/github';
 
 const router: Router = Router();
-const JWT_SECRET = process.env.JWT_SECRET || 'openlinear-dev-secret-change-in-production';
 
-interface AuthUser {
-  id: string;
-  accessToken: string | null;
-}
-
-async function getAuthUser(req: Request): Promise<AuthUser | null> {
-  const authHeader = req.headers.authorization;
-  if (!authHeader?.startsWith('Bearer ')) return null;
-
-  try {
-    const token = authHeader.substring(7);
-    const decoded = jwt.verify(token, JWT_SECRET) as { userId: string };
-    const user = await prisma.user.findUnique({
-      where: { id: decoded.userId },
-      select: { id: true, accessToken: true },
-    });
-    return user;
-  } catch {
-    return null;
-  }
-}
+// --- Public routes (no auth) ---
 
 router.post('/url', async (req: Request, res: Response) => {
   const { url } = req.body as { url?: string };
@@ -97,15 +76,11 @@ router.post('/:id/activate/public', async (req: Request, res: Response) => {
   }
 });
 
-router.get('/', async (req: Request, res: Response) => {
-  const user = await getAuthUser(req);
-  if (!user) {
-    res.status(401).json({ error: 'Unauthorized' });
-    return;
-  }
+// --- Authenticated routes (use shared requireAuth middleware) ---
 
+router.get('/', requireAuth, async (req: AuthRequest, res: Response) => {
   try {
-    const projects = await getUserRepositories(user.id);
+    const projects = await getUserRepositories(req.userId!);
     res.json(projects);
   } catch (err) {
     console.error('[Repos] Failed to get projects:', err);
@@ -113,19 +88,18 @@ router.get('/', async (req: Request, res: Response) => {
   }
 });
 
-router.get('/github', async (req: Request, res: Response) => {
-  const user = await getAuthUser(req);
-  if (!user) {
-    res.status(401).json({ error: 'Unauthorized' });
-    return;
-  }
-
-  if (!user.accessToken) {
-    res.status(403).json({ error: 'GitHub account not linked. Please sign in with GitHub first.' });
-    return;
-  }
-
+router.get('/github', requireAuth, async (req: AuthRequest, res: Response) => {
   try {
+    const user = await prisma.user.findUnique({
+      where: { id: req.userId! },
+      select: { accessToken: true },
+    });
+
+    if (!user?.accessToken) {
+      res.status(403).json({ error: 'GitHub account not linked. Please sign in with GitHub first.' });
+      return;
+    }
+
     const repos = await getGitHubRepos(user.accessToken);
     res.json(repos);
   } catch (err) {
@@ -134,13 +108,7 @@ router.get('/github', async (req: Request, res: Response) => {
   }
 });
 
-router.post('/import', async (req: Request, res: Response) => {
-  const user = await getAuthUser(req);
-  if (!user) {
-    res.status(401).json({ error: 'Unauthorized' });
-    return;
-  }
-
+router.post('/import', requireAuth, async (req: AuthRequest, res: Response) => {
   const { repo } = req.body as { repo: GitHubRepo };
   if (!repo?.id || !repo?.full_name) {
     res.status(400).json({ error: 'Invalid repository data' });
@@ -148,7 +116,7 @@ router.post('/import', async (req: Request, res: Response) => {
   }
 
   try {
-    const project = await addRepository(user.id, repo, true);
+    const project = await addRepository(req.userId!, repo, true);
     res.json(project);
   } catch (err) {
     console.error('[Repos] Failed to import repo:', err);
@@ -156,15 +124,9 @@ router.post('/import', async (req: Request, res: Response) => {
   }
 });
 
-router.post('/:id/activate', async (req: Request, res: Response) => {
-  const user = await getAuthUser(req);
-  if (!user) {
-    res.status(401).json({ error: 'Unauthorized' });
-    return;
-  }
-
+router.post('/:id/activate', requireAuth, async (req: AuthRequest, res: Response) => {
   try {
-    const project = await setActiveRepository(user.id, req.params.id);
+    const project = await setActiveRepository(req.userId!, req.params.id);
     res.json(project);
   } catch (err) {
     console.error('[Repos] Failed to activate project:', err);
@@ -172,15 +134,9 @@ router.post('/:id/activate', async (req: Request, res: Response) => {
   }
 });
 
-router.get('/active', async (req: Request, res: Response) => {
-  const user = await getAuthUser(req);
-  if (!user) {
-    res.status(401).json({ error: 'Unauthorized' });
-    return;
-  }
-
+router.get('/active', requireAuth, async (req: AuthRequest, res: Response) => {
   try {
-    const project = await getActiveRepository(user.id);
+    const project = await getActiveRepository(req.userId!);
     res.json(project);
   } catch (err) {
     console.error('[Repos] Failed to get active project:', err);

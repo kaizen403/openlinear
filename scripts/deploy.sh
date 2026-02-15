@@ -58,7 +58,16 @@ for i in $(seq 1 30); do
     sleep 1
 done
 
-# Ensure DATABASE_URL is set for Prisma (matches the docker container creds above)
+# Source root .env to get DATABASE_URL (Neon) and other production vars.
+# This MUST happen before the fallback below, otherwise every deploy
+# overwrites packages/db/.env with the local Docker URL.
+if [ -f .env ]; then
+    set -a
+    source .env
+    set +a
+fi
+
+# Fallback only if .env didn't provide DATABASE_URL (shouldn't happen in prod)
 export DATABASE_URL="${DATABASE_URL:-postgresql://openlinear:openlinear@localhost:5432/openlinear}"
 # packages/db/.env is gitignored so it doesn't exist on the droplet.
 # Prisma reads .env from the schema directory — write it so prisma db push can find it.
