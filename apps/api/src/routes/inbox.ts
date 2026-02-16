@@ -9,8 +9,8 @@ function completedOrCancelled() {
   return { OR: [{ status: 'done' as const }, { status: 'cancelled' as const }] };
 }
 
-async function teamScope(userId?: string): Promise<Record<string, unknown>> {
-  if (!userId) return {};
+async function teamScope(userId?: string): Promise<Record<string, unknown> | null> {
+  if (!userId) return null;
   const teamIds = await getUserTeamIds(userId);
   return { teamId: { in: teamIds } };
 }
@@ -18,6 +18,11 @@ async function teamScope(userId?: string): Promise<Record<string, unknown>> {
 router.get('/count', optionalAuth, async (req: AuthRequest, res: Response) => {
   try {
     const scope = await teamScope(req.userId);
+    if (!scope) {
+      res.json({ total: 0, unread: 0 });
+      return;
+    }
+
     const baseWhere = { ...completedOrCancelled(), archived: false, ...scope };
 
     const total = await prisma.task.count({ where: baseWhere });
@@ -34,6 +39,10 @@ router.get('/count', optionalAuth, async (req: AuthRequest, res: Response) => {
 router.get('/', optionalAuth, async (req: AuthRequest, res: Response) => {
   try {
     const scope = await teamScope(req.userId);
+    if (!scope) {
+      res.json([]);
+      return;
+    }
 
     const tasks = await prisma.task.findMany({
       where: {
@@ -78,6 +87,10 @@ router.patch('/read/:id', async (req: AuthRequest, res: Response) => {
 router.patch('/read-all', optionalAuth, async (req: AuthRequest, res: Response) => {
   try {
     const scope = await teamScope(req.userId);
+    if (!scope) {
+      res.json({ success: true });
+      return;
+    }
 
     await prisma.task.updateMany({
       where: {

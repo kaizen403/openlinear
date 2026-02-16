@@ -2,13 +2,13 @@ import { API_URL, getAuthHeader } from './client';
 import type { Team, TeamMember } from './types';
 
 export async function fetchTeams(): Promise<Team[]> {
-  const res = await fetch(`${API_URL}/api/teams`)
+  const res = await fetch(`${API_URL}/api/teams`, { headers: getAuthHeader() })
   if (!res.ok) throw new Error('Failed to fetch teams')
   return res.json()
 }
 
 export async function fetchTeam(id: string): Promise<Team> {
-  const res = await fetch(`${API_URL}/api/teams/${id}`)
+  const res = await fetch(`${API_URL}/api/teams/${id}`, { headers: getAuthHeader() })
   if (!res.ok) throw new Error('Failed to fetch team')
   return res.json()
 }

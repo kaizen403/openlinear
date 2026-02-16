@@ -38,9 +38,12 @@ const addMemberSchema = z.object({
 
 router.get('/', optionalAuth, async (req: AuthRequest, res: Response) => {
   try {
-    const where = req.userId
-      ? { members: { some: { userId: req.userId } } }
-      : {};
+    if (!req.userId) {
+      res.json([]);
+      return;
+    }
+
+    const where = { members: { some: { userId: req.userId } } };
 
     const teams = await prisma.team.findMany({
       where,

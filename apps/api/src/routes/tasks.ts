@@ -104,11 +104,14 @@ const router: Router = Router();
 
 router.get('/archived', optionalAuth, async (req: AuthRequest, res: Response) => {
   try {
-    const where: Record<string, unknown> = { archived: true };
-    if (req.userId) {
-      const teamIds = await getUserTeamIds(req.userId);
-      where.teamId = { in: teamIds };
+    if (!req.userId) {
+      res.json([]);
+      return;
     }
+
+    const where: Record<string, unknown> = { archived: true };
+    const teamIds = await getUserTeamIds(req.userId);
+    where.teamId = { in: teamIds };
 
     const tasks = await prisma.task.findMany({
       where,
@@ -154,6 +157,12 @@ router.delete('/archived/:id', async (req: Request, res: Response) => {
 router.get('/', optionalAuth, async (req: AuthRequest, res: Response) => {
   try {
     const { teamId, projectId } = req.query;
+
+    if (!teamId && !req.userId) {
+      res.json([]);
+      return;
+    }
+
     const where: Record<string, unknown> = { archived: false };
     if (teamId) {
       where.teamId = teamId as string;
