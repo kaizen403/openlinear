@@ -5,7 +5,7 @@ import { useSSESubscription } from "@/providers/sse-provider"
 import { useAuth } from "@/hooks/use-auth"
 import { Project } from "@/lib/api"
 import { Task, ExecutionProgress, ExecutionLogEntry } from "@/types/task"
-import { API_URL } from "@/lib/api/client"
+import { API_URL, getAuthHeader } from "@/lib/api/client"
 import { getSetupStatus, hasConfiguredProviders } from "@/lib/api/opencode"
 
 export const COLUMNS = [
@@ -286,7 +286,7 @@ export function useKanbanBoard({ projectId, teamId, projects = [] }: KanbanBoard
       const url = qs
         ? `${API_BASE_URL}/api/tasks?${qs}`
         : `${API_BASE_URL}/api/tasks`
-      const response = await fetch(url)
+      const response = await fetch(url, { headers: getAuthHeader() })
       if (!response.ok) {
         throw new Error(`Failed to fetch tasks: ${response.statusText}`)
       }
@@ -719,7 +719,7 @@ export function useKanbanBoard({ projectId, teamId, projects = [] }: KanbanBoard
     
     if (!taskLogs[taskId]) {
       try {
-        const response = await fetch(`${API_BASE_URL}/api/tasks/${taskId}/logs`)
+        const response = await fetch(`${API_BASE_URL}/api/tasks/${taskId}/logs`, { headers: getAuthHeader() })
         if (response.ok) {
           const data = await response.json()
           setTaskLogs((prev) => ({ ...prev, [taskId]: data.logs || [] }))

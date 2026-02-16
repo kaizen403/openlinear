@@ -5,7 +5,7 @@ export async function fetchProjects(teamId?: string): Promise<Project[]> {
   const params = new URLSearchParams()
   if (teamId) params.set('teamId', teamId)
   const qs = params.toString()
-  const res = await fetch(`${API_URL}/api/projects${qs ? `?${qs}` : ''}`)
+  const res = await fetch(`${API_URL}/api/projects${qs ? `?${qs}` : ''}`, { headers: getAuthHeader() })
   if (!res.ok) throw new Error('Failed to fetch projects')
   return res.json()
 }
