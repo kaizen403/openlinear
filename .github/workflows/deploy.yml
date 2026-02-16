@@ -79,6 +79,7 @@ jobs:
           script: |
             set -e
             export CI=true
+            cd /opt/openlinear && git reset --hard HEAD
             /opt/openlinear/scripts/deploy.sh
 
       - name: Verify deployment
