@@ -184,10 +184,10 @@ describe('Teams API', () => {
       expect(createRes.status).toBe(201);
 
       const secondUser = await prisma.user.upsert({
-        where: { githubId: 888888 },
+        where: { githubId: 666666 },
         update: {},
         create: {
-          githubId: 888888,
+          githubId: 666666,
           username: 'seconduser',
           email: 'second@example.com',
           accessToken: 'fake-token-2',
