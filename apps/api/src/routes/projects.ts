@@ -17,7 +17,7 @@ const createProjectSchema = z.object({
   startDate: z.string().datetime().optional(),
   targetDate: z.string().datetime().optional(),
   leadId: z.string().uuid().optional(),
-  teamIds: z.array(z.string().uuid()).min(1).max(1),
+  teamIds: z.array(z.string().uuid()).min(1).max(1).optional(),
   repoUrl: z.string().optional(),
   localPath: z.string().optional(),
 });
@@ -120,9 +120,11 @@ router.post('/', requireAuth, async (req: AuthRequest, res: Response) => {
         localPath: localPath || undefined,
         repoUrl: repoUrl || undefined,
         repositoryId: repositoryId || undefined,
-        projectTeams: {
-          create: teamIds.map((teamId) => ({ teamId })),
-        },
+        ...(teamIds?.length ? {
+          projectTeams: {
+            create: teamIds.map((teamId) => ({ teamId })),
+          },
+        } : {}),
       },
       include: projectInclude,
     });

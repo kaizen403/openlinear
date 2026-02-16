@@ -68,7 +68,7 @@ router.get('/', optionalAuth, async (req: AuthRequest, res: Response) => {
   }
 });
 
-router.post('/', optionalAuth, async (req: AuthRequest, res: Response) => {
+router.post('/', requireAuth, async (req: AuthRequest, res: Response) => {
   try {
     const parsed = createTeamSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -171,6 +171,12 @@ router.patch('/:id', optionalAuth, async (req: AuthRequest, res: Response) => {
     const parsed = updateTeamSchema.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).json({ error: 'Validation failed', details: parsed.error.errors });
+      return;
+    }
+
+    const existing = await prisma.team.findUnique({ where: { id } });
+    if (!existing) {
+      res.status(404).json({ error: 'Team not found' });
       return;
     }
 

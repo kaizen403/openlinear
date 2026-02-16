@@ -84,7 +84,9 @@ describe('Teams API', () => {
 
   describe('GET /api/teams (after creation)', () => {
     it('returns teams including the created one', async () => {
-      const res = await request(app).get('/api/teams');
+      const res = await request(app)
+        .get('/api/teams')
+        .set('Authorization', `Bearer ${authToken}`);
       expect(res.status).toBe(200);
       const eng = res.body.find((t: { key: string }) => t.key === 'ENG');
       expect(eng).toBeDefined();

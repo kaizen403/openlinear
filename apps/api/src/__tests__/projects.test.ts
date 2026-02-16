@@ -62,6 +62,10 @@ describe('Projects API', () => {
         data: { name: 'Engineering', key: 'PRJENG' },
       });
 
+      await prisma.teamMember.create({
+        data: { teamId: team.id, userId: testUserId, role: 'member' },
+      });
+
       await prisma.project.create({
         data: {
           name: 'Test Project',
@@ -71,7 +75,9 @@ describe('Projects API', () => {
         },
       });
 
-      const res = await request(app).get('/api/projects');
+      const res = await request(app)
+        .get('/api/projects')
+        .set('Authorization', `Bearer ${authToken}`);
       expect(res.status).toBe(200);
       expect(res.body).toHaveLength(1);
       expect(res.body[0].name).toBe('Test Project');

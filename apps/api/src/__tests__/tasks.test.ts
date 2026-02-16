@@ -1,23 +1,57 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import request from 'supertest';
+import jwt from 'jsonwebtoken';
 import { createApp } from '../app';
 import { prisma } from '@openlinear/db';
+
+const JWT_SECRET = 'openlinear-dev-secret-change-in-production';
+
+function generateToken(userId: string, username: string = 'testuser') {
+  return jwt.sign({ userId, username }, JWT_SECRET, { expiresIn: '1h' });
+}
 
 describe('Tasks API', () => {
   const app = createApp();
   let createdTaskId: string;
+  let testUserId: string;
+  let authToken: string;
+  let testTeamId: string;
 
   beforeAll(async () => {
     await prisma.taskLabel.deleteMany({});
     await prisma.task.updateMany({ where: { teamId: { not: null } }, data: { teamId: null, projectId: null } });
     await prisma.task.deleteMany({});
+    await prisma.teamMember.deleteMany({});
     await prisma.team.deleteMany({});
+
+    const user = await prisma.user.upsert({
+      where: { githubId: 777777 },
+      update: {},
+      create: {
+        githubId: 777777,
+        username: 'tasktester',
+        email: 'tasktest@example.com',
+        accessToken: 'fake-token',
+      },
+    });
+    testUserId = user.id;
+    authToken = generateToken(user.id, user.username);
+
+    const team = await prisma.team.create({
+      data: { name: 'Task Test Team', key: 'TTT' },
+    });
+    testTeamId = team.id;
+
+    await prisma.teamMember.create({
+      data: { teamId: team.id, userId: testUserId, role: 'owner' },
+    });
   }, 30000);
 
   afterAll(async () => {
     await prisma.taskLabel.deleteMany({});
     await prisma.task.updateMany({ where: { teamId: { not: null } }, data: { teamId: null, projectId: null } });
     await prisma.task.deleteMany({});
+    await prisma.teamMember.deleteMany({});
     await prisma.team.deleteMany({});
   }, 30000);
 
@@ -34,10 +68,13 @@ describe('Tasks API', () => {
         data: {
           title: 'Test Task',
           priority: 'medium',
+          teamId: testTeamId,
         },
       });
 
-      const res = await request(app).get('/api/tasks');
+      const res = await request(app)
+        .get('/api/tasks')
+        .set('Authorization', `Bearer ${authToken}`);
 
       expect(res.status).toBe(200);
       expect(res.body).toHaveLength(1);
