@@ -66,6 +66,10 @@ router.get('/', optionalAuth, async (req: AuthRequest, res: Response) => {
     } else if (req.userId) {
       const teamIds = await getUserTeamIds(req.userId);
       where = { projectTeams: { some: { teamId: { in: teamIds } } } };
+    } else {
+      // No auth and no explicit filter — return empty to prevent data leaking across accounts
+      res.json([]);
+      return;
     }
 
     const projects = await prisma.project.findMany({
