@@ -18,6 +18,8 @@ fail() { echo -e "${RED}  ✗${NC} $1"; exit 1; }
 
 # ── Pull latest code ──────────────────────────────────────────────
 step "Pulling latest code..."
+# Discard build-generated file changes (e.g. next-env.d.ts) that block ff-only pull
+git reset --hard HEAD
 git pull origin main --ff-only
 ok "Code updated"
 
