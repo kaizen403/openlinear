@@ -39,6 +39,9 @@ jobs:
         env:
           NEXT_PUBLIC_API_URL: https://rixie.in
 
+      - name: Build Landing
+        run: pnpm --filter @openlinear/landing build
+
       - name: Test
         run: pnpm --filter @openlinear/api test
         continue-on-error: true
@@ -55,8 +58,10 @@ jobs:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
-          script_stop: true
-          script: /opt/openlinear/deploy.sh
+          script: |
+            set -e
+            export CI=true
+            /opt/openlinear/scripts/deploy.sh
 
       - name: Verify deployment
         run: |

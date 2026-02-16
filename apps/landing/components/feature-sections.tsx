@@ -85,7 +85,7 @@ function FeatureMock({ content }: { content: FeatureData["mockContent"] }) {
       </div>
       <div className="divide-y divide-border/8">
         {content.rows.map((row, i) => (
-          <div key={i} className="flex items-center gap-3.5 px-6 py-4 transition-colors duration-[250ms] hover:bg-muted/15">
+          <div key={i} className="flex items-center gap-3.5 px-6 py-4 transition-colors duration-250 hover:bg-muted/15">
             <div className={`h-8 w-8 rounded-full shrink-0 ${i === 0 ? "bg-primary/[0.04]" : "bg-muted/25"}`} />
             <div className="flex-1 min-w-0">
               <p className="text-[0.8125rem] font-medium text-foreground/85 tracking-[-0.01em]">{row.label}</p>
@@ -126,7 +126,7 @@ function FeatureSection({ feature }: { feature: FeatureData }) {
               className="inline-flex items-center gap-2 text-[0.8125rem] font-medium text-primary/80 group transition-colors duration-250 hover:text-primary"
             >
               {feature.link.label}
-              <ArrowRight className="h-3.5 w-3.5 transition-transform duration-[300ms] ease-[cubic-bezier(0.25,0.46,0.45,0.94)] group-hover:translate-x-1" />
+              <ArrowRight className="h-3.5 w-3.5 transition-transform duration-300 ease-smooth group-hover:translate-x-1" />
             </a>
             <ul className="flex flex-col gap-4 pt-2">
               {feature.bullets.map((bullet, i) => (

@@ -182,19 +182,46 @@ export async function executeTask({ taskId, userId }: ExecuteTaskParams): Promis
       prompt += `\n\nLabels: ${labelNames}`;
     }
 
-    // Step 3: Send prompt and subscribe to events using the scoped client
     subscribeToSessionEvents(taskId, client, sessionId);
-    
+
+    let modelOverride: { providerID: string; modelID: string } | undefined;
+    try {
+      const config = await client.config.get();
+      const modelStr = config.data?.model;
+      if (modelStr && modelStr.includes('/')) {
+        const slashIdx = modelStr.indexOf('/');
+        modelOverride = {
+          providerID: modelStr.slice(0, slashIdx),
+          modelID: modelStr.slice(slashIdx + 1),
+        };
+        addLogEntry(taskId, 'info', `Using model: ${modelStr}`);
+      }
+    } catch (err) {
+      console.debug(`[Execution] Could not read model config for task ${taskId.slice(0, 8)}:`, err);
+    }
+
     client.session.prompt({
       path: { id: sessionId },
-      body: { parts: [{ type: 'text', text: prompt }] },
+      body: {
+        parts: [{ type: 'text', text: prompt }],
+        ...(modelOverride ? { model: modelOverride } : {}),
+      },
     }).then(() => {
       console.log(`[Execution] Prompt sent to session ${sessionId}`);
       executionState.promptSent = true;
       addLogEntry(taskId, 'info', 'Task prompt sent to agent');
-    }).catch((err: Error) => {
+    }).catch(async (err: Error) => {
       console.error(`[Execution] Prompt error for task ${taskId}:`, err);
-      addLogEntry(taskId, 'error', 'Failed to send prompt to agent', err.message);
+      const msg = err.message || 'Unknown error';
+      const isAuth = msg.toLowerCase().includes('api key') || msg.toLowerCase().includes('unauthorized') || msg.toLowerCase().includes('401');
+      const headline = isAuth
+        ? 'Invalid API key — update it in Settings → AI Providers'
+        : 'Failed to send prompt to agent';
+      addLogEntry(taskId, 'error', headline, msg);
+      broadcastProgress(taskId, 'error', headline);
+      await updateTaskStatus(taskId, 'cancelled', null);
+      await persistLogs(taskId);
+      await cleanupExecution(taskId);
     });
 
     console.log(`[Execution] Started for task ${taskId} in ${repoPath}`);

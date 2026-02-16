@@ -130,6 +130,63 @@ function extractSessionId(event: { type: string; properties?: Record<string, unk
   return undefined;
 }
 
+function extractCleanError(rawError: unknown): { message: string; isAuthError: boolean; isRateLimit: boolean } {
+  if (typeof rawError === 'string') {
+    const lower = rawError.toLowerCase();
+    return {
+      message: rawError,
+      isAuthError: lower.includes('api key') || lower.includes('unauthorized') || lower.includes('authentication'),
+      isRateLimit: lower.includes('rate limit') || lower.includes('429') || lower.includes('quota'),
+    };
+  }
+
+  if (rawError && typeof rawError === 'object') {
+    const err = rawError as Record<string, unknown>;
+
+    // Shape: { name: "APIError", data: { message: "...", statusCode: 401, ... } }
+    if (err.data && typeof err.data === 'object') {
+      const data = err.data as Record<string, unknown>;
+      const msg = typeof data.message === 'string' ? data.message : undefined;
+      const statusCode = typeof data.statusCode === 'number' ? data.statusCode : undefined;
+      if (msg) {
+        return {
+          message: msg,
+          isAuthError: statusCode === 401 || statusCode === 403 || msg.toLowerCase().includes('api key'),
+          isRateLimit: statusCode === 429 || msg.toLowerCase().includes('rate limit') || msg.toLowerCase().includes('quota'),
+        };
+      }
+    }
+
+    // Shape: { message: "..." }
+    if (typeof err.message === 'string') {
+      const lower = err.message.toLowerCase();
+      return {
+        message: err.message,
+        isAuthError: lower.includes('api key') || lower.includes('unauthorized'),
+        isRateLimit: lower.includes('rate limit') || lower.includes('429'),
+      };
+    }
+
+    // Shape: { error: { message: "..." } }
+    if (err.error && typeof err.error === 'object') {
+      const inner = err.error as Record<string, unknown>;
+      if (typeof inner.message === 'string') {
+        return {
+          message: inner.message,
+          isAuthError: inner.message.toLowerCase().includes('api key'),
+          isRateLimit: inner.message.toLowerCase().includes('rate limit'),
+        };
+      }
+    }
+  }
+
+  return {
+    message: rawError ? JSON.stringify(rawError).slice(0, 200) : 'Unknown error',
+    isAuthError: false,
+    isRateLimit: false,
+  };
+}
+
 async function handleOpenCodeEvent(event: { type: string; properties?: Record<string, unknown> }): Promise<void> {
   if (event.type === 'server.heartbeat') return;
   
@@ -153,9 +210,15 @@ async function handleOpenCodeEvent(event: { type: string; properties?: Record<st
 
     case 'session.error':
       if (taskId) {
-        const errorMsg = (event.properties?.error as string) || 'Unknown error';
-        addLogEntry(taskId, 'error', 'Execution failed', errorMsg);
-        broadcastProgress(taskId, 'error', 'Execution failed');
+        const rawError = event.properties?.error;
+        const { message: errorDetail, isAuthError, isRateLimit } = extractCleanError(rawError);
+        const headline = isAuthError
+          ? 'Invalid API key — update it in Settings → AI Providers'
+          : isRateLimit
+            ? 'Rate limit exceeded — try again later'
+            : 'Execution failed';
+        addLogEntry(taskId, 'error', headline, errorDetail);
+        broadcastProgress(taskId, 'error', headline);
         await updateTaskStatus(taskId, 'cancelled', null);
         await persistLogs(taskId);
         await cleanupExecution(taskId);

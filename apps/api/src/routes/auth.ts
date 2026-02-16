@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
+import crypto from 'crypto';
 import { prisma } from '@openlinear/db';
 import {
   getAuthorizationUrl,
@@ -19,6 +20,22 @@ function getJwtSecret() {
 
 function getFrontendUrl() {
   return process.env.FRONTEND_URL || 'http://localhost:3000';
+}
+
+function generateInviteCode(key: string): string {
+  const random = crypto.randomBytes(4).toString('hex').toUpperCase();
+  return `${key}-${random}`;
+}
+
+async function generateUniqueTeamKey(username: string): Promise<string> {
+  const base = username.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 5) || 'USR';
+  let key = base;
+  let attempt = 0;
+  while (await prisma.team.findUnique({ where: { key } })) {
+    attempt++;
+    key = `${base}${attempt}`;
+  }
+  return key;
 }
 
 function generateState(): string {
@@ -55,13 +72,34 @@ router.post('/register', async (req: Request, res: Response) => {
     }
 
     const passwordHash = await bcrypt.hash(password, 10);
+    const teamKey = await generateUniqueTeamKey(username);
 
-    const user = await prisma.user.create({
-      data: {
-        username,
-        passwordHash,
-        email: email || null,
-      },
+    const user = await prisma.$transaction(async (tx) => {
+      const newUser = await tx.user.create({
+        data: {
+          username,
+          passwordHash,
+          email: email || null,
+        },
+      });
+
+      const team = await tx.team.create({
+        data: {
+          name: `${username}'s Team`,
+          key: teamKey,
+          inviteCode: generateInviteCode(teamKey),
+        },
+      });
+
+      await tx.teamMember.create({
+        data: {
+          teamId: team.id,
+          userId: newUser.id,
+          role: 'owner',
+        },
+      });
+
+      return newUser;
     });
 
     const token = jwt.sign(

@@ -59,7 +59,7 @@ export function Footer() {
                     <li key={link}>
                       <a
                         href="#"
-                        className="text-[0.8125rem] text-[#EDE8D0]/35 hover:text-[#EDE8D0]/70 transition-colors duration-[300ms]"
+                        className="text-[0.8125rem] text-[#EDE8D0]/35 hover:text-[#EDE8D0]/70 transition-colors duration-300"
                       >
                         {link}
                       </a>
@@ -77,7 +77,7 @@ export function Footer() {
                   <li key={social.name}>
                     <a
                       href="#"
-                      className="flex items-center gap-2.5 text-[0.8125rem] text-[#EDE8D0]/35 hover:text-[#EDE8D0]/70 transition-colors duration-[300ms]"
+                      className="flex items-center gap-2.5 text-[0.8125rem] text-[#EDE8D0]/35 hover:text-[#EDE8D0]/70 transition-colors duration-300"
                     >
                       <span className="text-[0.6875rem] font-mono w-5 text-center opacity-60">{social.icon}</span>
                       {social.name}

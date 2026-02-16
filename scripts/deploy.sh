@@ -23,17 +23,32 @@ ok "Code updated"
 
 # ── Install dependencies ─────────────────────────────────────────
 step "Installing dependencies..."
+# Temporarily override NODE_ENV so pnpm installs devDependencies (prisma, etc.)
+# The droplet has NODE_ENV=production globally, which causes pnpm to skip devDeps.
+_saved_node_env="${NODE_ENV:-}"
+export NODE_ENV=development
 pnpm install --frozen-lockfile
+export NODE_ENV="${_saved_node_env}"
 ok "Dependencies installed"
 
 # ── Database ─────────────────────────────────────────────────────
 step "Starting database..."
-docker compose up -d postgres
-ok "PostgreSQL running"
+docker start openlinear-db 2>/dev/null \
+    || docker run --detach --name openlinear-db \
+        -e POSTGRES_DB=openlinear \
+        -e POSTGRES_USER=openlinear \
+        -e POSTGRES_PASSWORD=openlinear \
+        -p 5432:5432 \
+        -v postgres_data:/var/lib/postgresql/data \
+        --restart unless-stopped \
+        postgres:16-alpine 2>/dev/null \
+    || true
+ok "PostgreSQL start requested"
 
 step "Waiting for database..."
 for i in $(seq 1 30); do
-    if docker exec openlinear-db pg_isready -U openlinear -d openlinear &>/dev/null; then
+    if docker exec openlinear-db pg_isready -U openlinear -d openlinear &>/dev/null \
+       || pg_isready -h localhost -p 5432 -U openlinear &>/dev/null 2>&1; then
         ok "Database ready"
         break
     fi
@@ -43,12 +58,27 @@ for i in $(seq 1 30); do
     sleep 1
 done
 
+# Source root .env to get DATABASE_URL (Neon) and other production vars.
+# This MUST happen before the fallback below, otherwise every deploy
+# overwrites packages/db/.env with the local Docker URL.
+if [ -f .env ]; then
+    set -a
+    source .env
+    set +a
+fi
+
+# Fallback only if .env didn't provide DATABASE_URL (shouldn't happen in prod)
+export DATABASE_URL="${DATABASE_URL:-postgresql://openlinear:openlinear@localhost:5432/openlinear}"
+# packages/db/.env is gitignored so it doesn't exist on the droplet.
+# Prisma reads .env from the schema directory — write it so prisma db push can find it.
+echo "DATABASE_URL=${DATABASE_URL}" > packages/db/.env
+
 step "Generating Prisma client..."
 pnpm --filter @openlinear/db db:generate
 ok "Prisma client generated"
 
 step "Pushing database schema..."
-pnpm db:push
+pnpm --filter @openlinear/db db:push
 ok "Schema synced"
 
 # ── Build worker Docker image ────────────────────────────────────
@@ -65,6 +95,10 @@ step "Building Web..."
 NEXT_PUBLIC_API_URL=https://rixie.in pnpm --filter @openlinear/desktop-ui build
 ok "Web built"
 
+step "Building Landing..."
+pnpm --filter @openlinear/landing build
+ok "Landing built"
+
 # ── Restart services ─────────────────────────────────────────────
 step "Restarting services..."
 
@@ -73,7 +107,9 @@ if command -v pm2 &>/dev/null; then
     pm2 restart openlinear-api 2>/dev/null || \
         pm2 start apps/api/dist/index.js --name openlinear-api
     pm2 restart openlinear-web 2>/dev/null || \
-        pm2 start node_modules/.bin/next --name openlinear-web -- start -p 3000 --cwd apps/desktop-ui
+        (cd apps/desktop-ui && pm2 start node_modules/next/dist/bin/next --name openlinear-web -- start -p 3000)
+    pm2 restart openlinear-landing 2>/dev/null || \
+        (cd apps/landing && pm2 start node_modules/next/dist/bin/next --name openlinear-landing -- start -p 3002)
     pm2 save
     ok "Services restarted (pm2)"
 elif systemctl is-active --quiet openlinear-api 2>/dev/null; then

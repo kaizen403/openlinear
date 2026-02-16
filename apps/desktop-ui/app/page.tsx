@@ -58,8 +58,8 @@ function HomeContent() {
       ? projects.find(p => p.id === selectedProjectId)?.name || "Project"
         : activeRepository
           ? activeRepository.name
-          : "KazCode"
-  const headerLabel = rawHeaderLabel.replace(/openlinear/gi, "KazCode")
+          : "Dashboard"
+  const headerLabel = rawHeaderLabel.replace(/openlinear/gi, "Dashboard")
 
   if (isLoading || !isAuthenticated) {
     return null

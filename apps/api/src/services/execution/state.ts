@@ -96,7 +96,8 @@ export function addLogEntry(taskId: string, type: ExecutionLogEntry['type'], mes
   execution.logs.push(entry);
 
   const emoji = type === 'success' ? '✓' : type === 'error' ? '✗' : type === 'tool' ? '🔧' : type === 'agent' ? '🤖' : '→';
-  console.log(`[Execution] ${taskId.slice(0, 8)} ${emoji} ${message}${details ? ` (${details.slice(0, 50)})` : ''}`);
+  const detailStr = typeof details === 'string' ? details : details ? JSON.stringify(details) : undefined;
+  console.log(`[Execution] ${taskId.slice(0, 8)} ${emoji} ${message}${detailStr ? ` (${detailStr.slice(0, 50)})` : ''}`);
 
   broadcast('execution:log', { taskId, entry });
 }

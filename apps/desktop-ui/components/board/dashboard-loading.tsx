@@ -1,7 +1,7 @@
 "use client"
 
 const COLUMNS = [
-  { id: "todo", title: "Todo", cardCount: 3 },
+  { id: "todo", title: "All Issues", cardCount: 3 },
   { id: "in_progress", title: "In Progress", cardCount: 2 },
   { id: "done", title: "Done", cardCount: 2 },
   { id: "cancelled", title: "Cancelled", cardCount: 1 },
@@ -15,16 +15,16 @@ function SkeletonColumn({
   cardCount: number
 }) {
   return (
-    <div className="flex flex-col h-full">
-      <div className="flex items-center justify-between px-4 py-3">
-        <div className="flex items-center gap-2">
-          <div className="w-16 h-3 bg-[#2a2a2a] rounded" />
-          <div className="w-6 h-4 bg-[#1f1f1f] rounded-full" />
+    <div className="flex flex-col h-full border-r border-white/[0.06] last:border-r-0 w-[85vw] flex-none md:w-full md:flex-auto snap-start">
+      <div className="flex items-center justify-between px-4 py-3 h-12 flex-shrink-0 border-b border-white/[0.04] gap-2">
+        <div className="flex items-center gap-2 min-w-0 flex-shrink overflow-hidden">
+          <div className="w-16 h-3 bg-[#2a2a2a] rounded flex-shrink-0" />
+          <div className="w-6 h-4 bg-[#1f1f1f] rounded-full flex-shrink-0" />
         </div>
-        <div className="w-6 h-6 rounded bg-[#1f1f1f]" />
+        <div className="w-6 h-6 rounded bg-[#1f1f1f] flex-shrink-0" />
       </div>
 
-      <div className="flex-1 p-3 space-y-3">
+      <div className="flex-1 p-3 space-y-3 overflow-y-auto">
         {Array.from({ length: cardCount }).map((_, cardIndex) => (
           <SkeletonCard key={cardIndex} />
         ))}
@@ -58,8 +58,8 @@ function SkeletonCard() {
 
 export function DashboardLoading() {
   return (
-    <div className="flex-1 overflow-hidden relative bg-[#111111]">
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 h-full">
+    <div className="flex-1 overflow-hidden relative bg-[#111111] flex flex-col">
+      <div className="flex md:grid md:grid-cols-2 lg:grid-cols-4 flex-1 min-h-0 overflow-x-auto snap-x snap-mandatory md:overflow-x-visible md:snap-none">
         {COLUMNS.map((column) => (
           <SkeletonColumn
             key={column.id}

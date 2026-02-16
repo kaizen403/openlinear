@@ -1,12 +1,18 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
+import { useRouter } from "next/navigation"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Loader2, Check, AlertCircle, Key } from "lucide-react"
-import { ensureContainer, getSetupStatus, setProviderApiKey, ProviderInfo, SetupStatus } from "@/lib/api/opencode"
-import { toast } from "sonner"
+import { Loader2, Check, AlertCircle, Brain, RefreshCw, Settings } from "lucide-react"
+import {
+  ensureContainer,
+  getSetupStatus,
+  getConfiguredProviderIds,
+  getModelConfig,
+  ProviderInfo,
+  SetupStatus,
+} from "@/lib/api/opencode"
 
 interface ProviderSetupDialogProps {
   open: boolean
@@ -14,113 +20,150 @@ interface ProviderSetupDialogProps {
   onSetupComplete?: () => void
 }
 
-interface ProviderInputState {
-  key: string
-  saving: boolean
-  saved: boolean
-}
+const MAX_POLL_ATTEMPTS = 6
+const POLL_INTERVAL_MS = 2000
 
 export function ProviderSetupDialog({ open, onOpenChange, onSetupComplete }: ProviderSetupDialogProps) {
+  const router = useRouter()
   const [loading, setLoading] = useState(true)
   const [containerStarting, setContainerStarting] = useState(true)
   const [setupStatus, setSetupStatus] = useState<SetupStatus | null>(null)
-  const [providerInputs, setProviderInputs] = useState<Record<string, ProviderInputState>>({})
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [selectedProvider, setSelectedProvider] = useState<string | null>(null)
+  const [currentModelName, setCurrentModelName] = useState<string | null>(null)
+  const pollRef = useRef(false)
 
-  const loadSetupStatus = useCallback(async () => {
-    try {
-      const status = await getSetupStatus()
-      setSetupStatus(status)
-      
-      const inputs: Record<string, ProviderInputState> = {}
-      status.providers.forEach((provider) => {
-        inputs[provider.id] = { key: "", saving: false, saved: provider.authenticated }
-      })
-      setProviderInputs(inputs)
-    } catch (err) {
-      toast.error("Failed to load provider status")
-    } finally {
-      setLoading(false)
+  const applyProviderData = useCallback((status: SetupStatus) => {
+    const cachedIds = new Set(getConfiguredProviderIds())
+    const merged = status.providers.map((p) =>
+      cachedIds.has(p.id) ? { ...p, authenticated: true } : p
+    )
+    const sorted = [...merged].sort((a, b) => {
+      if (a.authenticated === b.authenticated) return 0
+      return a.authenticated ? -1 : 1
+    })
+    setSetupStatus({ ...status, providers: sorted })
+
+    const firstConfigured = sorted.find((p) => p.authenticated)
+    if (firstConfigured) {
+      setSelectedProvider(firstConfigured.id)
     }
   }, [])
 
+  const loadWithPolling = useCallback(async () => {
+    setLoading(true)
+    setLoadError(null)
+    pollRef.current = true
+
+    try {
+      for (let attempt = 0; attempt < MAX_POLL_ATTEMPTS; attempt++) {
+        if (!pollRef.current) return
+
+        const status = await getSetupStatus()
+
+        if (status.providers.length > 0) {
+          applyProviderData(status)
+          setLoading(false)
+          return
+        }
+
+        if (attempt < MAX_POLL_ATTEMPTS - 1) {
+          await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS))
+        }
+      }
+
+      const status = await getSetupStatus()
+      applyProviderData(status)
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : "Failed to load provider status")
+    } finally {
+      setLoading(false)
+    }
+  }, [applyProviderData])
+
   useEffect(() => {
-    if (!open) return
+    if (!open) {
+      pollRef.current = false
+      return
+    }
 
     setLoading(true)
     setContainerStarting(true)
-    
+    setLoadError(null)
+    setSelectedProvider(null)
+
     ensureContainer()
       .then(() => {
         setContainerStarting(false)
-        return loadSetupStatus()
+        getModelConfig()
+          .then((cfg) => {
+            if (cfg.model) setCurrentModelName(cfg.model)
+          })
+          .catch(() => {})
+        return loadWithPolling()
       })
-      .catch(() => {
-        toast.error("Failed to start AI environment")
+      .catch((err) => {
+        setLoadError(err instanceof Error ? err.message : "Failed to start AI environment")
         setContainerStarting(false)
         setLoading(false)
       })
-  }, [open, loadSetupStatus])
 
-  const handleSaveKey = async (providerId: string) => {
-    const input = providerInputs[providerId]
-    if (!input?.key.trim()) return
-
-    setProviderInputs((prev) => ({
-      ...prev,
-      [providerId]: { ...prev[providerId], saving: true },
-    }))
-
-    try {
-      await setProviderApiKey(providerId, input.key)
-      
-      setProviderInputs((prev) => ({
-        ...prev,
-        [providerId]: { key: "", saving: false, saved: true },
-      }))
-      
-      toast.success("API key saved")
-      
-      const status = await getSetupStatus()
-      setSetupStatus(status)
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to save API key"
-      toast.error(message)
-      
-      setProviderInputs((prev) => ({
-        ...prev,
-        [providerId]: { ...prev[providerId], saving: false },
-      }))
+    return () => {
+      pollRef.current = false
     }
+  }, [open, loadWithPolling])
+
+  const handleRetry = () => {
+    setContainerStarting(true)
+    setLoadError(null)
+    setLoading(true)
+
+    ensureContainer()
+      .then(() => {
+        setContainerStarting(false)
+        return loadWithPolling()
+      })
+      .catch((err) => {
+        setLoadError(err instanceof Error ? err.message : "Failed to start AI environment")
+        setContainerStarting(false)
+        setLoading(false)
+      })
   }
 
-  const handleKeyChange = (providerId: string, value: string) => {
-    setProviderInputs((prev) => ({
-      ...prev,
-      [providerId]: { ...prev[providerId], key: value, saved: false },
-    }))
-  }
+  const handleUse = () => {
+    if (!selectedProvider) return
+    const provider = setupStatus?.providers.find((p) => p.id === selectedProvider)
+    if (!provider?.authenticated) return
 
-  const handleContinue = () => {
     onOpenChange(false)
     onSetupComplete?.()
   }
 
-  const hasConfiguredProvider = setupStatus?.providers.some((p) => p.authenticated) ?? false
+  const handleGoToSettings = () => {
+    onOpenChange(false)
+    router.push("/settings?section=ai-providers")
+  }
+
+  const configuredProviders = setupStatus?.providers.filter((p) => p.authenticated) ?? []
+  const hasConfigured = configuredProviders.length > 0
+  const canUse = selectedProvider !== null && configuredProviders.some((p) => p.id === selectedProvider)
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[500px] bg-linear-bg-secondary border-linear-border">
+      <DialogContent className="sm:max-w-[480px] max-h-[85vh] flex flex-col bg-linear-bg-secondary border-linear-border">
         <DialogHeader>
           <DialogTitle className="text-linear-text flex items-center gap-2">
-            <Key className="w-5 h-5" />
-            Configure AI Providers
+            <Brain className="w-5 h-5" />
+            Select AI Provider
           </DialogTitle>
           <DialogDescription className="text-linear-text-secondary">
-            Set up your LLM provider API keys to enable AI task execution.
+            {hasConfigured
+              ? "Choose a provider to run this task."
+              : "No providers configured yet. Set one up in Settings."}
           </DialogDescription>
         </DialogHeader>
 
-        <div className="py-4">
+        <div className="flex-1 overflow-y-auto py-2 min-h-0">
           {containerStarting || loading ? (
             <div className="flex flex-col items-center justify-center py-12 gap-4">
               <Loader2 className="w-8 h-8 animate-spin text-linear-accent" />
@@ -129,26 +172,61 @@ export function ProviderSetupDialog({ open, onOpenChange, onSetupComplete }: Pro
                   {containerStarting ? "Setting up your AI environment..." : "Loading providers..."}
                 </p>
                 <p className="text-sm text-linear-text-tertiary mt-1">
-                  {containerStarting ? "This may take a moment" : "Fetching available providers"}
+                  {containerStarting ? "This may take a moment" : "Detecting available providers"}
                 </p>
               </div>
             </div>
+          ) : loadError ? (
+            <div className="flex flex-col items-center justify-center py-12 gap-4">
+              <AlertCircle className="w-8 h-8 text-red-400" />
+              <div className="text-center">
+                <p className="text-sm font-medium text-linear-text">Failed to load providers</p>
+                <p className="text-xs text-linear-text-tertiary mt-1">{loadError}</p>
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleRetry}
+                className="border-linear-border text-linear-text-secondary hover:text-linear-text hover:bg-linear-bg-tertiary gap-2"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                Retry
+              </Button>
+            </div>
           ) : (
-            <div className="space-y-4">
-              {setupStatus?.providers.map((provider) => (
-                <ProviderRow
-                  key={provider.id}
-                  provider={provider}
-                  input={providerInputs[provider.id]}
-                  onKeyChange={(value) => handleKeyChange(provider.id, value)}
-                  onSave={() => handleSaveKey(provider.id)}
-                />
-              ))}
+            <div className="space-y-1">
+              <button
+                onClick={handleGoToSettings}
+                className="flex items-center gap-2 w-full px-3 py-2 rounded-lg text-sm text-linear-text-secondary hover:text-linear-text bg-linear-bg border border-dashed border-linear-border hover:border-linear-text-tertiary transition-colors"
+              >
+                <Settings className="w-4 h-4" />
+                Configure providers in Settings
+              </button>
 
-              {setupStatus?.providers.length === 0 && (
-                <div className="text-center py-8 text-linear-text-secondary">
-                  <AlertCircle className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                  <p>No providers available</p>
+              {configuredProviders.map((provider) => {
+                const modelForProvider = currentModelName?.startsWith(`${provider.id}/`)
+                  ? currentModelName.slice(provider.id.length + 1)
+                  : undefined
+                return (
+                  <ProviderRow
+                    key={provider.id}
+                    provider={provider}
+                    selected={selectedProvider === provider.id}
+                    onSelect={() => setSelectedProvider(provider.id)}
+                    activeModel={modelForProvider}
+                  />
+                )
+              })}
+
+              {configuredProviders.length === 0 && (
+                <div className="flex flex-col items-center justify-center py-8 gap-3">
+                  <AlertCircle className="w-8 h-8 text-linear-text-tertiary opacity-50" />
+                  <div className="text-center">
+                    <p className="text-sm font-medium text-linear-text-secondary">No providers configured</p>
+                    <p className="text-xs text-linear-text-tertiary mt-1">
+                      Add a provider in Settings to get started.
+                    </p>
+                  </div>
                 </div>
               )}
             </div>
@@ -163,14 +241,13 @@ export function ProviderSetupDialog({ open, onOpenChange, onSetupComplete }: Pro
           >
             Cancel
           </Button>
-          {hasConfiguredProvider && (
-            <Button
-              onClick={handleContinue}
-              className="bg-linear-accent hover:bg-linear-accent-hover text-white"
-            >
-              Continue
-            </Button>
-          )}
+          <Button
+            onClick={handleUse}
+            disabled={!canUse}
+            className="bg-linear-accent hover:bg-linear-accent-hover text-white disabled:opacity-50"
+          >
+            Use
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -179,63 +256,45 @@ export function ProviderSetupDialog({ open, onOpenChange, onSetupComplete }: Pro
 
 interface ProviderRowProps {
   provider: ProviderInfo
-  input: ProviderInputState | undefined
-  onKeyChange: (value: string) => void
-  onSave: () => void
+  selected: boolean
+  onSelect: () => void
+  activeModel?: string
 }
 
-function ProviderRow({ provider, input, onKeyChange, onSave }: ProviderRowProps) {
-  if (!input) return null
-
+function ProviderRow({ provider, selected, onSelect, activeModel }: ProviderRowProps) {
   return (
-    <div className="p-4 rounded-lg bg-linear-bg border border-linear-border">
-      <div className="flex items-center justify-between mb-3">
-        <span className="text-sm font-medium text-linear-text">{provider.name}</span>
-        <StatusBadge authenticated={provider.authenticated} />
+    <div
+      className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors cursor-pointer ${
+        selected
+          ? "bg-linear-bg border border-linear-accent ring-1 ring-linear-accent/30"
+          : "bg-linear-bg border border-linear-border hover:border-linear-text-tertiary"
+      }`}
+      onClick={onSelect}
+    >
+      <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${
+        selected ? "border-linear-accent" : "border-linear-text-tertiary"
+      }`}>
+        {selected && <div className="w-2 h-2 rounded-full bg-linear-accent" />}
       </div>
-      
-      <div className="flex gap-2">
-        <Input
-          type="password"
-          placeholder="Enter API key"
-          value={input.key}
-          onChange={(e) => onKeyChange(e.target.value)}
-          disabled={input.saving}
-          className="flex-1 bg-linear-bg-secondary border-linear-border text-linear-text placeholder:text-linear-text-tertiary focus-visible:ring-linear-accent"
-        />
-        <Button
-          size="sm"
-          onClick={onSave}
-          disabled={!input.key.trim() || input.saving || input.saved}
-          className="bg-linear-accent hover:bg-linear-accent-hover text-white disabled:opacity-50"
-        >
-          {input.saving ? (
-            <Loader2 className="w-4 h-4 animate-spin" />
-          ) : input.saved ? (
-            <Check className="w-4 h-4" />
-          ) : (
-            "Save"
-          )}
-        </Button>
+      <div className="w-7 h-7 rounded-md bg-linear-bg-tertiary flex items-center justify-center flex-shrink-0">
+        <Brain className="w-3.5 h-3.5 text-linear-text-secondary" />
       </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium text-linear-text truncate">{provider.name}</p>
+        {activeModel && (
+          <p className="text-xs text-linear-text-tertiary truncate">Using: {activeModel}</p>
+        )}
+      </div>
+      {provider.authenticated ? (
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-green-500/10 text-green-400 border border-green-500/20 flex-shrink-0">
+          <Check className="w-3 h-3" />
+          Ready
+        </span>
+      ) : (
+        <span className="text-[11px] text-linear-text-tertiary flex-shrink-0">
+          Not configured
+        </span>
+      )}
     </div>
-  )
-}
-
-function StatusBadge({ authenticated }: { authenticated: boolean }) {
-  if (authenticated) {
-    return (
-      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-500/20 text-green-400 border border-green-500/30">
-        <Check className="w-3 h-3" />
-        Configured
-      </span>
-    )
-  }
-
-  return (
-    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-linear-bg-tertiary text-linear-text-tertiary border border-linear-border">
-      <AlertCircle className="w-3 h-3" />
-      Not configured
-    </span>
   )
 }

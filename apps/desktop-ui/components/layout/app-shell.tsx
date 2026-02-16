@@ -22,7 +22,7 @@ export function AppShell({ children }: AppShellProps) {
 
     /* Track mobile breakpoint */
     useEffect(() => {
-        const mq = window.matchMedia("(max-width: 768px)")
+        const mq = window.matchMedia("(max-width: 1024px)")
         const handler = (e: MediaQueryListEvent | MediaQueryList) => {
             setIsMobile(e.matches)
             if (e.matches) {
@@ -109,7 +109,7 @@ export function AppShell({ children }: AppShellProps) {
             )}
 
             <div
-                className="flex-1 flex flex-col min-w-0"
+                className="flex-1 flex flex-col min-w-0 overflow-hidden"
                 style={{
                     paddingLeft: sidebarOpen ? 0 : 48,
                     transition: dragging ? 'none' : 'padding-left 150ms cubic-bezier(0.25, 0.1, 0.25, 1)',

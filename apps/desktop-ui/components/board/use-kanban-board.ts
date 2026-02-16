@@ -6,10 +6,10 @@ import { useAuth } from "@/hooks/use-auth"
 import { Project } from "@/lib/api"
 import { Task, ExecutionProgress, ExecutionLogEntry } from "@/types/task"
 import { API_URL } from "@/lib/api/client"
-import { getSetupStatus } from "@/lib/api/opencode"
+import { getSetupStatus, hasConfiguredProviders } from "@/lib/api/opencode"
 
 export const COLUMNS = [
-  { id: 'todo', title: 'Todo', status: 'todo' as const },
+  { id: 'todo', title: 'All Issues', status: 'todo' as const },
   { id: 'in_progress', title: 'In Progress', status: 'in_progress' as const },
   { id: 'done', title: 'Done', status: 'done' as const },
   { id: 'cancelled', title: 'Cancelled', status: 'cancelled' as const },
@@ -656,7 +656,7 @@ export function useKanbanBoard({ projectId, teamId, projects = [] }: KanbanBoard
 
     try {
       const status = await getSetupStatus();
-      if (!status.ready) {
+      if (!status.ready && !hasConfiguredProviders()) {
         setPendingExecuteTaskId(taskId);
         setShowProviderSetup(true);
         return;
