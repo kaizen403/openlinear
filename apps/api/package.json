@@ -7,7 +7,7 @@
   "bin": "./dist/index.js",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsc",
+    "build": "node esbuild.config.js",
     "build:pkg": "pkg . --out-path dist",
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit",

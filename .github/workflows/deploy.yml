@@ -84,7 +84,7 @@ jobs:
 
       - name: Verify deployment
         run: |
-          sleep 10
+          sleep 30
           HTTP_STATUS=$(curl -s -o /dev/null -w '%{http_code}' https://rixie.in/health)
           if [ "$HTTP_STATUS" = "200" ]; then
             echo "✓ Deployment verified — health check returned $HTTP_STATUS"
