@@ -13,6 +13,22 @@ jobs:
   checks:
     name: Checks
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: openlinear
+          POSTGRES_PASSWORD: openlinear
+          POSTGRES_DB: openlinear_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://openlinear:openlinear@localhost:5432/openlinear_test
     steps:
       - uses: actions/checkout@v4
 
@@ -27,6 +43,9 @@ jobs:
 
       - name: Generate Prisma client
         run: pnpm --filter @openlinear/db db:generate
+
+      - name: Push schema to test database
+        run: pnpm --filter @openlinear/db db:push
 
       - name: Typecheck
         run: pnpm --filter @openlinear/api typecheck
@@ -44,7 +63,6 @@ jobs:
 
       - name: Test
         run: pnpm --filter @openlinear/api test
-        continue-on-error: true
 
   deploy:
     name: Deploy
