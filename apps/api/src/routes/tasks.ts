@@ -138,7 +138,7 @@ router.delete('/archived', async (_req: Request, res: Response) => {
 
 router.delete('/archived/:id', async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
+    const id = req.params.id as string;
 
     const existing = await prisma.task.findUnique({ where: { id } });
     if (!existing || !existing.archived) {
@@ -271,7 +271,7 @@ router.post('/', async (req: Request, res: Response) => {
 
 router.get('/:id', async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
+    const id = req.params.id as string;
 
     const task = await prisma.task.findUnique({
       where: { id },
@@ -292,7 +292,7 @@ router.get('/:id', async (req: Request, res: Response) => {
 
 router.patch('/:id', async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
+    const id = req.params.id as string;
     const parsed = UpdateTaskSchema.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
@@ -366,7 +366,7 @@ router.patch('/:id', async (req: Request, res: Response) => {
 
 router.delete('/:id', async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
+    const id = req.params.id as string;
 
     const existing = await prisma.task.findUnique({ where: { id } });
     if (!existing) {
@@ -389,7 +389,7 @@ router.delete('/:id', async (req: Request, res: Response) => {
 
 router.post('/:id/execute', optionalAuth, async (req: AuthRequest, res: Response) => {
   try {
-    const { id } = req.params;
+    const id = req.params.id as string;
     console.log(`[Tasks] Execute requested for task ${id.slice(0, 8)} (userId: ${req.userId || 'anonymous'})`);
     const result = await executeTask({ taskId: id, userId: req.userId });
 
@@ -408,7 +408,7 @@ router.post('/:id/execute', optionalAuth, async (req: AuthRequest, res: Response
 
 router.post('/:id/refresh-pr', optionalAuth, async (req: AuthRequest, res: Response) => {
   try {
-    const { id } = req.params;
+    const id = req.params.id as string;
     const task = await prisma.task.findUnique({
       where: { id },
       select: { prUrl: true, batchId: true },
@@ -494,7 +494,7 @@ router.post('/:id/refresh-pr', optionalAuth, async (req: AuthRequest, res: Respo
 
 router.get('/:id/running', async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
+    const id = req.params.id as string;
     res.json({ running: isTaskRunning(id) });
   } catch (error) {
     res.status(500).json({ error: 'Failed to check task status' });
@@ -503,7 +503,7 @@ router.get('/:id/running', async (req: Request, res: Response) => {
 
 router.get('/:id/logs', async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
+    const id = req.params.id as string;
     let logs = getExecutionLogs(id);
 
     if (logs.length === 0) {
@@ -524,7 +524,7 @@ router.get('/:id/logs', async (req: Request, res: Response) => {
 
 router.post('/:id/cancel', async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
+    const id = req.params.id as string;
     console.log(`[Tasks] Cancel requested for task ${id.slice(0, 8)}`);
 
     if (!isTaskRunning(id)) {

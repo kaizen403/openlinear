@@ -72,7 +72,7 @@ router.get('/', optionalAuth, async (req: AuthRequest, res: Response) => {
 
 router.patch('/read/:id', async (req: AuthRequest, res: Response) => {
   try {
-    const { id } = req.params;
+    const id = req.params.id as string;
     await prisma.task.update({
       where: { id },
       data: { inboxRead: true },

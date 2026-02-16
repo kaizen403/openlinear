@@ -31,7 +31,7 @@ const updateProjectSchema = z.object({
   startDate: z.string().datetime().nullable().optional(),
   targetDate: z.string().datetime().nullable().optional(),
   leadId: z.string().uuid().nullable().optional(),
-  teamIds: z.array(z.string().uuid()).min(1).max(1).optional(),
+  teamIds: z.array(z.string().uuid()).max(1).optional(),
   repoUrl: z.string().nullable().optional(),
   localPath: z.string().nullable().optional(),
 });
@@ -54,7 +54,7 @@ const projectInclude = {
   _count: {
     select: { tasks: true },
   },
-};
+} as const;
 
 router.get('/', optionalAuth, async (req: AuthRequest, res: Response) => {
   try {
@@ -138,7 +138,7 @@ router.post('/', requireAuth, async (req: AuthRequest, res: Response) => {
 
 router.get('/:id', async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
+    const id = req.params.id as string;
 
     const project = await prisma.project.findUnique({
       where: { id },
@@ -159,7 +159,7 @@ router.get('/:id', async (req: Request, res: Response) => {
 
 router.patch('/:id', requireAuth, async (req: AuthRequest, res: Response) => {
   try {
-    const { id } = req.params;
+    const id = req.params.id as string;
     const parsed = updateProjectSchema.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).json({ error: 'Validation failed', details: parsed.error.errors });
@@ -230,7 +230,7 @@ router.patch('/:id', requireAuth, async (req: AuthRequest, res: Response) => {
 
 router.delete('/:id', requireAuth, async (req: AuthRequest, res: Response) => {
   try {
-    const { id } = req.params;
+    const id = req.params.id as string;
 
     const existing = await prisma.project.findUnique({ where: { id } });
     if (!existing) {

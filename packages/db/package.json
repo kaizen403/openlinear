@@ -12,10 +12,12 @@
     "db:studio": "pnpm exec prisma studio"
   },
   "dependencies": {
-    "@prisma/client": "5.22.0"
+    "@prisma/adapter-pg": "^7.4.0",
+    "@prisma/client": "7.4.0"
   },
   "devDependencies": {
-    "prisma": "5.22.0",
+    "@types/node": "^25.2.3",
+    "prisma": "7.4.0",
     "typescript": "^5.4.0"
   }
 }

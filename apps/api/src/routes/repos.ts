@@ -65,8 +65,9 @@ router.post('/:id/activate/public', async (req: Request, res: Response) => {
       data: { isActive: false },
     });
     
+    const id = req.params.id as string;
     const project = await prisma.repository.update({
-      where: { id: req.params.id },
+      where: { id },
       data: { isActive: true },
     });
     res.json(project);
@@ -126,7 +127,8 @@ router.post('/import', requireAuth, async (req: AuthRequest, res: Response) => {
 
 router.post('/:id/activate', requireAuth, async (req: AuthRequest, res: Response) => {
   try {
-    const project = await setActiveRepository(req.userId!, req.params.id);
+    const id = req.params.id as string;
+    const project = await setActiveRepository(req.userId!, id);
     res.json(project);
   } catch (err) {
     console.error('[Repos] Failed to activate project:', err);

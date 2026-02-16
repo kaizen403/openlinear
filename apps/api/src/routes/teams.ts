@@ -167,7 +167,7 @@ router.post('/join', requireAuth, async (req: AuthRequest, res: Response) => {
 
 router.patch('/:id', optionalAuth, async (req: AuthRequest, res: Response) => {
   try {
-    const { id } = req.params;
+    const id = req.params.id as string;
     const parsed = updateTeamSchema.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).json({ error: 'Validation failed', details: parsed.error.errors });
@@ -202,7 +202,7 @@ router.patch('/:id', optionalAuth, async (req: AuthRequest, res: Response) => {
 
 router.delete('/:id', optionalAuth, async (req: AuthRequest, res: Response) => {
   try {
-    const { id } = req.params;
+    const id = req.params.id as string;
     await prisma.$transaction(async (tx) => {
       const team = await tx.team.findUnique({ where: { id } });
       if (!team) throw new Error('NOT_FOUND');
@@ -225,7 +225,7 @@ router.delete('/:id', optionalAuth, async (req: AuthRequest, res: Response) => {
 
 router.get('/:id', async (req: AuthRequest, res: Response) => {
   try {
-    const { id } = req.params;
+    const id = req.params.id as string;
     const team = await prisma.team.findUnique({
       where: { id },
       include: {
@@ -250,7 +250,7 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
 
 router.get('/:id/members', async (req: AuthRequest, res: Response) => {
   try {
-    const { id } = req.params;
+    const id = req.params.id as string;
 
     const team = await prisma.team.findUnique({ where: { id } });
     if (!team) {
@@ -273,7 +273,7 @@ router.get('/:id/members', async (req: AuthRequest, res: Response) => {
 
 router.post('/:id/members', requireAuth, async (req: AuthRequest, res: Response) => {
   try {
-    const { id } = req.params;
+    const id = req.params.id as string;
     const parsed = addMemberSchema.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).json({ error: 'Validation failed', details: parsed.error.errors });
@@ -322,7 +322,8 @@ router.post('/:id/members', requireAuth, async (req: AuthRequest, res: Response)
 
 router.delete('/:id/members/:userId', optionalAuth, async (req: AuthRequest, res: Response) => {
   try {
-    const { id, userId } = req.params;
+    const id = req.params.id as string;
+    const userId = req.params.userId as string;
 
     await prisma.teamMember.delete({
       where: {

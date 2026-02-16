@@ -59,7 +59,7 @@ router.post('/', async (req: Request, res: Response) => {
 
 router.patch('/:id', async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
+    const id = req.params.id as string;
     const parsed = updateLabelSchema.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).json({ error: 'Validation failed', details: parsed.error.errors });
@@ -89,7 +89,7 @@ router.patch('/:id', async (req: Request, res: Response) => {
 
 router.delete('/:id', async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
+    const id = req.params.id as string;
 
     await prisma.label.delete({
       where: { id },
@@ -109,7 +109,7 @@ router.delete('/:id', async (req: Request, res: Response) => {
 
 router.post('/tasks/:id/labels', async (req: Request, res: Response) => {
   try {
-    const { id: taskId } = req.params;
+    const taskId = req.params.id as string;
     const parsed = assignLabelSchema.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).json({ error: 'Validation failed', details: parsed.error.errors });
@@ -149,7 +149,8 @@ router.post('/tasks/:id/labels', async (req: Request, res: Response) => {
 
 router.delete('/tasks/:id/labels/:labelId', async (req: Request, res: Response) => {
   try {
-    const { id: taskId, labelId } = req.params;
+    const taskId = req.params.id as string;
+    const labelId = req.params.labelId as string;
 
     await prisma.taskLabel.delete({
       where: {

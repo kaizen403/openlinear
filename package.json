@@ -15,9 +15,9 @@
     "build:desktop": "pnpm --filter @openlinear/desktop tauri build"
   },
   "devDependencies": {
-    "@opencode-ai/sdk": "^1.2.1",
-    "turbo": "^2.3.0",
-    "typescript": "^5.4.0"
+    "@opencode-ai/sdk": "^1.2.5",
+    "turbo": "^2.8.9",
+    "typescript": "^5.9.3"
   },
   "packageManager": "pnpm@9.0.0"
 }

@@ -88,7 +88,8 @@ router.get('/', async (_req: AuthRequest, res: Response) => {
 
 router.get('/:id', async (req: AuthRequest, res: Response) => {
   try {
-    const batch = getBatch(req.params.id);
+    const id = req.params.id as string;
+    const batch = getBatch(id);
     if (!batch) {
       res.status(404).json({ error: 'Batch not found' });
       return;
@@ -140,7 +141,8 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
 
 router.post('/:id/cancel', async (req: AuthRequest, res: Response) => {
   try {
-    cancelBatch(req.params.id);
+    const id = req.params.id as string;
+    cancelBatch(id);
     res.json({ success: true });
   } catch (error) {
     console.error('[Batches] Error cancelling batch:', error);
@@ -150,7 +152,9 @@ router.post('/:id/cancel', async (req: AuthRequest, res: Response) => {
 
 router.post('/:id/tasks/:taskId/cancel', async (req: AuthRequest, res: Response) => {
   try {
-    cancelTask(req.params.id, req.params.taskId);
+    const id = req.params.id as string;
+    const taskId = req.params.taskId as string;
+    cancelTask(id, taskId);
     res.json({ success: true });
   } catch (error) {
     console.error('[Batches] Error cancelling task:', error);
@@ -160,8 +164,9 @@ router.post('/:id/tasks/:taskId/cancel', async (req: AuthRequest, res: Response)
 
 router.post('/:id/approve', async (req: AuthRequest, res: Response) => {
   try {
-    approveNextTask(req.params.id);
-    const batch = getBatch(req.params.id);
+    const id = req.params.id as string;
+    approveNextTask(id);
+    const batch = getBatch(id);
     if (!batch) {
       res.status(404).json({ error: 'Batch not found' });
       return;
