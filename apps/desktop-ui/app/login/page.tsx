@@ -7,11 +7,13 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { loginUser, registerUser, getLoginUrl } from "@/lib/api"
+import { useAuth } from "@/hooks/use-auth"
 
 type Tab = "email" | "github"
 
 export default function LoginPage() {
   const router = useRouter()
+  const { refreshUser } = useAuth()
   const [activeTab, setActiveTab] = useState<Tab>("email")
   const [username, setUsername] = useState("")
   const [password, setPassword] = useState("")
@@ -27,6 +29,7 @@ export default function LoginPage() {
     try {
       const data = await loginUser(username, password)
       localStorage.setItem("token", data.token)
+      await refreshUser()
       router.push("/")
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed")
@@ -43,6 +46,7 @@ export default function LoginPage() {
     try {
       const data = await registerUser(username, password)
       localStorage.setItem("token", data.token)
+      await refreshUser()
       router.push("/")
     } catch (err) {
       setError(err instanceof Error ? err.message : "Registration failed")
