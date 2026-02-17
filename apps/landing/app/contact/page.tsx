@@ -3,7 +3,7 @@
 import { useState } from "react"
 import { Header } from "@/components/header"
 import { Footer } from "@/components/footer"
-import { ArrowRight, Mail, Clock, Github } from "lucide-react"
+import { ArrowRight, Mail, Clock, Github, CheckCircle2, MessageCircle } from "lucide-react"
 
 export default function ContactPage() {
   const [name, setName] = useState("")
@@ -94,6 +94,33 @@ export default function ContactPage() {
       {/* ── Form + Sidebar ───────────────────────── */}
       <section className="relative py-32 md:py-40 bg-[#1a1c26]">
         <div className="absolute top-0 left-0 right-0 section-divider" />
+
+        {/* Atmospheric depth glow */}
+        <div className="absolute top-[20%] right-[-5%] w-[400px] h-[400px] rounded-full bg-[hsl(200_40%_25%/0.08)] blur-[160px] pointer-events-none" />
+
+        {/* Floating glass-panel: "Message sent" confirmation card */}
+        <div className="hidden lg:block absolute bottom-16 right-12 z-10 animate-float-3">
+          <div className="glass-panel rounded-2xl p-5 flex items-center gap-3">
+            <div className="h-9 w-9 rounded-lg bg-[#EDE8D0]/[0.08] border border-[#EDE8D0]/[0.06] flex items-center justify-center shrink-0">
+              <CheckCircle2 className="h-4 w-4 text-[#EDE8D0]/60" />
+            </div>
+            <div>
+              <p className="text-[0.8125rem] font-medium text-[#EDE8D0]/90 tracking-[-0.01em]">Message sent</p>
+              <p className="text-[0.6875rem] text-[#EDE8D0]/40">We&apos;ll be in touch shortly</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Floating glass-panel: Response time pill */}
+        <div className="hidden lg:block absolute top-24 right-20 z-10 animate-float-5">
+          <div className="glass-panel rounded-xl p-4 flex items-center gap-3">
+            <div className="h-8 w-8 rounded-lg bg-[#EDE8D0]/[0.08] border border-[#EDE8D0]/[0.06] flex items-center justify-center shrink-0">
+              <MessageCircle className="h-3.5 w-3.5 text-[#EDE8D0]/60" />
+            </div>
+            <p className="text-[0.75rem] font-medium text-[#EDE8D0]/70 tracking-[-0.01em]">Avg. reply: &lt; 24h</p>
+          </div>
+        </div>
+
         <div className="mx-auto max-w-none px-[100px]">
           <div className="grid lg:grid-cols-[1.3fr_1fr] gap-14 lg:gap-24 max-w-5xl mx-auto">
             <form onSubmit={handleSubmit} autoComplete="off" className="flex flex-col gap-5">
