@@ -1,38 +1,34 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useMemo } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import {
   Rocket,
-  Check,
-  Users,
   FolderKanban,
-  Globe,
+  Github,
   ArrowRight,
   Loader2,
-  Sparkles,
+  Search,
+  Lock,
+  Link,
+  ExternalLink,
 } from "lucide-react"
 import { Input } from "@/components/ui/input"
-import { Textarea } from "@/components/ui/textarea"
 import { toast } from "sonner"
-import { createProject, updateTeam, type Team, type Project } from "@/lib/api"
+import {
+  createProject,
+  fetchGitHubRepos,
+  getGitHubConnectUrl,
+  type Team,
+  type GitHubRepo,
+} from "@/lib/api"
+import { useAuth } from "@/hooks/use-auth"
 
 const SPRING = { type: "spring" as const, stiffness: 300, damping: 30 }
 
 interface OnboardingWizardProps {
   teams: Team[]
-  onComplete: (projectId: string) => void
-}
-
-function generateTeamKey(name: string): string {
-  const words = name.trim().split(/\s+/)
-  if (words.length >= 2) {
-    return words
-      .slice(0, 4)
-      .map((w) => w.charAt(0).toUpperCase())
-      .join("")
-  }
-  return name.slice(0, Math.min(4, name.length)).toUpperCase()
+  onComplete: () => void
 }
 
 function WelcomeStep({ onNext }: { onNext: () => void }) {
@@ -78,129 +74,212 @@ function WelcomeStep({ onNext }: { onNext: () => void }) {
   )
 }
 
-function TeamStep({
-  team,
-  onNext,
+type ProjectTab = "github" | "link"
+
+function RepoItem({
+  repo,
+  isSelected,
+  onSelect,
 }: {
-  team: Team
-  onNext: (teamData: { name: string; key: string; description: string }) => void
+  repo: GitHubRepo
+  isSelected: boolean
+  onSelect: () => void
 }) {
-  const [name, setName] = useState(team.name)
-  const [key, setKey] = useState(team.key)
-  const [description, setDescription] = useState(team.description || "")
-  const [isLoading, setIsLoading] = useState(false)
+  return (
+    <button
+      onClick={onSelect}
+      className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left transition-colors ${
+        isSelected
+          ? "bg-linear-accent/10 border border-linear-accent/40"
+          : "hover:bg-linear-bg-tertiary border border-transparent"
+      }`}
+    >
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-1.5">
+          <span className="text-sm font-medium text-linear-text truncate">
+            {repo.name}
+          </span>
+          {repo.private && (
+            <Lock className="w-3 h-3 text-linear-text-tertiary flex-shrink-0" />
+          )}
+        </div>
+        {repo.description && (
+          <p className="text-xs text-linear-text-tertiary truncate mt-0.5">
+            {repo.description}
+          </p>
+        )}
+      </div>
+      <div
+        className={`w-4 h-4 rounded-full border-2 flex-shrink-0 flex items-center justify-center transition-colors ${
+          isSelected
+            ? "border-linear-accent bg-linear-accent"
+            : "border-linear-border"
+        }`}
+      >
+        {isSelected && (
+          <div className="w-1.5 h-1.5 rounded-full bg-white" />
+        )}
+      </div>
+    </button>
+  )
+}
+
+function GitHubRepoTab({
+  onSelectRepo,
+  selectedRepo,
+}: {
+  onSelectRepo: (repo: GitHubRepo | null) => void
+  selectedRepo: GitHubRepo | null
+}) {
+  const { user, refreshUser } = useAuth()
+  const [repos, setRepos] = useState<GitHubRepo[]>([])
+  const [isLoadingRepos, setIsLoadingRepos] = useState(false)
+  const [isConnecting, setIsConnecting] = useState(false)
+  const [search, setSearch] = useState("")
+
+  const hasGitHub = !!user?.githubId
 
   useEffect(() => {
-    const generatedKey = generateTeamKey(name)
-    if (generatedKey !== key) {
-      setKey(generatedKey)
-    }
-  }, [name])
+    if (!hasGitHub) return
 
-  const handleContinue = useCallback(async () => {
-    if (!name.trim()) {
-      toast.error("Team name is required")
-      return
-    }
+    setIsLoadingRepos(true)
+    fetchGitHubRepos()
+      .then(setRepos)
+      .catch(() => toast.error("Failed to load repositories"))
+      .finally(() => setIsLoadingRepos(false))
+  }, [hasGitHub])
 
-    setIsLoading(true)
+  const filteredRepos = useMemo(() => {
+    if (!search.trim()) return repos
+    const q = search.toLowerCase()
+    return repos.filter(
+      (r) =>
+        r.name.toLowerCase().includes(q) ||
+        r.full_name.toLowerCase().includes(q) ||
+        r.description?.toLowerCase().includes(q)
+    )
+  }, [repos, search])
+
+  const handleConnect = useCallback(async () => {
+    setIsConnecting(true)
     try {
-      if (name !== team.name || description !== team.description) {
-        await updateTeam(team.id, {
-          name: name.trim(),
-          description: description.trim() || null,
-        })
-      }
-      onNext({ name: name.trim(), key, description: description.trim() })
+      const url = await getGitHubConnectUrl()
+      window.location.href = url
     } catch {
-      toast.error("Failed to update team. Please try again.")
-    } finally {
-      setIsLoading(false)
+      toast.error("Failed to start GitHub connection")
+      setIsConnecting(false)
     }
-  }, [name, key, description, team, onNext])
+  }, [])
 
-  const handleSkip = useCallback(() => {
-    onNext({ name: team.name, key: team.key, description: team.description || "" })
-  }, [team, onNext])
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    if (params.get("connected") === "true") {
+      window.history.replaceState({}, "", window.location.pathname)
+      refreshUser()
+      toast.success("GitHub connected successfully!")
+    }
+  }, [refreshUser])
 
-  return (
-    <div className="space-y-6">
-      <div className="text-center space-y-2">
-        <div className="w-12 h-12 mx-auto rounded-xl bg-linear-accent/10 flex items-center justify-center mb-4">
-          <Users className="w-6 h-6 text-linear-accent" />
+  if (!hasGitHub) {
+    return (
+      <div className="flex flex-col items-center justify-center py-8 space-y-4">
+        <div className="w-14 h-14 rounded-xl bg-linear-bg-tertiary flex items-center justify-center">
+          <Github className="w-7 h-7 text-linear-text-secondary" />
         </div>
-        <h2 className="text-xl font-semibold text-linear-text">Your Team</h2>
-        <p className="text-sm text-linear-text-secondary">
-          We created a team for you. Customize it or continue.
-        </p>
-      </div>
-
-      <div className="space-y-4">
-        <div className="space-y-1.5">
-          <label className="text-xs font-medium text-linear-text-secondary">
-            Team name
-          </label>
-          <Input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="e.g., Engineering"
-            className="bg-linear-bg-tertiary border-linear-border text-linear-text placeholder:text-linear-text-tertiary focus:border-linear-border-hover h-10"
-          />
-        </div>
-
-        <div className="space-y-1.5">
-          <label className="text-xs font-medium text-linear-text-secondary">
-            Team key
-          </label>
-          <Input
-            value={key}
-            onChange={(e) => setKey(e.target.value.toUpperCase())}
-            placeholder="ENG"
-            maxLength={4}
-            className="bg-linear-bg-tertiary border-linear-border text-linear-text placeholder:text-linear-text-tertiary focus:border-linear-border-hover h-10 uppercase"
-          />
-          <p className="text-xs text-linear-text-tertiary">
-            Used for issue identifiers (e.g., ENG-123)
+        <div className="text-center space-y-1">
+          <p className="text-sm font-medium text-linear-text">
+            Connect your GitHub account
+          </p>
+          <p className="text-xs text-linear-text-tertiary max-w-[240px]">
+            Link GitHub to import your repositories and start managing projects.
           </p>
         </div>
+        <button
+          onClick={handleConnect}
+          disabled={isConnecting}
+          className="bg-[#24292f] hover:bg-[#32383f] text-white rounded-md h-9 px-4 text-sm font-medium transition-colors inline-flex items-center gap-2 disabled:opacity-50"
+        >
+          {isConnecting ? (
+            <Loader2 className="w-4 h-4 animate-spin" />
+          ) : (
+            <Github className="w-4 h-4" />
+          )}
+          Connect to GitHub
+        </button>
+      </div>
+    )
+  }
 
-        <div className="space-y-1.5">
-          <label className="text-xs font-medium text-linear-text-secondary">
-            Description <span className="text-linear-text-tertiary">(optional)</span>
-          </label>
-          <Textarea
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder="What does this team work on?"
-            rows={3}
-            className="bg-linear-bg-tertiary border-linear-border text-linear-text placeholder:text-linear-text-tertiary focus:border-linear-border-hover resize-none"
-          />
-        </div>
+  if (isLoadingRepos) {
+    return (
+      <div className="flex flex-col items-center justify-center py-10 space-y-3">
+        <Loader2 className="w-5 h-5 animate-spin text-linear-text-secondary" />
+        <p className="text-xs text-linear-text-tertiary">Loading repositories...</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-linear-text-tertiary" />
+        <Input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search repositories..."
+          className="bg-linear-bg-tertiary border-linear-border text-linear-text placeholder:text-linear-text-tertiary focus:border-linear-border-hover h-9 pl-9 text-sm"
+        />
       </div>
 
-      <div className="space-y-3">
-        <button
-          onClick={handleContinue}
-          disabled={isLoading || !name.trim()}
-          className="w-full bg-linear-accent hover:bg-linear-accent-hover disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-md h-10 px-6 text-sm font-medium transition-colors inline-flex items-center justify-center gap-2"
-        >
-          {isLoading ? (
-            <>
-              <Loader2 className="w-4 h-4 animate-spin" />
-              Saving...
-            </>
-          ) : (
-            "Continue"
-          )}
-        </button>
+      <div className="max-h-[240px] overflow-y-auto space-y-0.5 scrollbar-thin scrollbar-track-transparent scrollbar-thumb-linear-border">
+        {filteredRepos.length === 0 ? (
+          <div className="text-center py-6">
+            <p className="text-xs text-linear-text-tertiary">
+              {search ? "No matching repositories" : "No repositories found"}
+            </p>
+          </div>
+        ) : (
+          filteredRepos.map((repo) => (
+            <RepoItem
+              key={repo.id}
+              repo={repo}
+              isSelected={selectedRepo?.id === repo.id}
+              onSelect={() =>
+                onSelectRepo(selectedRepo?.id === repo.id ? null : repo)
+              }
+            />
+          ))
+        )}
+      </div>
+    </div>
+  )
+}
 
-        <button
-          onClick={handleSkip}
-          disabled={isLoading}
-          className="w-full text-sm text-linear-text-secondary hover:text-linear-text transition-colors"
-        >
-          Skip for now
-        </button>
+function LinkTab({
+  repoUrl,
+  onUrlChange,
+}: {
+  repoUrl: string
+  onUrlChange: (url: string) => void
+}) {
+  return (
+    <div className="space-y-4 py-2">
+      <div className="space-y-1.5">
+        <label className="text-xs font-medium text-linear-text-secondary">
+          GitHub repository URL
+        </label>
+        <div className="relative">
+          <Link className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-linear-text-tertiary" />
+          <Input
+            value={repoUrl}
+            onChange={(e) => onUrlChange(e.target.value)}
+            placeholder="https://github.com/owner/repo"
+            className="bg-linear-bg-tertiary border-linear-border text-linear-text placeholder:text-linear-text-tertiary focus:border-linear-border-hover h-10 pl-10"
+          />
+        </div>
+        <p className="text-xs text-linear-text-tertiary">
+          Paste a link to any public or private GitHub repository
+        </p>
       </div>
     </div>
   )
@@ -208,38 +287,69 @@ function TeamStep({
 
 function ProjectStep({
   teamId,
-  onCreate,
+  onComplete,
 }: {
   teamId: string
-  onCreate: (project: Project) => void
+  onComplete: () => void
 }) {
-  const [name, setName] = useState("")
+  const [activeTab, setActiveTab] = useState<ProjectTab>("github")
+  const [selectedRepo, setSelectedRepo] = useState<GitHubRepo | null>(null)
   const [repoUrl, setRepoUrl] = useState("")
-  const [isLoading, setIsLoading] = useState(false)
+  const [projectName, setProjectName] = useState("")
+  const [isCreating, setIsCreating] = useState(false)
+
+  useEffect(() => {
+    if (selectedRepo) {
+      setProjectName(selectedRepo.name)
+    }
+  }, [selectedRepo])
+
+  useEffect(() => {
+    if (activeTab === "link" && repoUrl && !projectName) {
+      const match = repoUrl.match(/github\.com\/[^/]+\/([^/]+?)(?:\.git)?$/)
+      if (match) {
+        setProjectName(match[1])
+      }
+    }
+  }, [repoUrl, activeTab, projectName])
+
+  const resolvedRepoUrl = useMemo(() => {
+    if (activeTab === "github" && selectedRepo) {
+      return `https://github.com/${selectedRepo.full_name}`
+    }
+    if (activeTab === "link" && repoUrl.trim()) {
+      return repoUrl.trim()
+    }
+    return undefined
+  }, [activeTab, selectedRepo, repoUrl])
+
+  const canCreate = projectName.trim().length > 0
 
   const handleCreate = useCallback(async () => {
-    if (!name.trim()) {
-      toast.error("Project name is required")
-      return
-    }
+    if (!canCreate) return
 
-    setIsLoading(true)
+    setIsCreating(true)
     try {
-      const project = await createProject({
-        name: name.trim(),
+      await createProject({
+        name: projectName.trim(),
         teamIds: [teamId],
-        repoUrl: repoUrl.trim() || undefined,
+        repoUrl: resolvedRepoUrl,
       })
-      onCreate(project)
+      onComplete()
     } catch {
       toast.error("Failed to create project. Please try again.")
     } finally {
-      setIsLoading(false)
+      setIsCreating(false)
     }
-  }, [name, repoUrl, teamId, onCreate])
+  }, [canCreate, projectName, teamId, resolvedRepoUrl, onComplete])
+
+  const tabs: { id: ProjectTab; label: string; icon: typeof Github }[] = [
+    { id: "github", label: "GitHub Repos", icon: Github },
+    { id: "link", label: "Enter Link", icon: ExternalLink },
+  ]
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <div className="text-center space-y-2">
         <div className="w-12 h-12 mx-auto rounded-xl bg-linear-accent/10 flex items-center justify-center mb-4">
           <FolderKanban className="w-6 h-6 text-linear-accent" />
@@ -252,41 +362,68 @@ function ProjectStep({
         </p>
       </div>
 
-      <div className="space-y-4">
-        <div className="space-y-1.5">
-          <label className="text-xs font-medium text-linear-text-secondary">
-            Project name
-          </label>
-          <Input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="e.g., Web App"
-            className="bg-linear-bg-tertiary border-linear-border text-linear-text placeholder:text-linear-text-tertiary focus:border-linear-border-hover h-10"
-          />
-        </div>
+      <div className="flex rounded-lg bg-linear-bg-tertiary p-0.5 border border-linear-border">
+        {tabs.map((tab) => {
+          const Icon = tab.icon
+          const isActive = activeTab === tab.id
+          return (
+            <button
+              key={tab.id}
+              onClick={() => {
+                setActiveTab(tab.id)
+                if (tab.id === "github") setRepoUrl("")
+                if (tab.id === "link") setSelectedRepo(null)
+              }}
+              className={`flex-1 flex items-center justify-center gap-1.5 h-8 rounded-md text-xs font-medium transition-all ${
+                isActive
+                  ? "bg-linear-bg-secondary text-linear-text shadow-sm"
+                  : "text-linear-text-tertiary hover:text-linear-text-secondary"
+              }`}
+            >
+              <Icon className="w-3.5 h-3.5" />
+              {tab.label}
+            </button>
+          )
+        })}
+      </div>
 
-        <div className="space-y-1.5">
-          <label className="text-xs font-medium text-linear-text-secondary">
-            GitHub repository <span className="text-linear-text-tertiary">(optional)</span>
-          </label>
-          <div className="relative">
-            <Globe className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-linear-text-tertiary" />
-            <Input
-              value={repoUrl}
-              onChange={(e) => setRepoUrl(e.target.value)}
-              placeholder="https://github.com/owner/repo"
-              className="bg-linear-bg-tertiary border-linear-border text-linear-text placeholder:text-linear-text-tertiary focus:border-linear-border-hover h-10 pl-10"
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={activeTab}
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -8 }}
+          transition={{ duration: 0.15 }}
+        >
+          {activeTab === "github" ? (
+            <GitHubRepoTab
+              selectedRepo={selectedRepo}
+              onSelectRepo={setSelectedRepo}
             />
-          </div>
-        </div>
+          ) : (
+            <LinkTab repoUrl={repoUrl} onUrlChange={setRepoUrl} />
+          )}
+        </motion.div>
+      </AnimatePresence>
+
+      <div className="space-y-1.5">
+        <label className="text-xs font-medium text-linear-text-secondary">
+          Project name
+        </label>
+        <Input
+          value={projectName}
+          onChange={(e) => setProjectName(e.target.value)}
+          placeholder="e.g., Web App"
+          className="bg-linear-bg-tertiary border-linear-border text-linear-text placeholder:text-linear-text-tertiary focus:border-linear-border-hover h-10"
+        />
       </div>
 
       <button
         onClick={handleCreate}
-        disabled={isLoading || !name.trim()}
+        disabled={isCreating || !canCreate}
         className="w-full bg-linear-accent hover:bg-linear-accent-hover disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-md h-10 px-6 text-sm font-medium transition-colors inline-flex items-center justify-center gap-2"
       >
-        {isLoading ? (
+        {isCreating ? (
           <>
             <Loader2 className="w-4 h-4 animate-spin" />
             Creating project...
@@ -295,68 +432,6 @@ function ProjectStep({
           "Create Project"
         )}
       </button>
-    </div>
-  )
-}
-
-function SuccessStep({
-  projectName,
-  onGoToProject,
-}: {
-  projectName: string
-  onGoToProject: () => void
-}) {
-  return (
-    <div className="text-center space-y-6">
-      <motion.div
-        initial={{ scale: 0.5, opacity: 0 }}
-        animate={{ scale: 1, opacity: 1 }}
-        transition={{ ...SPRING, delay: 0.1 }}
-        className="w-20 h-20 mx-auto rounded-2xl bg-green-500/10 flex items-center justify-center"
-      >
-        <motion.div
-          initial={{ scale: 0 }}
-          animate={{ scale: 1 }}
-          transition={{ ...SPRING, delay: 0.3 }}
-        >
-          <Check className="w-10 h-10 text-green-500" />
-        </motion.div>
-      </motion.div>
-
-      <motion.div
-        initial={{ y: 20, opacity: 0 }}
-        animate={{ y: 0, opacity: 1 }}
-        transition={{ ...SPRING, delay: 0.2 }}
-        className="space-y-2"
-      >
-        <h2 className="text-2xl font-semibold text-linear-text">
-          You&apos;re all set!
-        </h2>
-        <p className="text-sm text-linear-text-secondary max-w-xs mx-auto leading-relaxed">
-          Your project <span className="text-linear-text font-medium">{projectName}</span> is ready.
-          Start creating issues and let AI execute them.
-        </p>
-      </motion.div>
-
-      <motion.div
-        initial={{ y: 20, opacity: 0 }}
-        animate={{ y: 0, opacity: 1 }}
-        transition={{ ...SPRING, delay: 0.3 }}
-        className="space-y-3"
-      >
-        <button
-          onClick={onGoToProject}
-          className="bg-linear-accent hover:bg-linear-accent-hover text-white rounded-md h-10 px-6 text-sm font-medium transition-colors inline-flex items-center gap-2"
-        >
-          Go to Project
-          <ArrowRight className="w-4 h-4" />
-        </button>
-
-        <div className="flex items-center justify-center gap-2 text-xs text-linear-text-tertiary">
-          <Sparkles className="w-3 h-3" />
-          <span>Tip: Use Brainstorm to generate tasks from ideas</span>
-        </div>
-      </motion.div>
     </div>
   )
 }
@@ -397,7 +472,6 @@ function StepIndicator({ currentStep, totalSteps }: { currentStep: number; total
 
 export function OnboardingWizard({ teams, onComplete }: OnboardingWizardProps) {
   const [currentStep, setCurrentStep] = useState(0)
-  const [createdProject, setCreatedProject] = useState<Project | null>(null)
 
   const team = teams[0]
 
@@ -405,49 +479,20 @@ export function OnboardingWizard({ teams, onComplete }: OnboardingWizardProps) {
     setCurrentStep(1)
   }, [])
 
-  const handleTeamNext = useCallback(
-    (teamData: { name: string; key: string; description: string }) => {
-      void teamData
-      setCurrentStep(2)
-    },
-    []
-  )
-
-  const handleProjectCreate = useCallback((project: Project) => {
-    setCreatedProject(project)
-    setCurrentStep(3)
-  }, [])
-
-  const handleGoToProject = useCallback(() => {
-    if (createdProject) {
-      onComplete(createdProject.id)
-    }
-  }, [createdProject, onComplete])
-
   const steps = [
     <WelcomeStep key="welcome" onNext={handleWelcomeNext} />,
     team ? (
-      <TeamStep key="team" team={team} onNext={handleTeamNext} />
+      <ProjectStep key="project" teamId={team.id} onComplete={onComplete} />
     ) : (
       <div key="no-team" className="text-center text-linear-text-secondary">
         No team found. Please contact support.
       </div>
     ),
-    team ? (
-      <ProjectStep key="project" teamId={team.id} onCreate={handleProjectCreate} />
-    ) : null,
-    createdProject ? (
-      <SuccessStep
-        key="success"
-        projectName={createdProject.name}
-        onGoToProject={handleGoToProject}
-      />
-    ) : null,
   ]
 
   return (
     <div className="w-full max-w-md mx-auto">
-      <StepIndicator currentStep={currentStep} totalSteps={4} />
+      <StepIndicator currentStep={currentStep} totalSteps={2} />
 
       <AnimatePresence mode="wait">
         <motion.div

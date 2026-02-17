@@ -80,9 +80,8 @@ function HomeContent() {
           <div className="flex-1 flex items-center justify-center p-6">
             <OnboardingWizard
               teams={teams}
-              onComplete={(projectId) => {
-                fetchProjects().then(setProjects)
-                setSelectedProjectId(projectId)
+              onComplete={() => {
+                router.push('/teams')
               }}
             />
           </div>

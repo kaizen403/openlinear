@@ -2,7 +2,7 @@
 export type { User, Repository, GitHubRepo, PublicRepository, Team, TeamMember, Project, InboxCount, InboxTask, MyIssueTask } from './types';
 
 // Auth
-export { fetchCurrentUser, loginUser, registerUser, getLoginUrl, logout } from './auth';
+export { fetchCurrentUser, loginUser, registerUser, getLoginUrl, getGitHubConnectUrl, logout } from './auth';
 
 // Repos
 export { fetchUserRepositories, fetchGitHubRepos, importRepo, activateRepository, getActiveRepository, addRepoByUrl, getActivePublicRepository, activatePublicRepository } from './repos';

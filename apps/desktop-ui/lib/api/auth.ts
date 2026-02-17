@@ -21,6 +21,16 @@ export function getLoginUrl(): string {
   return `${API_URL}/api/auth/github`;
 }
 
+export async function getGitHubConnectUrl(): Promise<string> {
+  const res = await fetch(`${API_URL}/api/auth/github/connect`, {
+    headers: getAuthHeader(),
+  });
+
+  if (!res.ok) throw new Error('Failed to get GitHub connect URL');
+  const data = await res.json();
+  return data.url;
+}
+
 export function logout(): void {
   localStorage.removeItem('token');
   window.location.href = '/';

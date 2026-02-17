@@ -228,6 +228,29 @@ export async function createOrUpdateUser(
   });
 }
 
+export async function connectGitHubToUser(
+  userId: string,
+  githubUser: GitHubUser,
+  accessToken: string
+) {
+  const existingGitHubUser = await prisma.user.findUnique({
+    where: { githubId: githubUser.id },
+  });
+
+  if (existingGitHubUser && existingGitHubUser.id !== userId) {
+    throw new Error('This GitHub account is already linked to another user');
+  }
+
+  return prisma.user.update({
+    where: { id: userId },
+    data: {
+      githubId: githubUser.id,
+      accessToken,
+      avatarUrl: githubUser.avatar_url,
+    },
+  });
+}
+
 export async function getUserById(userId: string) {
   return prisma.user.findUnique({
     where: { id: userId },

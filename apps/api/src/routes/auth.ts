@@ -8,6 +8,7 @@ import {
   exchangeCodeForToken,
   getGitHubUser,
   createOrUpdateUser,
+  connectGitHubToUser,
   getUserById,
 } from '../services/github';
 import { z } from 'zod';
@@ -158,8 +159,26 @@ router.get('/github', (_req: Request, res: Response) => {
   res.redirect(authUrl);
 });
 
+// GitHub connect — links GitHub to an existing email/password user
+router.get('/github/connect', async (req: Request, res: Response) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    res.status(401).json({ error: 'Unauthorized' });
+    return;
+  }
+
+  try {
+    const decoded = jwt.verify(authHeader.substring(7), getJwtSecret()) as { userId: string };
+    const state = `connect:${decoded.userId}`;
+    const authUrl = getAuthorizationUrl(state);
+    res.json({ url: authUrl });
+  } catch {
+    res.status(401).json({ error: 'Invalid token' });
+  }
+});
+
 router.get('/github/callback', async (req: Request, res: Response) => {
-  const { code, error, error_description } = req.query;
+  const { code, error, error_description, state } = req.query;
 
   if (error) {
     console.error('[Auth] GitHub OAuth error:', error, error_description);
@@ -172,21 +191,42 @@ router.get('/github/callback', async (req: Request, res: Response) => {
     return;
   }
 
+  const stateStr = typeof state === 'string' ? state : '';
+  const isConnect = stateStr.startsWith('connect:');
+
   try {
     const accessToken = await exchangeCodeForToken(code);
     const githubUser = await getGitHubUser(accessToken);
-    const user = await createOrUpdateUser(githubUser, accessToken);
 
-    const token = jwt.sign(
-      { userId: user.id, username: user.username },
-      getJwtSecret(),
-      { expiresIn: '7d' }
-    );
+    if (isConnect) {
+      // Connect flow — link GitHub to existing user
+      const userId = stateStr.replace('connect:', '');
+      await connectGitHubToUser(userId, githubUser, accessToken);
+      const user = await getUserById(userId);
 
-    res.redirect(`${getFrontendUrl()}?token=${token}`);
+      const token = jwt.sign(
+        { userId: user!.id, username: user!.username },
+        getJwtSecret(),
+        { expiresIn: '7d' }
+      );
+
+      res.redirect(`${getFrontendUrl()}?token=${token}&connected=true`);
+    } else {
+      // Normal login/signup flow
+      const user = await createOrUpdateUser(githubUser, accessToken);
+
+      const token = jwt.sign(
+        { userId: user.id, username: user.username },
+        getJwtSecret(),
+        { expiresIn: '7d' }
+      );
+
+      res.redirect(`${getFrontendUrl()}?token=${token}`);
+    }
   } catch (err) {
     console.error('[Auth] OAuth callback error:', err);
-    res.redirect(`${getFrontendUrl()}?error=auth_failed`);
+    const errorMsg = err instanceof Error ? err.message : 'auth_failed';
+    res.redirect(`${getFrontendUrl()}?error=${encodeURIComponent(errorMsg)}`);
   }
 });
 
