@@ -85,12 +85,13 @@ export function GodModeOverlay() {
     if (!trimmed) return
 
     window.dispatchEvent(
-      new CustomEvent("brainstorm-query", { detail: trimmed })
+      new CustomEvent("brainstorm-query", { detail: { query: trimmed, webSearch: webSearchEnabled } })
     )
 
     setState("idle")
     setQuery("")
-  }, [query])
+    setWebSearchEnabled(false)
+  }, [query, webSearchEnabled])
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLInputElement>) => {

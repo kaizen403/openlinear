@@ -6,9 +6,11 @@ import {
   Plus,
   Sparkles,
   X,
+  Globe,
+  Mic,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { checkBrainstormAvailability, generateBrainstormQuestions, streamBrainstormTasks, type BrainstormTask } from "@/lib/api/brainstorm"
+import { checkBrainstormAvailability, generateBrainstormQuestions, streamBrainstormTasks, transcribeAudio, type BrainstormTask } from "@/lib/api/brainstorm"
 import { fetchProjects } from "@/lib/api/projects"
 import type { Project } from "@/lib/api/types"
 import { API_URL, getAuthHeader } from "@/lib/api/client"
@@ -148,8 +150,14 @@ export function GlobalQuickCapture() {
   const [inserting, setInserting] = useState(false)
   const [streamingDone, setStreamingDone] = useState(false)
   const [brainstormAvailable, setBrainstormAvailable] = useState<boolean | null>(null)
+  const [webSearchEnabled, setWebSearchEnabled] = useState(false)
+  const [isRecording, setIsRecording] = useState(false)
+  const [micSupported, setMicSupported] = useState(true)
+  const [webSearchAvailable, setWebSearchAvailable] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const sidebarRef = useRef<HTMLDivElement>(null)
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const audioChunksRef = useRef<Blob[]>([])
 
   // Focus input when entering input phase
   useEffect(() => {
@@ -166,10 +174,21 @@ export function GlobalQuickCapture() {
   useEffect(() => {
     if (phase === "input") {
       checkBrainstormAvailability()
-        .then((result) => setBrainstormAvailable(result.available))
-        .catch(() => setBrainstormAvailable(false))
+        .then((result) => {
+          setBrainstormAvailable(result.available)
+          setWebSearchAvailable(result.webSearchAvailable ?? false)
+        })
+        .catch(() => {
+          setBrainstormAvailable(false)
+          setWebSearchAvailable(false)
+        })
     }
   }, [phase])
+
+  // Detect MediaRecorder support
+  useEffect(() => {
+    setMicSupported(!!navigator.mediaDevices?.getUserMedia)
+  }, [])
 
   // Click outside to close
   useEffect(() => {
@@ -199,10 +218,14 @@ export function GlobalQuickCapture() {
 
   useEffect(() => {
     function handleBrainstorm(e: Event) {
-      const query = (e as CustomEvent<string>).detail
-      if (!query) return
+      const raw = (e as CustomEvent).detail
+      const parsed = typeof raw === 'string'
+        ? { query: raw, webSearch: false }
+        : raw as { query: string; webSearch: boolean }
+      if (!parsed.query) return
 
-      setQuery(query)
+      setQuery(parsed.query)
+      setWebSearchEnabled(parsed.webSearch)
       setPhase("input")
       // Auto-submit after setting query
       setTimeout(async () => {
@@ -217,7 +240,7 @@ export function GlobalQuickCapture() {
             setTimeout(() => reject(new Error("Questions generation timed out")), 30000)
           )
           const generatedQuestions = await Promise.race([
-            generateBrainstormQuestions(query),
+            generateBrainstormQuestions(parsed.query, parsed.webSearch),
             timeoutPromise,
           ])
           setQuestions(generatedQuestions)
@@ -248,6 +271,7 @@ export function GlobalQuickCapture() {
     setInserting(false)
     setStreamingDone(false)
     setBrainstormAvailable(null)
+    setWebSearchEnabled(false)
   }, [])
 
   const handleGhostClick = useCallback(() => {
@@ -268,7 +292,7 @@ export function GlobalQuickCapture() {
         setTimeout(() => reject(new Error("Questions generation timed out")), 30000)
       )
       const generatedQuestions = await Promise.race([
-        generateBrainstormQuestions(query),
+        generateBrainstormQuestions(query, webSearchEnabled),
         timeoutPromise,
       ])
       setQuestions(generatedQuestions)
@@ -279,7 +303,7 @@ export function GlobalQuickCapture() {
     } finally {
       setQuestionsLoading(false)
     }
-  }, [query])
+  }, [query, webSearchEnabled])
 
   const handleToggle = useCallback((id: string) => {
     setTasks((prev) =>
@@ -316,9 +340,10 @@ export function GlobalQuickCapture() {
         console.error("Stream error:", error)
         setLoading(false)
         setStreamingDone(true)
-      }
+      },
+      webSearchEnabled
     )
-  }, [query, answers])
+  }, [query, answers, webSearchEnabled])
 
   const handleAddToProject = useCallback(async () => {
     if (!selectedProjectId) return
@@ -770,6 +795,68 @@ export function GlobalQuickCapture() {
                       "caret-zinc-400"
                     )}
                   />
+
+                  {webSearchAvailable && (
+                    <button
+                      onClick={() => setWebSearchEnabled((prev) => !prev)}
+                      className={cn(
+                        "flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md transition-colors",
+                        webSearchEnabled
+                          ? "text-blue-400 bg-blue-500/10"
+                          : "text-zinc-600 hover:text-zinc-400 hover:bg-white/[0.04]"
+                      )}
+                      aria-label="Toggle web search"
+                    >
+                      <Globe className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+
+                  <button
+                    onClick={async () => {
+                      if (isRecording) {
+                        mediaRecorderRef.current?.stop()
+                        setIsRecording(false)
+                        return
+                      }
+                      try {
+                        const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+                        audioChunksRef.current = []
+                        const mimeType = MediaRecorder.isTypeSupported("audio/webm")
+                          ? "audio/webm"
+                          : "audio/mp4"
+                        const recorder = new MediaRecorder(stream, { mimeType })
+                        mediaRecorderRef.current = recorder
+                        recorder.ondataavailable = (e) => {
+                          if (e.data.size > 0) audioChunksRef.current.push(e.data)
+                        }
+                        recorder.onstop = async () => {
+                          stream.getTracks().forEach((t) => t.stop())
+                          const blob = new Blob(audioChunksRef.current, { type: mimeType })
+                          try {
+                            const { text } = await transcribeAudio(blob)
+                            if (text) setQuery(text)
+                          } catch (err) {
+                            console.error("Transcription failed:", err)
+                          }
+                        }
+                        recorder.start()
+                        setIsRecording(true)
+                      } catch {
+                        setMicSupported(false)
+                      }
+                    }}
+                    disabled={!micSupported}
+                    className={cn(
+                      "flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md transition-colors",
+                      isRecording
+                        ? "text-red-400 animate-pulse"
+                        : "text-zinc-600 hover:text-zinc-400 hover:bg-white/[0.04]",
+                      !micSupported && "opacity-40 cursor-not-allowed"
+                    )}
+                    aria-label={isRecording ? "Stop recording" : "Start voice input"}
+                  >
+                    <Mic className="h-3.5 w-3.5" />
+                  </button>
                 </div>
               </div>
             </motion.div>
