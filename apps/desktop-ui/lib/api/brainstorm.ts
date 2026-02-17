@@ -10,6 +10,7 @@ export interface BrainstormAvailability {
   available: boolean;
   provider?: string;
   error?: string;
+  webSearchAvailable?: boolean;
 }
 
 export async function checkBrainstormAvailability(): Promise<BrainstormAvailability> {
@@ -20,11 +21,11 @@ export async function checkBrainstormAvailability(): Promise<BrainstormAvailabil
   return res.json();
 }
 
-export async function generateBrainstormQuestions(prompt: string): Promise<string[]> {
+export async function generateBrainstormQuestions(prompt: string, webSearch: boolean = false): Promise<string[]> {
   const res = await fetch(`${API_URL}/api/brainstorm/questions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
-    body: JSON.stringify({ prompt }),
+    body: JSON.stringify({ prompt, webSearch }),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: 'Failed to generate questions' }));
@@ -40,12 +41,13 @@ export async function streamBrainstormTasks(
   onTask: (task: BrainstormTask) => void,
   onDone: () => void,
   onError: (message: string) => void,
+  webSearch: boolean = false,
 ): Promise<void> {
   try {
     const res = await fetch(`${API_URL}/api/brainstorm/generate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
-      body: JSON.stringify({ prompt, answers }),
+      body: JSON.stringify({ prompt, answers, webSearch }),
     });
 
     if (!res.ok) {
@@ -87,4 +89,17 @@ export async function streamBrainstormTasks(
   } catch (err) {
     onError(err instanceof Error ? err.message : 'Stream failed');
   }
+}
+
+export async function transcribeAudio(audioBlob: Blob): Promise<{ text: string }> {
+  const res = await fetch(`${API_URL}/api/transcribe`, {
+    method: 'POST',
+    headers: { 'Content-Type': audioBlob.type, ...getAuthHeader() },
+    body: audioBlob,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Failed to transcribe audio' }));
+    throw new Error(err.error || 'Failed to transcribe audio');
+  }
+  return res.json();
 }
