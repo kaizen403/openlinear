@@ -3,7 +3,33 @@
 import { useState } from "react"
 import { Header } from "@/components/header"
 import { Footer } from "@/components/footer"
-import { ArrowRight, Check, ChevronDown } from "lucide-react"
+import type { LucideIcon } from "lucide-react"
+import {
+  ArrowRight,
+  Bot,
+  Check,
+  ChevronDown,
+  Crown,
+  Cpu,
+  FileCheck,
+  FolderOpen,
+  Gauge,
+  GraduationCap,
+  Infinity,
+  Layers,
+  MessageCircle,
+  ScrollText,
+  Server,
+  Settings,
+  Shield,
+  Sliders,
+  Sparkles,
+  Star,
+  UserCheck,
+  Users,
+  Wrench,
+  Zap,
+} from "lucide-react"
 
 const plans = [
   {
@@ -13,11 +39,11 @@ const plans = [
     description: "For individual developers exploring AI execution.",
     cta: { label: "Get Started", href: "https://dashboard.rixie.in", style: "secondary" as const },
     features: [
-      "Single project",
-      "Basic execution",
-      "OpenCode agent",
-      "Community support",
-      "25 executions/month",
+      { text: "Single project", icon: FolderOpen as LucideIcon },
+      { text: "Basic execution", icon: Zap as LucideIcon },
+      { text: "OpenCode agent", icon: Bot as LucideIcon },
+      { text: "Community support", icon: Users as LucideIcon },
+      { text: "25 executions/month", icon: Gauge as LucideIcon },
     ],
   },
   {
@@ -28,13 +54,13 @@ const plans = [
     popular: true,
     cta: { label: "Upgrade to Pro", href: "https://dashboard.rixie.in", style: "primary" as const },
     features: [
-      "Multiple projects",
-      "Batch execution (parallel + queue)",
-      "Configurable concurrency limits",
-      "Advanced agent settings",
-      "Priority support",
-      "Unlimited executions",
-      "All premium agents",
+      { text: "Multiple projects", icon: Layers as LucideIcon },
+      { text: "Batch execution (parallel + queue)", icon: Cpu as LucideIcon },
+      { text: "Configurable concurrency limits", icon: Settings as LucideIcon },
+      { text: "Advanced agent settings", icon: Sliders as LucideIcon },
+      { text: "Priority support", icon: MessageCircle as LucideIcon },
+      { text: "Unlimited executions", icon: Infinity as LucideIcon },
+      { text: "All premium agents", icon: Crown as LucideIcon },
     ],
   },
   {
@@ -44,14 +70,14 @@ const plans = [
     description: "For teams that need full control and dedicated support.",
     cta: { label: "Contact Sales", href: "/contact", style: "secondary" as const },
     features: [
-      "Everything in Pro",
-      "Self-hosted deployment",
-      "SSO & access controls",
-      "Dedicated account manager",
-      "Custom agent configuration",
-      "SLA guarantees",
-      "Audit logging & compliance",
-      "Onboarding & training",
+      { text: "Everything in Pro", icon: Check as LucideIcon },
+      { text: "Self-hosted deployment", icon: Server as LucideIcon },
+      { text: "SSO & access controls", icon: Shield as LucideIcon },
+      { text: "Dedicated account manager", icon: UserCheck as LucideIcon },
+      { text: "Custom agent configuration", icon: Wrench as LucideIcon },
+      { text: "SLA guarantees", icon: FileCheck as LucideIcon },
+      { text: "Audit logging & compliance", icon: ScrollText as LucideIcon },
+      { text: "Onboarding & training", icon: GraduationCap as LucideIcon },
     ],
   },
 ]
@@ -133,6 +159,26 @@ export default function PricingPage() {
             Start free. Upgrade when you need more power.
           </p>
         </div>
+
+        <div className="hidden lg:block absolute right-[8%] top-1/2 -translate-y-1/2 animate-float-2">
+          <div className="glass-panel rounded-2xl p-4 pr-6">
+            <div className="flex items-center gap-3 mb-3">
+              <Star className="h-4 w-4 text-primary" />
+              <span className="text-[0.6875rem] font-semibold text-[#EDE8D0]/60 tracking-wide uppercase">Most Popular</span>
+            </div>
+            <div className="flex items-center gap-4">
+              <div className="text-center">
+                <span className="block text-[0.6875rem] text-[#EDE8D0]/30 mb-0.5">Free</span>
+                <span className="block font-display text-[1rem] font-bold text-[#EDE8D0]/50 tracking-tight">$0</span>
+              </div>
+              <ArrowRight className="h-3.5 w-3.5 text-primary/60" />
+              <div className="text-center">
+                <span className="block text-[0.6875rem] text-[#EDE8D0]/30 mb-0.5">Pro</span>
+                <span className="block font-display text-[1rem] font-bold text-[#EDE8D0] tracking-tight">$20</span>
+              </div>
+            </div>
+          </div>
+        </div>
       </section>
 
       {/* ── Pricing Cards ────────────────────────── */}
@@ -187,12 +233,15 @@ export default function PricingPage() {
                 <div className="h-[1px] bg-border/30 my-7" />
 
                 <ul className="flex flex-col gap-3.5 flex-1">
-                  {plan.features.map((feature) => (
-                    <li key={feature} className="flex items-start gap-3 text-[0.8125rem] text-muted-foreground/60 tracking-[-0.01em]">
-                      <Check className="h-4 w-4 text-primary/50 shrink-0 mt-0.5" />
-                      <span>{feature}</span>
-                    </li>
-                  ))}
+                  {plan.features.map((feature) => {
+                    const FeatureIcon = feature.icon
+                    return (
+                      <li key={feature.text} className="flex items-start gap-3 text-[0.8125rem] text-muted-foreground/60 tracking-[-0.01em]">
+                        <FeatureIcon className="h-4 w-4 text-primary/50 shrink-0 mt-0.5" />
+                        <span>{feature.text}</span>
+                      </li>
+                    )
+                  })}
                 </ul>
               </div>
             ))}
@@ -218,9 +267,27 @@ export default function PricingPage() {
       </section>
 
       {/* ── Custom CTA ───────────────────────────── */}
-      <section className="relative py-20 md:py-24 bg-[#1a1c26]">
+      <section className="relative py-20 md:py-24 bg-[#1a1c26] overflow-hidden">
         <div className="absolute top-0 left-0 right-0 section-divider" />
-        <div className="mx-auto max-w-none px-[100px] text-center">
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[300px] rounded-full bg-[hsl(45_30%_30%/0.08)] blur-[120px] pointer-events-none" />
+        <div className="absolute inset-0 opacity-[0.015]" style={{
+          backgroundImage: `linear-gradient(rgba(255,255,255,0.1) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.1) 1px, transparent 1px)`,
+          backgroundSize: '60px 60px'
+        }} />
+
+        <div className="hidden lg:block absolute left-[6%] top-1/2 -translate-y-1/2 animate-float-4">
+          <div className="glass-panel rounded-2xl p-3.5">
+            <div className="flex items-center gap-2">
+              <Sparkles className="h-4 w-4 text-primary/70" />
+              <span className="text-[0.6875rem] font-medium text-[#EDE8D0]/40">Custom plans available</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="relative mx-auto max-w-none px-[100px] text-center">
+          <span className="inline-block text-[0.6875rem] font-semibold text-primary/50 tracking-[0.15em] uppercase mb-4">
+            Questions?
+          </span>
           <h3 className="font-display text-[1.25rem] font-bold tracking-[-0.03em] text-foreground mb-3">
             Need something custom?
           </h3>
