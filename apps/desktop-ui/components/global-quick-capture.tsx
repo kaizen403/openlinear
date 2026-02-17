@@ -33,6 +33,29 @@ interface GeneratedTask {
 
 const SPRING = { type: "spring" as const, stiffness: 300, damping: 30 }
 
+const WHISPER_HALLUCINATIONS = new Set([
+  'thank you',
+  'thanks for watching',
+  'thank you for watching',
+  'thanks for listening',
+  'thank you for listening',
+  'bye',
+  'bye bye',
+  'goodbye',
+  'you',
+  'the end',
+  'subtitles by',
+  'subscribe',
+  'like and subscribe',
+])
+
+function isWhisperHallucination(text: string): boolean {
+  const normalized = text.toLowerCase().replace(/[.,!?;:'"]/g, '').trim()
+  if (normalized.length === 0) return true
+  if (normalized.length < 3) return true
+  return WHISPER_HALLUCINATIONS.has(normalized)
+}
+
 const PRIORITY_COLORS: Record<GeneratedTask["priority"], string> = {
   high: "border-red-700/40",
   medium: "border-yellow-700/40",
@@ -158,7 +181,7 @@ export function GlobalQuickCapture() {
   const sidebarRef = useRef<HTMLDivElement>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioChunksRef = useRef<Blob[]>([])
-
+  const recordingStartRef = useRef<number>(0)
   // Focus input when entering input phase
   useEffect(() => {
     if (phase === "input" || phase === "stream") {
@@ -831,14 +854,24 @@ export function GlobalQuickCapture() {
                         }
                         recorder.onstop = async () => {
                           stream.getTracks().forEach((t) => t.stop())
+                          const duration = Date.now() - recordingStartRef.current
+                          if (duration < 1000) {
+                            return
+                          }
                           const blob = new Blob(audioChunksRef.current, { type: mimeType })
+                          if (blob.size < 1000) {
+                            return
+                          }
                           try {
                             const { text } = await transcribeAudio(blob)
-                            if (text) setQuery(text)
+                            if (text && !isWhisperHallucination(text.trim())) {
+                              setQuery(text.trim())
+                            }
                           } catch (err) {
                             console.error("Transcription failed:", err)
                           }
                         }
+                        recordingStartRef.current = Date.now()
                         recorder.start()
                         setIsRecording(true)
                       } catch {

@@ -14,6 +14,29 @@ import { checkBrainstormAvailability, transcribeAudio } from "@/lib/api/brainsto
 
 type OverlayState = "idle" | "pill"
 
+const WHISPER_HALLUCINATIONS = new Set([
+  'thank you',
+  'thanks for watching',
+  'thank you for watching',
+  'thanks for listening',
+  'thank you for listening',
+  'bye',
+  'bye bye',
+  'goodbye',
+  'you',
+  'the end',
+  'subtitles by',
+  'subscribe',
+  'like and subscribe',
+])
+
+function isWhisperHallucination(text: string): boolean {
+  const normalized = text.toLowerCase().replace(/[.,!?;:'"]/g, '').trim()
+  if (normalized.length === 0) return true
+  if (normalized.length < 3) return true
+  return WHISPER_HALLUCINATIONS.has(normalized)
+}
+
 const SPRING = { type: "spring" as const, stiffness: 300, damping: 30 }
 
 export function GodModeOverlay() {
@@ -26,6 +49,7 @@ export function GodModeOverlay() {
   const inputRef = useRef<HTMLInputElement>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioChunksRef = useRef<Blob[]>([])
+  const recordingStartRef = useRef<number>(0)
 
   const showPill = state === "pill"
 
@@ -200,14 +224,27 @@ export function GodModeOverlay() {
                       }
                       recorder.onstop = async () => {
                         stream.getTracks().forEach((t) => t.stop())
+                        const duration = Date.now() - recordingStartRef.current
+                        if (duration < 1000) {
+                          setIsRecording(false)
+                          return
+                        }
                         const blob = new Blob(audioChunksRef.current, { type: mimeType })
+                        if (blob.size < 1000) {
+                          setIsRecording(false)
+                          return
+                        }
                         try {
                           const result = await transcribeAudio(blob)
-                          setQuery(result.text)
+                          const text = result.text?.trim()
+                          if (text && !isWhisperHallucination(text)) {
+                            setQuery(text)
+                          }
                         } catch {}
                         setIsRecording(false)
                       }
                       mediaRecorderRef.current = recorder
+                      recordingStartRef.current = Date.now()
                       recorder.start()
                       setIsRecording(true)
                     } catch {
