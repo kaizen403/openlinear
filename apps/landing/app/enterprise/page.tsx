@@ -1,6 +1,6 @@
 import { Header } from "@/components/header"
 import { Footer } from "@/components/footer"
-import { ArrowRight, Shield, GitBranch, Eye, Cpu, Layers, Lock } from "lucide-react"
+import { ArrowRight, Shield, GitBranch, Eye, Cpu, Layers, Lock, Terminal, CheckCircle2 } from "lucide-react"
 
 export default function EnterprisePage() {
   return (
@@ -22,6 +22,39 @@ export default function EnterprisePage() {
         }} />
 
         <div className="absolute bottom-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-white/[0.06] to-transparent" />
+
+        {/* Floating glass-panel: Container Isolation Status */}
+        <div className="hidden lg:block absolute top-[22%] right-[8%] w-[240px] glass-panel rounded-2xl p-5 z-20 animate-float-1">
+          <div className="flex items-center gap-3 mb-3">
+            <div className="h-8 w-8 rounded-xl bg-green-500/10 border border-green-500/10 flex items-center justify-center shrink-0">
+              <Shield className="h-3.5 w-3.5 text-green-400/80" />
+            </div>
+            <p className="text-[0.8125rem] font-semibold text-[#EDE8D0]/90 tracking-[-0.01em]">Container Isolated</p>
+          </div>
+          <div className="flex flex-col gap-2 pl-[44px]">
+            <div className="flex items-center gap-2">
+              <CheckCircle2 className="h-3 w-3 text-green-400/60 shrink-0" />
+              <span className="text-[0.6875rem] text-[#EDE8D0]/40">Network sandboxed</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <CheckCircle2 className="h-3 w-3 text-green-400/60 shrink-0" />
+              <span className="text-[0.6875rem] text-[#EDE8D0]/40">Worktree isolated</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Floating glass-panel: Audit Trail */}
+        <div className="hidden lg:block absolute bottom-[18%] left-[6%] w-[260px] glass-panel rounded-2xl overflow-hidden z-10 animate-float-4">
+          <div className="px-4 py-3 border-b border-white/[0.04] flex items-center gap-2.5">
+            <Terminal className="h-3.5 w-3.5 text-[#EDE8D0]/50" />
+            <p className="text-[0.6875rem] font-semibold text-[#EDE8D0]/60 tracking-wide uppercase">Audit Log</p>
+          </div>
+          <div className="px-4 py-3 flex flex-col gap-1.5 font-mono">
+            <p className="text-[0.625rem] text-[#EDE8D0]/30"><span className="text-green-400/50">✓</span> Agent spawned in container</p>
+            <p className="text-[0.625rem] text-[#EDE8D0]/30"><span className="text-green-400/50">✓</span> Repo cloned &amp; branch created</p>
+            <p className="text-[0.625rem] text-[#EDE8D0]/25"><span className="text-[#EDE8D0]/20">…</span> Executing task #47</p>
+          </div>
+        </div>
 
         <div className="relative mx-auto max-w-none px-[100px] w-full text-center py-40">
           <span className="hero-reveal-1 inline-block text-[0.75rem] font-semibold text-[#EDE8D0]/40 tracking-[0.2em] uppercase mb-8">
@@ -122,6 +155,24 @@ export default function EnterprisePage() {
                 <p className="text-muted-foreground/55 leading-[1.7] text-[0.875rem] tracking-[-0.01em]">
                   {item.description}
                 </p>
+                {item.title === "Transparent execution" && (
+                  <div className="hidden lg:block rounded-xl overflow-hidden border border-border/20 bg-muted/[0.03] mt-6">
+                    <div className="flex items-center gap-2 px-4 py-2.5 border-b border-border/10">
+                      <div className="flex gap-[5px]">
+                        <div className="h-1.5 w-1.5 rounded-full bg-foreground/[0.08]" />
+                        <div className="h-1.5 w-1.5 rounded-full bg-foreground/[0.05]" />
+                        <div className="h-1.5 w-1.5 rounded-full bg-foreground/[0.05]" />
+                      </div>
+                      <p className="text-[0.625rem] text-muted-foreground/30 tracking-[-0.01em]">execution.log</p>
+                    </div>
+                    <div className="px-4 py-3 font-mono flex flex-col gap-1">
+                      <p className="text-[0.625rem] text-blue-500/40"><span className="text-blue-500/30">[info]</span> Cloning repository...</p>
+                      <p className="text-[0.625rem] text-purple-500/40"><span className="text-purple-500/30">[agent]</span> Creating branch feat/dark-mode</p>
+                      <p className="text-[0.625rem] text-amber-500/40"><span className="text-amber-500/30">[tool]</span> Editing src/theme.tsx</p>
+                      <p className="text-[0.625rem] text-green-500/45"><span className="text-green-500/35">[success]</span> PR #142 created</p>
+                    </div>
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -175,6 +226,30 @@ export default function EnterprisePage() {
                 <p className="text-muted-foreground/55 leading-[1.7] text-[0.875rem] tracking-[-0.01em]">
                   {item.description}
                 </p>
+                {item.step === "03" && (
+                  <div className="hidden lg:block mock-card rounded-xl overflow-hidden mt-6">
+                    <div className="flex items-center gap-2 px-4 py-2.5 border-b border-border/10">
+                      <div className="flex gap-[5px]">
+                        <div className="h-1.5 w-1.5 rounded-full bg-foreground/[0.05]" />
+                        <div className="h-1.5 w-1.5 rounded-full bg-foreground/[0.03]" />
+                        <div className="h-1.5 w-1.5 rounded-full bg-foreground/[0.03]" />
+                      </div>
+                      <p className="text-[0.625rem] text-muted-foreground/30">PR #142</p>
+                    </div>
+                    <div className="px-4 py-3.5">
+                      <p className="text-[0.75rem] font-medium text-[#EDE8D0]/75 mb-2">feat: add dark mode toggle</p>
+                      <div className="flex items-center gap-3 mb-3">
+                        <span className="text-[0.625rem] font-mono text-green-400/50">+48</span>
+                        <span className="text-[0.625rem] font-mono text-red-400/40">−12</span>
+                        <span className="text-[0.625rem] text-[#EDE8D0]/20">3 files</span>
+                      </div>
+                      <div className="flex gap-2">
+                        <span className="rounded-md bg-green-500/10 border border-green-500/10 px-2.5 py-1 text-[0.625rem] font-medium text-green-400/70">Approve</span>
+                        <span className="rounded-md bg-[#EDE8D0]/[0.04] border border-[#EDE8D0]/[0.06] px-2.5 py-1 text-[0.625rem] font-medium text-[#EDE8D0]/25">Comment</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             ))}
           </div>
