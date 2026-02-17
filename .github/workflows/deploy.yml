@@ -76,11 +76,39 @@ jobs:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
+          command_timeout: 15m
           script: |
             set -e
             export CI=true
             cd /opt/openlinear && git reset --hard HEAD
             /opt/openlinear/scripts/deploy.sh
+
+      - name: Diagnose services
+        if: always()
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script: |
+            echo "=== Node version ==="
+            node --version || echo "node not found"
+            echo "=== PM2 status ==="
+            pm2 status || echo "pm2 not found"
+            echo "=== PM2 API logs (last 80 lines) ==="
+            pm2 logs openlinear-api --nostream --lines 80 2>&1 || echo "no api logs"
+            echo "=== PM2 web logs (last 30 lines) ==="
+            pm2 logs openlinear-web --nostream --lines 30 2>&1 || echo "no web logs"
+            echo "=== Reverse proxy config ==="
+            cat /etc/caddy/Caddyfile 2>/dev/null || cat /etc/nginx/sites-enabled/default 2>/dev/null || cat /etc/nginx/conf.d/*.conf 2>/dev/null || echo "no caddy/nginx config found"
+            echo "=== Listening ports ==="
+            ss -tlnp | grep -E '3000|3001|3002|80|443' || echo "no matching ports"
+            echo "=== Local health check ==="
+            curl -s http://localhost:3001/health 2>&1 || echo "API not responding on 3001"
+            echo "=== .env check ==="
+            [ -f /opt/openlinear/.env ] && echo ".env exists" || echo ".env MISSING"
+            echo "=== API dist/index.js head ==="
+            head -3 /opt/openlinear/apps/api/dist/index.js 2>/dev/null || echo "no dist/index.js"
 
       - name: Verify deployment
         run: |
