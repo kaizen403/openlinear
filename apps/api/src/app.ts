@@ -12,6 +12,7 @@ import projectsRouter from './routes/projects';
 import inboxRouter from './routes/inbox';
 import opencodeRouter from './routes/opencode';
 import brainstormRouter from './routes/brainstorm';
+import transcribeRouter from './routes/transcribe';
 import { clients, SSEClient } from './sse';
 
 export function createApp(): Application {
@@ -35,6 +36,7 @@ export function createApp(): Application {
   app.use('/api/inbox', inboxRouter);
   app.use('/api/opencode', opencodeRouter);
   app.use('/api/brainstorm', brainstormRouter);
+  app.use('/api/transcribe', transcribeRouter);
 
   app.get('/health', (_req: Request, res: Response) => {
     res.json({ 
