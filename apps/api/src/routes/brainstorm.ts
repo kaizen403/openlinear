@@ -5,6 +5,7 @@ import { checkBrainstormAvailability, generateQuestions, generateTasks } from '.
 
 const QuestionsSchema = z.object({
   prompt: z.string().min(1).max(5000),
+  webSearch: z.boolean().optional().default(false),
 });
 
 const GenerateSchema = z.object({
@@ -13,6 +14,7 @@ const GenerateSchema = z.object({
     question: z.string(),
     answer: z.string(),
   })),
+  webSearch: z.boolean().optional().default(false),
 });
 
 const router: Router = Router();
@@ -41,7 +43,7 @@ router.post('/questions', requireAuth, async (req: AuthRequest, res: Response) =
       return;
     }
 
-    const questions = await generateQuestions(parsed.data.prompt);
+    const questions = await generateQuestions(parsed.data.prompt, parsed.data.webSearch);
     res.json({ questions });
   } catch (error) {
     console.error('[Brainstorm] Error generating questions:', error);
@@ -63,7 +65,7 @@ router.post('/generate', requireAuth, async (req: AuthRequest, res: Response) =>
       return;
     }
 
-    const { prompt, answers } = parsed.data;
+    const { prompt, answers, webSearch } = parsed.data;
 
     res.setHeader('Content-Type', 'application/x-ndjson');
     res.setHeader('Transfer-Encoding', 'chunked');
@@ -71,7 +73,7 @@ router.post('/generate', requireAuth, async (req: AuthRequest, res: Response) =>
     res.setHeader('X-Accel-Buffering', 'no');
 
     try {
-      for await (const task of generateTasks(prompt, answers)) {
+      for await (const task of generateTasks(prompt, answers, webSearch)) {
         res.write(JSON.stringify(task) + '\n');
       }
       res.end();

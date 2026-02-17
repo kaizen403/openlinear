@@ -40,15 +40,17 @@ function createAnthropicClient(): Anthropic {
 export function checkBrainstormAvailability(): {
   available: boolean;
   provider: string;
+  webSearchAvailable: boolean;
   error?: string;
 } {
   if (!process.env.BRAINSTORM_API_KEY) {
-    return { available: false, provider: '', error: 'BRAINSTORM_API_KEY not configured' };
+    return { available: false, provider: '', webSearchAvailable: false, error: 'BRAINSTORM_API_KEY not configured' };
   }
-  return { available: true, provider: getProvider() };
+  const provider = getProvider();
+  return { available: true, provider, webSearchAvailable: provider === 'openai' };
 }
 
-export async function generateQuestions(prompt: string): Promise<string[]> {
+export async function generateQuestions(prompt: string, webSearch: boolean = false): Promise<string[]> {
   const provider = getProvider();
   const model = getModel();
 
@@ -78,6 +80,7 @@ export async function generateQuestions(prompt: string): Promise<string[]> {
       { role: 'system', content: QUESTIONS_SYSTEM_PROMPT },
       { role: 'user', content: prompt },
     ],
+    ...(webSearch && { web_search_options: { search_context_size: 'medium' as const } }),
   });
 
   const content = completion.choices[0]?.message?.content || '[]';
@@ -87,6 +90,7 @@ export async function generateQuestions(prompt: string): Promise<string[]> {
 export async function* generateTasks(
   prompt: string,
   answers: { question: string; answer: string }[],
+  webSearch: boolean = false,
 ): AsyncGenerator<BrainstormTask> {
   const provider = getProvider();
   const model = getModel();
@@ -127,6 +131,7 @@ export async function* generateTasks(
         { role: 'system', content: TASKS_SYSTEM_PROMPT },
         { role: 'user', content: userContent },
       ],
+      ...(webSearch && { web_search_options: { search_context_size: 'medium' as const } }),
     });
 
     for await (const chunk of completion) {
