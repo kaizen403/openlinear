@@ -1,6 +1,6 @@
 import { Header } from "@/components/header"
 import { Footer } from "@/components/footer"
-import { ArrowRight, LayoutGrid, Cpu, GitPullRequest, Layers, GitBranch, Monitor, Compass } from "lucide-react"
+import { ArrowRight, LayoutGrid, Cpu, GitPullRequest, Layers, GitBranch, Monitor, Compass, Play, GitMerge, CheckCircle2, Clock } from "lucide-react"
 
 export default function ProductPage() {
   return (
@@ -47,6 +47,36 @@ export default function ProductPage() {
               Read the docs
             </a>
           </div>
+        </div>
+
+        {/* ── Floating glass-panel decorative cards ── */}
+        <div className="hidden lg:block absolute bottom-24 right-[11%] w-[260px] glass-panel rounded-2xl p-5 z-20 animate-float-1">
+          <div className="flex items-start gap-3.5">
+            <div className="h-9 w-9 rounded-xl bg-[#EDE8D0]/[0.08] flex items-center justify-center shrink-0 border border-[#EDE8D0]/[0.06]">
+              <Play className="h-4 w-4 text-[#EDE8D0]/60" />
+            </div>
+            <div className="flex flex-col gap-1.5 flex-1">
+              <p className="text-[0.8125rem] font-semibold text-[#EDE8D0]/90 tracking-[-0.01em]">Executing task…</p>
+              <p className="text-[0.75rem] text-[#EDE8D0]/35 leading-[1.6]">
+                Implementing auth middleware for API routes
+              </p>
+              <div className="mt-2 h-1.5 w-full rounded-full bg-white/[0.06] overflow-hidden">
+                <div className="h-full w-[45%] rounded-full bg-gradient-to-r from-[#EDE8D0]/40 to-[#EDE8D0]/20 animate-pulse" />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="hidden lg:block absolute bottom-36 left-[8%] w-[220px] glass-panel rounded-2xl p-5 z-10 animate-float-4">
+          <div className="flex items-center gap-2.5 mb-2.5">
+            <div className="h-7 w-7 rounded-lg bg-green-500/10 flex items-center justify-center border border-green-500/10">
+              <GitMerge className="h-3.5 w-3.5 text-green-400/80" />
+            </div>
+            <p className="text-[0.8125rem] font-semibold text-[#EDE8D0]/90 tracking-[-0.01em]">PR Merged</p>
+          </div>
+          <p className="text-[0.75rem] text-[#EDE8D0]/35 leading-[1.55] pl-[38px]">
+            feat/batch-queue → main
+          </p>
         </div>
       </section>
 
@@ -159,6 +189,32 @@ export default function ProductPage() {
                         </span>
                       ))}
                     </div>
+                    {item.title === "Batch Execution" && (
+                      <div className="mock-card rounded-2xl overflow-hidden mt-6 hidden lg:block">
+                        <div className="flex items-center gap-3 px-5 py-3 border-b border-[#EDE8D0]/[0.06]">
+                          <div className="flex gap-[5px]">
+                            <div className="h-2 w-2 rounded-full bg-[#EDE8D0]/[0.08]" />
+                            <div className="h-2 w-2 rounded-full bg-[#EDE8D0]/[0.05]" />
+                            <div className="h-2 w-2 rounded-full bg-[#EDE8D0]/[0.05]" />
+                          </div>
+                          <p className="text-[0.6875rem] text-[#EDE8D0]/40">Batch Queue</p>
+                        </div>
+                        <div className="divide-y divide-[#EDE8D0]/[0.04]">
+                          {[
+                            { name: "Refactor auth service", status: "Running", icon: Play, statusColor: "text-green-400" },
+                            { name: "Add rate limiting", status: "Queued", icon: Clock, statusColor: "text-yellow-400/70" },
+                            { name: "Update API docs", status: "Queued", icon: Clock, statusColor: "text-[#EDE8D0]/40" },
+                            { name: "Fix CORS headers", status: "Done", icon: CheckCircle2, statusColor: "text-[#EDE8D0]/60" },
+                          ].map((task, i) => (
+                            <div key={i} className="flex items-center gap-3 px-5 py-2.5">
+                              <task.icon className={`h-3 w-3 ${task.statusColor} shrink-0`} />
+                              <span className="text-[0.75rem] text-[#EDE8D0]/60 flex-1 truncate">{task.name}</span>
+                              <span className={`text-[0.625rem] font-medium ${task.statusColor}`}>{task.status}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
