@@ -106,8 +106,10 @@ step "Restarting services..."
 
 if command -v pm2 &>/dev/null; then
     # PM2 process manager
-    pm2 restart openlinear-api 2>/dev/null || \
-        pm2 start apps/api/dist/index.js --name openlinear-api
+    # Always delete+recreate API so PM2 runs the freshly-built bundle
+    # (pm2 restart re-runs the original command, which may be stale tsx)
+    pm2 delete openlinear-api 2>/dev/null || true
+    pm2 start apps/api/dist/index.js --name openlinear-api
     pm2 restart openlinear-web 2>/dev/null || \
         (cd apps/desktop-ui && pm2 start node_modules/next/dist/bin/next --name openlinear-web -- start -p 3000)
     pm2 restart openlinear-landing 2>/dev/null || \
