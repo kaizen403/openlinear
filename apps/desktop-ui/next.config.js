@@ -5,7 +5,7 @@ const nextConfig = {
     ignoreBuildErrors: process.env.NEXT_IGNORE_BUILD_ERRORS === "1",
   },
   experimental: {
-    cpus: process.env.CI ? 2 : undefined,
+    cpus: process.env.CI ? 1 : undefined,
   },
   turbopack: {},
   webpack: (config) => {

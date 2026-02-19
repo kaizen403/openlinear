@@ -102,7 +102,7 @@ NEXT_PUBLIC_API_URL=https://rixie.in \
 NEXT_TELEMETRY_DISABLED=1 \
 NEXT_PRIVATE_BUILD_WORKER=1 \
 NEXT_IGNORE_BUILD_ERRORS=1 \
-NODE_OPTIONS="--max-old-space-size=1536" \
+NODE_OPTIONS="--max-old-space-size=768" \
 pnpm --filter @openlinear/desktop-ui build
 ok "Web built"
 
