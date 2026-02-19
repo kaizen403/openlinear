@@ -81,7 +81,13 @@ function HomeContent() {
             <OnboardingWizard
               teams={teams}
               onComplete={({ projectId }) => {
-                router.push(`/?projectId=${projectId}`)
+                fetchProjects().then((updated) => {
+                  setProjects(updated)
+                  setSelectedProjectId(projectId)
+                  router.replace(`/?projectId=${projectId}`)
+                }).catch(() => {
+                  router.replace(`/?projectId=${projectId}`)
+                })
               }}
             />
           </div>
@@ -172,6 +178,7 @@ function HomeContent() {
             onClick={() => {
               setSelectedProjectId(null)
               setSelectedTeamId(null)
+              router.replace('/')
             }}
             className="flex items-center gap-1.5 h-8 px-2.5 text-xs rounded-md bg-linear-bg-tertiary border border-linear-border hover:border-linear-border-hover text-linear-text transition-colors"
           >
