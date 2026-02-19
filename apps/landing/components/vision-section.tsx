@@ -26,7 +26,7 @@ export function VisionSection() {
           {/* Right - editorial copy */}
           <div className="flex flex-col gap-8">
             <h2 className="font-display text-[2rem] md:text-[2.75rem] lg:text-[3.25rem] font-bold tracking-[-0.045em] text-[hsl(0_0%_95%)] text-balance leading-[1.04]">
-              Open by design.
+              Open by <span className="font-editorial italic">design</span>.
             </h2>
             <p className="text-[hsl(228_10%_45%)] leading-[1.75] text-[0.9375rem] tracking-[-0.01em] max-w-lg">
               OpenLinear is built to work with multiple AI agents. Execution happens transparently. Your repository stays under your control.

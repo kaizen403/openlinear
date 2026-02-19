@@ -255,7 +255,7 @@ export default function PricingPage() {
         <div className="mx-auto max-w-none px-[100px]">
           <div className="max-w-2xl mx-auto">
             <h2 className="font-display text-[1.625rem] md:text-[2rem] font-bold tracking-[-0.04em] text-foreground text-center mb-12">
-              Frequently Asked Questions
+              Frequently Asked <span className="font-editorial italic">Questions</span>
             </h2>
             <div>
               {faqs.map((faq) => (
@@ -289,7 +289,7 @@ export default function PricingPage() {
             Questions?
           </span>
           <h3 className="font-display text-[1.25rem] font-bold tracking-[-0.03em] text-foreground mb-3">
-            Need something custom?
+            Need something <span className="font-editorial italic">custom</span>?
           </h3>
           <p className="text-muted-foreground/55 text-[0.9375rem] tracking-[-0.01em]">
             Reach out at{" "}

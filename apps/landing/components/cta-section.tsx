@@ -12,7 +12,7 @@ export function CTASection() {
         <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-14">
           <div className="max-w-xl">
             <h2 className="font-display text-[2.25rem] md:text-[3rem] lg:text-[3.75rem] font-bold tracking-[-0.05em] text-foreground text-balance leading-[1.02]">
-              The board that ships.
+              The board that <span className="font-editorial italic">ships</span>.
             </h2>
           </div>
           <a

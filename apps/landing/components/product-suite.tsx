@@ -7,7 +7,7 @@ export function ProductSuite() {
         {/* Header row */}
         <div className="mb-16">
           <h2 className="font-display text-[1.625rem] md:text-[2rem] font-bold tracking-[-0.04em] text-foreground">
-            How it works
+            How it <span className="font-editorial italic">works</span>
           </h2>
         </div>
 

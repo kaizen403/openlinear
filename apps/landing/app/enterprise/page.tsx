@@ -123,7 +123,7 @@ export default function EnterprisePage() {
               Why OpenLinear
             </span>
             <h2 className="font-display text-[1.625rem] md:text-[2rem] lg:text-[2.5rem] font-bold tracking-[-0.04em] text-foreground">
-              Built for engineering teams that need control
+              Built for engineering teams that need <span className="font-editorial italic">control</span>
             </h2>
           </div>
 
@@ -188,7 +188,7 @@ export default function EnterprisePage() {
               How It Works
             </span>
             <h2 className="font-display text-[1.625rem] md:text-[2rem] font-bold tracking-[-0.04em] text-foreground max-w-xl">
-              Enterprise-grade execution in three steps
+              Enterprise-grade <span className="font-editorial italic">execution</span> in three steps
             </h2>
           </div>
 
@@ -266,7 +266,7 @@ export default function EnterprisePage() {
                 Coming Soon
               </span>
               <h2 className="font-display text-[1.625rem] md:text-[2rem] font-bold tracking-[-0.04em] text-foreground">
-                Self-hosted deployment
+                <span className="font-editorial italic">Self-hosted</span> deployment
               </h2>
               <p className="text-muted-foreground/55 leading-[1.7] text-[0.9375rem] tracking-[-0.01em] max-w-lg mt-4">
                 We&apos;re building fully self-hosted deployment options for teams that need complete infrastructure control. Run OpenLinear entirely within your own environment.
@@ -290,7 +290,7 @@ export default function EnterprisePage() {
 
         <div className="relative mx-auto max-w-none px-[100px] text-center">
           <h2 className="font-display text-[2rem] md:text-[2.75rem] lg:text-[3.25rem] font-bold tracking-[-0.045em] text-[#EDE8D0] text-balance leading-[1.04] max-w-2xl mx-auto">
-            Ready to evaluate?
+            Ready to <span className="font-editorial italic">evaluate</span>?
           </h2>
           <p className="text-[#EDE8D0]/35 leading-[1.7] text-[0.9375rem] tracking-[-0.01em] max-w-lg mx-auto mt-5">
             Talk to our team about how OpenLinear can fit your engineering workflow.

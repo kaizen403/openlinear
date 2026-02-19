@@ -194,7 +194,7 @@ export default function ContactPage() {
             <div className="flex flex-col gap-10">
               <div>
                 <h3 className="font-display text-[1.125rem] font-bold tracking-[-0.03em] text-foreground mb-6">
-                  What to expect
+                  What to <span className="font-editorial italic">expect</span>
                 </h3>
                 <div className="flex flex-col gap-6">
                   {[
@@ -223,7 +223,7 @@ export default function ContactPage() {
 
               <div>
                 <h3 className="font-display text-[1.125rem] font-bold tracking-[-0.03em] text-foreground mb-4">
-                  Direct channels
+                  Direct <span className="font-editorial italic">channels</span>
                 </h3>
                 <div className="flex flex-col gap-3">
                   <div>

@@ -89,7 +89,7 @@ export default function ProductPage() {
               Overview
             </span>
             <h2 className="font-display text-[1.625rem] md:text-[2rem] lg:text-[2.5rem] font-bold tracking-[-0.04em] text-foreground">
-              Three steps from task to pull request
+              Three steps from task to pull <span className="font-editorial italic">request</span>
             </h2>
           </div>
 
@@ -136,7 +136,7 @@ export default function ProductPage() {
               Capabilities
             </span>
             <h2 className="font-display text-[1.625rem] md:text-[2rem] font-bold tracking-[-0.04em] text-foreground max-w-xl">
-              Everything you need for AI-powered development
+              Everything you need for <span className="font-editorial italic">AI-powered</span> development
             </h2>
           </div>
 
@@ -232,7 +232,7 @@ export default function ProductPage() {
               Roadmap
             </span>
             <h2 className="font-display text-[1.625rem] md:text-[2rem] font-bold tracking-[-0.04em] text-foreground">
-              What&apos;s next
+              What&apos;s <span className="font-editorial italic">next</span>
             </h2>
             <p className="text-muted-foreground/55 leading-[1.7] text-[0.9375rem] tracking-[-0.01em] max-w-lg mx-auto mt-4">
               OpenLinear is actively developed. Here&apos;s what we&apos;re working on.
