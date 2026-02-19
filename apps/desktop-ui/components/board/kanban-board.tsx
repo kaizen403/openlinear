@@ -86,8 +86,8 @@ function ProjectConfigPanel({ selectedProject, activeRepository, tasks, selected
 
   return (
     <div className="w-full border-b border-linear-border bg-linear-bg flex-shrink-0">
-      <div className="px-4 py-1">
-        <div className="rounded-lg border border-linear-border bg-linear-bg-secondary overflow-hidden">
+      <div className="px-0 py-1">
+        <div className="rounded-none border-y border-linear-border bg-linear-bg-secondary overflow-hidden">
           <div className="flex items-stretch divide-x divide-linear-border overflow-x-auto">
             {items.map((item) => {
               const Icon = item.icon
