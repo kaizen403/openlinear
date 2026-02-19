@@ -1,22 +1,20 @@
 import { Header } from "@/components/header"
 import { Hero } from "@/components/hero"
-import { TextHighlighter } from "@/components/text-highlighter"
-import { ProductSuite } from "@/components/product-suite"
-import { FeatureSections } from "@/components/feature-sections"
-import { VisionSection } from "@/components/vision-section"
-import { CTASection } from "@/components/cta-section"
+import { FeaturesSection } from "@/components/features-section"
+import { IntegrationsSection } from "@/components/integrations-section"
+import { PerformanceSection } from "@/components/performance-section"
+import { PricingSection } from "@/components/pricing-section"
 import { Footer } from "@/components/footer"
 
 export default function Page() {
   return (
-    <main>
+    <main className="bg-[#0a0f1a]">
       <Header />
       <Hero />
-      <TextHighlighter />
-      <ProductSuite />
-      <FeatureSections />
-      <VisionSection />
-      <CTASection />
+      <FeaturesSection />
+      <IntegrationsSection />
+      <PerformanceSection />
+      <PricingSection />
       <Footer />
     </main>
   )
