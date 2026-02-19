@@ -71,12 +71,14 @@ export function AppShell({ children }: AppShellProps) {
     const closeSidebar = useCallback(() => setSidebarOpen(false), [])
 
     return (
-        <div className="flex h-screen bg-linear-bg text-linear-text overflow-hidden">
+        <div className="flex h-[100dvh] bg-linear-bg text-linear-text overflow-hidden">
             {/* Mobile overlay backdrop */}
             {isMobile && sidebarOpen && (
-                <div
+                <button
+                    type="button"
                     className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm"
                     onClick={closeSidebar}
+                    aria-label="Close sidebar"
                 />
             )}
 
@@ -92,7 +94,7 @@ export function AppShell({ children }: AppShellProps) {
                     <Sidebar
                         open={sidebarOpen}
                         onClose={closeSidebar}
-                        width={isMobile ? 280 : sidebarWidth}
+                        width={isMobile ? 300 : sidebarWidth}
                         animating={!dragging}
                     />
                 </Suspense>
@@ -100,18 +102,20 @@ export function AppShell({ children }: AppShellProps) {
 
             {/* Drag handle — only visible when sidebar is open on desktop */}
             {!isMobile && sidebarOpen && (
-                <div
+                <button
+                    type="button"
                     onMouseDown={handleMouseDown}
                     className="w-2 flex-shrink-0 cursor-col-resize relative group z-10 -ml-1"
+                    aria-label="Resize sidebar"
                 >
                     <div className="absolute inset-y-0 left-1/2 -translate-x-1/2 w-[2px] bg-transparent group-hover:bg-linear-accent/60 transition-colors duration-150" />
-                </div>
+                </button>
             )}
 
             <div
                 className="flex-1 flex flex-col min-w-0 overflow-hidden"
                 style={{
-                    paddingLeft: sidebarOpen ? 0 : 48,
+                    paddingLeft: isMobile ? 0 : (sidebarOpen ? 0 : 48),
                     transition: dragging ? 'none' : 'padding-left 150ms cubic-bezier(0.25, 0.1, 0.25, 1)',
                 }}
             >
@@ -120,8 +124,9 @@ export function AppShell({ children }: AppShellProps) {
 
             {/* Floating sidebar toggle — fades in/out */}
             <button
+                type="button"
                 onClick={() => setSidebarOpen(true)}
-                className="fixed top-3 left-3 z-50 w-8 h-8 rounded-md flex items-center justify-center bg-linear-bg-secondary border border-linear-border text-linear-text-tertiary hover:text-linear-text hover:bg-linear-bg-tertiary shadow-lg"
+                className="fixed top-3 left-3 z-50 w-8 h-8 rounded-md flex items-center justify-center bg-linear-bg-secondary/95 border border-linear-border text-linear-text-tertiary hover:text-linear-text hover:bg-linear-bg-tertiary shadow-lg backdrop-blur"
                 style={{
                     opacity: sidebarOpen ? 0 : 1,
                     transform: sidebarOpen ? 'scale(0.8)' : 'scale(1)',

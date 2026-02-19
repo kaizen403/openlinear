@@ -440,17 +440,6 @@ function SettingsContent() {
   }
 
   const handleOAuthComplete = useCallback(async (providerId: string, overrideInput?: string) => {
-    const alreadyConnected = providerSetupStatus?.providers.some(
-      (provider) => provider.id === providerId && provider.authenticated
-    )
-    if (alreadyConnected) {
-      setOauthWaitingProvider(null)
-      clearOAuthPendingState(providerId)
-      localStorage.removeItem(OAUTH_CALLBACK_STORAGE_KEY)
-      toast.success("Provider already connected")
-      return
-    }
-
     const input = overrideInput ?? oauthCallbackInputs[providerId] ?? ""
     const code = extractOAuthCode(input)
     if (!code) {
@@ -494,19 +483,7 @@ function SettingsContent() {
     } finally {
       setOauthCompletingProvider(null)
     }
-  }, [oauthCallbackInputs, oauthMethodByProvider, providerAuthMethodsMap, extractOAuthCode, clearOAuthPendingState, providerSetupStatus])
-
-  useEffect(() => {
-    if (!oauthWaitingProvider || oauthCompletingProvider) return
-
-    const provider = providerSetupStatus?.providers.find((item) => item.id === oauthWaitingProvider)
-    if (!provider?.authenticated) return
-
-    setOauthWaitingProvider(null)
-    clearOAuthPendingState(oauthWaitingProvider)
-    localStorage.removeItem(OAUTH_CALLBACK_STORAGE_KEY)
-    setOauthCompletingProvider(null)
-  }, [oauthWaitingProvider, oauthCompletingProvider, providerSetupStatus, clearOAuthPendingState])
+  }, [oauthCallbackInputs, oauthMethodByProvider, providerAuthMethodsMap, extractOAuthCode, clearOAuthPendingState])
 
   useEffect(() => {
     if (!oauthWaitingProvider) return

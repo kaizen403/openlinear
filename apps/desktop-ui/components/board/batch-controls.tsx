@@ -19,8 +19,8 @@ export function BatchControls({ selectedCount, mode, onExecuteParallel, onExecut
   if (selectedCount === 0) return null
 
   return (
-    <div className="fixed bottom-4 sm:bottom-6 left-1/2 -translate-x-1/2 z-50 flex flex-wrap items-center gap-2 sm:gap-3 px-3 sm:px-4 py-2.5 sm:py-3 bg-linear-bg-secondary border border-linear-border rounded-xl shadow-2xl backdrop-blur-sm max-w-[calc(100vw-2rem)]">
-      <span className="text-sm text-linear-text-secondary whitespace-nowrap">
+    <div className="fixed bottom-3 sm:bottom-6 left-3 right-3 sm:left-1/2 sm:right-auto sm:-translate-x-1/2 z-50 flex flex-wrap items-center gap-2 sm:gap-3 px-3 sm:px-4 py-2.5 sm:py-3 bg-linear-bg-secondary border border-linear-border rounded-xl shadow-2xl backdrop-blur-sm sm:max-w-[calc(100vw-2rem)]">
+      <span className="text-xs sm:text-sm text-linear-text-secondary whitespace-nowrap">
         {selectedCount} task{selectedCount !== 1 ? 's' : ''} selected
       </span>
       <div className="w-px h-6 bg-linear-border" />
@@ -33,6 +33,7 @@ export function BatchControls({ selectedCount, mode, onExecuteParallel, onExecut
             className="bg-linear-accent hover:bg-linear-accent-hover text-white gap-1.5"
           >
             <Play className="w-3.5 h-3.5" />
+            <span className="sm:hidden">Parallel</span>
             <span className="hidden sm:inline">Execute Parallel</span>
           </Button>
           <Button
@@ -43,6 +44,7 @@ export function BatchControls({ selectedCount, mode, onExecuteParallel, onExecut
             className="border-linear-border text-linear-text hover:bg-linear-bg-tertiary gap-1.5"
           >
             <ListOrdered className="w-3.5 h-3.5" />
+            <span className="sm:hidden">Queue</span>
             <span className="hidden sm:inline">Execute Queue</span>
           </Button>
         </>
@@ -56,6 +58,7 @@ export function BatchControls({ selectedCount, mode, onExecuteParallel, onExecut
           className="border-linear-border text-linear-text hover:bg-linear-bg-tertiary gap-1.5"
         >
           <ArrowRight className="w-3.5 h-3.5" />
+          <span className="sm:hidden">Move</span>
           <span className="hidden sm:inline">Move to In-Progress</span>
         </Button>
       )}

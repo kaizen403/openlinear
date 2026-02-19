@@ -88,7 +88,7 @@ function ProjectConfigPanel({ selectedProject, activeRepository, tasks, selected
     <div className="w-full border-b border-linear-border bg-linear-bg flex-shrink-0">
       <div className="px-0 py-1">
         <div className="rounded-none border-y border-linear-border bg-linear-bg-secondary overflow-hidden">
-          <div className="flex items-stretch divide-x divide-linear-border overflow-x-auto">
+          <div className="flex items-stretch divide-x divide-linear-border overflow-x-auto snap-x snap-mandatory">
             {items.map((item) => {
               const Icon = item.icon
               const tones: Record<string, { icon: string; value: string }> = {
@@ -101,7 +101,7 @@ function ProjectConfigPanel({ selectedProject, activeRepository, tasks, selected
               return (
                 <div
                   key={item.label}
-                  className="flex-1 min-w-[150px] sm:min-w-0 px-2.5 py-1 flex items-center gap-2"
+                  className="flex-1 min-w-[132px] sm:min-w-0 px-2 py-1 flex items-center gap-1.5 snap-start"
                 >
                   <Icon className={`w-3 h-3 flex-shrink-0 ${tone.icon}`} />
                   <div className="min-w-0 flex-1">

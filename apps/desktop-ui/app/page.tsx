@@ -2,7 +2,7 @@
 
 import { Suspense, useState, useCallback, useEffect } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
-import { Search, FolderKanban, GitBranch, ArrowRight, ArrowLeftRight } from "lucide-react"
+import { Search, FolderKanban, GitBranch, ArrowRight, ArrowLeftRight, Plus } from "lucide-react"
 import { KanbanBoard } from "@/components/board/kanban-board"
 import { TaskFormDialog } from "@/components/task-form"
 
@@ -24,6 +24,8 @@ function HomeContent() {
   const [teams, setTeams] = useState<Team[]>([])
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null)
+  const [searchQuery, setSearchQuery] = useState("")
+  const [isMobileSearchOpen, setIsMobileSearchOpen] = useState(false)
 
   useEffect(() => {
     fetchProjects().then(setProjects).catch(() => setProjects([]))
@@ -71,7 +73,7 @@ function HomeContent() {
     if (projects.length === 0) {
       return (
         <AppShell>
-          <header className="h-14 border-b border-linear-border flex items-center px-4 sm:px-6 bg-linear-bg gap-2 sm:gap-4" data-tauri-drag-region>
+          <header className="min-h-14 border-b border-linear-border flex items-center px-4 sm:px-6 py-2 sm:py-0 bg-linear-bg gap-2 sm:gap-4" data-tauri-drag-region>
             <div className="flex items-center gap-4 min-w-0">
               <h1 className="text-lg font-semibold truncate">Dashboard</h1>
             </div>
@@ -98,7 +100,7 @@ function HomeContent() {
     // Returning user with projects — show project selector
     return (
       <AppShell>
-        <header className="h-14 border-b border-linear-border flex items-center px-4 sm:px-6 bg-linear-bg gap-2 sm:gap-4" data-tauri-drag-region>
+          <header className="min-h-14 border-b border-linear-border flex items-center px-4 sm:px-6 py-2 sm:py-0 bg-linear-bg gap-2 sm:gap-4" data-tauri-drag-region>
           <div className="flex items-center gap-4 min-w-0">
             <h1 className="text-lg font-semibold truncate">Dashboard</h1>
           </div>
@@ -165,25 +167,26 @@ function HomeContent() {
 
   return (
     <AppShell>
-      <header className="h-14 border-b border-linear-border flex items-center px-4 sm:px-6 bg-linear-bg gap-2 sm:gap-4" data-tauri-drag-region>
+      <header className="min-h-14 border-b border-linear-border flex flex-wrap items-center px-3 sm:px-6 py-2 sm:py-0 bg-linear-bg gap-2 sm:gap-4" data-tauri-drag-region>
         <div className="flex items-center gap-4 min-w-0">
           <h1 className="text-lg font-semibold truncate">
             {headerLabel}
           </h1>
         </div>
-        <div className="flex-1 h-full" data-tauri-drag-region />
-        <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
+        <div className="hidden sm:block flex-1 h-full" data-tauri-drag-region />
+        <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0 ml-auto">
           <button
             type="button"
             onClick={() => {
               setSelectedProjectId(null)
               setSelectedTeamId(null)
+              setIsMobileSearchOpen(false)
               router.replace('/')
             }}
             className="flex items-center gap-1.5 h-8 px-2.5 text-xs rounded-md bg-linear-bg-tertiary border border-linear-border hover:border-linear-border-hover text-linear-text transition-colors"
           >
             <ArrowLeftRight className="w-3.5 h-3.5 text-linear-text-tertiary" />
-            Switch project
+            <span className="hidden sm:inline">Switch project</span>
           </button>
 
           <div className="relative hidden sm:block">
@@ -191,10 +194,17 @@ function HomeContent() {
             <input
               type="text"
               placeholder="Search issues..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full max-w-64 h-9 pl-10 pr-4 rounded-md bg-linear-bg-tertiary border border-linear-border text-sm placeholder:text-linear-text-tertiary focus:outline-none focus:border-linear-border-hover transition-colors"
             />
           </div>
-          <button type="button" className="sm:hidden w-9 h-9 rounded-md flex items-center justify-center text-linear-text-tertiary hover:text-linear-text hover:bg-linear-bg-tertiary transition-colors">
+          <button
+            type="button"
+            onClick={() => setIsMobileSearchOpen((prev) => !prev)}
+            className="sm:hidden w-9 h-9 rounded-md flex items-center justify-center text-linear-text-tertiary hover:text-linear-text hover:bg-linear-bg-tertiary transition-colors"
+            aria-label="Toggle issue search"
+          >
             <Search className="w-4 h-4" />
           </button>
           <button
@@ -202,10 +212,25 @@ function HomeContent() {
             onClick={() => setIsTaskFormOpen(true)}
             className="flex items-center h-9 px-3 sm:px-4 rounded-md bg-linear-bg-tertiary hover:bg-linear-bg-secondary border border-linear-border text-linear-text text-sm font-medium transition-colors"
           >
-            <span className="hidden sm:inline">+ Issues</span>
+            <Plus className="w-4 h-4 mr-1.5" />
+            <span>Issue</span>
           </button>
 
         </div>
+        {isMobileSearchOpen && (
+          <div className="w-full sm:hidden mt-1">
+            <div className="relative">
+              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-linear-text-tertiary" />
+              <input
+                type="text"
+                placeholder="Search issues..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full h-9 pl-10 pr-4 rounded-md bg-linear-bg-tertiary border border-linear-border text-sm placeholder:text-linear-text-tertiary focus:outline-none focus:border-linear-border-hover transition-colors"
+              />
+            </div>
+          </div>
+        )}
       </header>
 
       <KanbanBoard
