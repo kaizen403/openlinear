@@ -95,11 +95,14 @@ jobs:
             set -e
             echo "== pm2 show =="
             pm2 show openlinear-api || true
+            pm2 show openlinear-web || true
             echo "== port 3001 listener =="
             (command -v ss >/dev/null 2>&1 && ss -ltnp | grep ':3001' && exit 0) || true
             (command -v lsof >/dev/null 2>&1 && lsof -iTCP:3001 -sTCP:LISTEN -nP && exit 0) || true
             echo "== localhost health =="
             curl -sS -D- -o /dev/null --max-time 5 http://localhost:3001/health || true
+            echo "== localhost web =="
+            curl -sS -D- -o /dev/null --max-time 10 http://localhost:3000/ || true
 
       - name: Verify deployment
         run: |
