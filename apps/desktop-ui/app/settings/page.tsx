@@ -1384,7 +1384,8 @@ function SettingsContent() {
         </Card>
       ) : (
         <div className="space-y-3">
-          {providerSetupStatus.providers.map((provider) => {
+          {
+          [...providerSetupStatus.providers].sort((a, b) => Number(b.authenticated) - Number(a.authenticated)).map((provider) => {
             const authMethods = providerAuthMethodsMap[provider.id] || []
             const hasOAuth = authMethods.some((m) => m.type === "oauth")
             const hasApiKey = authMethods.some((m) => m.type === "api")
@@ -1430,7 +1431,7 @@ function SettingsContent() {
                         {oauthWaitingProvider === provider.id ? (
                           <div className="space-y-2">
                             <p className="text-xs text-linear-text-tertiary">
-                              After login, copy the callback URL from the failed localhost page and paste it here.
+                              Waiting for OAuth callback... If auto-detection fails, paste the full callback URL (or just the code) below:
                             </p>
                             <Input
                               type="text"
