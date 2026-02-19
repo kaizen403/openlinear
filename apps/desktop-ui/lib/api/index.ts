@@ -5,7 +5,7 @@ export type { User, Repository, GitHubRepo, PublicRepository, Team, TeamMember, 
 export { fetchCurrentUser, loginUser, registerUser, getLoginUrl, getGitHubConnectUrl, logout } from './auth';
 
 // Repos
-export { fetchUserRepositories, fetchGitHubRepos, importRepo, activateRepository, getActiveRepository, addRepoByUrl, getActivePublicRepository, activatePublicRepository } from './repos';
+export { fetchUserRepositories, fetchGitHubRepos, importRepo, activateRepository, getActiveRepository, setActiveRepositoryBaseBranch, addRepoByUrl, getActivePublicRepository, activatePublicRepository } from './repos';
 
 // Teams
 export { fetchTeams, fetchTeam, createTeam, updateTeam, deleteTeam, addTeamMember, removeTeamMember, joinTeam } from './teams';

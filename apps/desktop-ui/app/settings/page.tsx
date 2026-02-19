@@ -27,6 +27,7 @@ import {
 import { Slider } from "@/components/ui/slider"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import {
   Card,
   CardContent,
@@ -46,6 +47,7 @@ import { useSearchParams } from "next/navigation"
 import { toast } from "sonner"
 import { DatabaseSettings } from "@/components/desktop/database-settings"
 import { ensureContainer, getSetupStatus, setProviderApiKey, getProviderAuthMethods, oauthAuthorize, oauthCallback, addConfiguredProvider, getModels, getModelConfig, setModel, SetupStatus, ProviderAuthMethods, ProviderModels } from "@/lib/api/opencode"
+import { getActiveRepository, setActiveRepositoryBaseBranch } from "@/lib/api"
 import { AppShell } from "@/components/layout/app-shell"
 import { API_URL } from "@/lib/api/client"
 
@@ -106,6 +108,10 @@ function SettingsContent() {
   const [autoRetry, setAutoRetry] = useState(false)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [activeRepositoryId, setActiveRepositoryId] = useState<string | null>(null)
+  const [activeRepositoryName, setActiveRepositoryName] = useState<string | null>(null)
+  const [prBaseBranch, setPrBaseBranch] = useState("")
+  const [savedPrBaseBranch, setSavedPrBaseBranch] = useState("")
 
   const [twoFactor, setTwoFactor] = useState(false)
   const [sessionTimeout, setSessionTimeout] = useState("4h")
@@ -154,14 +160,31 @@ function SettingsContent() {
   useEffect(() => {
     const fetchSettings = async () => {
       try {
-        const response = await fetch(`${API_URL}/api/settings`)
-        if (response.ok) {
-          const data = await response.json()
+        const [settingsResponse, activeRepository] = await Promise.all([
+          fetch(`${API_URL}/api/settings`),
+          getActiveRepository().catch(() => null),
+        ])
+
+        if (settingsResponse.ok) {
+          const data = await settingsResponse.json()
           setParallelLimit(data.parallelLimit)
           setMaxBatchSize(data.maxBatchSize ?? 3)
           setQueueAutoApprove(data.queueAutoApprove ?? false)
           setStopOnFailure(data.stopOnFailure ?? false)
           setConflictBehavior(data.conflictBehavior ?? "skip")
+        }
+
+        if (activeRepository) {
+          const baseBranch = activeRepository.defaultBranch || "main"
+          setActiveRepositoryId(activeRepository.id)
+          setActiveRepositoryName(activeRepository.fullName)
+          setPrBaseBranch(baseBranch)
+          setSavedPrBaseBranch(baseBranch)
+        } else {
+          setActiveRepositoryId(null)
+          setActiveRepositoryName(null)
+          setPrBaseBranch("")
+          setSavedPrBaseBranch("")
         }
       } catch (error) {
         console.error("Failed to fetch settings:", error)
@@ -227,9 +250,16 @@ function SettingsContent() {
   }, [activeSection])
 
   const handleSave = async () => {
+    const trimmedBaseBranch = prBaseBranch.trim()
+
+    if (activeRepositoryId && !trimmedBaseBranch) {
+      toast.error("PR base branch cannot be empty")
+      return
+    }
+
     setSaving(true)
     try {
-      const response = await fetch(`${API_URL}/api/settings`, {
+      const settingsResponse = await fetch(`${API_URL}/api/settings`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
@@ -243,11 +273,23 @@ function SettingsContent() {
         }),
       })
 
-      if (response.ok) {
-        toast.success("Settings saved successfully")
-      } else {
+      if (!settingsResponse.ok) {
         toast.error("Failed to save settings")
+        return
       }
+
+      if (
+        activeRepositoryId &&
+        trimmedBaseBranch &&
+        trimmedBaseBranch !== savedPrBaseBranch
+      ) {
+        const updatedRepository = await setActiveRepositoryBaseBranch(trimmedBaseBranch)
+        setPrBaseBranch(updatedRepository.defaultBranch)
+        setSavedPrBaseBranch(updatedRepository.defaultBranch)
+        setActiveRepositoryName(updatedRepository.fullName)
+      }
+
+      toast.success("Settings saved successfully")
     } catch (error) {
       console.error("Failed to save settings:", error)
       toast.error("Failed to save settings")
@@ -319,6 +361,15 @@ function SettingsContent() {
     const input = value.trim()
     if (!input) return null
 
+    const directMatch = input.match(/^code=([^&]+)/)
+    if (directMatch?.[1]) {
+      try {
+        return decodeURIComponent(directMatch[1])
+      } catch {
+        return directMatch[1]
+      }
+    }
+
     const queryMatch = input.match(/[?&]code=([^&]+)/)
     if (queryMatch?.[1]) {
       try {
@@ -333,6 +384,12 @@ function SettingsContent() {
       const code = parsed.searchParams.get("code")
       if (code) return code
     } catch {}
+
+    if (!input.includes("://") && input.includes("=")) {
+      const rawParams = input.startsWith("?") ? input.slice(1) : input
+      const code = new URLSearchParams(rawParams).get("code")
+      if (code) return code
+    }
 
     if (/^[A-Za-z0-9._-]{20,}$/.test(input)) return input
     return null
@@ -383,6 +440,17 @@ function SettingsContent() {
   }
 
   const handleOAuthComplete = useCallback(async (providerId: string, overrideInput?: string) => {
+    const alreadyConnected = providerSetupStatus?.providers.some(
+      (provider) => provider.id === providerId && provider.authenticated
+    )
+    if (alreadyConnected) {
+      setOauthWaitingProvider(null)
+      clearOAuthPendingState(providerId)
+      localStorage.removeItem(OAUTH_CALLBACK_STORAGE_KEY)
+      toast.success("Provider already connected")
+      return
+    }
+
     const input = overrideInput ?? oauthCallbackInputs[providerId] ?? ""
     const code = extractOAuthCode(input)
     if (!code) {
@@ -421,7 +489,19 @@ function SettingsContent() {
     } finally {
       setOauthCompletingProvider(null)
     }
-  }, [oauthCallbackInputs, oauthMethodByProvider, extractOAuthCode, clearOAuthPendingState])
+  }, [oauthCallbackInputs, oauthMethodByProvider, extractOAuthCode, clearOAuthPendingState, providerSetupStatus])
+
+  useEffect(() => {
+    if (!oauthWaitingProvider || oauthCompletingProvider) return
+
+    const provider = providerSetupStatus?.providers.find((item) => item.id === oauthWaitingProvider)
+    if (!provider?.authenticated) return
+
+    setOauthWaitingProvider(null)
+    clearOAuthPendingState(oauthWaitingProvider)
+    localStorage.removeItem(OAUTH_CALLBACK_STORAGE_KEY)
+    setOauthCompletingProvider(null)
+  }, [oauthWaitingProvider, oauthCompletingProvider, providerSetupStatus, clearOAuthPendingState])
 
   useEffect(() => {
     if (!oauthWaitingProvider) return
@@ -972,6 +1052,41 @@ function SettingsContent() {
               </div>
             </div>
           )}
+        </CardContent>
+      </Card>
+
+      <Card className="bg-linear-bg-secondary border-linear-border">
+        <CardHeader>
+          <CardTitle className="text-linear-text">Pull Request Target</CardTitle>
+          <CardDescription className="text-linear-text-secondary">
+            Choose the base branch OpenLinear uses for new pull requests.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-xs text-linear-text-tertiary">
+            {activeRepositoryName
+              ? `Active repository: ${activeRepositoryName}`
+              : "No active repository selected"}
+          </p>
+          <div className="space-y-2">
+            <Label htmlFor="pr-base-branch" className="text-sm text-linear-text block">
+              Base branch
+            </Label>
+            <Input
+              id="pr-base-branch"
+              type="text"
+              value={prBaseBranch}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                setPrBaseBranch(e.target.value)
+              }
+              placeholder={activeRepositoryId ? "main" : "Select a repository first"}
+              disabled={!activeRepositoryId || loading}
+              className="bg-linear-bg border-linear-border text-linear-text placeholder:text-linear-text-tertiary"
+            />
+            <p className="text-xs text-linear-text-tertiary">
+              This branch is used for clone base and PR target.
+            </p>
+          </div>
         </CardContent>
       </Card>
 

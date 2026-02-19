@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { prisma } from '@openlinear/db';
+import { z } from 'zod';
 import { requireAuth, AuthRequest } from '../middleware/auth';
 import {
   getGitHubRepos,
@@ -12,6 +13,15 @@ import {
 } from '../services/github';
 
 const router: Router = Router();
+
+const updateBaseBranchSchema = z.object({
+  baseBranch: z
+    .string()
+    .trim()
+    .min(1)
+    .max(255)
+    .regex(/^(?![/.])(?!.*\.\.)(?!.*\/\.)(?!.*\.$)(?!.*\/$)[A-Za-z0-9._/-]+$/),
+});
 
 // --- Public routes (no auth) ---
 
@@ -143,6 +153,36 @@ router.get('/active', requireAuth, async (req: AuthRequest, res: Response) => {
   } catch (err) {
     console.error('[Repos] Failed to get active project:', err);
     res.status(500).json({ error: 'Failed to get active project' });
+  }
+});
+
+router.patch('/active/base-branch', requireAuth, async (req: AuthRequest, res: Response) => {
+  const parsed = updateBaseBranchSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Invalid base branch' });
+    return;
+  }
+
+  try {
+    const activeRepository = await prisma.repository.findFirst({
+      where: { userId: req.userId!, isActive: true },
+      select: { id: true },
+    });
+
+    if (!activeRepository) {
+      res.status(404).json({ error: 'No active repository selected' });
+      return;
+    }
+
+    const updated = await prisma.repository.update({
+      where: { id: activeRepository.id },
+      data: { defaultBranch: parsed.data.baseBranch },
+    });
+
+    res.json(updated);
+  } catch (err) {
+    console.error('[Repos] Failed to update active repository base branch:', err);
+    res.status(500).json({ error: 'Failed to update base branch' });
   }
 });
 

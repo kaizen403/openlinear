@@ -164,14 +164,23 @@ export async function oauthCallback(
   code: string,
   method?: number
 ): Promise<void> {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 20000);
+
   const res = await fetch(`${API_URL}/api/opencode/auth/oauth/callback`, {
     method: 'POST',
+    signal: controller.signal,
     headers: {
       'Content-Type': 'application/json',
       ...getAuthHeader(),
     },
     body: JSON.stringify({ providerId, code, method: method ?? 0 }),
-  });
+  }).finally(() => window.clearTimeout(timeout));
+
+  if (controller.signal.aborted) {
+    throw new Error('OAuth callback timed out. Please try again.');
+  }
+
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
     throw new Error(data.error || 'Failed to complete OAuth');

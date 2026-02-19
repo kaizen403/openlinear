@@ -55,6 +55,24 @@ export async function getActiveRepository(): Promise<Repository | null> {
   return res.json();
 }
 
+export async function setActiveRepositoryBaseBranch(baseBranch: string): Promise<Repository> {
+  const res = await fetch(`${API_URL}/api/repos/active/base-branch`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      ...getAuthHeader(),
+    },
+    body: JSON.stringify({ baseBranch }),
+  });
+
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || 'Failed to update base branch');
+  }
+
+  return res.json();
+}
+
 // Public repo functions (no auth required)
 
 export async function addRepoByUrl(url: string): Promise<PublicRepository> {
