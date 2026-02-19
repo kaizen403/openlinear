@@ -65,6 +65,7 @@ router.get('/setup-status', requireAuth, async (req: AuthRequest, res: Response)
             'xai',
             'openrouter',
             'amazon-bedrock',
+            'opencode',
           ]);
 
           providers = providerList.data.all
@@ -234,13 +235,21 @@ router.get('/models', requireAuth, async (req: AuthRequest, res: Response) => {
     }
 
     const connectedSet = new Set(providerList.data.connected ?? []);
+    connectedSet.add('opencode');
 
-    const providers = providerList.data.all
+    let allProviders = providerList.data.all;
+    if (!allProviders.some(p => p.id === 'opencode')) {
+      allProviders.push({
+        id: 'opencode',
+        name: 'OpenCode',
+        models: {},
+      } as any);
+    }
+
+    const providers = allProviders
       .filter((provider) => connectedSet.has(provider.id))
-      .map((provider) => ({
-        id: provider.id,
-        name: provider.name || provider.id,
-        models: Object.values(provider.models || {}).map((model) => ({
+      .map((provider) => {
+        let modelsList = Object.values(provider.models || {}).map((model: any) => ({
           id: model.id,
           provider: model.provider,
           name: model.name || model.id,
@@ -252,8 +261,28 @@ router.get('/models', requireAuth, async (req: AuthRequest, res: Response) => {
             input: model.cost?.input ?? 0,
             output: model.cost?.output ?? 0,
           },
-        })),
-      }));
+        }));
+
+        if (provider.id === 'opencode') {
+          const freeModels = [
+            { id: 'minimix', provider: 'opencode', name: 'Minimix (Free)', status: 'available', reasoning: false, toolCall: true, limit: { context: 128000, output: 4096 }, cost: { input: 0, output: 0 } },
+            { id: 'glm5', provider: 'opencode', name: 'GLM5 (Free)', status: 'available', reasoning: false, toolCall: true, limit: { context: 128000, output: 4096 }, cost: { input: 0, output: 0 } },
+            { id: 'kimik2.5', provider: 'opencode', name: 'KimiK2.5 (Free)', status: 'available', reasoning: true, toolCall: true, limit: { context: 128000, output: 4096 }, cost: { input: 0, output: 0 } }
+          ];
+          
+          freeModels.forEach(fm => {
+            if (!modelsList.some(m => m.id === fm.id)) {
+              modelsList.push(fm);
+            }
+          });
+        }
+
+        return {
+          id: provider.id,
+          name: provider.name || provider.id,
+          models: modelsList,
+        };
+      });
 
     res.json({ providers });
   } catch (err) {

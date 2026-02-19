@@ -15,6 +15,7 @@ import { Project, Repository } from "@/lib/api"
 import { useKanbanBoard, COLUMNS, KanbanBoardProps } from "./use-kanban-board"
 import { InProgressBatchGroup } from "./in-progress-batch-group"
 import { DoneColumnContent } from "./done-column-content"
+import { ModelSelector } from "./model-selector"
 import { useRouter } from "next/navigation"
 
 interface ProjectConfigPanelProps {
@@ -134,6 +135,7 @@ function ProjectConfigPanel({ selectedProject, activeRepository, tasks, selected
                 </div>
               )
             })}
+            <ModelSelector />
           </div>
         </div>
       </div>
