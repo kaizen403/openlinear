@@ -89,7 +89,8 @@ export async function executeTask({ taskId, userId }: ExecuteTaskParams): Promis
   try {
     // Step 1: Clone
     if (useLocalPath) {
-      broadcastProgress(taskId, 'cloning', 'Using local repository...');
+      broadcastProgress(taskId, 'cloning', 'Preparing local repository...');
+      await createBranch(repoPath, branchName);
     } else if (project) {
       broadcastProgress(taskId, 'cloning', 'Cloning repository...');
       await cloneRepository(project.cloneUrl, repoPath, accessToken, project.defaultBranch);
@@ -155,6 +156,7 @@ export async function executeTask({ taskId, userId }: ExecuteTaskParams): Promis
     // Add initial log entries
     if (useLocalPath) {
       addLogEntry(taskId, 'info', `Using local repository: ${repoPath}`);
+      addLogEntry(taskId, 'info', `Branch created: ${branchName}`);
     } else {
       addLogEntry(taskId, 'info', 'Repository cloned successfully');
       addLogEntry(taskId, 'info', `Branch created: ${branchName}`);

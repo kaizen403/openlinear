@@ -28,13 +28,13 @@ async function handleSessionComplete(taskId: string): Promise<void> {
     broadcastProgress(taskId, 'committing', 'Committing changes...');
     addLogEntry(taskId, 'info', 'Agent finished, committing changes...');
 
-    const hasChanges = await commitAndPush(
+    const commitResult = await commitAndPush(
       execution.repoPath,
       execution.branchName,
       await getTaskTitle(taskId)
     );
 
-    if (hasChanges) {
+    if (commitResult.status === 'pushed') {
       execution.status = 'creating_pr';
       broadcastProgress(taskId, 'creating_pr', 'Creating pull request...');
       addLogEntry(taskId, 'info', 'Creating pull request...');
@@ -82,10 +82,21 @@ async function handleSessionComplete(taskId: string): Promise<void> {
           broadcastProgress(taskId, 'done', 'Changes pushed successfully', { prUrl: result.url, isCompareLink: true });
         }
       }
-    } else {
+    } else if (commitResult.status === 'no_changes') {
       outcome = 'Completed with no changes';
       addLogEntry(taskId, 'info', 'Completed with no changes');
       broadcastProgress(taskId, 'done', 'Completed with no changes');
+    } else {
+      execution.status = 'error';
+      outcome = `Commit/push failed: ${commitResult.reason}`;
+      addLogEntry(taskId, 'error', 'Failed to commit and push changes', commitResult.reason);
+      broadcastProgress(taskId, 'error', 'Failed to commit and push changes');
+      await updateTaskStatus(taskId, 'cancelled', null, {
+        executionElapsedMs: elapsedMs,
+        executionProgress: 100,
+        outcome,
+      });
+      return;
     }
 
     await updateTaskStatus(taskId, 'done', null, {

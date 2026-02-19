@@ -6,6 +6,21 @@ import { PullRequestResult, REPOS_DIR } from './state';
 
 const execAsync = promisify(exec);
 
+export type CommitPushResult =
+  | { status: 'no_changes' }
+  | { status: 'pushed' }
+  | { status: 'failed'; reason: string };
+
+function getExecErrorReason(error: unknown): string {
+  if (error && typeof error === 'object') {
+    const err = error as { stderr?: string; message?: string };
+    const stderr = err.stderr?.trim();
+    if (stderr) return stderr;
+    if (err.message) return err.message;
+  }
+  return 'Unknown git error';
+}
+
 export async function cloneRepository(
   cloneUrl: string,
   repoPath: string,
@@ -42,22 +57,22 @@ export async function cloneRepository(
 
 export async function createBranch(repoPath: string, branchName: string): Promise<void> {
   console.log(`[Execution] Creating branch: ${branchName}`);
-  await execAsync(`git checkout -b ${branchName}`, { cwd: repoPath });
-  console.log(`[Execution] Branch created and checked out`);
+  await execAsync(`git checkout -B ${branchName}`, { cwd: repoPath });
+  console.log(`[Execution] Branch ready and checked out`);
 }
 
 export async function commitAndPush(
   repoPath: string,
   branchName: string,
   taskTitle: string
-): Promise<boolean> {
+): Promise<CommitPushResult> {
   try {
     console.log(`[Execution] Checking for changes in ${repoPath}`);
     const { stdout: status } = await execAsync('git status --porcelain', { cwd: repoPath });
     
     if (!status.trim()) {
       console.log(`[Execution] No changes to commit`);
-      return false;
+      return { status: 'no_changes' };
     }
 
     console.log(`[Execution] Changes detected, staging files...`);
@@ -72,10 +87,11 @@ export async function commitAndPush(
     await execAsync(`git push --force -u origin ${branchName}`, { cwd: repoPath });
     console.log(`[Execution] Push complete`);
     
-    return true;
+    return { status: 'pushed' };
   } catch (error) {
-    console.error('[Execution] Commit/push failed:', error);
-    return false;
+    const reason = getExecErrorReason(error);
+    console.error('[Execution] Commit/push failed:', reason);
+    return { status: 'failed', reason };
   }
 }
 
