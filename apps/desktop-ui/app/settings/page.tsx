@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, Suspense } from "react"
+import { useState, useEffect, Suspense, useCallback } from "react"
 import {
   Settings,
   Loader2,
@@ -45,7 +45,7 @@ import {
 import { useSearchParams } from "next/navigation"
 import { toast } from "sonner"
 import { DatabaseSettings } from "@/components/desktop/database-settings"
-import { ensureContainer, getSetupStatus, setProviderApiKey, getProviderAuthMethods, oauthAuthorize, addConfiguredProvider, getModels, getModelConfig, setModel, ProviderInfo, SetupStatus, ProviderAuthMethods, ProviderModels } from "@/lib/api/opencode"
+import { ensureContainer, getSetupStatus, setProviderApiKey, getProviderAuthMethods, oauthAuthorize, oauthCallback, addConfiguredProvider, getModels, getModelConfig, setModel, ProviderInfo, SetupStatus, ProviderAuthMethods, ProviderModels } from "@/lib/api/opencode"
 import { AppShell } from "@/components/layout/app-shell"
 import { API_URL } from "@/lib/api/client"
 
@@ -73,6 +73,8 @@ const NAV_ITEMS: {
   { id: "api-keys", label: "API Keys", icon: Key },
   { id: "database", label: "Database", icon: Database },
 ]
+
+const OAUTH_CALLBACK_STORAGE_KEY = "opencode-oauth-callback"
 
 function SettingsContent() {
   const searchParams = useSearchParams()
@@ -118,6 +120,9 @@ function SettingsContent() {
   const [providerAuthMethodsMap, setProviderAuthMethodsMap] = useState<ProviderAuthMethods>({})
   const [oauthLoadingProvider, setOauthLoadingProvider] = useState<string | null>(null)
   const [oauthWaitingProvider, setOauthWaitingProvider] = useState<string | null>(null)
+  const [oauthCallbackInputs, setOauthCallbackInputs] = useState<Record<string, string>>({})
+  const [oauthMethodByProvider, setOauthMethodByProvider] = useState<Record<string, number | undefined>>({})
+  const [oauthCompletingProvider, setOauthCompletingProvider] = useState<string | null>(null)
   const [providerModelsList, setProviderModelsList] = useState<ProviderModels[]>([])
   const [currentModel, setCurrentModel] = useState<string | null>(null)
   const [modelSaving, setModelSaving] = useState(false)
@@ -309,14 +314,53 @@ function SettingsContent() {
     }
   }
 
+  const extractOAuthCode = useCallback((value: string): string | null => {
+    const input = value.trim()
+    if (!input) return null
+
+    const queryMatch = input.match(/[?&]code=([^&]+)/)
+    if (queryMatch?.[1]) {
+      try {
+        return decodeURIComponent(queryMatch[1])
+      } catch {
+        return queryMatch[1]
+      }
+    }
+
+    try {
+      const parsed = new URL(input)
+      const code = parsed.searchParams.get("code")
+      if (code) return code
+    } catch {}
+
+    if (/^[A-Za-z0-9._-]{20,}$/.test(input)) return input
+    return null
+  }, [])
+
+  const clearOAuthPendingState = useCallback((providerId: string) => {
+    setOauthCallbackInputs((prev) => {
+      const next = { ...prev }
+      delete next[providerId]
+      return next
+    })
+    setOauthMethodByProvider((prev) => {
+      const next = { ...prev }
+      delete next[providerId]
+      return next
+    })
+  }, [])
+
   const handleOAuthLogin = async (providerId: string, methodIndex?: number) => {
     setOauthLoadingProvider(providerId)
     try {
       const { url } = await oauthAuthorize(providerId, methodIndex)
       if (url) {
+        localStorage.removeItem(OAUTH_CALLBACK_STORAGE_KEY)
         window.open(url, "_blank", "noopener,noreferrer")
         setOauthWaitingProvider(providerId)
-        toast.info("Complete the login in your browser, then click 'I've logged in'")
+        setOauthMethodByProvider((prev) => ({ ...prev, [providerId]: methodIndex }))
+        setOauthCallbackInputs((prev) => ({ ...prev, [providerId]: "" }))
+        toast.info("After login, copy the callback URL (or code) and paste it below")
       } else {
         toast.error("No OAuth URL returned")
       }
@@ -328,24 +372,88 @@ function SettingsContent() {
     }
   }
 
-  const handleOAuthComplete = async () => {
-    setOauthWaitingProvider(null)
-    toast.info("Checking provider status...")
+  const handleOAuthComplete = useCallback(async (providerId: string, overrideInput?: string) => {
+    const input = overrideInput ?? oauthCallbackInputs[providerId] ?? ""
+    const code = extractOAuthCode(input)
+    if (!code) {
+      toast.error("Paste the callback URL with ?code=... or the raw code")
+      return
+    }
+
+    setOauthCompletingProvider(providerId)
     try {
+      await oauthCallback(providerId, code, oauthMethodByProvider[providerId])
+      addConfiguredProvider(providerId)
+
       const status = await getSetupStatus()
       setProviderSetupStatus(status)
-      const wasProvider = status.providers.find(
-        (p) => p.authenticated
+
+      const providerConnected = status.providers.find(
+        (p) => p.id === providerId && p.authenticated
       )
-      if (wasProvider) {
+
+      if (providerConnected) {
         toast.success("Provider connected successfully")
       } else {
-        toast.info("Provider status refreshed — check if authentication completed")
+        toast.info("OAuth callback submitted. Refresh status may take a few seconds.")
       }
-    } catch {
-      toast.error("Failed to refresh provider status")
+
+      getModels()
+        .then((data) => setProviderModelsList(data.providers))
+        .catch(() => {})
+
+      setOauthWaitingProvider(null)
+      clearOAuthPendingState(providerId)
+      localStorage.removeItem(OAUTH_CALLBACK_STORAGE_KEY)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to complete OAuth"
+      toast.error(message)
+    } finally {
+      setOauthCompletingProvider(null)
     }
-  }
+  }, [oauthCallbackInputs, oauthMethodByProvider, extractOAuthCode, clearOAuthPendingState])
+
+  useEffect(() => {
+    if (!oauthWaitingProvider) return
+
+    const consumeCallbackPayload = (raw: string | null) => {
+      if (!raw || oauthCompletingProvider) return
+
+      try {
+        const parsed = JSON.parse(raw) as {
+          url?: string
+          code?: string
+          timestamp?: number
+        }
+
+        const ageMs = parsed.timestamp ? Date.now() - parsed.timestamp : 0
+        if (ageMs > 10 * 60 * 1000) return
+
+        const value = parsed.url || parsed.code || ""
+        if (!extractOAuthCode(value)) return
+
+        setOauthCallbackInputs((prev) => ({
+          ...prev,
+          [oauthWaitingProvider]: value,
+        }))
+
+        localStorage.removeItem(OAUTH_CALLBACK_STORAGE_KEY)
+        void handleOAuthComplete(oauthWaitingProvider, value)
+      } catch {}
+    }
+
+    const onStorage = (event: StorageEvent) => {
+      if (event.key !== OAUTH_CALLBACK_STORAGE_KEY) return
+      consumeCallbackPayload(event.newValue)
+    }
+
+    window.addEventListener("storage", onStorage)
+    consumeCallbackPayload(localStorage.getItem(OAUTH_CALLBACK_STORAGE_KEY))
+
+    return () => {
+      window.removeEventListener("storage", onStorage)
+    }
+  }, [oauthWaitingProvider, oauthCompletingProvider, extractOAuthCode, handleOAuthComplete])
 
   const handleModelSelect = async (modelValue: string) => {
     setModelSaving(true)
@@ -1176,23 +1284,51 @@ function SettingsContent() {
                     {hasOAuth && (
                       <div>
                         {oauthWaitingProvider === provider.id ? (
-                          <div className="flex items-center gap-2">
-                            <Button
-                              size="sm"
-                              onClick={handleOAuthComplete}
-                              className="bg-green-600 hover:bg-green-700 text-white h-9 px-4"
-                            >
-                              <Check className="w-4 h-4 mr-2" />
-                              I&apos;ve logged in
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => setOauthWaitingProvider(null)}
-                              className="border-linear-border text-linear-text-secondary h-9"
-                            >
-                              Cancel
-                            </Button>
+                          <div className="space-y-2">
+                            <p className="text-xs text-linear-text-tertiary">
+                              After login, copy the callback URL from the failed localhost page and paste it here.
+                            </p>
+                            <Input
+                              type="text"
+                              placeholder="Paste callback URL or code"
+                              value={oauthCallbackInputs[provider.id] || ""}
+                              onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                                setOauthCallbackInputs((prev) => ({
+                                  ...prev,
+                                  [provider.id]: e.target.value,
+                                }))
+                              }
+                              className="bg-linear-bg border-linear-border text-linear-text placeholder:text-linear-text-tertiary focus-visible:ring-linear-accent h-9"
+                            />
+                            <div className="flex items-center gap-2">
+                              <Button
+                                size="sm"
+                                onClick={() => handleOAuthComplete(provider.id)}
+                                disabled={
+                                  oauthCompletingProvider === provider.id ||
+                                  !oauthCallbackInputs[provider.id]?.trim()
+                                }
+                                className="bg-green-600 hover:bg-green-700 text-white h-9 px-4"
+                              >
+                                {oauthCompletingProvider === provider.id ? (
+                                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                ) : (
+                                  <Check className="w-4 h-4 mr-2" />
+                                )}
+                                Complete OAuth
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => {
+                                  setOauthWaitingProvider(null)
+                                  clearOAuthPendingState(provider.id)
+                                }}
+                                className="border-linear-border text-linear-text-secondary h-9"
+                              >
+                                Cancel
+                              </Button>
+                            </div>
                           </div>
                         ) : (
                           <Button

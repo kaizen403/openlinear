@@ -169,25 +169,6 @@ html {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* ── Custom cream dot cursor ──────────────────── */
-*,
-*::before,
-*::after {
-  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 20 20'%3E%3Ccircle cx='10' cy='10' r='5' fill='%23EDE8D0' opacity='0.7' /%3E%3Ccircle cx='10' cy='10' r='3' fill='%23EDE8D0' /%3E%3C/svg%3E") 10 10, auto;
-}
-
-a,
-button,
-[role="button"],
-input[type="submit"],
-select,
-label[for],
-a *,
-button *,
-[role="button"] * {
-  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Ccircle cx='12' cy='12' r='7' fill='%23EDE8D0' opacity='0.6' /%3E%3Ccircle cx='12' cy='12' r='4' fill='%23EDE8D0' /%3E%3C/svg%3E") 12 12, pointer !important;
-}
-
 /* ── Glass card — layered depth, not flat ─────── */
 .glass-card {
   background: rgba(255, 255, 255, 0.68);
