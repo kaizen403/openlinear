@@ -10,5 +10,6 @@ dist
 coverage
 .turbo
 .vercel
+.opencode-monitor/
 *.tsbuildinfo
 package-lock.json
