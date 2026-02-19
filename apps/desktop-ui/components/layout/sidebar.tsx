@@ -48,6 +48,7 @@ function TeamSection({ team, pathname, searchParams, onDelete }: { team: Team; p
 
     const isIssuesActive = pathname === "/" && teamId === team.id
     const isProjectsActive = pathname === "/projects" && teamId === team.id
+    const isManageActive = pathname.startsWith(`/teams/${team.id}`)
 
     return (
         <div className="group/team">
@@ -115,6 +116,13 @@ function TeamSection({ team, pathname, searchParams, onDelete }: { team: Team; p
                     >
                         <Hexagon className="w-3.5 h-3.5 flex-shrink-0" />
                         <span>Projects</span>
+                    </Link>
+                    <Link
+                        href={`/teams/${team.id}`}
+                        className={subNavItemClass(isManageActive)}
+                    >
+                        <Settings className="w-3.5 h-3.5 flex-shrink-0" />
+                        <span>Manage</span>
                     </Link>
                 </div>
             )}
@@ -287,7 +295,7 @@ export function Sidebar({ open, onClose, width, animating }: SidebarProps) {
                         <Link
                             href="/teams"
                             className="p-0.5 rounded hover:bg-linear-bg-tertiary transition-colors text-linear-text-tertiary hover:text-linear-text"
-                            title="Manage teams"
+                            title="Manage all teams"
                         >
                             <Settings className="w-3.5 h-3.5" />
                         </Link>
@@ -303,13 +311,6 @@ export function Sidebar({ open, onClose, width, animating }: SidebarProps) {
                                     onDelete={handleDeleteTeam}
                                 />
                             ))}
-                            <Link
-                                href="/teams"
-                                className={subNavItemClass(pathname === "/teams")}
-                            >
-                                <Settings className="w-3.5 h-3.5 flex-shrink-0" />
-                                <span>Manage</span>
-                            </Link>
                         </div>
                     ) : (
                         <Link

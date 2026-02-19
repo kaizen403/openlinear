@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import {
   Search,
   Plus,
+  LogIn,
   Filter,
   Users,
   Trash2,
@@ -22,20 +23,19 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog"
 import { AppShell } from "@/components/layout/app-shell"
 import { fetchTeams, createTeam, deleteTeam, updateTeam, joinTeam, type Team } from "@/lib/api"
 import { useSSESubscription } from "@/providers/sse-provider"
 
-type CreateDialogTab = "create" | "join"
+type TeamDialogMode = "create" | "join"
 
 export default function TeamsPage() {
   const router = useRouter()
   const [teams, setTeams] = useState<Team[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
-  const [createDialogTab, setCreateDialogTab] = useState<CreateDialogTab>("create")
+  const [teamDialogMode, setTeamDialogMode] = useState<TeamDialogMode>("create")
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
   const [editTeam, setEditTeam] = useState<Team | null>(null)
   const [editFormData, setEditFormData] = useState({ name: "", description: "", color: "#6366f1" })
@@ -141,7 +141,23 @@ export default function TeamsPage() {
     setCreatedTeam(null)
     setJoinCode("")
     setJoinError("")
-    setCreateDialogTab("create")
+    setTeamDialogMode("create")
+  }
+
+  const openCreateTeamDialog = () => {
+    setCreatedTeam(null)
+    setJoinCode("")
+    setJoinError("")
+    setTeamDialogMode("create")
+    setIsDialogOpen(true)
+  }
+
+  const openJoinTeamDialog = () => {
+    setCreatedTeam(null)
+    setJoinCode("")
+    setJoinError("")
+    setTeamDialogMode("join")
+    setIsDialogOpen(true)
   }
 
   const handleDeleteTeam = async (teamId: string) => {
@@ -194,20 +210,35 @@ export default function TeamsPage() {
               </div>
               <div className="flex items-center gap-2">
                 <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-                  <DialogTrigger asChild>
-                    <Button size="sm" className="h-8 bg-linear-accent hover:bg-linear-accent-hover text-white">
-                      <Plus className="w-4 h-4 mr-1.5" />
-                      <span className="hidden sm:inline">Create team</span>
-                    </Button>
-                  </DialogTrigger>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={openJoinTeamDialog}
+                    className="h-8 border-linear-border bg-transparent text-linear-text-secondary hover:bg-linear-bg-tertiary hover:text-linear-text"
+                  >
+                    <LogIn className="w-4 h-4 mr-1.5" />
+                    <span className="hidden sm:inline">Join team</span>
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={openCreateTeamDialog}
+                    className="h-8 bg-linear-accent hover:bg-linear-accent-hover text-white"
+                  >
+                    <Plus className="w-4 h-4 mr-1.5" />
+                    <span className="hidden sm:inline">Create team</span>
+                  </Button>
                   <DialogContent className="bg-linear-bg-secondary border-linear-border" onCloseAutoFocus={handleCloseCreateDialog}>
                     <DialogHeader>
                       <DialogTitle className="text-linear-text">
-                        {createdTeam ? "Team Created!" : "Create or Join Team"}
+                        {createdTeam ? "Team Created!" : teamDialogMode === "join" ? "Join Team" : "Create Team"}
                       </DialogTitle>
                       {!createdTeam && (
                         <DialogDescription className="text-linear-text-secondary">
-                          Create a new team or join an existing one with an invite code.
+                          {teamDialogMode === "join"
+                            ? "Enter your invite code to join an existing team."
+                            : "Create a new team and invite your teammates."}
                         </DialogDescription>
                       )}
                     </DialogHeader>
@@ -251,31 +282,7 @@ export default function TeamsPage() {
                       </div>
                     ) : (
                       <div className="mt-4">
-                        <div className="flex gap-1 p-1 rounded-lg bg-linear-bg-tertiary border border-linear-border mb-4">
-                          <button
-                            type="button"
-                            onClick={() => setCreateDialogTab("create")}
-                            className={`flex-1 px-4 py-2 text-sm font-medium rounded-md transition-colors ${
-                              createDialogTab === "create"
-                                ? "bg-linear-bg text-linear-text shadow-sm"
-                                : "text-linear-text-secondary hover:text-linear-text"
-                            }`}
-                          >
-                            Create
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setCreateDialogTab("join")}
-                            className={`flex-1 px-4 py-2 text-sm font-medium rounded-md transition-colors ${
-                              createDialogTab === "join"
-                                ? "bg-linear-bg text-linear-text shadow-sm"
-                                : "text-linear-text-secondary hover:text-linear-text"
-                            }`}
-                          >
-                            Join
-                          </button>
-                        </div>
-                        {createDialogTab === "create" ? (
+                        {teamDialogMode === "create" ? (
                           <form onSubmit={handleCreateTeam} className="space-y-4">
                       <div className="space-y-2">
                         <Label htmlFor="name" className="text-linear-text-secondary">Name</Label>
@@ -327,7 +334,7 @@ export default function TeamsPage() {
                         <Button
                           type="button"
                           variant="outline"
-                          onClick={() => setIsDialogOpen(false)}
+                          onClick={handleCloseCreateDialog}
                           className="border-linear-border text-linear-text-secondary hover:bg-linear-bg-tertiary"
                         >
                           Cancel
@@ -369,7 +376,7 @@ export default function TeamsPage() {
                         <Button
                           type="button"
                           variant="outline"
-                          onClick={() => setIsDialogOpen(false)}
+                          onClick={handleCloseCreateDialog}
                           className="border-linear-border text-linear-text-secondary hover:bg-linear-bg-tertiary"
                         >
                           Cancel
@@ -473,6 +480,7 @@ export default function TeamsPage() {
                 />
                 {filterText && (
                   <button
+                    type="button"
                     onClick={() => setFilterText("")}
                     className="absolute right-3 top-1/2 -translate-y-1/2 text-linear-text-tertiary hover:text-linear-text"
                   >
@@ -480,7 +488,7 @@ export default function TeamsPage() {
                   </button>
                 )}
               </div>
-              <Button variant="outline" size="sm" className="h-9 border-linear-border bg-transparent text-linear-text-secondary hover:bg-linear-bg-tertiary">
+              <Button type="button" variant="outline" size="sm" className="h-9 border-linear-border bg-transparent text-linear-text-secondary hover:bg-linear-bg-tertiary">
                 <Filter className="w-4 h-4 mr-1.5" />
                 Filter
               </Button>
@@ -550,6 +558,7 @@ export default function TeamsPage() {
                                   {team.inviteCode}
                                 </code>
                                 <button
+                                  type="button"
                                   onClick={(e: React.MouseEvent) => {
                                     e.stopPropagation()
                                     handleCopyInviteCode(team.inviteCode!, team.id)
@@ -579,6 +588,7 @@ export default function TeamsPage() {
                           <td className="py-3 px-4">
                             <div className="flex items-center gap-1">
                               <button
+                                type="button"
                                 onClick={(e: React.MouseEvent) => {
                                   e.stopPropagation()
                                   setEditTeam(team)
@@ -595,6 +605,7 @@ export default function TeamsPage() {
                                 <Pencil className="w-4 h-4 text-linear-text-secondary" />
                               </button>
                               <button
+                                type="button"
                                 onClick={(e: React.MouseEvent) => {
                                   e.stopPropagation()
                                   handleDeleteTeam(team.id)
@@ -617,30 +628,35 @@ export default function TeamsPage() {
                 {filteredTeams.map((team) => (
                   <div
                     key={team.id}
-                    onClick={() => router.push(`/teams/${team.id}`)}
                     className="bg-linear-bg-secondary border border-linear-border rounded-lg p-4 cursor-pointer"
                   >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex items-center gap-3 min-w-0">
-                        <div
-                          className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 border border-linear-border"
-                          style={{ backgroundColor: `${team.color}20` }}
-                        >
-                          <span className="text-sm font-bold" style={{ color: team.color }}>
-                            {team.name.charAt(0)}
-                          </span>
-                        </div>
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-2">
-                            <div className="text-sm font-medium text-linear-text truncate">{team.name}</div>
-                            <span className="text-xs text-linear-text-secondary font-mono bg-linear-bg-tertiary px-1.5 py-0.5 rounded">{team.key}</span>
+                    <button
+                      type="button"
+                      onClick={() => router.push(`/teams/${team.id}`)}
+                      className="w-full text-left"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div
+                            className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 border border-linear-border"
+                            style={{ backgroundColor: `${team.color}20` }}
+                          >
+                            <span className="text-sm font-bold" style={{ color: team.color }}>
+                              {team.name.charAt(0)}
+                            </span>
                           </div>
-                          {team.description && (
-                            <div className="text-xs text-linear-text-tertiary line-clamp-1">{team.description}</div>
-                          )}
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                              <div className="text-sm font-medium text-linear-text truncate">{team.name}</div>
+                              <span className="text-xs text-linear-text-secondary font-mono bg-linear-bg-tertiary px-1.5 py-0.5 rounded">{team.key}</span>
+                            </div>
+                            {team.description && (
+                              <div className="text-xs text-linear-text-tertiary line-clamp-1">{team.description}</div>
+                            )}
+                          </div>
                         </div>
                       </div>
-                    </div>
+                    </button>
 
                     <div className="flex items-center justify-between mt-3 pt-3 border-t border-linear-border/50">
                       <div className="flex items-center gap-3">
@@ -650,6 +666,7 @@ export default function TeamsPage() {
                               {team.inviteCode}
                             </code>
                             <button
+                              type="button"
                               onClick={(e: React.MouseEvent) => {
                                 e.stopPropagation()
                                 handleCopyInviteCode(team.inviteCode!, team.id)
@@ -676,6 +693,7 @@ export default function TeamsPage() {
                       </div>
                       <div className="flex items-center gap-1">
                         <button
+                          type="button"
                           onClick={(e: React.MouseEvent) => {
                             e.stopPropagation()
                             setEditTeam(team)
@@ -692,6 +710,7 @@ export default function TeamsPage() {
                           <Pencil className="w-4 h-4 text-linear-text-secondary" />
                         </button>
                         <button
+                          type="button"
                           onClick={(e: React.MouseEvent) => {
                             e.stopPropagation()
                             handleDeleteTeam(team.id)
@@ -722,9 +741,10 @@ export default function TeamsPage() {
               </p>
               {!filterText && (
                 <Button
+                  type="button"
                   size="sm"
                   className="h-8 bg-linear-accent hover:bg-linear-accent-hover text-white"
-                  onClick={() => setIsDialogOpen(true)}
+                  onClick={openCreateTeamDialog}
                 >
                   <Plus className="w-4 h-4 mr-1.5" />
                   Create team
