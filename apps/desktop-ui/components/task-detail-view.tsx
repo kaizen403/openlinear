@@ -464,7 +464,7 @@ export function TaskDetailView({ task, logs, progress, open, onClose, onDelete, 
                         <span className="text-sm text-linear-text-secondary">Project</span>
                         <Folder className="w-3.5 h-3.5 text-linear-text-tertiary" />
                       </div>
-                      <span className="text-sm text-linear-text">KazCode</span>
+                          <span className="text-sm text-linear-text">OpenLinear</span>
                     </div>
 
                     <div className="py-2">

@@ -1,6 +1,6 @@
-# KazCode Feature Documentation
+# OpenLinear Feature Documentation
 
-Complete documentation for every feature in KazCode.
+Complete documentation for every feature in OpenLinear.
 
 ## Getting Started
 

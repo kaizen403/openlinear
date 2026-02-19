@@ -39,14 +39,14 @@ The API runs on `http://localhost:3001` by default. The desktop UI opens a Tauri
 You have two options:
 
 **Without GitHub login (public repos only):**
-Click the repository connector in the sidebar and paste a GitHub URL (e.g. `https://github.com/user/repo`). KazCode fetches the repo metadata from the GitHub API and stores it locally.
+Click the repository connector in the sidebar and paste a GitHub URL (e.g. `https://github.com/user/repo`). OpenLinear fetches the repo metadata from the GitHub API and stores it locally.
 
 **With GitHub login (private repos):**
 Click "Sign in with GitHub" in the sidebar. After OAuth, you can browse and import any repo you have access to. Your GitHub token is used for cloning, pushing, and creating PRs.
 
 ## Authentication
 
-KazCode supports two authentication methods:
+OpenLinear supports two authentication methods:
 
 **Username/password:** Register with a username (2--50 chars), password, and optional email via the login screen. This creates a local account with no GitHub access (public repos only).
 
@@ -59,7 +59,7 @@ After first login, a project selector screen appears where you pick or create a 
 1. Click the **+** button in the Todo column to create a new task.
 2. Enter a title and optional description. Set priority and labels as needed.
 3. Click the **Execute** button on the task card.
-4. The task moves to In Progress. KazCode clones your repo, creates a branch, starts an OpenCode agent session, and streams live progress.
+4. The task moves to In Progress. OpenLinear clones your repo, creates a branch, starts an OpenCode agent session, and streams live progress.
 5. When the agent finishes, changes are committed, pushed, and a PR is created. The task moves to Done.
 
 ## Environment Variables

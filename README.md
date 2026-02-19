@@ -1,6 +1,6 @@
 <div align="center">
 
-# KazCode
+# OpenLinear
 
 **AI-powered project management that actually writes the code.**
 
@@ -16,12 +16,12 @@ Drag tasks on a kanban board. Click execute. Get a pull request.
 ---
 
 <p align="center">
-  <img src="docs/diagrams/architecture.svg" alt="KazCode Architecture" width="100%"/>
+<img src="docs/diagrams/architecture.svg" alt="OpenLinear Architecture" width="100%"/>
 </p>
 
-## What is KazCode?
+## What is OpenLinear?
 
-KazCode is a desktop app (and web app) that combines a Linear-style kanban board with AI coding agents. You manage tasks visually, and when you're ready, the AI clones your repo, creates a branch, writes the code, and opens a pull request — all in one click.
+OpenLinear is a desktop app (and web app) that combines a Linear-style kanban board with AI coding agents. You manage tasks visually, and when you're ready, the AI clones your repo, creates a branch, writes the code, and opens a pull request — all in one click.
 
 Each user gets an **isolated Docker container** running their own AI agent with their own API keys. No credential sharing, no interference between users.
 

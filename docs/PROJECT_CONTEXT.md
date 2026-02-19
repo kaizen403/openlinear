@@ -1,19 +1,19 @@
-# KazCode — Project Context & Ideas (Non-Technical)
+# OpenLinear — Project Context & Ideas (Non-Technical)
 
-This document describes **what KazCode is**, **who it is for**, **how it works from a user's perspective**, and **how the product has evolved**. It is written in plain language for anyone who needs to understand the project without diving into code.
+This document describes **what OpenLinear is**, **who it is for**, **how it works from a user's perspective**, and **how the product has evolved**. It is written in plain language for anyone who needs to understand the project without diving into code.
 
 ---
 
 ## 1. Vision & Purpose
 
-**KazCode** is a **desktop app** that combines:
+**OpenLinear** is a **desktop app** that combines:
 
 - A **task board** (like Linear or Jira) where you manage coding tasks.
 - **AI agents** that **actually do the work** — they clone your repo, make changes, and open pull requests.
 
 So instead of only *tracking* "Fix the login button" or "Add API pagination," you can **run** those tasks and have an AI coding agent implement them in your repository. You see progress in real time and can cancel or adjust as needed.
 
-**In one sentence:** KazCode is a Linear-style kanban board that executes tasks through AI coding agents.
+**In one sentence:** OpenLinear is a Linear-style kanban board that executes tasks through AI coding agents.
 
 ---
 
@@ -58,7 +58,7 @@ So instead of only *tracking* "Fix the login button" or "Add API pagination," yo
 ## 5. How a User Works (End-to-End)
 
 1. **Setup (one-time)**
-   - Install and open the KazCode desktop app.
+- Install and open the OpenLinear desktop app.
    - Sign up with **email and password** or sign in with **GitHub OAuth**.
    - On first login, you see the **Project Selector** — import a GitHub repository or create a new project.
    - Ensure OpenCode (or the chosen agent) is available; the app can guide you to install it if needed.
@@ -147,7 +147,7 @@ These reflect the product and plan decisions.
 
 ## 8. Terminology Cheat Sheet
 
-- **KazCode** — The product: desktop kanban + AI task execution.
+- **OpenLinear** — The product: desktop kanban + AI task execution.
 - **Task** — One work item on the board (title, description, priority, labels, due date, status).
 - **Label** — Tag with name and color on tasks.
 - **Execute** — Start the AI agent on a task (or batch).
@@ -173,4 +173,4 @@ These reflect the product and plan decisions.
 
 ## 10. Summary
 
-KazCode is a **desktop kanban board for coding tasks that AI agents execute**. You create tasks, optionally group them in batches, run them (single or parallel/queue), and see results and PRs without leaving the board. The product is desktop-first, repo-centric (GitHub), and designed to support multiple AI agents while staying simple and predictable. Teams can collaborate via invite codes, and each user gets an isolated Docker container for AI execution. This document captures the ideas, workflow, and boundaries in non-technical terms for context, onboarding, and product discussions.
+OpenLinear is a **desktop kanban board for coding tasks that AI agents execute**. You create tasks, optionally group them in batches, run them (single or parallel/queue), and see results and PRs without leaving the board. The product is desktop-first, repo-centric (GitHub), and designed to support multiple AI agents while staying simple and predictable. Teams can collaborate via invite codes, and each user gets an isolated Docker container for AI execution. This document captures the ideas, workflow, and boundaries in non-technical terms for context, onboarding, and product discussions.

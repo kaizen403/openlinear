@@ -5,7 +5,7 @@ interface TitleRevealProps {
   text?: string;
 }
 
-export const TitleReveal: React.FC<TitleRevealProps> = ({ text = 'KazCode' }) => {
+export const TitleReveal: React.FC<TitleRevealProps> = ({ text = 'OpenLinear' }) => {
   const frame = useCurrentFrame();
 
   // Container fade in

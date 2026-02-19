@@ -6,7 +6,7 @@ export const Root: React.FC = () => {
   return (
     <>
       <Composition
-        id="KazCodeIntro"
+        id="OpenLinearIntro"
         component={Intro}
         durationInFrames={300}
         fps={30}

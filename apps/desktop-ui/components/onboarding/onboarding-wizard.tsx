@@ -50,7 +50,7 @@ function WelcomeStep({ onNext }: { onNext: () => void }) {
         className="space-y-2"
       >
         <h2 className="text-2xl font-semibold text-linear-text">
-          Welcome to KazCode
+          Welcome to OpenLinear
         </h2>
         <p className="text-sm text-linear-text-secondary max-w-xs mx-auto leading-relaxed">
           AI-powered project management that writes the code. Manage tasks visually, then let AI execute them.

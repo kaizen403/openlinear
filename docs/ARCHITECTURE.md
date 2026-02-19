@@ -1,14 +1,14 @@
 # Architecture
 
-A deep dive into how KazCode works — from authentication to container isolation to task execution.
+A deep dive into how OpenLinear works — from authentication to container isolation to task execution.
 
 <p align="center">
-  <img src="diagrams/architecture.svg" alt="KazCode Architecture" width="100%"/>
+<img src="diagrams/architecture.svg" alt="OpenLinear Architecture" width="100%"/>
 </p>
 
 ## System Overview
 
-KazCode is a monorepo with four main components: a Next.js desktop UI, an Express API sidecar, per-user Docker containers running OpenCode, and a PostgreSQL database.
+OpenLinear is a monorepo with four main components: a Next.js desktop UI, an Express API sidecar, per-user Docker containers running OpenCode, and a PostgreSQL database.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -37,7 +37,7 @@ KazCode is a monorepo with four main components: a Next.js desktop UI, an Expres
 
 ## Authentication
 
-KazCode supports two authentication methods, both producing the same JWT:
+OpenLinear supports two authentication methods, both producing the same JWT:
 
 **Email/Password** — register with name, email, and password. Passwords are hashed with bcrypt. On login, a JWT is issued with `{ userId, username }`, signed with `JWT_SECRET`, 7-day expiry.
 
@@ -120,7 +120,7 @@ Since each user has separate volumes, their provider credentials are completely 
 
 ## Task Execution
 
-KazCode supports two execution modes: **parallel** and **queue**. Both modes use git worktrees to isolate each task in its own branch and working directory, and merge results into a single batched PR.
+OpenLinear supports two execution modes: **parallel** and **queue**. Both modes use git worktrees to isolate each task in its own branch and working directory, and merge results into a single batched PR.
 
 ### Single Task Execution
 

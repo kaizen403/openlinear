@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# deploy.sh — Production deploy script for KazCode
+# deploy.sh — Production deploy script for OpenLinear
 # Called by CI via SSH at /opt/openlinear/deploy.sh
 # Also works standalone: ./scripts/deploy.sh
 set -euo pipefail

@@ -1,10 +1,10 @@
 # OpenCode Integration
 
-OpenCode is the AI coding agent that executes tasks. KazCode runs each user's OpenCode instance inside a dedicated Docker container, providing isolation between users.
+OpenCode is the AI coding agent that executes tasks. OpenLinear runs each user's OpenCode instance inside a dedicated Docker container, providing isolation between users.
 
 ## Architecture
 
-KazCode uses a **container-per-user** model. When a user triggers their first task execution (or explicitly starts a container), the system:
+OpenLinear uses a **container-per-user** model. When a user triggers their first task execution (or explicitly starts a container), the system:
 
 1. Pulls the `opencode-worker` Docker image
 2. Creates a container named `opencode-user-{userId}`
@@ -38,7 +38,7 @@ On API restart, the container manager discovers existing containers by querying 
 
 ## SDK
 
-KazCode uses `@opencode-ai/sdk` which provides:
+OpenLinear uses `@opencode-ai/sdk` which provides:
 - `createOpencodeClient()` -- creates a client for a running OpenCode server
 - `createOpencodeServer()` -- used inside the worker container to start the OpenCode server
 - `OpencodeClient` -- type for session management, event subscription, provider configuration
@@ -157,7 +157,7 @@ Returns the result of the OAuth token exchange.
 
 ## Model Configuration
 
-KazCode does not configure which model OpenCode uses. That comes from OpenCode's own config files (stored in the container's persistent config volume at `/home/opencode/.config/opencode`).
+OpenLinear does not configure which model OpenCode uses. That comes from OpenCode's own config files (stored in the container's persistent config volume at `/home/opencode/.config/opencode`).
 
 ## Worker Container
 

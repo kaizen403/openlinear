@@ -80,7 +80,7 @@ export async function oauthAuthorize(
 // --- Configured providers localStorage cache ---
 // The container's provider.list().data.connected is slow to update after auth.set().
 // We persist confirmed saves here so the execute flow doesn't show a false "not configured" state.
-const CONFIGURED_PROVIDERS_KEY = 'kazcode-configured-providers';
+const CONFIGURED_PROVIDERS_KEY = 'openlinear-configured-providers';
 
 export function addConfiguredProvider(providerId: string): void {
   try {

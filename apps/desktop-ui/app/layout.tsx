@@ -14,7 +14,7 @@ export const viewport: Viewport = {
 }
 
 export const metadata: Metadata = {
-  title: "KazCode",
+  title: "OpenLinear",
   description: "AI-powered issue tracking and code execution",
   other: {
     "theme-color": "#111111",

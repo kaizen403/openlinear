@@ -1,6 +1,6 @@
 # Task Execution (Single)
 
-Running a single task through an AI agent. This is the core feature of KazCode.
+Running a single task through an AI agent. This is the core feature of OpenLinear.
 
 ## Execution Flow
 
