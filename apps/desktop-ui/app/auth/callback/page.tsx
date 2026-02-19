@@ -7,6 +7,7 @@ import { AlertCircle, CheckCircle2, Copy } from "lucide-react"
 import { Button } from "@/components/ui/button"
 
 const OAUTH_CALLBACK_STORAGE_KEY = "opencode-oauth-callback"
+const OAUTH_PENDING_STORAGE_KEY = "opencode-oauth-pending"
 
 export default function OAuthCallbackPage() {
   const searchParams = useSearchParams()
@@ -23,11 +24,34 @@ export default function OAuthCallbackPage() {
 
     if (!code) return
 
+    let pendingProviderId: string | undefined
+    let pendingMethod: number | undefined
+
+    try {
+      const pendingRaw = localStorage.getItem(OAUTH_PENDING_STORAGE_KEY)
+      if (pendingRaw) {
+        const pending = JSON.parse(pendingRaw) as {
+          providerId?: string
+          method?: number
+          timestamp?: number
+        }
+        const ageMs = pending.timestamp ? Date.now() - pending.timestamp : 0
+        if (ageMs <= 10 * 60 * 1000) {
+          pendingProviderId = pending.providerId
+          if (typeof pending.method === "number") {
+            pendingMethod = pending.method
+          }
+        }
+      }
+    } catch {}
+
     localStorage.setItem(
       OAUTH_CALLBACK_STORAGE_KEY,
       JSON.stringify({
         url: currentUrl,
         code,
+        providerId: pendingProviderId,
+        method: pendingMethod,
         timestamp: Date.now(),
       })
     )

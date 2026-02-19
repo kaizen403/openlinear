@@ -45,7 +45,7 @@ import {
 import { useSearchParams } from "next/navigation"
 import { toast } from "sonner"
 import { DatabaseSettings } from "@/components/desktop/database-settings"
-import { ensureContainer, getSetupStatus, setProviderApiKey, getProviderAuthMethods, oauthAuthorize, oauthCallback, addConfiguredProvider, getModels, getModelConfig, setModel, ProviderInfo, SetupStatus, ProviderAuthMethods, ProviderModels } from "@/lib/api/opencode"
+import { ensureContainer, getSetupStatus, setProviderApiKey, getProviderAuthMethods, oauthAuthorize, oauthCallback, addConfiguredProvider, getModels, getModelConfig, setModel, SetupStatus, ProviderAuthMethods, ProviderModels } from "@/lib/api/opencode"
 import { AppShell } from "@/components/layout/app-shell"
 import { API_URL } from "@/lib/api/client"
 
@@ -75,6 +75,7 @@ const NAV_ITEMS: {
 ]
 
 const OAUTH_CALLBACK_STORAGE_KEY = "opencode-oauth-callback"
+const OAUTH_PENDING_STORAGE_KEY = "opencode-oauth-pending"
 
 function SettingsContent() {
   const searchParams = useSearchParams()
@@ -348,6 +349,7 @@ function SettingsContent() {
       delete next[providerId]
       return next
     })
+    localStorage.removeItem(OAUTH_PENDING_STORAGE_KEY)
   }, [])
 
   const handleOAuthLogin = async (providerId: string, methodIndex?: number) => {
@@ -356,6 +358,14 @@ function SettingsContent() {
       const { url } = await oauthAuthorize(providerId, methodIndex)
       if (url) {
         localStorage.removeItem(OAUTH_CALLBACK_STORAGE_KEY)
+        localStorage.setItem(
+          OAUTH_PENDING_STORAGE_KEY,
+          JSON.stringify({
+            providerId,
+            method: methodIndex,
+            timestamp: Date.now(),
+          })
+        )
         window.open(url, "_blank", "noopener,noreferrer")
         setOauthWaitingProvider(providerId)
         setOauthMethodByProvider((prev) => ({ ...prev, [providerId]: methodIndex }))
@@ -423,22 +433,36 @@ function SettingsContent() {
         const parsed = JSON.parse(raw) as {
           url?: string
           code?: string
+          providerId?: string
+          method?: number
           timestamp?: number
         }
 
         const ageMs = parsed.timestamp ? Date.now() - parsed.timestamp : 0
         if (ageMs > 10 * 60 * 1000) return
 
+        const targetProviderId = parsed.providerId || oauthWaitingProvider
+        if (!targetProviderId) return
+
         const value = parsed.url || parsed.code || ""
         if (!extractOAuthCode(value)) return
 
+        if (typeof parsed.method === "number") {
+          setOauthMethodByProvider((prev) => ({
+            ...prev,
+            [targetProviderId]: parsed.method,
+          }))
+        }
+
+        setOauthWaitingProvider(targetProviderId)
+
         setOauthCallbackInputs((prev) => ({
           ...prev,
-          [oauthWaitingProvider]: value,
+          [targetProviderId]: value,
         }))
 
         localStorage.removeItem(OAUTH_CALLBACK_STORAGE_KEY)
-        void handleOAuthComplete(oauthWaitingProvider, value)
+        void handleOAuthComplete(targetProviderId, value)
       } catch {}
     }
 
@@ -1323,6 +1347,7 @@ function SettingsContent() {
                                 onClick={() => {
                                   setOauthWaitingProvider(null)
                                   clearOAuthPendingState(provider.id)
+                                  localStorage.removeItem(OAUTH_CALLBACK_STORAGE_KEY)
                                 }}
                                 className="border-linear-border text-linear-text-secondary h-9"
                               >
