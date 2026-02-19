@@ -8,6 +8,7 @@ import { ensureMainRepo, createWorktree, cleanupBatch, mergeBranch, createBatchB
 import type { BatchState, BatchTask, BatchSettings, CreateBatchParams, BatchEventType } from '../types/batch';
 import type { OpencodeClient } from '@opencode-ai/sdk';
 import { getOrCreateBuffer, appendTextDelta, appendReasoningDelta, flushDeltaBuffer, cleanupDeltaBuffer, markThinking } from './delta-buffer';
+import { getGitIdentityEnv } from './git-identity';
 
 const execAsync = promisify(exec);
 
@@ -388,23 +389,24 @@ async function handleTaskComplete(
 
   const elapsedMs = task.startedAt ? Date.now() - task.startedAt.getTime() : 0;
 
-  if (success) {
-    // Commit changes from worktree
-    if (task.worktreePath) {
-      try {
-        const { stdout: status } = await execAsync('git status --porcelain', { cwd: task.worktreePath });
-        if (status.trim()) {
-          await execAsync('git add -A', { cwd: task.worktreePath });
-          const commitMsg = `feat: ${task.title.toLowerCase().replace(/[^a-z0-9\s]/g, '').slice(0, 50)}`;
-          await execAsync(`git commit -m "${commitMsg}"`, { cwd: task.worktreePath });
-          console.log(`[Batch] Committed changes for task ${task.taskId.slice(0, 8)}`);
-        } else {
-          console.log(`[Batch] No changes for task ${task.taskId.slice(0, 8)}`);
+    if (success) {
+      // Commit changes from worktree
+      if (task.worktreePath) {
+        try {
+          const env = { ...process.env, ...getGitIdentityEnv() };
+          const { stdout: status } = await execAsync('git status --porcelain', { cwd: task.worktreePath });
+          if (status.trim()) {
+            await execAsync('git add -A', { cwd: task.worktreePath });
+            const commitMsg = `feat: ${task.title.toLowerCase().replace(/[^a-z0-9\s]/g, '').slice(0, 50)}`;
+            await execAsync(`git commit -m "${commitMsg}"`, { cwd: task.worktreePath, env });
+            console.log(`[Batch] Committed changes for task ${task.taskId.slice(0, 8)}`);
+          } else {
+            console.log(`[Batch] No changes for task ${task.taskId.slice(0, 8)}`);
+          }
+        } catch (commitErr) {
+          console.error(`[Batch] Failed to commit for task ${task.taskId.slice(0, 8)}:`, commitErr);
         }
-      } catch (commitErr) {
-        console.error(`[Batch] Failed to commit for task ${task.taskId.slice(0, 8)}:`, commitErr);
       }
-    }
 
     task.status = 'completed';
     broadcastBatchEvent('batch:task:completed', batchId, { taskId });

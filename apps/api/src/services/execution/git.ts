@@ -3,6 +3,7 @@ import { promisify } from 'util';
 import { existsSync, mkdirSync, rmSync, accessSync, constants } from 'fs';
 import { join } from 'path';
 import { PullRequestResult, REPOS_DIR } from './state';
+import { getGitIdentityEnv } from '../git-identity';
 
 const execAsync = promisify(exec);
 
@@ -67,6 +68,8 @@ export async function commitAndPush(
   taskTitle: string
 ): Promise<CommitPushResult> {
   try {
+    const env = { ...process.env, ...getGitIdentityEnv() };
+
     console.log(`[Execution] Checking for changes in ${repoPath}`);
     const { stdout: status } = await execAsync('git status --porcelain', { cwd: repoPath });
     
@@ -80,11 +83,11 @@ export async function commitAndPush(
     
     const commitMessage = `feat: ${taskTitle.toLowerCase().replace(/[^a-z0-9\s]/g, '').slice(0, 50)}`;
     console.log(`[Execution] Committing: ${commitMessage}`);
-    await execAsync(`git commit -m "${commitMessage}"`, { cwd: repoPath });
+    await execAsync(`git commit -m "${commitMessage}"`, { cwd: repoPath, env });
     
     console.log(`[Execution] Pushing to origin/${branchName}...`);
     // Force push is safe here: these are ephemeral task branches we create fresh each run
-    await execAsync(`git push --force -u origin ${branchName}`, { cwd: repoPath });
+    await execAsync(`git push --force -u origin ${branchName}`, { cwd: repoPath, env });
     console.log(`[Execution] Push complete`);
     
     return { status: 'pushed' };

@@ -2,6 +2,7 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import { existsSync, mkdirSync, rmSync } from 'fs';
 import { join } from 'path';
+import { getGitIdentityEnv } from './git-identity';
 
 const execAsync = promisify(exec);
 const REPOS_DIR = process.env.REPOS_DIR || '/tmp/openlinear-repos';
@@ -192,6 +193,7 @@ export async function mergeBranch(
   const mergePath = join(REPOS_DIR, projectId, 'merge-temp');
 
   try {
+    const env = { ...process.env, ...getGitIdentityEnv() };
     if (existsSync(mergePath)) {
       try {
         await execAsync(`git -C ${mainRepoPath} worktree remove ${mergePath} --force`);
@@ -206,7 +208,8 @@ export async function mergeBranch(
     try {
       console.log(`[Worktree] Merging ${taskBranch} into ${targetBranch}`);
       await execAsync(
-        `git -C ${mergePath} merge --no-ff ${taskBranch} -m "Merge ${taskBranch}"`
+        `git -C ${mergePath} merge --no-ff ${taskBranch} -m "Merge ${taskBranch}"`,
+        { env }
       );
       console.log(`[Worktree] Merge succeeded: ${taskBranch} → ${targetBranch}`);
 
