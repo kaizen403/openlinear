@@ -65,42 +65,44 @@ function ProjectConfigPanel({ selectedProject, canExecute, tasks, selectedTaskId
   ]
 
   return (
-    <div className="w-full border-b border-white/[0.06] bg-[#0f0f0f]">
+    <div className="w-full border-b border-white/[0.06] bg-[#111111] flex-shrink-0">
       <div className="px-4 py-3">
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
-          {items.map((item) => {
-            const Icon = item.icon
-            const statusColors: Record<string, string> = {
-              ready: 'text-emerald-400 bg-emerald-400/10 border-emerald-400/20',
-              active: 'text-linear-accent bg-linear-accent/10 border-linear-accent/20',
-              blocked: 'text-amber-400 bg-amber-400/10 border-amber-400/20',
-              neutral: 'text-linear-text-secondary bg-white/[0.04] border-white/[0.08]',
-              inactive: 'text-linear-text-tertiary bg-white/[0.03] border-white/[0.06]',
-            }
-            const colors = statusColors[item.status]
+        <div className="rounded-xl border border-white/[0.06] bg-[#0f0f0f] overflow-hidden">
+          <div className="flex items-stretch divide-x divide-white/[0.06] overflow-x-auto">
+            {items.map((item) => {
+              const Icon = item.icon
+              const tones: Record<string, { bg: string; icon: string; value: string }> = {
+                ready: { bg: 'bg-emerald-500/10', icon: 'text-emerald-400', value: 'text-emerald-200' },
+                blocked: { bg: 'bg-amber-500/10', icon: 'text-amber-400', value: 'text-amber-200' },
+                active: { bg: 'bg-linear-accent/10', icon: 'text-linear-accent', value: 'text-linear-accent' },
+                neutral: { bg: '', icon: 'text-linear-text-tertiary', value: 'text-linear-text' },
+                inactive: { bg: '', icon: 'text-linear-text-tertiary', value: 'text-linear-text-tertiary' },
+              }
+              const tone = tones[item.status]
 
-            return (
-              <div
-                key={item.label}
-                className={`flex items-center gap-2.5 px-3 py-2 rounded-lg border ${colors} transition-colors`}
-              >
-                <Icon className="w-4 h-4 flex-shrink-0" />
-                <div className="min-w-0 flex-1">
-                  <div className="text-[10px] uppercase tracking-wider opacity-70 font-medium leading-tight">
-                    {item.label}
-                  </div>
-                  <div className="text-xs font-medium truncate leading-tight">
-                    {item.value}
-                  </div>
-                  {item.subValue && (
-                    <div className="text-[10px] opacity-60 truncate leading-tight">
-                      {item.subValue}
+              return (
+                <div
+                  key={item.label}
+                  className={`flex-1 min-w-[190px] sm:min-w-0 px-4 py-3 flex items-center gap-3 ${tone.bg} transition-colors`}
+                >
+                  <Icon className={`w-4 h-4 flex-shrink-0 ${tone.icon}`} />
+                  <div className="min-w-0">
+                    <div className="text-[11px] uppercase tracking-[0.14em] text-linear-text-tertiary leading-tight">
+                      {item.label}
                     </div>
-                  )}
+                    <div className={`text-sm font-medium truncate leading-tight ${tone.value}`}>
+                      {item.value}
+                    </div>
+                    {item.subValue && (
+                      <div className="text-xs text-linear-text-tertiary truncate leading-tight mt-0.5">
+                        {item.subValue}
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
-            )
-          })}
+              )
+            })}
+          </div>
         </div>
       </div>
     </div>
