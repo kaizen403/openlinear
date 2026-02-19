@@ -2,65 +2,62 @@ import { Github, GitBranch, Layers, Workflow, ArrowRight } from "lucide-react"
 
 export function IntegrationsSection() {
   return (
-    <section className="relative py-32 md:py-40 overflow-hidden">
-      <div className="absolute inset-0 bg-gradient-to-b from-[#0a0f1a] via-[#0d1424] to-[#0a0f1a]" />
-      
-      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] rounded-full bg-blue-500/5 blur-[150px] pointer-events-none" />
-
-      <div className="relative mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+    <section className="relative py-24 overflow-hidden bg-[#0a0f1a]">
+      <div className="relative mx-auto max-w-[1200px] px-4">
         <div className="grid lg:grid-cols-2 gap-16 items-center">
-          <div className="relative">
-            <div className="relative flex items-center justify-center">
-              <div className="relative">
-                <div className="absolute inset-0 bg-blue-500/20 blur-[100px] rounded-full" />
-                
-                <div className="relative h-64 w-64 rounded-3xl bg-gradient-to-br from-blue-500/20 to-cyan-500/20 border border-blue-500/30 flex items-center justify-center">
-                  <svg 
-                    viewBox="0 0 100 100" 
-                    className="h-32 w-32 text-blue-400"
-                    fill="currentColor"
-                  >
-                    <path d="M50 10 L90 30 L90 70 L50 90 L10 70 L10 30 Z" fill="none" stroke="currentColor" strokeWidth="4"/>
-                    <circle cx="50" cy="50" r="15" fill="currentColor"/>
-                    <path d="M50 10 L50 35" stroke="currentColor" strokeWidth="4"/>
-                    <path d="M50 65 L50 90" stroke="currentColor" strokeWidth="4"/>
-                    <path d="M90 30 L65 42" stroke="currentColor" strokeWidth="4"/>
-                    <path d="M35 58 L10 70" stroke="currentColor" strokeWidth="4"/>
-                    <path d="M90 70 L65 58" stroke="currentColor" strokeWidth="4"/>
-                    <path d="M35 42 L10 30" stroke="currentColor" strokeWidth="4"/>
-                  </svg>
-                </div>
+          {/* Visual Left Side */}
+          <div className="relative h-[400px] flex items-center justify-center">
+            {/* Connecting lines */}
+            <svg className="absolute inset-0 w-full h-full pointer-events-none opacity-20 text-white" stroke="currentColor" strokeWidth="1.5">
+              <line x1="50%" y1="50%" x2="20%" y2="20%" />
+              <line x1="50%" y1="50%" x2="30%" y2="15%" />
+              <line x1="50%" y1="50%" x2="50%" y2="10%" />
+              <line x1="50%" y1="50%" x2="80%" y2="30%" />
+              <line x1="50%" y1="50%" x2="85%" y2="65%" />
+              <line x1="50%" y1="50%" x2="60%" y2="85%" />
+              <line x1="50%" y1="50%" x2="30%" y2="85%" />
+              <line x1="50%" y1="50%" x2="15%" y2="60%" />
+            </svg>
 
-                <IntegrationOrb icon={Github} label="GitHub" position="top-0 -right-8" />
-                <IntegrationOrb icon={GitBranch} label="Git" position="top-1/4 -left-8" />
-                <IntegrationOrb icon={Layers} label="Projects" position="bottom-1/4 -right-8" />
-                <IntegrationOrb icon={Workflow} label="CI/CD" position="bottom-0 left-1/4" />
-              </div>
+            {/* Center Logo */}
+            <div className="h-32 w-32 text-cyan-400 z-20 drop-shadow-[0_0_30px_rgba(34,211,238,0.4)]">
+              <svg viewBox="0 0 24 24" className="w-full h-full" fill="currentColor">
+                <path d="M12 2L12 10L19 6L19 14L12 10L12 22L10 22L10 10L3 14L3 6L10 10L10 2Z" />
+              </svg>
             </div>
+
+            {/* Orbiting Icons */}
+            <IntegrationNode icon={Github} top="20%" left="20%" />
+            <IntegrationNode text="Drive" top="15%" left="35%" color="bg-blue-500" />
+            <IntegrationNode text="X" top="10%" left="55%" />
+            <IntegrationNode text="N" top="30%" left="80%" />
+            <IntegrationNode text="aws" top="65%" left="85%" />
+            <IntegrationNode text="Py" top="85%" left="60%" color="bg-yellow-500" />
+            <IntegrationNode icon={GitBranch} top="85%" left="30%" />
+            <IntegrationNode text="JS" top="60%" left="15%" color="bg-yellow-400" />
           </div>
 
-          <div className="text-center lg:text-left">
-            <span className="inline-block px-3 py-1 rounded-full bg-white/[0.04] border border-white/[0.08] text-xs text-white/60 mb-6">
+          {/* Text Right Side */}
+          <div className="lg:pl-12">
+            <div className="inline-block px-3 py-1 rounded-md bg-white/[0.03] border border-white/[0.08] text-[13px] text-white/60 mb-6">
               Connectors and Integrations
-            </span>
+            </div>
             
-            <h2 className="font-display text-[2.5rem] md:text-[3.5rem] font-bold tracking-[-0.02em] text-white leading-[1.1] mb-6">
-              Bring your code from
-              <br />
-              where it lives.
+            <h2 className="font-display text-[2.5rem] md:text-[3.5rem] font-bold tracking-tight text-white leading-[1.1] mb-6">
+              Bring your user's context from where they are.
             </h2>
             
-            <p className="text-lg text-white/50 leading-relaxed mb-8">
-              OpenLinear connects to GitHub repositories and syncs with your development workflow. 
-              Forget custom infrastructure. OpenLinear drops into your stack with just a few clicks.
+            <p className="text-[17px] text-white/50 leading-relaxed mb-8">
+              OpenLinear connects to Google Drive, Notion, Onedrive and more and syncs user context.
+              <br /><br />
+              Forget custom infra. OpenLinear drops into your stack with just a few lines of code.
             </p>
 
             <a
               href="/docs"
-              className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-white/[0.04] border border-white/[0.12] text-white hover:bg-white/[0.08] hover:border-white/[0.2] transition-all"
+              className="inline-flex items-center px-6 py-3 rounded-full bg-transparent border border-white/20 text-white hover:bg-white/[0.03] hover:border-white/30 transition-all text-sm font-medium"
             >
-              Read more about connectors
-              <ArrowRight className="h-4 w-4" />
+              Read more about connectors →
             </a>
           </div>
         </div>
@@ -69,21 +66,17 @@ export function IntegrationsSection() {
   )
 }
 
-function IntegrationOrb({ 
-  icon: Icon, 
-  label, 
-  position 
-}: { 
-  icon: React.ComponentType<{ className?: string }>
-  label: string
-  position: string
-}) {
+function IntegrationNode({ icon: Icon, text, top, left, color = "bg-white/[0.04]" }: any) {
   return (
-    <div className={`absolute ${position} flex flex-col items-center gap-2`}>
-      <div className="h-14 w-14 rounded-2xl bg-white/[0.04] border border-white/[0.08] flex items-center justify-center text-white/70 hover:text-white hover:bg-white/[0.08] transition-all">
-        <Icon className="h-6 w-6" />
-      </div>
-      <span className="text-xs text-white/40">{label}</span>
+    <div 
+      className="absolute h-14 w-14 rounded-2xl bg-[#131823] border border-white/[0.08] flex items-center justify-center z-10 shadow-xl"
+      style={{ top, left, transform: 'translate(-50%, -50%)' }}
+    >
+      {Icon ? (
+        <Icon className="h-6 w-6 text-white/80" />
+      ) : (
+        <span className={`text-sm font-bold ${color === "bg-white/[0.04]" ? "text-white/80" : color.replace('bg-', 'text-')}`}>{text}</span>
+      )}
     </div>
   )
 }
