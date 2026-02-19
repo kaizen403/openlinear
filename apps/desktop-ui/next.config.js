@@ -1,6 +1,9 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  experimental: {
+    cpus: process.env.CI ? 2 : undefined,
+  },
   turbopack: {},
   webpack: (config) => {
     // Increase chunk loading timeout for Tauri webview cold starts
