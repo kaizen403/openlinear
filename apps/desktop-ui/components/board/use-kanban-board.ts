@@ -4,6 +4,7 @@ import { SSEEventType, SSEEventData } from "@/hooks/use-sse"
 import { useSSESubscription } from "@/providers/sse-provider"
 import { useAuth } from "@/hooks/use-auth"
 import { Project } from "@/lib/api"
+import type { Repository } from "@/lib/api"
 import { Task, ExecutionProgress, ExecutionLogEntry } from "@/types/task"
 import { API_URL, getAuthHeader } from "@/lib/api/client"
 import { getSetupStatus, hasConfiguredProviders } from "@/lib/api/opencode"
@@ -51,6 +52,7 @@ export interface UseKanbanBoardReturn {
   setActiveBatch: (batch: ActiveBatch | null) => void
   completedBatch: { taskIds: string[]; prUrl: string | null; mode: string } | null
   canExecute: boolean
+  activeRepository: Repository | null
   selectedProject: Project | undefined
   batchTaskIds: string[]
   completedBatchTaskIds: string[]
@@ -793,6 +795,7 @@ export function useKanbanBoard({ projectId, teamId, projects = [] }: KanbanBoard
     setActiveBatch,
     completedBatch,
     canExecute,
+    activeRepository,
     selectedProject,
     batchTaskIds,
     completedBatchTaskIds,

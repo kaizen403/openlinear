@@ -9,32 +9,52 @@ import { DashboardLoading } from "./dashboard-loading"
 import { TaskFormDialog } from "@/components/task-form"
 import { TaskDetailView } from "@/components/task-detail-view"
 import { ProviderSetupDialog } from "@/components/provider-setup-dialog"
-import { Plus, Settings2, GitBranch, CircleDot, Layers, CheckCircle2, XCircle, Play } from "lucide-react"
+import { Plus, Settings2, GitBranch, CircleDot, Layers, CheckCircle2, XCircle, Play, Pencil } from "lucide-react"
 import { Task } from "@/types/task"
-import { Project } from "@/lib/api"
+import { Project, Repository } from "@/lib/api"
 import { useKanbanBoard, COLUMNS, KanbanBoardProps } from "./use-kanban-board"
 import { InProgressBatchGroup } from "./in-progress-batch-group"
 import { DoneColumnContent } from "./done-column-content"
+import { useRouter } from "next/navigation"
 
 interface ProjectConfigPanelProps {
   selectedProject: Project | undefined
+  activeRepository: Repository | null
   canExecute: boolean
   tasks: Task[]
   selectedTaskIds: Set<string>
   activeBatch: { mode: string; status: string } | null
 }
 
-function ProjectConfigPanel({ selectedProject, canExecute, tasks, selectedTaskIds, activeBatch }: ProjectConfigPanelProps) {
+function ProjectConfigPanel({ selectedProject, activeRepository, canExecute, tasks, selectedTaskIds, activeBatch }: ProjectConfigPanelProps) {
+  const router = useRouter()
   const todoCount = tasks.filter(t => t.status === 'todo').length
   const inProgressCount = tasks.filter(t => t.status === 'in_progress').length
   const doneCount = tasks.filter(t => t.status === 'done').length
   const cancelledCount = tasks.filter(t => t.status === 'cancelled').length
 
+  const sourceFromRepoUrl = (() => {
+    const repoUrl = selectedProject?.repoUrl
+    if (!repoUrl) return null
+    return repoUrl
+      .replace(/^https?:\/\/(www\.)?github\.com\//, "")
+      .replace(/\.git$/, "")
+  })()
+
+  const sourceValue =
+    selectedProject?.repository?.fullName ||
+    sourceFromRepoUrl ||
+    selectedProject?.localPath ||
+    activeRepository?.fullName ||
+    null
+
+  const canEditSource = !!(selectedProject || activeRepository)
+
   const items = [
     {
       icon: selectedProject ? GitBranch : Settings2,
       label: 'Source',
-      value: selectedProject?.name || 'No project selected',
+      value: sourceValue || 'No source connected',
       status: selectedProject ? 'active' : 'inactive',
     },
     {
@@ -65,10 +85,10 @@ function ProjectConfigPanel({ selectedProject, canExecute, tasks, selectedTaskId
   ]
 
   return (
-    <div className="w-full border-b border-white/[0.06] bg-[#111111] flex-shrink-0">
-      <div className="px-4 py-3">
-        <div className="rounded-xl border border-white/[0.06] bg-[#0f0f0f] overflow-hidden">
-          <div className="flex items-stretch divide-x divide-white/[0.06] overflow-x-auto">
+    <div className="w-full border-b border-linear-border bg-linear-bg flex-shrink-0">
+      <div className="px-4 py-1.5">
+        <div className="rounded-xl border border-linear-border bg-linear-bg-secondary overflow-hidden">
+          <div className="flex items-stretch divide-x divide-linear-border overflow-x-auto">
             {items.map((item) => {
               const Icon = item.icon
               const tones: Record<string, { bg: string; icon: string; value: string }> = {
@@ -83,22 +103,41 @@ function ProjectConfigPanel({ selectedProject, canExecute, tasks, selectedTaskId
               return (
                 <div
                   key={item.label}
-                  className={`flex-1 min-w-[190px] sm:min-w-0 px-4 py-3 flex items-center gap-3 ${tone.bg} transition-colors`}
+                  className={`flex-1 min-w-[170px] sm:min-w-0 px-3 py-1.5 flex items-center gap-2 ${tone.bg} transition-colors`}
                 >
-                  <Icon className={`w-4 h-4 flex-shrink-0 ${tone.icon}`} />
-                  <div className="min-w-0">
-                    <div className="text-[11px] uppercase tracking-[0.14em] text-linear-text-tertiary leading-tight">
+                  <Icon className={`w-3.5 h-3.5 flex-shrink-0 ${tone.icon}`} />
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[10px] uppercase tracking-[0.16em] text-linear-text-tertiary leading-tight">
                       {item.label}
                     </div>
-                    <div className={`text-sm font-medium truncate leading-tight ${tone.value}`}>
+                    <div className={`text-[13px] font-medium truncate leading-tight ${tone.value}`}>
                       {item.value}
                     </div>
                     {item.subValue && (
-                      <div className="text-xs text-linear-text-tertiary truncate leading-tight mt-0.5">
+                      <div className="text-[11px] text-linear-text-tertiary truncate leading-tight mt-0.5">
                         {item.subValue}
                       </div>
                     )}
                   </div>
+
+                  {item.label === 'Source' && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (selectedProject) {
+                          router.push(`/projects?editProjectId=${selectedProject.id}`)
+                          return
+                        }
+                        router.push('/projects')
+                      }}
+                      disabled={!canEditSource}
+                      className="ml-auto p-1 rounded-md text-linear-text-tertiary hover:text-linear-text hover:bg-white/[0.04] transition-colors disabled:opacity-40 disabled:pointer-events-none"
+                      aria-label="Edit source"
+                      title="Edit source"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                    </button>
+                  )}
                 </div>
               )
             })}
@@ -126,6 +165,7 @@ export function KanbanBoard(props: KanbanBoardProps) {
     setActiveBatch,
     completedBatch,
     canExecute,
+    activeRepository,
     selectedProject,
     batchTaskIds,
     completedBatchTaskIds,
@@ -219,6 +259,7 @@ export function KanbanBoard(props: KanbanBoardProps) {
         )}
         <ProjectConfigPanel
           selectedProject={selectedProject}
+          activeRepository={activeRepository}
           canExecute={canExecute}
           tasks={tasks}
           selectedTaskIds={selectedTaskIds}

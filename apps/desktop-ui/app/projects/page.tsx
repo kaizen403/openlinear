@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, Suspense } from "react"
 import { useSearchParams } from "next/navigation"
+import { useRouter } from "next/navigation"
 import {
   Search,
   Plus,
@@ -121,7 +122,9 @@ function formatDate(dateString: string | null): string {
 
 function ProjectsContent() {
   const searchParams = useSearchParams()
+  const router = useRouter()
   const filterTeamId = searchParams.get("teamId") || undefined
+  const editProjectId = searchParams.get("editProjectId")
   const [activeTab, setActiveTab] = useState("all")
   const [projects, setProjects] = useState<Project[]>([])
   const [teams, setTeams] = useState<Team[]>([])
@@ -224,6 +227,38 @@ function ProjectsContent() {
       setIsLoading(false)
     })
   }, [loadProjects, loadTeams])
+
+  useEffect(() => {
+    if (!editProjectId) return
+    if (projects.length === 0) return
+
+    const project = projects.find((p) => p.id === editProjectId)
+    if (!project) return
+
+    setEditProject(project)
+    setEditFormData({
+      name: project.name,
+      description: project.description || "",
+      status: project.status,
+      teamId: project.teams?.[0]?.id || "",
+      targetDate: project.targetDate ? project.targetDate.split('T')[0] : "",
+      sourceType: project.repoUrl ? "repo" : project.localPath ? "local" : "none",
+      repoUrl: project.repoUrl || "",
+      localPath: project.localPath || "",
+    })
+    setIsEditDialogOpen(true)
+  }, [editProjectId, projects])
+
+  const handleEditDialogOpenChange = (open: boolean) => {
+    setIsEditDialogOpen(open)
+    if (open) return
+
+    const params = new URLSearchParams(searchParams.toString())
+    if (!params.has('editProjectId')) return
+    params.delete('editProjectId')
+    const qs = params.toString()
+    router.replace(qs ? `/projects?${qs}` : '/projects', { scroll: false })
+  }
 
   useSSESubscription((eventType) => {
     if (['project:created', 'project:updated', 'project:deleted'].includes(eventType)) {
@@ -936,7 +971,7 @@ function ProjectsContent() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
+          <Dialog open={isEditDialogOpen} onOpenChange={handleEditDialogOpenChange}>
         <DialogContent className="sm:max-w-[500px] bg-linear-bg border-linear-border">
           <DialogHeader>
             <DialogTitle className="text-linear-text">Edit Project</DialogTitle>
