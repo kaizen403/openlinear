@@ -9,7 +9,7 @@ import { DashboardLoading } from "./dashboard-loading"
 import { TaskFormDialog } from "@/components/task-form"
 import { TaskDetailView } from "@/components/task-detail-view"
 import { ProviderSetupDialog } from "@/components/provider-setup-dialog"
-import { Plus, Settings2, GitBranch, CircleDot, Layers, CheckCircle2, XCircle, Play, Pencil } from "lucide-react"
+import { Plus, Settings2, GitBranch, CircleDot, Layers, Play, Pencil } from "lucide-react"
 import { Task } from "@/types/task"
 import { Project, Repository } from "@/lib/api"
 import { useKanbanBoard, COLUMNS, KanbanBoardProps } from "./use-kanban-board"
@@ -20,18 +20,18 @@ import { useRouter } from "next/navigation"
 interface ProjectConfigPanelProps {
   selectedProject: Project | undefined
   activeRepository: Repository | null
-  canExecute: boolean
   tasks: Task[]
   selectedTaskIds: Set<string>
   activeBatch: { mode: string; status: string } | null
 }
 
-function ProjectConfigPanel({ selectedProject, activeRepository, canExecute, tasks, selectedTaskIds, activeBatch }: ProjectConfigPanelProps) {
+function ProjectConfigPanel({ selectedProject, activeRepository, tasks, selectedTaskIds, activeBatch }: ProjectConfigPanelProps) {
   const router = useRouter()
   const todoCount = tasks.filter(t => t.status === 'todo').length
   const inProgressCount = tasks.filter(t => t.status === 'in_progress').length
   const doneCount = tasks.filter(t => t.status === 'done').length
   const cancelledCount = tasks.filter(t => t.status === 'cancelled').length
+  const totalIssues = todoCount + inProgressCount + doneCount + cancelledCount
 
   const sourceFromRepoUrl = (() => {
     const repoUrl = selectedProject?.repoUrl
@@ -49,25 +49,25 @@ function ProjectConfigPanel({ selectedProject, activeRepository, canExecute, tas
     null
 
   const canEditSource = !!(selectedProject || activeRepository)
+  const baseBranch = selectedProject?.repository?.defaultBranch || activeRepository?.defaultBranch || null
 
   const items = [
     {
-      icon: selectedProject ? GitBranch : Settings2,
+      icon: Settings2,
       label: 'Source',
       value: sourceValue || 'No source connected',
       status: selectedProject ? 'active' : 'inactive',
     },
     {
-      icon: canExecute ? CheckCircle2 : XCircle,
-      label: 'Execution',
-      value: canExecute ? 'Ready' : 'Setup required',
-      status: canExecute ? 'ready' : 'blocked',
+      icon: GitBranch,
+      label: 'Branch',
+      value: baseBranch || 'Not configured',
+      status: baseBranch ? 'active' : 'inactive',
     },
     {
       icon: CircleDot,
       label: 'Scope',
-      value: `${todoCount + inProgressCount + doneCount + cancelledCount} issues`,
-      subValue: `${todoCount} todo · ${inProgressCount} in progress · ${doneCount} done`,
+      value: `${totalIssues} issues`,
       status: 'neutral',
     },
     {
@@ -86,38 +86,31 @@ function ProjectConfigPanel({ selectedProject, activeRepository, canExecute, tas
 
   return (
     <div className="w-full border-b border-linear-border bg-linear-bg flex-shrink-0">
-      <div className="px-4 py-1.5">
-        <div className="rounded-xl border border-linear-border bg-linear-bg-secondary overflow-hidden">
+      <div className="px-4 py-1">
+        <div className="rounded-lg border border-linear-border bg-linear-bg-secondary overflow-hidden">
           <div className="flex items-stretch divide-x divide-linear-border overflow-x-auto">
             {items.map((item) => {
               const Icon = item.icon
-              const tones: Record<string, { bg: string; icon: string; value: string }> = {
-                ready: { bg: 'bg-emerald-500/10', icon: 'text-emerald-400', value: 'text-emerald-200' },
-                blocked: { bg: 'bg-amber-500/10', icon: 'text-amber-400', value: 'text-amber-200' },
-                active: { bg: 'bg-linear-accent/10', icon: 'text-linear-accent', value: 'text-linear-accent' },
-                neutral: { bg: '', icon: 'text-linear-text-tertiary', value: 'text-linear-text' },
-                inactive: { bg: '', icon: 'text-linear-text-tertiary', value: 'text-linear-text-tertiary' },
+              const tones: Record<string, { icon: string; value: string }> = {
+                active: { icon: 'text-linear-text-secondary', value: 'text-linear-text' },
+                neutral: { icon: 'text-linear-text-tertiary', value: 'text-linear-text' },
+                inactive: { icon: 'text-linear-text-tertiary', value: 'text-linear-text-tertiary' },
               }
-              const tone = tones[item.status]
+              const tone = tones[item.status] || tones.neutral
 
               return (
                 <div
                   key={item.label}
-                  className={`flex-1 min-w-[170px] sm:min-w-0 px-3 py-1.5 flex items-center gap-2 ${tone.bg} transition-colors`}
+                  className="flex-1 min-w-[150px] sm:min-w-0 px-2.5 py-1 flex items-center gap-2"
                 >
-                  <Icon className={`w-3.5 h-3.5 flex-shrink-0 ${tone.icon}`} />
+                  <Icon className={`w-3 h-3 flex-shrink-0 ${tone.icon}`} />
                   <div className="min-w-0 flex-1">
-                    <div className="text-[10px] uppercase tracking-[0.16em] text-linear-text-tertiary leading-tight">
+                    <div className="text-[9px] uppercase tracking-[0.14em] text-linear-text-tertiary leading-tight">
                       {item.label}
                     </div>
-                    <div className={`text-[13px] font-medium truncate leading-tight ${tone.value}`}>
+                    <div className={`text-[12px] font-medium truncate leading-tight ${tone.value}`}>
                       {item.value}
                     </div>
-                    {item.subValue && (
-                      <div className="text-[11px] text-linear-text-tertiary truncate leading-tight mt-0.5">
-                        {item.subValue}
-                      </div>
-                    )}
                   </div>
 
                   {item.label === 'Source' && (
@@ -232,6 +225,7 @@ export function KanbanBoard(props: KanbanBoardProps) {
         <div className="text-center">
           <p className="text-red-400 mb-4">{error}</p>
           <button
+            type="button"
             onClick={() => { fetchTasks({ showLoading: true, clearError: true }) }}
             className="px-4 py-2 bg-linear-accent text-white rounded-md hover:bg-linear-accent-hover transition-colors"
           >
@@ -260,7 +254,6 @@ export function KanbanBoard(props: KanbanBoardProps) {
         <ProjectConfigPanel
           selectedProject={selectedProject}
           activeRepository={activeRepository}
-          canExecute={canExecute}
           tasks={tasks}
           selectedTaskIds={selectedTaskIds}
           activeBatch={activeBatch}
@@ -289,6 +282,7 @@ export function KanbanBoard(props: KanbanBoardProps) {
                   >
                     {columnTasks.length === 0 && !snapshot.isDraggingOver ? (
                       <button
+                        type="button"
                         onClick={() => handleAddTask(column.status)}
                         className="w-full flex flex-col items-center justify-center py-8 text-linear-text-tertiary hover:text-linear-text-secondary hover:bg-white/[0.03] rounded-lg transition-all cursor-pointer group"
                       >
