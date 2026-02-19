@@ -36,7 +36,7 @@ export function Hero() {
               <span className="text-balance">
                 Execute your tasks.{" "}
                 <br />
-                <span className="text-[#EDE8D0]">Don&apos;t just track them.</span>
+                <span className="text-[#EDE8D0]">Don&apos;t just <span className="font-editorial italic">track</span> them.</span>
               </span>
             </h1>
 

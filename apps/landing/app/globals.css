@@ -72,6 +72,11 @@
 
 @layer base {
   :root {
+    --font-sans: var(--font-space-grotesk), system-ui, -apple-system, sans-serif;
+    --font-ui: var(--font-dm-sans), system-ui, -apple-system, sans-serif;
+    --font-serif: var(--font-eb-garamond), "Times New Roman", serif;
+    --font-mono: var(--font-dm-mono), ui-monospace, "SFMono-Regular", "Menlo", "Monaco", "Consolas", monospace;
+
     --background: 0 0% 100%;
     --foreground: 228 20% 10%;
     --card: 228 14% 98.5%;
@@ -150,6 +155,27 @@
 
   body {
     @apply bg-background text-foreground;
+    font-family: var(--font-sans);
+  }
+
+  button,
+  input,
+  select,
+  textarea,
+  label {
+    font-family: var(--font-ui);
+  }
+
+  code,
+  pre,
+  kbd,
+  samp {
+    font-family: var(--font-mono);
+  }
+
+  blockquote,
+  .font-editorial {
+    font-family: var(--font-serif);
   }
 }
 

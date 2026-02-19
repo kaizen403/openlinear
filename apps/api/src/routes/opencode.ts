@@ -10,6 +10,31 @@ import {
 
 const router: Router = Router();
 
+type ProviderAuthEntry = { type?: string };
+
+function resolveOauthMethodIndex(
+  methods: ProviderAuthEntry[] | undefined,
+  requestedMethod: unknown
+): number {
+  if (!methods || methods.length === 0) {
+    return typeof requestedMethod === 'number' ? requestedMethod : 0;
+  }
+
+  if (
+    typeof requestedMethod === 'number' &&
+    requestedMethod >= 0 &&
+    requestedMethod < methods.length &&
+    methods[requestedMethod]?.type === 'oauth'
+  ) {
+    return requestedMethod;
+  }
+
+  const oauthIndex = methods.findIndex((entry) => entry?.type === 'oauth');
+  if (oauthIndex >= 0) return oauthIndex;
+
+  return typeof requestedMethod === 'number' ? requestedMethod : 0;
+}
+
 router.get('/status', (_req, res: Response) => {
   res.json(getOpenCodeStatus());
 });
@@ -159,9 +184,13 @@ router.post('/auth/oauth/authorize', requireAuth, async (req: AuthRequest, res: 
     }
 
     const client = await getClientForUser(req.userId!);
+    const auth = await client.provider.auth();
+    const methods = auth.data?.[providerId] as ProviderAuthEntry[] | undefined;
+    const resolvedMethod = resolveOauthMethodIndex(methods, method);
+
     const result = await client.provider.oauth.authorize({
       path: { id: providerId },
-      body: { method: method ?? 0 },
+      body: { method: resolvedMethod },
     });
 
     res.json(result.data);
@@ -179,9 +208,13 @@ router.post('/auth/oauth/callback', requireAuth, async (req: AuthRequest, res: R
     }
 
     const client = await getClientForUser(req.userId!);
+    const auth = await client.provider.auth();
+    const methods = auth.data?.[providerId] as ProviderAuthEntry[] | undefined;
+    const resolvedMethod = resolveOauthMethodIndex(methods, method);
+
     const result = await client.provider.oauth.callback({
       path: { id: providerId },
-      body: { method: method ?? 0, code },
+      body: { method: resolvedMethod, code },
     });
 
     res.json(result.data);

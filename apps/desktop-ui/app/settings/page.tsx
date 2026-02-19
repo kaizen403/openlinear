@@ -460,7 +460,12 @@ function SettingsContent() {
 
     setOauthCompletingProvider(providerId)
     try {
-      await oauthCallback(providerId, code, oauthMethodByProvider[providerId])
+      const authMethods = providerAuthMethodsMap[providerId] || []
+      const fallbackOauthMethod = authMethods.findIndex((item) => item.type === "oauth")
+      const resolvedMethod =
+        oauthMethodByProvider[providerId] ?? (fallbackOauthMethod >= 0 ? fallbackOauthMethod : 0)
+
+      await oauthCallback(providerId, code, resolvedMethod)
       addConfiguredProvider(providerId)
 
       const status = await getSetupStatus()
@@ -489,7 +494,7 @@ function SettingsContent() {
     } finally {
       setOauthCompletingProvider(null)
     }
-  }, [oauthCallbackInputs, oauthMethodByProvider, extractOAuthCode, clearOAuthPendingState, providerSetupStatus])
+  }, [oauthCallbackInputs, oauthMethodByProvider, providerAuthMethodsMap, extractOAuthCode, clearOAuthPendingState, providerSetupStatus])
 
   useEffect(() => {
     if (!oauthWaitingProvider || oauthCompletingProvider) return

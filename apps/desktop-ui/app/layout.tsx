@@ -1,10 +1,32 @@
 import type { Metadata, Viewport } from "next"
+import { DM_Mono, DM_Sans, EB_Garamond, Space_Grotesk } from "next/font/google"
 import "./globals.css"
 import { AuthProvider } from "@/hooks/use-auth"
 import { SSEProvider } from "@/providers/sse-provider"
 import { Toaster } from "sonner"
 import { GlobalQuickCapture } from "@/components/global-quick-capture"
 import { GodModeOverlay } from "@/components/god-mode-overlay"
+
+const spaceGrotesk = Space_Grotesk({
+  subsets: ["latin"],
+  variable: "--font-space-grotesk",
+})
+
+const dmSans = DM_Sans({
+  subsets: ["latin"],
+  variable: "--font-dm-sans",
+})
+
+const ebGaramond = EB_Garamond({
+  subsets: ["latin"],
+  variable: "--font-eb-garamond",
+})
+
+const dmMono = DM_Mono({
+  subsets: ["latin"],
+  variable: "--font-dm-mono",
+  weight: ["400", "500"],
+})
 
 export const viewport: Viewport = {
   width: "device-width",
@@ -28,7 +50,11 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en" className="dark" suppressHydrationWarning>
+    <html
+      lang="en"
+      className={`dark ${spaceGrotesk.variable} ${dmSans.variable} ${ebGaramond.variable} ${dmMono.variable}`}
+      suppressHydrationWarning
+    >
       <head>
         <link rel="icon" href="/logo.png" type="image/png" />
         <link rel="preconnect" href="https://fonts.googleapis.com" />

@@ -26,7 +26,7 @@ export default function ProductPage() {
             A board that executes
             <br />
             <span className="bg-gradient-to-r from-[#EDE8D0]/50 to-[#EDE8D0]/30 bg-clip-text text-transparent">
-              and brainstorms.
+              <span className="font-editorial italic">and brainstorms.</span>
             </span>
           </h1>
           <p className="hero-reveal-3 text-[#EDE8D0]/40 leading-[1.75] text-[1.0625rem] tracking-[-0.01em] max-w-2xl mx-auto mt-8">

@@ -63,7 +63,7 @@ export default function EnterprisePage() {
           <h1 className="hero-reveal-2 font-display text-[2.75rem] md:text-[3.75rem] lg:text-[4.5rem] font-bold tracking-[-0.05em] text-[#EDE8D0] leading-[1.02] max-w-4xl mx-auto">
             AI execution with{" "}
             <span className="bg-gradient-to-r from-[#EDE8D0] to-[#EDE8D0]/60 bg-clip-text text-transparent">
-              enterprise control.
+              <span className="font-editorial italic">enterprise control.</span>
             </span>
           </h1>
           <p className="hero-reveal-3 text-[#EDE8D0]/40 leading-[1.75] text-[1.0625rem] tracking-[-0.01em] max-w-2xl mx-auto mt-8">

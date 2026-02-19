@@ -80,8 +80,8 @@ function HomeContent() {
           <div className="flex-1 flex items-center justify-center p-6">
             <OnboardingWizard
               teams={teams}
-              onComplete={() => {
-                router.push('/teams')
+              onComplete={({ projectId }) => {
+                router.push(`/?projectId=${projectId}`)
               }}
             />
           </div>
@@ -109,6 +109,7 @@ function HomeContent() {
             <div className="flex flex-col gap-2">
               {projects.map((project) => (
                 <button
+                  type="button"
                   key={project.id}
                   onClick={() => {
                     setSelectedProjectId(project.id)
@@ -167,6 +168,7 @@ function HomeContent() {
         <div className="flex-1 h-full" data-tauri-drag-region />
         <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
           <button
+            type="button"
             onClick={() => {
               setSelectedProjectId(null)
               setSelectedTeamId(null)
@@ -185,10 +187,11 @@ function HomeContent() {
               className="w-full max-w-64 h-9 pl-10 pr-4 rounded-md bg-linear-bg-tertiary border border-linear-border text-sm placeholder:text-linear-text-tertiary focus:outline-none focus:border-linear-border-hover transition-colors"
             />
           </div>
-          <button className="sm:hidden w-9 h-9 rounded-md flex items-center justify-center text-linear-text-tertiary hover:text-linear-text hover:bg-linear-bg-tertiary transition-colors">
+          <button type="button" className="sm:hidden w-9 h-9 rounded-md flex items-center justify-center text-linear-text-tertiary hover:text-linear-text hover:bg-linear-bg-tertiary transition-colors">
             <Search className="w-4 h-4" />
           </button>
           <button
+            type="button"
             onClick={() => setIsTaskFormOpen(true)}
             className="flex items-center h-9 px-3 sm:px-4 rounded-md bg-linear-bg-tertiary hover:bg-linear-bg-secondary border border-linear-border text-linear-text text-sm font-medium transition-colors"
           >

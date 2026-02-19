@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from "framer-motion"
 import {
   Rocket,
   FolderKanban,
+  Users2,
   Github,
   ArrowRight,
   Loader2,
@@ -16,6 +17,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { toast } from "sonner"
 import {
+  createTeam,
   createProject,
   fetchGitHubRepos,
   getGitHubConnectUrl,
@@ -28,7 +30,7 @@ const SPRING = { type: "spring" as const, stiffness: 300, damping: 30 }
 
 interface OnboardingWizardProps {
   teams: Team[]
-  onComplete: () => void
+  onComplete: (result: { teamId: string; projectId: string }) => void
 }
 
 function WelcomeStep({ onNext }: { onNext: () => void }) {
@@ -50,7 +52,7 @@ function WelcomeStep({ onNext }: { onNext: () => void }) {
         className="space-y-2"
       >
         <h2 className="text-2xl font-semibold text-linear-text">
-          Welcome to OpenLinear
+            Welcome to OpenLinear
         </h2>
         <p className="text-sm text-linear-text-secondary max-w-xs mx-auto leading-relaxed">
           AI-powered project management that writes the code. Manage tasks visually, then let AI execute them.
@@ -63,6 +65,7 @@ function WelcomeStep({ onNext }: { onNext: () => void }) {
         transition={{ ...SPRING, delay: 0.3 }}
       >
         <button
+          type="button"
           onClick={onNext}
           className="bg-linear-accent hover:bg-linear-accent-hover text-white rounded-md h-10 px-6 text-sm font-medium transition-colors inline-flex items-center gap-2"
         >
@@ -87,6 +90,7 @@ function RepoItem({
 }) {
   return (
     <button
+      type="button"
       onClick={onSelect}
       className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left transition-colors ${
         isSelected
@@ -195,6 +199,7 @@ function GitHubRepoTab({
           </p>
         </div>
         <button
+          type="button"
           onClick={handleConnect}
           disabled={isConnecting}
           className="bg-[#24292f] hover:bg-[#32383f] text-white rounded-md h-9 px-4 text-sm font-medium transition-colors inline-flex items-center gap-2 disabled:opacity-50"
@@ -265,12 +270,13 @@ function LinkTab({
   return (
     <div className="space-y-4 py-2">
       <div className="space-y-1.5">
-        <label className="text-xs font-medium text-linear-text-secondary">
+        <label htmlFor="onboarding-repo-url" className="text-xs font-medium text-linear-text-secondary">
           GitHub repository URL
         </label>
         <div className="relative">
           <Link className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-linear-text-tertiary" />
           <Input
+            id="onboarding-repo-url"
             value={repoUrl}
             onChange={(e) => onUrlChange(e.target.value)}
             placeholder="https://github.com/owner/repo"
@@ -290,7 +296,7 @@ function ProjectStep({
   onComplete,
 }: {
   teamId: string
-  onComplete: () => void
+  onComplete: (result: { teamId: string; projectId: string }) => void
 }) {
   const [activeTab, setActiveTab] = useState<ProjectTab>("github")
   const [selectedRepo, setSelectedRepo] = useState<GitHubRepo | null>(null)
@@ -330,12 +336,12 @@ function ProjectStep({
 
     setIsCreating(true)
     try {
-      await createProject({
+      const project = await createProject({
         name: projectName.trim(),
         teamIds: [teamId],
         repoUrl: resolvedRepoUrl,
       })
-      onComplete()
+      onComplete({ teamId, projectId: project.id })
     } catch {
       toast.error("Failed to create project. Please try again.")
     } finally {
@@ -368,6 +374,7 @@ function ProjectStep({
           const isActive = activeTab === tab.id
           return (
             <button
+              type="button"
               key={tab.id}
               onClick={() => {
                 setActiveTab(tab.id)
@@ -407,10 +414,11 @@ function ProjectStep({
       </AnimatePresence>
 
       <div className="space-y-1.5">
-        <label className="text-xs font-medium text-linear-text-secondary">
+        <label htmlFor="onboarding-project-name" className="text-xs font-medium text-linear-text-secondary">
           Project name
         </label>
         <Input
+          id="onboarding-project-name"
           value={projectName}
           onChange={(e) => setProjectName(e.target.value)}
           placeholder="e.g., Web App"
@@ -419,6 +427,7 @@ function ProjectStep({
       </div>
 
       <button
+        type="button"
         onClick={handleCreate}
         disabled={isCreating || !canCreate}
         className="w-full bg-linear-accent hover:bg-linear-accent-hover disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-md h-10 px-6 text-sm font-medium transition-colors inline-flex items-center justify-center gap-2"
@@ -436,15 +445,171 @@ function ProjectStep({
   )
 }
 
+function deriveTeamKey(name: string): string {
+  const parts = name
+    .trim()
+    .split(/\s+/)
+    .map((p) => p.replace(/[^A-Za-z0-9]/g, ""))
+    .filter(Boolean)
+
+  const initials = parts.map((p) => p[0] || "").join("")
+  let key = (initials || parts.join("") || "TEAM").toUpperCase()
+  key = key.replace(/[^A-Z0-9]/g, "")
+  if (!/^[A-Z]/.test(key)) key = `T${key}`
+  return key.slice(0, 10) || "TEAM"
+}
+
+function TeamStep({
+  team,
+  onTeamReady,
+}: {
+  team: Team | null
+  onTeamReady: (team: Team) => void
+}) {
+  const { user } = useAuth()
+  const [name, setName] = useState(() => {
+    const base = user?.username ? `${user.username}'s Team` : "My Team"
+    return base
+  })
+  const [key, setKey] = useState(() => deriveTeamKey(name))
+  const [keyDirty, setKeyDirty] = useState(false)
+  const [isCreating, setIsCreating] = useState(false)
+
+  useEffect(() => {
+    if (team) {
+      onTeamReady(team)
+    }
+  }, [team, onTeamReady])
+
+  useEffect(() => {
+    if (keyDirty) return
+    setKey(deriveTeamKey(name))
+  }, [name, keyDirty])
+
+  const canCreate = name.trim().length > 0 && /^[A-Z][A-Z0-9]*$/.test(key.trim())
+
+  const handleCreate = useCallback(async () => {
+    if (!canCreate) return
+    setIsCreating(true)
+    try {
+      const created = await createTeam({
+        name: name.trim(),
+        key: key.trim().toUpperCase(),
+        private: true,
+      })
+      toast.success("Team created")
+      onTeamReady(created)
+    } catch {
+      toast.error("Failed to create team. Please try again.")
+    } finally {
+      setIsCreating(false)
+    }
+  }, [canCreate, name, key, onTeamReady])
+
+  if (team) {
+    return (
+      <div className="space-y-5">
+        <div className="text-center space-y-2">
+          <div className="w-12 h-12 mx-auto rounded-xl bg-linear-accent/10 flex items-center justify-center mb-4">
+            <Users2 className="w-6 h-6 text-linear-accent" />
+          </div>
+          <h2 className="text-xl font-semibold text-linear-text">Team Ready</h2>
+          <p className="text-sm text-linear-text-secondary">
+            We’ll create your first project inside <span className="text-linear-text">{team.name}</span>.
+          </p>
+        </div>
+
+        <div className="rounded-lg border border-linear-border bg-linear-bg-tertiary px-4 py-3">
+          <div className="text-[10px] uppercase tracking-[0.16em] text-linear-text-tertiary">Team</div>
+          <div className="text-sm font-medium text-linear-text truncate">{team.name}</div>
+          <div className="text-xs text-linear-text-tertiary mt-0.5">Key: {team.key}</div>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => onTeamReady(team)}
+          className="w-full bg-linear-accent hover:bg-linear-accent-hover text-white rounded-md h-10 px-6 text-sm font-medium transition-colors inline-flex items-center justify-center gap-2"
+        >
+          Continue
+          <ArrowRight className="w-4 h-4" />
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-5">
+      <div className="text-center space-y-2">
+        <div className="w-12 h-12 mx-auto rounded-xl bg-linear-accent/10 flex items-center justify-center mb-4">
+          <Users2 className="w-6 h-6 text-linear-accent" />
+        </div>
+        <h2 className="text-xl font-semibold text-linear-text">Create Your Team</h2>
+        <p className="text-sm text-linear-text-secondary">Set up a team to organize projects and issues.</p>
+      </div>
+
+      <div className="space-y-3">
+        <div className="space-y-1.5">
+          <label htmlFor="onboarding-team-name" className="text-xs font-medium text-linear-text-secondary">Team name</label>
+          <Input
+            id="onboarding-team-name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="e.g., Platform"
+            className="bg-linear-bg-tertiary border-linear-border text-linear-text placeholder:text-linear-text-tertiary focus:border-linear-border-hover h-10"
+          />
+        </div>
+
+        <div className="space-y-1.5">
+          <label htmlFor="onboarding-team-key" className="text-xs font-medium text-linear-text-secondary">Team key</label>
+          <Input
+            id="onboarding-team-key"
+            value={key}
+            onChange={(e) => {
+              setKeyDirty(true)
+              setKey(e.target.value.toUpperCase())
+            }}
+            placeholder="e.g., PLAT"
+            className="bg-linear-bg-tertiary border-linear-border text-linear-text placeholder:text-linear-text-tertiary focus:border-linear-border-hover h-10"
+          />
+          <p className="text-xs text-linear-text-tertiary">
+            Uppercase letters/numbers, starts with a letter.
+          </p>
+        </div>
+      </div>
+
+      <button
+        type="button"
+        onClick={handleCreate}
+        disabled={isCreating || !canCreate}
+        className="w-full bg-linear-accent hover:bg-linear-accent-hover disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-md h-10 px-6 text-sm font-medium transition-colors inline-flex items-center justify-center gap-2"
+      >
+        {isCreating ? (
+          <>
+            <Loader2 className="w-4 h-4 animate-spin" />
+            Creating team...
+          </>
+        ) : (
+          "Create Team"
+        )}
+      </button>
+    </div>
+  )
+}
+
 function StepIndicator({ currentStep, totalSteps }: { currentStep: number; totalSteps: number }) {
+  const stepKeys = useMemo(
+    () => Array.from({ length: totalSteps }, (_, i) => `step-${i}`),
+    [totalSteps]
+  )
+
   return (
     <div className="flex items-center justify-center gap-2 mb-8">
-      {Array.from({ length: totalSteps }).map((_, index) => {
+      {stepKeys.map((stepKey, index) => {
         const isActive = index === currentStep
         const isCompleted = index < currentStep
 
         return (
-          <div key={index} className="flex items-center">
+          <div key={stepKey} className="flex items-center">
             <motion.div
               initial={false}
               animate={{
@@ -473,26 +638,49 @@ function StepIndicator({ currentStep, totalSteps }: { currentStep: number; total
 export function OnboardingWizard({ teams, onComplete }: OnboardingWizardProps) {
   const [currentStep, setCurrentStep] = useState(0)
 
-  const team = teams[0]
+  const [teamFlow, setTeamFlow] = useState(false)
+  const [createdTeam, setCreatedTeam] = useState<Team | null>(null)
+
+  const team = createdTeam || teams[0] || null
 
   const handleWelcomeNext = useCallback(() => {
+    if (!teams[0]) {
+      setTeamFlow(true)
+    }
     setCurrentStep(1)
-  }, [])
+  }, [teams])
 
-  const steps = [
-    <WelcomeStep key="welcome" onNext={handleWelcomeNext} />,
-    team ? (
-      <ProjectStep key="project" teamId={team.id} onComplete={onComplete} />
-    ) : (
-      <div key="no-team" className="text-center text-linear-text-secondary">
-        No team found. Please contact support.
-      </div>
-    ),
-  ]
+  const handleTeamReady = useCallback((t: Team) => {
+    setCreatedTeam(t)
+    if (teamFlow) {
+      setCurrentStep(2)
+    }
+  }, [teamFlow])
+
+  const steps = teamFlow
+    ? [
+        <WelcomeStep key="welcome" onNext={handleWelcomeNext} />,
+        <TeamStep key="team" team={team} onTeamReady={handleTeamReady} />,
+        team ? (
+          <ProjectStep key="project" teamId={team.id} onComplete={onComplete} />
+        ) : (
+          <div key="project" className="text-center text-linear-text-secondary">
+            Create a team to continue.
+          </div>
+        ),
+      ]
+    : [
+        <WelcomeStep key="welcome" onNext={handleWelcomeNext} />,
+        team ? (
+          <ProjectStep key="project" teamId={team.id} onComplete={onComplete} />
+        ) : (
+          <TeamStep key="team" team={null} onTeamReady={handleTeamReady} />
+        ),
+      ]
 
   return (
     <div className="w-full max-w-md mx-auto">
-      <StepIndicator currentStep={currentStep} totalSteps={2} />
+      <StepIndicator currentStep={currentStep} totalSteps={teamFlow ? 3 : 2} />
 
       <AnimatePresence mode="wait">
         <motion.div

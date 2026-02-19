@@ -35,7 +35,7 @@ export default function ContactPage() {
             Contact
           </span>
           <h1 className="hero-reveal-2 font-display text-[2.75rem] md:text-[3.75rem] lg:text-[4.5rem] font-bold tracking-[-0.05em] text-[#EDE8D0] leading-[1.02] max-w-3xl mx-auto">
-            Get in touch.
+            Get in <span className="font-editorial italic">touch</span>.
           </h1>
           <p className="hero-reveal-3 text-[#EDE8D0]/40 leading-[1.75] text-[1.0625rem] tracking-[-0.01em] max-w-lg mx-auto mt-8">
             Have a question, need a demo, or want to discuss enterprise options? We&apos;d love to hear from you.

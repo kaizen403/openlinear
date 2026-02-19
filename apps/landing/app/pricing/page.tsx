@@ -153,7 +153,7 @@ export default function PricingPage() {
             Pricing
           </span>
           <h1 className="hero-reveal-2 font-display text-[2.75rem] md:text-[3.75rem] lg:text-[4.5rem] font-bold tracking-[-0.05em] text-[#EDE8D0] leading-[1.02] max-w-3xl mx-auto">
-            Plans and Pricing
+            Plans and <span className="font-editorial italic">Pricing</span>
           </h1>
           <p className="hero-reveal-3 text-[#EDE8D0]/40 leading-[1.75] text-[1.0625rem] tracking-[-0.01em] max-w-lg mx-auto mt-8">
             Start free. Upgrade when you need more power.
