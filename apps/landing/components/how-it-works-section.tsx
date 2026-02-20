@@ -25,22 +25,21 @@ export function HowItWorksSection() {
           
           <StepCard
             visual={
-              <div className="w-[280px] h-[180px] rounded-[16px] bg-[#0a0e17] border border-white/[0.04] relative overflow-hidden flex flex-col items-center justify-center mb-8 mx-auto group z-10">
-                <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(56,189,248,0.05),transparent_70%)]" />
-                <div className="w-[85%] bg-[#111111] border border-[#2a2a2a] rounded-lg shadow-2xl relative z-10 transform scale-95 group-hover:scale-100 transition-transform duration-500 text-left p-3">
-                   <div className="text-[11px] text-[#f5f5f5] font-medium mb-3 flex items-center justify-between">
+              <div className="w-[280px] h-[180px] rounded-[16px] bg-[#0A0D14] border border-[#1E2330] relative overflow-hidden flex flex-col items-center justify-center mb-8 mx-auto group z-10">
+                <div className="w-[85%] bg-[#111111] border border-[#2a2a2a] rounded-[12px] relative z-10 text-left p-3.5 shadow-[0_4px_24px_-8px_rgba(0,0,0,0.5)]">
+                   <div className="text-[12px] text-[#f5f5f5] font-medium mb-3.5 flex items-center justify-between">
                      <span>Todo</span>
                      <span className="text-[#6a6a6a]">1</span>
                    </div>
-                   <div className="bg-[#141414] border border-[#2a2a2a] rounded-md p-3 mb-2">
-                     <div className="text-[12px] text-[#f5f5f5] mb-2 font-light">Add authentication flow</div>
+                   <div className="bg-[#141414] border border-[#2a2a2a] rounded-[8px] p-3 mb-3">
+                     <div className="text-[12px] text-[#f5f5f5] mb-2.5">Add authentication flow</div>
                      <div className="flex gap-1.5">
-                       <span className="text-[10px] px-1.5 py-0.5 rounded-[4px] border border-white/10 text-blue-400 bg-blue-400/20">Feature</span>
-                       <span className="text-[10px] px-1.5 py-0.5 rounded-[4px] border border-white/10 text-orange-400 bg-orange-400/20">Backend</span>
+                       <span className="text-[10px] px-2 py-0.5 rounded-[4px] border border-white/10 text-[#60a5fa] bg-[#60a5fa]/10 font-medium">Feature</span>
+                       <span className="text-[10px] px-2 py-0.5 rounded-[4px] border border-white/10 text-[#f97316] bg-[#f97316]/10 font-medium">Backend</span>
                      </div>
                    </div>
-                   <div className="flex items-center gap-1.5 text-[11px] text-[#6a6a6a] mt-3 hover:text-[#f5f5f5] cursor-pointer transition-colors">
-                     <svg aria-hidden="true" className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 5v14M5 12h14"/></svg>
+                   <div className="flex items-center gap-1.5 text-[12px] text-[#6a6a6a] mt-2 font-medium">
+                     <svg aria-hidden="true" className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M5 12h14"/></svg>
                      New Issue
                    </div>
                 </div>
@@ -53,25 +52,24 @@ export function HowItWorksSection() {
 
           <StepCard
             visual={
-              <div className="w-[280px] h-[180px] rounded-[16px] bg-[#0a0e17] border border-white/[0.04] relative overflow-hidden flex flex-col items-center justify-center mb-8 mx-auto group z-10">
-                <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(99,102,241,0.05),transparent_70%)]" />
-                <div className="w-[85%] bg-[#111111] border border-[#2a2a2a] rounded-lg shadow-2xl relative z-10 transform scale-95 group-hover:scale-100 transition-transform duration-500 text-left flex flex-col overflow-hidden">
-                  <div className="flex items-center justify-between p-2.5 border-b border-[#2a2a2a] bg-[#141414]">
-                    <span className="text-[11px] font-semibold text-[#f5f5f5]">Executing</span>
-                    <span className="text-[10px] text-[#6a6a6a] font-mono">00:12</span>
+              <div className="w-[280px] h-[180px] rounded-[16px] bg-[#0A0D14] border border-[#1E2330] relative overflow-hidden flex flex-col items-center justify-center mb-8 mx-auto group z-10">
+                <div className="w-[85%] bg-[#111111] border border-[#2a2a2a] rounded-[12px] relative z-10 text-left flex flex-col overflow-hidden shadow-[0_4px_24px_-8px_rgba(0,0,0,0.5)]">
+                  <div className="flex items-center justify-between p-3.5 border-b border-[#2a2a2a] bg-[#111111]">
+                    <span className="text-[12px] font-medium text-[#f5f5f5]">Executing</span>
+                    <span className="text-[11px] text-[#6a6a6a] font-mono">00:12</span>
                   </div>
-                  <div className="px-3 py-2 border-b border-[#2a2a2a] bg-[#1a1a2e] flex items-center gap-2">
-                    <div className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse" />
-                    <span className="text-[11px] font-medium text-indigo-400">Writing implementation...</span>
+                  <div className="px-3.5 py-2.5 border-b border-[#2a2a2a] bg-[#1a1a2e] flex items-center gap-2">
+                    <div className="w-1.5 h-1.5 rounded-full bg-[#5e6ad2] animate-pulse" />
+                    <span className="text-[12px] font-medium text-[#5e6ad2]">Writing implementation...</span>
                   </div>
-                  <div className="p-3 bg-[#111111] space-y-2.5">
-                    <div className="flex gap-2 items-center opacity-50">
-                      <svg aria-hidden="true" className="w-3.5 h-3.5 text-[#a0a0a0]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg>
-                      <span className="text-[11px] text-[#a0a0a0]">Reading auth.ts</span>
+                  <div className="p-3.5 bg-[#111111] space-y-3">
+                    <div className="flex gap-2.5 items-center">
+                      <svg aria-hidden="true" className="w-3.5 h-3.5 text-[#3a3a3a] flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg>
+                      <span className="text-[12px] text-[#6a6a6a]">Reading auth.ts</span>
                     </div>
-                    <div className="flex gap-2 items-center opacity-50">
-                      <svg aria-hidden="true" className="w-3.5 h-3.5 text-[#a0a0a0]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg>
-                      <span className="text-[11px] text-[#a0a0a0]">Checking database schema</span>
+                    <div className="flex gap-2.5 items-center">
+                      <svg aria-hidden="true" className="w-3.5 h-3.5 text-[#3a3a3a] flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg>
+                      <span className="text-[12px] text-[#6a6a6a]">Checking database schema</span>
                     </div>
                   </div>
                 </div>
@@ -84,19 +82,18 @@ export function HowItWorksSection() {
 
           <StepCard
             visual={
-              <div className="w-[280px] h-[180px] rounded-[16px] bg-[#0a0e17] border border-white/[0.04] relative overflow-hidden flex flex-col items-center justify-center mb-8 mx-auto group z-10">
-                <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(34,197,94,0.05),transparent_70%)]" />
-                <div className="w-[85%] bg-[#111111] border border-[#2a2a2a] rounded-lg shadow-2xl relative z-10 transform scale-95 group-hover:scale-100 transition-transform duration-500 text-left p-4">
-                   <div className="flex items-center gap-2 mb-3">
-                     <svg aria-hidden="true" className="w-4 h-4 text-green-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><line x1="6" y1="9" x2="6" y2="21"/></svg>
+              <div className="w-[280px] h-[180px] rounded-[16px] bg-[#0A0D14] border border-[#1E2330] relative overflow-hidden flex flex-col items-center justify-center mb-8 mx-auto group z-10">
+                <div className="w-[85%] bg-[#111111] border border-[#2a2a2a] rounded-[12px] relative z-10 text-left p-3.5 shadow-[0_4px_24px_-8px_rgba(0,0,0,0.5)]">
+                   <div className="flex items-center gap-2 mb-3.5">
+                     <svg aria-hidden="true" className="w-4 h-4 text-[#22c55e]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><line x1="6" y1="9" x2="6" y2="21"/></svg>
                      <span className="text-[12px] font-medium text-[#f5f5f5]">Ready for Review</span>
                    </div>
-                   <div className="bg-green-500/10 border border-green-500/20 rounded-md px-3 py-2.5 mb-4 flex items-center gap-2 text-green-400 hover:bg-green-500/20 transition-colors cursor-pointer">
-                     <svg aria-hidden="true" className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-                     <span className="text-[11px]">Add authentication flow #42</span>
+                   <div className="bg-[#142e1d] border border-[#1f4028] rounded-[6px] px-3 py-2.5 mb-4 flex items-center gap-2 text-[#22c55e]">
+                     <svg aria-hidden="true" className="w-3.5 h-3.5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                     <span className="text-[11px] truncate">Add authentication flow #42</span>
                    </div>
-                   <div className="flex justify-end">
-                     <div className="bg-[#f5f5f5] text-[#111111] hover:bg-white px-3 py-1.5 rounded-md text-[11px] font-medium cursor-pointer transition-colors">
+                   <div className="flex justify-end mt-1">
+                     <div className="bg-[#f5f5f5] text-[#111111] px-3 py-1.5 rounded-[6px] text-[12px] font-medium">
                        Merge PR
                      </div>
                    </div>
