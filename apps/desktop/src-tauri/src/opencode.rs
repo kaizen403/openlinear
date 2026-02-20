@@ -50,6 +50,13 @@ pub fn check_opencode() -> OpenCodeStatus {
     }
 }
 
+#[tauri::command]
+pub fn pick_local_folder() -> Option<String> {
+    rfd::FileDialog::new()
+        .pick_folder()
+        .map(|path| path.to_string_lossy().to_string())
+}
+
 #[allow(dead_code)]
 fn check_binary_exists(binary_name: &str) -> bool {
     which(binary_name).is_ok()

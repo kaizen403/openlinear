@@ -17,6 +17,7 @@ import {
   Pencil,
   GitBranch,
   Lock,
+  FolderOpen,
 } from "lucide-react"
 import { AppShell } from "@/components/layout/app-shell"
 import { cn } from "@/lib/utils"
@@ -136,6 +137,9 @@ function ProjectsContent() {
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
   const [editProject, setEditProject] = useState<Project | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isDesktopApp, setIsDesktopApp] = useState(false)
+  const [isPickingLocalPath, setIsPickingLocalPath] = useState(false)
+  const [isPickingEditLocalPath, setIsPickingEditLocalPath] = useState(false)
   
   // Form state
   const [formData, setFormData] = useState({
@@ -202,6 +206,41 @@ function ProjectsContent() {
       }
     }
   }, [])
+
+  useEffect(() => {
+    const tauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window
+    setIsDesktopApp(tauri)
+  }, [])
+
+  const pickLocalFolder = useCallback(async (isEdit = false) => {
+    if (!isDesktopApp) return
+
+    if (isEdit) {
+      setIsPickingEditLocalPath(true)
+    } else {
+      setIsPickingLocalPath(true)
+    }
+
+    try {
+      const { invoke } = await import("@tauri-apps/api/core")
+      const selectedPath = await invoke<string | null>("pick_local_folder")
+      if (!selectedPath) return
+
+      if (isEdit) {
+        setEditFormData((prev) => ({ ...prev, sourceType: "local", repoUrl: "", localPath: selectedPath }))
+      } else {
+        setFormData((prev) => ({ ...prev, sourceType: "local", repoUrl: "", localPath: selectedPath }))
+      }
+    } catch (error) {
+      console.error("Failed to pick local folder:", error)
+    } finally {
+      if (isEdit) {
+        setIsPickingEditLocalPath(false)
+      } else {
+        setIsPickingLocalPath(false)
+      }
+    }
+  }, [isDesktopApp])
 
   const loadProjects = useCallback(async () => {
     try {
@@ -293,6 +332,10 @@ function ProjectsContent() {
     if (!formData.name.trim()) {
       errors.name = "Name is required"
     }
+
+    if (formData.sourceType === "local" && isDesktopApp && !formData.localPath.trim()) {
+      errors.localPath = "Choose a local folder"
+    }
     
     setFormErrors(errors)
     return Object.keys(errors).length === 0
@@ -313,7 +356,7 @@ function ProjectsContent() {
         targetDate: formData.targetDate ? new Date(formData.targetDate).toISOString() : undefined,
         color: "#3b82f6",
         repoUrl: formData.sourceType === "repo" ? formData.repoUrl.trim() : undefined,
-        localPath: formData.sourceType === "local" ? formData.localPath.trim() : undefined,
+        localPath: formData.sourceType === "local" && isDesktopApp ? formData.localPath.trim() : undefined,
       })
 
       setFormData({
@@ -365,7 +408,10 @@ function ProjectsContent() {
         ...(editFormData.teamId ? { teamIds: [editFormData.teamId] } : { teamIds: [] }),
         targetDate: editFormData.targetDate ? new Date(editFormData.targetDate).toISOString() : null,
         repoUrl: editFormData.sourceType === "repo" ? editFormData.repoUrl.trim() : null,
-        localPath: editFormData.sourceType === "local" ? editFormData.localPath.trim() : null,
+        localPath:
+          editFormData.sourceType === "local"
+            ? (isDesktopApp || !!editProject.localPath ? editFormData.localPath.trim() : null)
+            : null,
       })
 
       setIsEditDialogOpen(false)
@@ -388,6 +434,7 @@ function ProjectsContent() {
                 <h1 className="text-xl font-semibold text-linear-text flex-shrink-0">Projects</h1>
                 <div className="flex items-center gap-1">
                   <button 
+                    type="button"
                     onClick={() => setActiveTab("all")}
                     className={cn(
                       "px-3 py-1.5 rounded-md text-sm font-medium transition-colors whitespace-nowrap",
@@ -399,6 +446,7 @@ function ProjectsContent() {
                     All projects
                   </button>
                   <button 
+                    type="button"
                     onClick={() => setActiveTab("active")}
                     className={cn(
                       "px-3 py-1.5 rounded-md text-sm font-medium transition-colors whitespace-nowrap",
@@ -410,6 +458,7 @@ function ProjectsContent() {
                     Active
                   </button>
                   <button 
+                    type="button"
                     onClick={() => setActiveTab("archived")}
                     className={cn(
                       "px-3 py-1.5 rounded-md text-sm font-medium transition-colors whitespace-nowrap",
@@ -563,18 +612,26 @@ function ProjectsContent() {
                             />
                             GitHub Repo
                           </label>
-                          <label className="flex items-center gap-2 text-sm text-linear-text-secondary cursor-pointer">
-                            <input
-                              type="radio"
-                              name="sourceType"
-                              value="local"
-                              checked={formData.sourceType === "local"}
-                              onChange={() => setFormData(prev => ({ ...prev, sourceType: "local", repoUrl: "" }))}
-                              className="accent-[hsl(var(--linear-accent))]"
-                            />
-                            Local Folder
-                          </label>
+                          {isDesktopApp && (
+                            <label className="flex items-center gap-2 text-sm text-linear-text-secondary cursor-pointer">
+                              <input
+                                type="radio"
+                                name="sourceType"
+                                value="local"
+                                checked={formData.sourceType === "local"}
+                                onChange={() => setFormData(prev => ({ ...prev, sourceType: "local", repoUrl: "" }))}
+                                className="accent-[hsl(var(--linear-accent))]"
+                              />
+                              Local Folder
+                            </label>
+                          )}
                         </div>
+
+                        {!isDesktopApp && (
+                          <p className="text-xs text-linear-text-tertiary">
+                            Local folder source selection is available only in the desktop app.
+                          </p>
+                        )}
 
                         {formData.sourceType === "repo" && (
                           <div className="space-y-3">
@@ -682,12 +739,33 @@ function ProjectsContent() {
                         )}
 
                         {formData.sourceType === "local" && (
-                          <Input
-                            value={formData.localPath}
-                            onChange={(e) => setFormData(prev => ({ ...prev, localPath: e.target.value }))}
-                            placeholder="/absolute/path/to/project"
-                            className="bg-linear-bg-tertiary border-linear-border text-linear-text placeholder:text-linear-text-tertiary"
-                          />
+                          <div className="space-y-2">
+                            <div className="flex items-center gap-2">
+                              <Input
+                                value={formData.localPath}
+                                readOnly
+                                placeholder="Choose a local folder"
+                                className="bg-linear-bg-tertiary border-linear-border text-linear-text placeholder:text-linear-text-tertiary"
+                              />
+                              <Button
+                                type="button"
+                                variant="outline"
+                                onClick={() => pickLocalFolder(false)}
+                                disabled={isPickingLocalPath}
+                                className="border-linear-border text-linear-text hover:bg-linear-bg-tertiary"
+                              >
+                                {isPickingLocalPath ? (
+                                  <Loader2 className="w-4 h-4 animate-spin" />
+                                ) : (
+                                  <FolderOpen className="w-4 h-4" />
+                                )}
+                                Browse
+                              </Button>
+                            </div>
+                            {formErrors.localPath && (
+                              <p className="text-xs text-red-500">{formErrors.localPath}</p>
+                            )}
+                          </div>
                         )}
                       </div>
 
@@ -814,6 +892,7 @@ function ProjectsContent() {
                         <td className="py-3 px-4">
                           <div className="flex items-center gap-1">
                             <button
+                              type="button"
                               onClick={(e) => {
                                 e.stopPropagation()
                                 setEditProject(project)
@@ -834,6 +913,7 @@ function ProjectsContent() {
                               <Pencil className="w-4 h-4 text-linear-text-secondary" />
                             </button>
                             <button
+                              type="button"
                               onClick={() => {
                                 setProjectToDelete(project)
                                 setIsDeleteDialogOpen(true)
@@ -898,6 +978,7 @@ function ProjectsContent() {
                     </div>
                     <div className="flex items-center gap-1">
                       <button
+                        type="button"
                         onClick={() => {
                           setEditProject(project)
                           setEditFormData({
@@ -917,6 +998,7 @@ function ProjectsContent() {
                         <Pencil className="w-4 h-4 text-linear-text-secondary" />
                       </button>
                       <button
+                        type="button"
                         onClick={() => {
                           setProjectToDelete(project)
                           setIsDeleteDialogOpen(true)
@@ -1092,18 +1174,26 @@ function ProjectsContent() {
                   />
                   GitHub Repo
                 </label>
-                <label className="flex items-center gap-2 text-sm text-linear-text-secondary cursor-pointer">
-                  <input
-                    type="radio"
-                    name="edit-sourceType"
-                    value="local"
-                    checked={editFormData.sourceType === "local"}
-                    onChange={() => setEditFormData(prev => ({ ...prev, sourceType: "local", repoUrl: "" }))}
-                    className="accent-[hsl(var(--linear-accent))]"
-                  />
-                  Local Folder
-                </label>
+                {isDesktopApp && (
+                  <label className="flex items-center gap-2 text-sm text-linear-text-secondary cursor-pointer">
+                    <input
+                      type="radio"
+                      name="edit-sourceType"
+                      value="local"
+                      checked={editFormData.sourceType === "local"}
+                      onChange={() => setEditFormData(prev => ({ ...prev, sourceType: "local", repoUrl: "" }))}
+                      className="accent-[hsl(var(--linear-accent))]"
+                    />
+                    Local Folder
+                  </label>
+                )}
               </div>
+
+              {!isDesktopApp && (
+                <p className="text-xs text-linear-text-tertiary">
+                  Local folder source selection is available only in the desktop app.
+                </p>
+              )}
 
               {editFormData.sourceType === "repo" && (
                 <div className="space-y-3">
@@ -1211,12 +1301,41 @@ function ProjectsContent() {
               )}
 
               {editFormData.sourceType === "local" && (
-                <Input
-                  value={editFormData.localPath}
-                  onChange={(e) => setEditFormData(prev => ({ ...prev, localPath: e.target.value }))}
-                  placeholder="/absolute/path/to/project"
-                  className="bg-linear-bg-tertiary border-linear-border text-linear-text placeholder:text-linear-text-tertiary"
-                />
+                isDesktopApp ? (
+                  <div className="flex items-center gap-2">
+                    <Input
+                      value={editFormData.localPath}
+                      readOnly
+                      placeholder="Choose a local folder"
+                      className="bg-linear-bg-tertiary border-linear-border text-linear-text placeholder:text-linear-text-tertiary"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => pickLocalFolder(true)}
+                      disabled={isPickingEditLocalPath}
+                      className="border-linear-border text-linear-text hover:bg-linear-bg-tertiary"
+                    >
+                      {isPickingEditLocalPath ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <FolderOpen className="w-4 h-4" />
+                      )}
+                      Browse
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="space-y-1">
+                    <Input
+                      value={editFormData.localPath}
+                      readOnly
+                      className="bg-linear-bg-tertiary border-linear-border text-linear-text"
+                    />
+                    <p className="text-xs text-linear-text-tertiary">
+                      This local folder was set in the desktop app.
+                    </p>
+                  </div>
+                )
               )}
             </div>
 

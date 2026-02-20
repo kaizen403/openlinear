@@ -1,6 +1,6 @@
 "use client"
 
-import { ArrowRight, GitBranch, Sparkles, Send, CheckCircle2, Play, GitMerge, Clock, Cpu, FileText, Image as ImageIcon, Link2, MessageSquare, Zap } from "lucide-react"
+import { ArrowRight, CheckCircle2, ExternalLink, GitMerge, Image as ImageIcon, Loader2, MessageSquare, Sparkles, Zap } from "lucide-react"
 
 export function Hero() {
   return (
@@ -163,80 +163,57 @@ export function Hero() {
                 </div>
               </div>
 
-              <div className="p-6">
-                <div className="grid grid-cols-4 gap-4">
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between px-2">
-                      <span className="text-xs font-medium text-white/60 uppercase tracking-wider">Todo</span>
-                      <span className="text-xs text-white/30 bg-white/[0.05] px-2 py-0.5 rounded-full">3</span>
-                    </div>
-                    <div className="space-y-2.5">
-                      <TaskCard title="Add dark mode toggle" priority="High" label="UI" />
-                      <TaskCard title="Fix API auth flow" priority="Medium" label="Backend" />
-                      <TaskCard title="Update README docs" priority="Low" label="Docs" />
-                    </div>
-                  </div>
+              <div className="p-5">
+                <div className="grid grid-cols-4 gap-3">
+                  <BoardColumn title="Todo" count={2}>
+                    <TaskCard
+                      title="Add dark mode toggle"
+                      identifier="PROJ-51"
+                      labels={[{ name: "feature", color: "#60a5fa" }, { name: "ui", color: "#22c55e" }]}
+                      due="Today"
+                    />
+                    <TaskCard
+                      title="Fix API auth flow"
+                      identifier="PROJ-49"
+                      labels={[{ name: "backend", color: "#f97316" }]}
+                      due="Tomorrow"
+                    />
+                  </BoardColumn>
 
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between px-2">
-                      <span className="text-xs font-medium text-white/60 uppercase tracking-wider">In Progress</span>
-                      <span className="text-xs text-white/30 bg-white/[0.05] px-2 py-0.5 rounded-full">2</span>
-                    </div>
-                    <div className="space-y-2.5">
-                      <TaskCard 
-                        title="Implement rate limiting" 
-                        priority="High" 
-                        label="Backend"
-                        executing
-                      />
-                      <TaskCard title="Refactor auth middleware" priority="Medium" label="Security" />
-                    </div>
-                  </div>
+                  <BoardColumn title="In Progress" count={2}>
+                    <TaskCard
+                      title="Implement rate limiting"
+                      identifier="PROJ-42"
+                      labels={[{ name: "backend", color: "#f97316" }]}
+                      progressMessage="Running OpenCode"
+                      due="Today"
+                    />
+                    <TaskCard
+                      title="Refactor auth middleware"
+                      identifier="PROJ-39"
+                      labels={[{ name: "security", color: "#a78bfa" }]}
+                      due="Mar 14"
+                    />
+                  </BoardColumn>
 
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between px-2">
-                      <span className="text-xs font-medium text-blue-400 uppercase tracking-wider">Executing</span>
-                      <span className="text-xs text-blue-400/60 bg-blue-500/10 px-2 py-0.5 rounded-full animate-pulse">1</span>
-                    </div>
-                    <div className="space-y-2.5">
-                      <div className="relative group">
-                        <div className="absolute -inset-[1px] bg-gradient-to-r from-blue-500/20 via-cyan-500/20 to-blue-500/20 rounded-lg blur-sm animate-pulse" />
-                        <div className="relative p-3.5 rounded-lg bg-[#0a0f1a]/80 border border-blue-500/20">
-                          <div className="flex items-center gap-2 mb-2">
-                            <div className="h-6 w-6 rounded-full bg-blue-500/20 flex items-center justify-center">
-                              <Cpu className="h-3 w-3 text-blue-400 animate-pulse" />
-                            </div>
-                            <span className="text-xs text-blue-400 font-medium">AI Executing</span>
-                          </div>
-                          <p className="text-sm text-white/80 font-medium mb-2">Add OAuth provider</p>
-                          <div className="space-y-1.5">
-                            <div className="flex items-center gap-2 text-xs text-white/40">
-                              <GitBranch className="h-3 w-3" />
-                              <span>feat/oauth-provider</span>
-                            </div>
-                            <div className="flex items-center gap-2 text-xs text-white/40">
-                              <Clock className="h-3 w-3" />
-                              <span>Running for 2m 34s</span>
-                            </div>
-                          </div>
-                          <div className="mt-3 h-1 bg-white/10 rounded-full overflow-hidden">
-                            <div className="h-full w-[65%] bg-gradient-to-r from-blue-500 to-cyan-400 rounded-full animate-pulse" />
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
+                  <BoardColumn title="Done" count={1}>
+                    <TaskCard
+                      title="Create landing page"
+                      identifier="PROJ-28"
+                      labels={[{ name: "frontend", color: "#22c55e" }]}
+                      done
+                      showPr
+                    />
+                  </BoardColumn>
 
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between px-2">
-                      <span className="text-xs font-medium text-white/60 uppercase tracking-wider">Done</span>
-                      <span className="text-xs text-white/30 bg-white/[0.05] px-2 py-0.5 rounded-full">4</span>
-                    </div>
-                    <div className="space-y-2.5">
-                      <TaskCard title="Setup CI/CD pipeline" priority="High" label="DevOps" done />
-                      <TaskCard title="Create landing page" priority="Medium" label="Frontend" done />
-                    </div>
-                  </div>
+                  <BoardColumn title="Cancelled" count={1}>
+                    <TaskCard
+                      title="Migrate billing service"
+                      identifier="PROJ-12"
+                      labels={[{ name: "infra", color: "#94a3b8" }]}
+                      cancelled
+                    />
+                  </BoardColumn>
                 </div>
               </div>
             </div>
@@ -264,37 +241,87 @@ export function Hero() {
 
 function TaskCard({ 
   title, 
-  priority, 
-  label, 
-  executing = false, 
-  done = false 
+  identifier,
+  labels,
+  due,
+  progressMessage,
+  done = false,
+  cancelled = false,
+  showPr = false,
 }: { 
   title: string
-  priority: string
-  label: string
-  executing?: boolean
+  identifier: string
+  labels: Array<{ name: string; color: string }>
+  due?: string
+  progressMessage?: string
   done?: boolean
+  cancelled?: boolean
+  showPr?: boolean
 }) {
-  const priorityColors: Record<string, string> = {
-    High: 'bg-red-500/20 text-red-400',
-    Medium: 'bg-yellow-500/20 text-yellow-400',
-    Low: 'bg-blue-500/20 text-blue-400'
-  }
-
   return (
-    <div className={`p-3.5 rounded-lg bg-white/[0.03] border border-white/[0.06] hover:border-white/[0.1] transition-all duration-200 ${done ? 'opacity-60' : ''}`}>
-      <div className="flex items-center gap-2 mb-2">
-        <span className={`text-[10px] px-1.5 py-0.5 rounded ${priorityColors[priority]}`}>
-          {priority}
-        </span>
-        <span className="text-[10px] text-white/40 px-1.5 py-0.5 rounded bg-white/[0.05]">
-          {label}
-        </span>
-      </div>
-      <p className={`text-sm font-medium ${done ? 'text-white/50 line-through' : 'text-white/80'}`}>
-        {done && <CheckCircle2 className="h-3.5 w-3.5 inline mr-1.5 text-green-400" />}
+    <div className={`rounded-xl bg-white/[0.03] backdrop-blur-md border border-white/[0.08] shadow-[0_4px_24px_-8px_rgba(0,0,0,0.4)] p-2.5 ${cancelled ? 'opacity-55' : ''}`}>
+      {progressMessage && (
+        <div className="mb-2 p-2 bg-white/[0.03] rounded-md">
+          <div className="flex items-center gap-2">
+            <Loader2 className="w-3 h-3 animate-spin text-blue-400" />
+            <span className="text-[10px] text-white/70">{progressMessage}</span>
+          </div>
+        </div>
+      )}
+
+      <p className={`text-[11px] leading-tight font-light ${done ? 'text-white/60' : 'text-white/85'} ${cancelled ? 'line-through' : ''}`}>
+        {done && <CheckCircle2 className="h-3.5 w-3.5 inline mr-1 text-green-400" />}
         {title}
       </p>
+
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        {labels.map((label) => (
+          <span
+            key={label.name}
+            className="text-[10px] px-2 py-0.5 h-5 rounded-[4px] inline-flex items-center border border-white/10 font-medium"
+            style={{
+              backgroundColor: `${label.color}20`,
+              color: label.color,
+            }}
+          >
+            {label.name}
+          </span>
+        ))}
+      </div>
+
+      {showPr && (
+        <button type="button" className="flex items-center gap-1 mt-2 text-[10px] text-blue-400 hover:underline">
+          <ExternalLink className="w-3 h-3" />
+          View PR
+        </button>
+      )}
+
+      <p className="mt-2 text-[10px] text-white/35 font-mono flex items-center justify-between">
+        <span>{identifier}</span>
+        {due ? <span className="font-sans">{due}</span> : null}
+      </p>
+    </div>
+  )
+}
+
+function BoardColumn({
+  title,
+  count,
+  children,
+}: {
+  title: string
+  count: number
+  children: React.ReactNode
+}) {
+  return (
+    <div className="rounded-xl border border-white/[0.06] bg-gradient-to-b from-white/[0.02] to-transparent overflow-hidden">
+      <div className="flex items-center justify-between px-3 py-2 backdrop-blur-sm bg-white/[0.02] border-b border-white/[0.04]">
+        <span className="text-[10px] font-medium text-zinc-400 uppercase tracking-wider">{title}</span>
+        <span className="h-5 min-w-5 px-1 rounded border border-white/[0.08] bg-white/[0.06] text-[10px] leading-5 text-zinc-400 text-center">
+          {count}
+        </span>
+      </div>
+      <div className="p-2.5 space-y-2.5">{children}</div>
     </div>
   )
 }

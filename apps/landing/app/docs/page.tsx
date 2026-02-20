@@ -766,7 +766,7 @@ function SectionProjects() {
           ["leadId", "string", "No", "User ID of the project lead"],
           ["teamIds", "string[]", "No", "Teams associated with this project"],
           ["repoUrl", "string", "No", "GitHub repository URL"],
-          ["localPath", "string", "No", "Local path to the repository"],
+          ["localPath", "string", "No", "Local path to the repository (desktop app only)"],
         ]}
       />
 
@@ -779,8 +779,8 @@ function SectionProjects() {
       <SubHeading>Repository Linking</SubHeading>
       <Paragraph>
         Projects can be linked to a repository via <InlineCode>repoUrl</InlineCode> (GitHub URL) or{" "}
-        <InlineCode>localPath</InlineCode> (local directory). When a task is executed, the linked repository is used as
-        the target for code changes.
+        <InlineCode>localPath</InlineCode> (local directory, desktop app only). When a task is executed, the linked
+        repository is used as the target for code changes.
       </Paragraph>
 
       <SubHeading>Project Selector</SubHeading>

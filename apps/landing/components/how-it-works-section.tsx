@@ -1,4 +1,4 @@
-import { Check } from "lucide-react"
+import { Check, CheckCircle2, ExternalLink, FileCode2, GitPullRequest, Loader2, Plus } from "lucide-react"
 import { ReactNode } from "react"
 
 export function HowItWorksSection() {
@@ -26,22 +26,27 @@ export function HowItWorksSection() {
           <StepCard
             visual={
               <div className="w-[280px] h-[180px] rounded-[16px] bg-[#0A0D14] border border-[#1E2330] relative overflow-hidden flex flex-col items-center justify-center mb-8 mx-auto group z-10">
-                <div className="w-[85%] bg-[#111111] border border-[#2a2a2a] rounded-[12px] relative z-10 text-left p-3.5 shadow-[0_4px_24px_-8px_rgba(0,0,0,0.5)]">
-                   <div className="text-[12px] text-[#f5f5f5] font-medium mb-3.5 flex items-center justify-between">
-                     <span>Todo</span>
-                     <span className="text-[#6a6a6a]">1</span>
-                   </div>
-                   <div className="bg-[#141414] border border-[#2a2a2a] rounded-[8px] p-3 mb-3">
-                     <div className="text-[12px] text-[#f5f5f5] mb-2.5">Add authentication flow</div>
-                     <div className="flex gap-1.5">
-                       <span className="text-[10px] px-2 py-0.5 rounded-[4px] border border-white/10 text-[#60a5fa] bg-[#60a5fa]/10 font-medium">Feature</span>
-                       <span className="text-[10px] px-2 py-0.5 rounded-[4px] border border-white/10 text-[#f97316] bg-[#f97316]/10 font-medium">Backend</span>
-                     </div>
-                   </div>
-                   <div className="flex items-center gap-1.5 text-[12px] text-[#6a6a6a] mt-2 font-medium">
-                     <svg aria-hidden="true" className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M5 12h14"/></svg>
-                     New Issue
-                   </div>
+                <div className="w-[86%] h-[84%] rounded-[12px] border border-white/[0.08] bg-gradient-to-b from-white/[0.02] to-transparent overflow-hidden shadow-[0_8px_28px_-14px_rgba(0,0,0,0.7)]">
+                  <div className="flex items-center justify-between px-3 py-2 border-b border-white/[0.06] bg-white/[0.02]">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <span className="text-[10px] font-medium uppercase tracking-wider text-zinc-400">Todo</span>
+                      <span className="h-4 min-w-4 px-1 rounded border border-white/[0.08] bg-white/[0.06] text-[10px] leading-4 text-zinc-400 text-center">1</span>
+                    </div>
+                    <Plus className="w-3.5 h-3.5 text-zinc-500" />
+                  </div>
+                  <div className="p-2.5">
+                    <div className="rounded-xl bg-white/[0.03] backdrop-blur-md border border-white/[0.08] shadow-[0_4px_24px_-8px_rgba(0,0,0,0.4)] p-2.5">
+                      <p className="text-[11px] font-light leading-tight text-white/85 mb-2">Add authentication flow</p>
+                      <div className="flex gap-1.5 mb-2">
+                        <span className="text-[10px] px-2 py-0.5 h-5 rounded-[4px] inline-flex items-center border border-white/10 bg-[#60a5fa]/20 text-[#60a5fa] font-medium">Feature</span>
+                        <span className="text-[10px] px-2 py-0.5 h-5 rounded-[4px] inline-flex items-center border border-white/10 bg-[#f97316]/20 text-[#f97316] font-medium">Backend</span>
+                      </div>
+                      <div className="flex items-center justify-between text-[10px] text-zinc-500">
+                        <span className="font-mono opacity-70">PROJ-42</span>
+                        <span>Today</span>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
             }
@@ -53,23 +58,30 @@ export function HowItWorksSection() {
           <StepCard
             visual={
               <div className="w-[280px] h-[180px] rounded-[16px] bg-[#0A0D14] border border-[#1E2330] relative overflow-hidden flex flex-col items-center justify-center mb-8 mx-auto group z-10">
-                <div className="w-[85%] bg-[#111111] border border-[#2a2a2a] rounded-[12px] relative z-10 text-left flex flex-col overflow-hidden shadow-[0_4px_24px_-8px_rgba(0,0,0,0.5)]">
-                  <div className="flex items-center justify-between p-3.5 border-b border-[#2a2a2a] bg-[#111111]">
-                    <span className="text-[12px] font-medium text-[#f5f5f5]">Executing</span>
-                    <span className="text-[11px] text-[#6a6a6a] font-mono">00:12</span>
+                <div className="w-[86%] h-[84%] rounded-[12px] border border-white/[0.08] bg-white/[0.02] overflow-hidden shadow-[0_8px_28px_-14px_rgba(0,0,0,0.7)]">
+                  <div className="flex items-center justify-between px-3 py-2 border-b border-white/[0.06] bg-white/[0.02]">
+                    <span className="text-[10px] font-medium uppercase tracking-wider text-zinc-300">Execution Logs</span>
+                    <span className="text-[10px] text-zinc-500 font-mono">00:12</span>
                   </div>
-                  <div className="px-3.5 py-2.5 border-b border-[#2a2a2a] bg-[#1a1a2e] flex items-center gap-2">
-                    <div className="w-1.5 h-1.5 rounded-full bg-[#5e6ad2] animate-pulse" />
-                    <span className="text-[12px] font-medium text-[#5e6ad2]">Writing implementation...</span>
-                  </div>
-                  <div className="p-3.5 bg-[#111111] space-y-3">
-                    <div className="flex gap-2.5 items-center">
-                      <svg aria-hidden="true" className="w-3.5 h-3.5 text-[#3a3a3a] flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg>
-                      <span className="text-[12px] text-[#6a6a6a]">Reading auth.ts</span>
+                  <div className="px-3 py-2 border-b border-white/[0.06] bg-[#1d4ed8]/12">
+                    <div className="flex items-center gap-2">
+                      <Loader2 className="w-3 h-3 animate-spin text-[#5e6ad2]" />
+                      <span className="text-[11px] font-medium text-[#7c8bff]">Running OpenCode</span>
                     </div>
-                    <div className="flex gap-2.5 items-center">
-                      <svg aria-hidden="true" className="w-3.5 h-3.5 text-[#3a3a3a] flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg>
-                      <span className="text-[12px] text-[#6a6a6a]">Checking database schema</span>
+                    <p className="text-[10px] text-zinc-400 mt-1">Writing implementation...</p>
+                  </div>
+                  <div className="p-2.5 space-y-2.5">
+                    <div className="flex items-center gap-2">
+                      <FileCode2 className="w-3.5 h-3.5 text-zinc-500" />
+                      <span className="text-[10px] text-zinc-400">Reading <span className="font-mono">auth.ts</span></span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-zinc-500" />
+                      <span className="text-[10px] text-zinc-400">Checking database schema</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <GitPullRequest className="w-3.5 h-3.5 text-zinc-500" />
+                      <span className="text-[10px] text-zinc-400">Preparing PR metadata</span>
                     </div>
                   </div>
                 </div>
@@ -83,20 +95,30 @@ export function HowItWorksSection() {
           <StepCard
             visual={
               <div className="w-[280px] h-[180px] rounded-[16px] bg-[#0A0D14] border border-[#1E2330] relative overflow-hidden flex flex-col items-center justify-center mb-8 mx-auto group z-10">
-                <div className="w-[85%] bg-[#111111] border border-[#2a2a2a] rounded-[12px] relative z-10 text-left p-3.5 shadow-[0_4px_24px_-8px_rgba(0,0,0,0.5)]">
-                   <div className="flex items-center gap-2 mb-3.5">
-                     <svg aria-hidden="true" className="w-4 h-4 text-[#22c55e]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><line x1="6" y1="9" x2="6" y2="21"/></svg>
-                     <span className="text-[12px] font-medium text-[#f5f5f5]">Ready for Review</span>
-                   </div>
-                   <div className="bg-[#142e1d] border border-[#1f4028] rounded-[6px] px-3 py-2.5 mb-4 flex items-center gap-2 text-[#22c55e]">
-                     <svg aria-hidden="true" className="w-3.5 h-3.5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-                     <span className="text-[11px] truncate">Add authentication flow #42</span>
-                   </div>
-                   <div className="flex justify-end mt-1">
-                     <div className="bg-[#f5f5f5] text-[#111111] px-3 py-1.5 rounded-[6px] text-[12px] font-medium">
-                       Merge PR
-                     </div>
-                   </div>
+                <div className="w-[86%] h-[84%] rounded-[12px] border border-white/[0.08] bg-gradient-to-b from-white/[0.02] to-transparent overflow-hidden shadow-[0_8px_28px_-14px_rgba(0,0,0,0.7)]">
+                  <div className="flex items-center justify-between px-3 py-2 border-b border-white/[0.06] bg-white/[0.02]">
+                    <span className="text-[10px] font-medium uppercase tracking-wider text-zinc-400">Done</span>
+                    <span className="h-4 min-w-4 px-1 rounded border border-emerald-500/25 bg-emerald-500/12 text-[10px] leading-4 text-emerald-300 text-center">1</span>
+                  </div>
+                  <div className="p-2.5">
+                    <div className="rounded-xl bg-white/[0.03] backdrop-blur-md border border-white/[0.08] shadow-[0_4px_24px_-8px_rgba(0,0,0,0.4)] p-2.5">
+                      <div className="flex items-start justify-between gap-2 mb-2">
+                        <p className="text-[11px] font-light leading-tight text-white/85">Add authentication flow</p>
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
+                      </div>
+                      <button
+                        type="button"
+                        className="flex items-center gap-1 text-[10px] text-blue-400 hover:underline"
+                      >
+                        <ExternalLink className="w-3 h-3" />
+                        View PR
+                      </button>
+                      <div className="mt-2.5 pt-2 border-t border-white/[0.06] flex items-center justify-between text-[10px] text-zinc-500">
+                        <span className="font-mono opacity-70">PROJ-42</span>
+                        <span>Completed</span>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
             }

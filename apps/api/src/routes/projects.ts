@@ -8,6 +8,11 @@ import { getUserTeamIds } from '../services/team-scope';
 
 const router: Router = Router();
 
+function isDesktopClient(req: Request): boolean {
+  const header = req.header('x-openlinear-client');
+  return typeof header === 'string' && header.toLowerCase() === 'desktop';
+}
+
 const createProjectSchema = z.object({
   name: z.string().min(1).max(100),
   description: z.string().max(1000).optional(),
@@ -95,6 +100,11 @@ router.post('/', requireAuth, async (req: AuthRequest, res: Response) => {
 
     const { teamIds, startDate, targetDate, repoUrl, localPath, ...projectData } = parsed.data;
 
+    if (localPath && !isDesktopClient(req)) {
+      res.status(403).json({ error: 'localPath can only be set from the desktop app' });
+      return;
+    }
+
     let repositoryId: string | undefined;
 
     if (repoUrl) {
@@ -175,6 +185,11 @@ router.patch('/:id', requireAuth, async (req: AuthRequest, res: Response) => {
     }
 
     const { teamIds, startDate, targetDate, repoUrl, localPath, ...updateData } = parsed.data;
+
+    if (localPath !== undefined && !isDesktopClient(req)) {
+      res.status(403).json({ error: 'localPath can only be updated from the desktop app' });
+      return;
+    }
 
     const dateFields: Record<string, Date | null | undefined> = {};
     if (startDate !== undefined) {

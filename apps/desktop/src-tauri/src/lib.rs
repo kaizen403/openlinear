@@ -16,6 +16,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             opencode::check_opencode,
+            opencode::pick_local_folder,
             sidecar::start_api_server,
             sidecar::stop_api_server
         ])
