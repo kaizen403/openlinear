@@ -136,7 +136,8 @@ export async function getModels(): Promise<{ providers: ProviderModels[] }> {
     if (res.status === 401 || res.status === 500) {
       return { providers: [] }
     }
-    throw new Error('Failed to get models')
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || 'Failed to get models')
   }
   return res.json()
 }
@@ -150,7 +151,8 @@ export async function getModelConfig(): Promise<ModelConfig> {
       // The container might not be fully initialized or missing creds, return default
       return { model: null, small_model: null }
     }
-    throw new Error('Failed to get model config')
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || 'Failed to get model config')
   }
   return res.json()
 }
