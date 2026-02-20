@@ -132,7 +132,12 @@ export async function getModels(): Promise<{ providers: ProviderModels[] }> {
   const res = await fetch(`${API_URL}/api/opencode/models`, {
     headers: getAuthHeader(),
   })
-  if (!res.ok) throw new Error('Failed to get models')
+  if (!res.ok) {
+    if (res.status === 401 || res.status === 500) {
+      return { providers: [] }
+    }
+    throw new Error('Failed to get models')
+  }
   return res.json()
 }
 
