@@ -38,19 +38,17 @@ export function Hero() {
         </div>
 
         <h1 className="hero-reveal-2 font-display text-[3rem] sm:text-[3.5rem] md:text-[4.5rem] lg:text-[5.5rem] xl:text-[6rem] font-bold tracking-[-0.02em] text-white leading-[1.05] max-w-6xl">
-          The task execution
+          Project management
           <br />
           <span className="bg-gradient-to-r from-blue-400 via-cyan-300 to-blue-400 bg-clip-text text-transparent">
-            infrastructure
+            that actually writes
           </span>
           <br />
-          for your codebase
+          the code
         </h1>
 
         <p className="hero-reveal-3 mt-8 text-lg sm:text-xl text-white/50 max-w-2xl leading-relaxed">
-          OpenLinear gives you a kanban board that actually executes tasks. AI agents 
-          work on your repository, create branches, and open pull requests — all built in. 
-          Self-hosted. Works with any GitHub repo.
+          Don't just track tasks. OpenLinear's AI agents clone your repo, write the implementation, and open a PR—straight from your kanban board.
         </p>
 
         <div className="hero-reveal-4 flex flex-wrap items-center justify-center gap-4 mt-12">
