@@ -1,4 +1,5 @@
-import { Check } from "lucide-react"
+import { Check, ClipboardList, Bot, GitPullRequest, DivideIcon as LucideIcon } from "lucide-react"
+import { ReactNode } from "react"
 
 export function HowItWorksSection() {
   return (
@@ -23,21 +24,21 @@ export function HowItWorksSection() {
           <div className="hidden md:block absolute top-12 left-[20%] right-[20%] h-[1px] bg-gradient-to-r from-transparent via-white/10 to-transparent" />
           
           <StepCard
-            number="01"
+            icon={<ClipboardList className="h-8 w-8 text-blue-400" />}
             title="Create a task"
             description="Add a task to your kanban board with a clear description. Tag it with priority and category. Our AI analyzes the requirements and estimates complexity."
             features={["Natural language input", "Auto-tagging", "Complexity estimation"]}
           />
 
           <StepCard
-            number="02"
+            icon={<Bot className="h-8 w-8 text-blue-400" />}
             title="AI takes over"
             description="Click 'Execute' and our AI agent clones your repo, creates a branch, and starts implementing. You can watch progress in real-time with full transparency."
             features={["Git integration", "Branch creation", "Real-time updates"]}
           />
 
           <StepCard
-            number="03"
+            icon={<GitPullRequest className="h-8 w-8 text-blue-400" />}
             title="Review & merge"
             description="The AI opens a pull request with the implementation. Review the code, request changes if needed, or merge directly. Quality is guaranteed."
             features={["PR creation", "Code review", "One-click merge"]}
@@ -49,12 +50,12 @@ export function HowItWorksSection() {
 }
 
 function StepCard({
-  number,
+  icon,
   title,
   description,
   features,
 }: {
-  number: string
+  icon: ReactNode
   title: string
   description: string
   features: string[]
@@ -64,7 +65,7 @@ function StepCard({
       <div className="flex flex-col items-center text-center">
         <div className="relative mb-8">
           <div className="h-16 w-16 rounded-2xl bg-gradient-to-br from-blue-500/20 to-cyan-500/20 border border-blue-500/30 flex items-center justify-center">
-            <span className="text-2xl font-bold text-blue-400">{number}</span>
+            {icon}
           </div>
           <div className="absolute inset-0 rounded-2xl bg-blue-500/20 blur-xl opacity-0 group-hover:opacity-100 transition-opacity" />
         </div>
