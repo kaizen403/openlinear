@@ -140,7 +140,13 @@ export async function getModelConfig(): Promise<ModelConfig> {
   const res = await fetch(`${API_URL}/api/opencode/config`, {
     headers: getAuthHeader(),
   })
-  if (!res.ok) throw new Error('Failed to get model config')
+  if (!res.ok) {
+    if (res.status === 401 || res.status === 500) {
+      // The container might not be fully initialized or missing creds, return default
+      return { model: null, small_model: null }
+    }
+    throw new Error('Failed to get model config')
+  }
   return res.json()
 }
 
