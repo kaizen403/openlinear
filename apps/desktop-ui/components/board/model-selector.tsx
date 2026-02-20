@@ -14,8 +14,8 @@ export function ModelSelector() {
     const load = async () => {
       try {
         const [modelsData, configData] = await Promise.all([
-          getModels(),
-          getModelConfig()
+          getModels().catch(() => ({ providers: [] })),
+          getModelConfig().catch(() => ({ model: null, small_model: null }))
         ])
         setModelsList(modelsData.providers || [])
         setCurrentModel(configData.model)
