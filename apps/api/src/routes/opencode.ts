@@ -219,8 +219,9 @@ router.post('/auth/oauth/callback', requireAuth, async (req: AuthRequest, res: R
     });
 
     res.json(result.data);
-  } catch (err) {
-    res.status(500).json({ error: err instanceof Error ? err.message : 'Failed to complete OAuth' });
+  } catch (err: any) {
+    const message = err.response?.data?.error || err.message || 'Failed to complete OAuth';
+    res.status(500).json({ error: message });
   }
 });
 
