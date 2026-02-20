@@ -14,34 +14,40 @@ export function FeaturesSection() {
         <div className="grid md:grid-cols-3 gap-6">
           {/* Card 1: One-Click Execution */}
           <div className="rounded-[32px] bg-white/[0.02] border border-white/[0.06] p-4 flex flex-col h-full hover:bg-white/[0.04] transition-colors group">
-            <div className="h-[280px] rounded-[24px] bg-[#0a0e17] border border-white/[0.04] mb-6 relative overflow-hidden flex items-center justify-center">
+            <div className="h-[280px] rounded-[24px] bg-[#0a0e17] border border-white/[0.04] mb-6 relative overflow-hidden flex flex-col items-center justify-center p-6">
               <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(56,189,248,0.05),transparent_70%)]" />
-              <div className="absolute inset-0 opacity-20" style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg width=\'60\' height=\'104\' viewBox=\'0 0 60 104\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cpath d=\'M30 0L60 17.3205v34.641L30 69.282 0 51.9615V17.3205L30 0zm0 34.641L15 25.9808v17.3205L30 51.9615l15-8.6603V25.9808L30 34.641z\' fill=\'%23ffffff\' fill-opacity=\'0.1\' fill-rule=\'evenodd\'/%3E%3C/svg%3E")' }} />
               
-              <div className="relative w-full h-full flex items-center justify-center">
-                <div className="absolute left-[20%] h-12 w-12 rounded-full bg-blue-500/20 border border-blue-500/50 flex items-center justify-center z-10 shadow-[0_0_15px_rgba(59,130,246,0.3)]">
-                  <div className="w-0 h-0 border-t-[6px] border-t-transparent border-l-[10px] border-l-blue-400 border-b-[6px] border-b-transparent ml-1" />
-                </div>
-                
-                <div className="absolute right-[20%] h-14 w-14 rounded-xl bg-green-500/10 border border-green-500/30 flex items-center justify-center z-10">
-                  <svg viewBox="0 0 24 24" className="w-6 h-6 text-green-400" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M18 6L6 18" />
-                    <path d="M6 6L18 18" />
-                  </svg>
-                </div>
-
-                {/* Git branch lines */}
-                <svg className="absolute inset-0 w-full h-full pointer-events-none opacity-40 text-blue-400" fill="none" stroke="currentColor" strokeWidth="2" strokeDasharray="4 4">
-                  <path d="M 30% 50% Q 50% 50% 60% 40% T 75% 50%" className="animate-[dash_2s_linear_infinite]" />
-                </svg>
-
-                <div className="h-16 w-16 bg-[#0f1420] border border-white/10 rounded-xl flex items-center justify-center relative z-20 shadow-[0_0_20px_rgba(34,211,238,0.2)]">
-                  <svg viewBox="0 0 24 24" className="w-8 h-8 text-cyan-400" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <circle cx="18" cy="18" r="3"></circle>
-                    <circle cx="6" cy="6" r="3"></circle>
-                    <path d="M13 6h3a2 2 0 0 1 2 2v7"></path>
-                    <line x1="6" y1="9" x2="6" y2="21"></line>
-                  </svg>
+              <div className="w-[85%] bg-[#111111] border border-[#2a2a2a] rounded-xl shadow-2xl relative z-10 transform scale-95 group-hover:scale-100 transition-transform duration-500 text-left">
+                <div className="p-3">
+                  <div className="flex items-start gap-2">
+                    <h4 className="text-sm text-[#f5f5f5] font-light leading-tight line-clamp-2 flex-1">
+                      Implement dark mode toggle in settings
+                    </h4>
+                    <svg aria-hidden="true" className="w-3.5 h-3.5 animate-spin flex-shrink-0 mt-0.5 text-[#5e6ad2]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+                  </div>
+                  
+                  <div className="flex flex-wrap gap-1.5 mt-3 mb-3">
+                    <span className="text-[11px] px-2 py-0.5 h-5 font-medium rounded-[4px] inline-flex items-center border border-white/10" style={{ color: '#60a5fa', backgroundColor: 'rgba(96,165,250,0.2)' }}>Feature</span>
+                    <span className="text-[11px] px-2 py-0.5 h-5 font-medium rounded-[4px] inline-flex items-center border border-white/10" style={{ color: '#f97316', backgroundColor: 'rgba(249,115,22,0.2)' }}>Frontend</span>
+                  </div>
+                  
+                  <div className="p-2 bg-white/[0.03] rounded-md mb-3 flex items-center gap-2">
+                    <svg aria-hidden="true" className="w-3 h-3 animate-spin text-[#5e6ad2]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+                    <span className="text-xs text-[#a0a0a0]">Executing...</span>
+                  </div>
+                  
+                  <div className="flex items-center justify-between mt-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[11px] text-[#6a6a6a] font-mono opacity-60">OPN-124</span>
+                      <span className="text-[11px] text-[#6a6a6a] flex items-center gap-1">
+                        <svg aria-hidden="true" className="w-3 h-3 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                        02:45
+                      </span>
+                    </div>
+                    <div className="flex items-center">
+                      <div className="h-6 px-1.5 flex items-center text-[11px] text-red-400 font-medium">Cancel</div>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -55,20 +61,45 @@ export function FeaturesSection() {
 
           {/* Card 2: Container Isolation */}
           <div className="rounded-[32px] bg-white/[0.02] border border-white/[0.06] p-4 flex flex-col h-full hover:bg-white/[0.04] transition-colors group">
-            <div className="h-[280px] rounded-[24px] bg-[#0a0e17] border border-white/[0.04] mb-6 relative overflow-hidden flex items-center justify-center">
+            <div className="h-[280px] rounded-[24px] bg-[#0a0e17] border border-white/[0.04] mb-6 relative overflow-hidden flex flex-col items-center justify-center">
               <div className="absolute inset-0 bg-[radial-gradient(circle_at_bottom,rgba(59,130,246,0.1),transparent_60%)]" />
               
-              <div className="relative flex items-center justify-center">
-                <div className="absolute w-40 h-40 border-2 border-dashed border-blue-500/30 rounded-2xl group-hover:border-blue-400/50 transition-colors duration-500 animate-[spin_30s_linear_infinite]" />
-                <div className="absolute w-32 h-32 bg-blue-500/5 border border-blue-500/20 rounded-xl" />
+              <div className="w-[85%] bg-[#111111] border border-[#2a2a2a] rounded-lg shadow-2xl relative z-10 flex flex-col overflow-hidden transform scale-95 group-hover:scale-100 transition-transform duration-500 text-left">
+                <div className="flex items-center justify-between p-2 border-b border-[#2a2a2a] bg-[#141414]">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-semibold text-[#f5f5f5] truncate">Execution Details</span>
+                    <span className="text-[9px] text-[#6a6a6a]">Task OPN-124</span>
+                  </div>
+                  <svg aria-hidden="true" className="h-3 w-3 text-[#6a6a6a]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                </div>
                 
-                <div className="h-16 w-16 bg-[#0f1420] border border-white/20 rounded-xl flex items-center justify-center relative z-10 shadow-[0_0_30px_rgba(59,130,246,0.3)]">
-                  <svg viewBox="0 0 24 24" className="w-8 h-8 text-blue-400" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect>
-                    <rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect>
-                    <line x1="6" y1="6" x2="6.01" y2="6"></line>
-                    <line x1="6" y1="18" x2="6.01" y2="18"></line>
-                  </svg>
+                <div className="px-3 py-2 border-b border-[#2a2a2a] bg-blue-500/10 flex items-center gap-2">
+                  <div className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
+                  <span className="text-[11px] font-medium text-blue-400">Executing inside isolated container</span>
+                </div>
+                
+                <div className="p-3 space-y-2 bg-[#111111]">
+                  <div className="flex gap-2">
+                    <svg aria-hidden="true" className="w-3 h-3 text-[#a0a0a0] mt-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+                    <div>
+                       <div className="text-[#6a6a6a] text-[9px] font-mono mb-0.5">14:02:41</div>
+                       <p className="text-[10px] text-[#a0a0a0]">Provisioning dedicated environment...</p>
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <svg aria-hidden="true" className="w-3 h-3 text-[#a0a0a0] mt-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+                    <div>
+                       <div className="text-[#6a6a6a] text-[9px] font-mono mb-0.5">14:02:45</div>
+                       <p className="text-[10px] text-[#a0a0a0]">Mounting isolated worktree /tmp/worktree-124</p>
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <svg aria-hidden="true" className="w-3 h-3 text-blue-400 mt-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                    <div>
+                       <div className="text-[#6a6a6a] text-[9px] font-mono mb-0.5">14:02:46</div>
+                       <p className="text-[10px] text-[#f5f5f5]">Agent spawned securely</p>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -85,28 +116,32 @@ export function FeaturesSection() {
             <div className="h-[280px] rounded-[24px] bg-[#0a0e17] border border-white/[0.04] mb-6 relative overflow-hidden flex flex-col items-center justify-center p-6">
               <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(6,182,212,0.1),transparent_60%)]" />
               
-              <div className="w-full bg-[#131823] border border-white/10 rounded-lg overflow-hidden shadow-2xl relative z-10">
-                <div className="bg-white/5 px-3 py-2 flex items-center gap-2 border-b border-white/5">
-                  <div className="w-2.5 h-2.5 rounded-full bg-red-500/80" />
-                  <div className="w-2.5 h-2.5 rounded-full bg-yellow-500/80" />
-                  <div className="w-2.5 h-2.5 rounded-full bg-green-500/80" />
-                  <div className="ml-2 text-[10px] text-white/30 font-mono">agent-stream</div>
-                </div>
-                <div className="p-4 space-y-2 font-mono text-xs">
-                  <div className="flex items-center gap-2 text-cyan-400/80">
-                    <span className="opacity-50">&gt;</span>
-                    <span>Analyzing codebase...</span>
+              <div className="w-[85%] bg-[#111111] border border-[#2a2a2a] rounded-lg shadow-2xl relative z-10 flex flex-col overflow-hidden transform scale-95 group-hover:scale-100 transition-transform duration-500 text-left h-[180px]">
+                <div className="p-3 space-y-3 overflow-hidden">
+                  <div className="flex gap-2">
+                    <svg aria-hidden="true" className="w-3 h-3 text-yellow-400 mt-0.5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+                    <div className="min-w-0">
+                       <div className="text-[#6a6a6a] text-[9px] font-mono mb-0.5">14:03:10</div>
+                       <p className="text-[10px] text-yellow-400 truncate">Call Tool: read</p>
+                       <p className="text-[9px] text-[#6a6a6a] font-mono truncate">{"{ \"filePath\": \"src/components/ui/button.tsx\" }"}</p>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2 text-green-400/80">
-                    <span className="opacity-50">&gt;</span>
-                    <span>Reading src/components/ui/button.tsx</span>
+                  <div className="flex gap-2">
+                    <svg aria-hidden="true" className="w-3 h-3 text-[#a0a0a0] mt-0.5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+                    <div className="min-w-0">
+                       <div className="text-[#6a6a6a] text-[9px] font-mono mb-0.5">14:03:12</div>
+                       <p className="text-[10px] text-[#a0a0a0] truncate">Reading file contents (150 lines)</p>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2 text-blue-400/80">
-                    <span className="opacity-50">&gt;</span>
-                    <span className="relative">
-                      Writing implementation
-                      <span className="absolute -right-2 top-0 bottom-0 w-1 bg-blue-400 animate-pulse" />
-                    </span>
+                  <div className="flex gap-2">
+                    <svg aria-hidden="true" className="w-3 h-3 text-blue-500 mt-0.5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                    <div className="min-w-0">
+                       <div className="text-[#6a6a6a] text-[9px] font-mono mb-0.5">14:03:15</div>
+                       <p className="text-[10px] text-blue-400 relative inline-flex items-center w-full">
+                         <span className="truncate">I'll add the dark mode classes...</span>
+                         <span className="ml-1 w-1 h-3 bg-blue-400 animate-pulse flex-shrink-0" />
+                       </p>
+                    </div>
                   </div>
                 </div>
               </div>
