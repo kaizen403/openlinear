@@ -400,6 +400,15 @@ function SettingsContent() {
       if (code) return code
     }
 
+    const fallbackMatch = input.match(/code=([^&]+)/)
+    if (fallbackMatch?.[1]) {
+      try {
+        return decodeURIComponent(fallbackMatch[1])
+      } catch {
+        return fallbackMatch[1]
+      }
+    }
+
     if (/^[A-Za-z0-9._-]{20,}$/.test(input)) return input
     return null
   }, [])
