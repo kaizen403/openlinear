@@ -1,10 +1,10 @@
 <div align="center">
 
-# KazCode
+# OpenLinear
 
 **Turn your kanban board into a code-shipping machine.**
 
-KazCode is an open-source desktop app that connects a Linear-style task board to AI coding agents. Create a task, describe what you want, hit execute — and get a pull request with working code.
+OpenLinear is an open-source desktop app that connects a Linear-style task board to AI coding agents. Create a task, describe what you want, hit execute — and get a pull request with working code.
 
 [![GitHub](https://img.shields.io/github/stars/kaizen403/openlinear?style=social)](https://github.com/kaizen403/openlinear)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/kaizen403/openlinear/blob/main/LICENSE)
@@ -14,9 +14,9 @@ KazCode is an open-source desktop app that connects a Linear-style task board to
 
 ---
 
-### Why KazCode?
+### Why OpenLinear?
 
-Most AI coding tools are chat-first. KazCode is **task-first**. You plan your work on a kanban board, then let AI agents execute tasks in isolated environments — each user gets their own Docker container, their own credentials, their own branches.
+Most AI coding tools are chat-first. OpenLinear is **task-first**. You plan your work on a kanban board, then let AI agents execute tasks in isolated environments — each user gets their own Docker container, their own credentials, their own branches.
 
 ### Key Capabilities
 
