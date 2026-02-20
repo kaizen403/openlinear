@@ -165,20 +165,26 @@ export async function oauthCallback(
   method?: number
 ): Promise<void> {
   const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(), 20000);
+  const timeout = window.setTimeout(() => controller.abort(), 40000);
 
-  const res = await fetch(`${API_URL}/api/opencode/auth/oauth/callback`, {
-    method: 'POST',
-    signal: controller.signal,
-    headers: {
-      'Content-Type': 'application/json',
-      ...getAuthHeader(),
-    },
-    body: JSON.stringify({ providerId, code, method: method ?? 0 }),
-  }).finally(() => window.clearTimeout(timeout));
-
-  if (controller.signal.aborted) {
-    throw new Error('OAuth callback timed out. Please try again.');
+  let res: Response;
+  try {
+    res = await fetch(`${API_URL}/api/opencode/auth/oauth/callback`, {
+      method: 'POST',
+      signal: controller.signal,
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeader(),
+      },
+      body: JSON.stringify({ providerId, code, method: method ?? 0 }),
+    });
+  } catch (error) {
+    if (controller.signal.aborted || (error instanceof Error && error.name === 'AbortError')) {
+      throw new Error('OAuth callback timed out after 40 seconds. The server might still be processing your request. Please check back in a minute.');
+    }
+    throw error;
+  } finally {
+    window.clearTimeout(timeout);
   }
 
   if (!res.ok) {
