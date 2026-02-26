@@ -81,9 +81,8 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          registry-url: https://npm.pkg.github.com
+          registry-url: 'https://registry.npmjs.org'
           cache: pnpm
-          scope: '@kaizen403'
 
       - name: Install dependencies
         run: pnpm install
@@ -92,4 +91,4 @@ jobs:
         working-directory: packages/openlinear
         run: npm publish --access public
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

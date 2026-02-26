@@ -1,5 +1,5 @@
 {
-  "name": "@kaizen403/openlinear",
+  "name": "openlinear",
   "version": "0.1.1",
   "description": "OpenLinear launcher and installer",
   "license": "MIT",
