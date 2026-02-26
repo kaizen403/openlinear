@@ -88,8 +88,8 @@ jobs:
       - name: Install dependencies
         run: pnpm install
 
-      - name: Publish CLI
-        working-directory: packages/openlinear-cli
+      - name: Publish Package
+        working-directory: packages/openlinear
         run: npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

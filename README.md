@@ -9,7 +9,6 @@ Drag tasks on a kanban board. Click execute. Get a pull request.
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D22-brightgreen)](https://nodejs.org)
 [![pnpm](https://img.shields.io/badge/pnpm-9-orange)](https://pnpm.io)
-[![Deploy](https://img.shields.io/badge/production-rixie.in-purple)](https://rixie.in)
 
 </div>
 
@@ -21,9 +20,11 @@ Drag tasks on a kanban board. Click execute. Get a pull request.
 
 ## What is OpenLinear?
 
-OpenLinear is a desktop app (and web app) that combines a Linear-style kanban board with AI coding agents. You manage tasks visually, and when you're ready, the AI clones your repo, creates a branch, writes the code, and opens a pull request — all in one click.
+OpenLinear is a **desktop app** (built with Tauri) that combines a Linear-style kanban board with AI coding agents. You manage tasks visually, and when you're ready, the AI clones your repo, creates a branch, writes the code, and opens a pull request — all in one click.
 
 Each user gets an **isolated Docker container** running their own AI agent with their own API keys. No credential sharing, no interference between users.
+
+**Architecture:** The dashboard is **desktop-only**. The web version only contains the marketing landing page.
 
 ## Features
 
@@ -35,7 +36,7 @@ Each user gets an **isolated Docker container** running their own AI agent with 
 - **GitHub Integration** — OAuth login, repo management, automatic PR creation
 - **Brainstorm Mode** — describe a goal in natural language, get actionable tasks generated
 - **Teams & Projects** — organize work with teams, projects, and scoped issue numbering
-- **Desktop + Web** — runs as a Tauri desktop app or a standard web app
+- **Desktop App** — runs as a Tauri desktop app with native performance
 
 ## Agent Support
 
@@ -110,7 +111,9 @@ For batch execution, multiple tasks run in parallel (or queued), each in isolate
 ```
 openlinear/
   apps/
-    desktop-ui/     Next.js frontend (Tauri webview)
+    desktop-ui/     Next.js frontend (Tauri webview) - DESKTOP ONLY
+    desktop/        Tauri app shell
+    landing/        Marketing landing page (Vercel)
     api/            Express API sidecar
   packages/
     db/             Prisma schema + client
@@ -129,7 +132,7 @@ openlinear/
 | AppImage | Linux | [GitHub Releases](https://github.com/kaizen403/openlinear/releases) |
 | .deb | Debian/Ubuntu | [GitHub Releases](https://github.com/kaizen403/openlinear/releases) |
 | AUR | Arch Linux | `yay -S openlinear-bin` |
-| npm CLI | Any | `npm install @kaizen403/openlinear-cli` |
+| npm installer | Any | `npm install -g @kaizen403/openlinear` |
 
 Release builds are triggered automatically on tag push (`v*`).
 

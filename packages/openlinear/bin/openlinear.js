@@ -8,7 +8,7 @@ const appImagePath = path.join(os.homedir(), '.openlinear', 'openlinear.AppImage
 
 if (!fs.existsSync(appImagePath)) {
   console.error('OpenLinear AppImage not found.');
-  console.error('Run: npm install -g @openlinear/openlinear-cli to download it.');
+  console.error('Run: npm install -g @kaizen403/openlinear to download it.');
   process.exit(1);
 }
 

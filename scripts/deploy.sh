@@ -93,56 +93,22 @@ step "Building API..."
 pnpm --filter @openlinear/api build
 ok "API built"
 
-step "Cleaning previous Next build artifacts..."
-rm -rf apps/desktop-ui/.next apps/landing/.next
-ok "Old Next artifacts removed"
-
-step "Building Web..."
-NEXT_PUBLIC_API_URL=https://rixie.in \
-NEXT_TELEMETRY_DISABLED=1 \
-NEXT_PRIVATE_BUILD_WORKER=1 \
-NEXT_IGNORE_BUILD_ERRORS=1 \
-NODE_OPTIONS="--max-old-space-size=768" \
-pnpm --filter @openlinear/desktop-ui build
-ok "Web built"
-
-step "Building Landing..."
-pnpm --filter @openlinear/landing build
-ok "Landing built"
-
 # ── Restart services ─────────────────────────────────────────────
-step "Restarting services..."
+step "Restarting API service..."
 
 if command -v pm2 &>/dev/null; then
     # PM2 process manager
     pm2 delete openlinear-api 2>/dev/null || true
     pm2 start apps/api/dist/index.js --name openlinear-api
-    pm2 delete openlinear-web 2>/dev/null || true
-    (cd apps/desktop-ui && pm2 start node_modules/next/dist/bin/next --name openlinear-web -- start -p 3000)
-    pm2 delete openlinear-landing 2>/dev/null || true
-    (cd apps/landing && pm2 start node_modules/next/dist/bin/next --name openlinear-landing -- start -p 3002)
     pm2 save
-    ok "Services restarted (pm2)"
+    ok "API service restarted (pm2)"
 elif systemctl is-active --quiet openlinear-api 2>/dev/null; then
     # Systemd services
     sudo systemctl restart openlinear-api
-    sudo systemctl restart openlinear-web
-    ok "Services restarted (systemd)"
+    ok "API service restarted (systemd)"
 else
     fail "No process manager found. Install pm2: npm install -g pm2"
 fi
-
-step "Verifying web assets..."
-web_html="$(curl -fsS --max-time 10 http://localhost:3000/)"
-web_css_path="$(printf '%s' "$web_html" | node -e 'const fs=require("fs");const html=fs.readFileSync(0,"utf8");const m=html.match(/href="(\/\_next\/static\/chunks\/[^\"]+\.css)"/);if(m)process.stdout.write(m[1]);')"
-web_js_path="$(printf '%s' "$web_html" | node -e 'const fs=require("fs");const html=fs.readFileSync(0,"utf8");const m=html.match(/src="(\/\_next\/static\/chunks\/[^\"]+\.js)"/);if(m)process.stdout.write(m[1]);')"
-
-[ -n "$web_css_path" ] || fail "Could not extract CSS chunk from dashboard homepage"
-[ -n "$web_js_path" ] || fail "Could not extract JS chunk from dashboard homepage"
-
-curl -fsS -o /dev/null --max-time 10 "http://localhost:3000${web_css_path}" || fail "Dashboard CSS chunk failed"
-curl -fsS -o /dev/null --max-time 10 "http://localhost:3000${web_js_path}" || fail "Dashboard JS chunk failed"
-ok "Web assets are healthy"
 
 echo ""
 echo -e "${GREEN}Deploy complete!${NC}"

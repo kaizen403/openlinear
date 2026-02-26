@@ -299,8 +299,10 @@ Production runs on a DigitalOcean droplet at `https://rixie.in`.
 │              DigitalOcean Droplet (rixie.in)                 │
 │                                                             │
 │  PM2 Process Manager                                        │
-│  ├── openlinear-api  (Express, port 3001)                   │
-│  └── openlinear-web  (Next.js, port 3000)                   │
+│  └── openlinear-api  (Express, port 3001)                   │
+│                                                             │
+│  Note: Dashboard is desktop-only (Tauri app).               │
+│        Landing page deployed separately on Vercel.          │
 │                                                             │
 │  Docker                                                     │
 │  ├── openlinear-db         (PostgreSQL 16, port 5432)       │
@@ -320,12 +322,19 @@ Production runs on a DigitalOcean droplet at `https://rixie.in`.
 
 ### CI/CD Pipeline
 
-Push to `main` triggers automatic deployment:
+**API Deployment (Droplet):**
+Push to `main` triggers automatic deployment of the API:
 
-1. GitHub Actions builds API + Web
+1. GitHub Actions builds API
 2. SSH to droplet → run `/opt/openlinear/deploy.sh`
-3. Deploy script: `git pull` → `pnpm install` → postgres up → prisma migrate → build worker image → build apps → PM2 restart
-4. Health check: `curl https://rixie.in/health`
+3. Deploy script: `git pull` → `pnpm install` → postgres up → prisma migrate → build worker image → build API → PM2 restart
+4. Health check: `curl https://api.yourdomain.com/health`
+
+**Landing Page (Vercel):**
+The marketing landing page (`apps/landing`) is deployed separately to Vercel.
+
+**Desktop App:**
+The dashboard UI is only available in the Tauri desktop app, not deployed as a web service.
 
 ### Release Pipeline
 

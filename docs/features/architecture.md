@@ -131,5 +131,5 @@ Artifacts are uploaded to the corresponding GitHub Release.
 | AppImage | Linux | Self-contained, no install needed |
 | .deb | Linux (Debian/Ubuntu) | Standard package |
 | AUR | Arch Linux | `openlinear-bin` package in `packaging/aur/` |
-| npm CLI | Any | `@openlinear/openlinear-cli` via GitHub Packages, downloads AppImage on install |
+| npm installer | Any | `@kaizen403/openlinear` via GitHub Packages, downloads AppImage on install |
 | GitHub Releases | Any | Tag-triggered CI builds (`v*` tags) |

@@ -8,6 +8,10 @@ const nextConfig = {
   turbopack: {
     root: resolve(import.meta.dirname, '../..'),
   },
+  // Vercel deployment configuration
+  images: {
+    unoptimized: true,
+  },
 }
 
 export default nextConfig

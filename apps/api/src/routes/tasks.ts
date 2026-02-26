@@ -13,6 +13,7 @@ const CreateTaskSchema = z.object({
   title: z.string().min(1, 'Title is required'),
   description: z.string().optional(),
   priority: PriorityEnum.optional().default('medium'),
+  status: StatusEnum.optional().default('todo'),
   labelIds: z.array(z.string().uuid()).optional().default([]),
   teamId: z.string().uuid().optional(),
   projectId: z.string().uuid().optional(),
@@ -71,7 +72,7 @@ function flattenLabels(task: any) {
   };
 }
 
-async function resolveProjectTeamId(projectId: string): Promise<{ teamId: string } | { error: string }> {
+async function resolveProjectTeamId(projectId: string): Promise<{ teamId: string | null } | { error: string }> {
   const project = await prisma.project.findUnique({
     where: { id: projectId },
     select: { projectTeams: { select: { teamId: true } } },
@@ -82,7 +83,7 @@ async function resolveProjectTeamId(projectId: string): Promise<{ teamId: string
   }
 
   if (project.projectTeams.length === 0) {
-    return { error: 'Project must have a team' };
+    return { teamId: null };
   }
 
   if (project.projectTeams.length > 1) {
@@ -193,9 +194,9 @@ router.post('/', async (req: Request, res: Response) => {
       return;
     }
 
-    const { title, description, priority, labelIds, teamId, projectId, dueDate } = parsed.data;
+    const { title, description, priority, status, labelIds, teamId, projectId, dueDate } = parsed.data;
 
-    let resolvedTeamId = teamId;
+    let resolvedTeamId: string | undefined | null = teamId;
 
     if (projectId) {
       const projectTeam = await resolveProjectTeamId(projectId);
@@ -214,7 +215,8 @@ router.post('/', async (req: Request, res: Response) => {
       }
     }
 
-    let task;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let task: any;
 
     if (resolvedTeamId) {
       task = await prisma.$transaction(async (tx) => {
@@ -231,6 +233,7 @@ router.post('/', async (req: Request, res: Response) => {
             title,
             description,
             priority,
+            status,
             teamId: resolvedTeamId,
             projectId: projectId || undefined,
             number,
@@ -250,6 +253,7 @@ router.post('/', async (req: Request, res: Response) => {
           title,
           description,
           priority,
+          status,
           projectId: projectId || undefined,
           dueDate: dueDate ? new Date(dueDate) : undefined,
           labels: {

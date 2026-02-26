@@ -8,7 +8,6 @@ OpenLinear is an open-source desktop app that connects a Linear-style task board
 
 [![GitHub](https://img.shields.io/github/stars/kaizen403/openlinear?style=social)](https://github.com/kaizen403/openlinear)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/kaizen403/openlinear/blob/main/LICENSE)
-[![Live](https://img.shields.io/badge/try%20it-rixie.in-purple)](https://rixie.in)
 
 </div>
 
@@ -47,7 +46,6 @@ Full setup guide and architecture docs in the [repository](https://github.com/ka
 - [Documentation](https://github.com/kaizen403/openlinear/tree/main/docs/features)
 - [Architecture](https://github.com/kaizen403/openlinear/blob/main/docs/ARCHITECTURE.md)
 - [Releases](https://github.com/kaizen403/openlinear/releases)
-- [Live Instance](https://rixie.in)
 
 ### License
 
