@@ -24,6 +24,8 @@ await build({
     '@opencode-ai/sdk',
     'openai',
     'get-port',
+    'ssh2',
+    'cpu-features',
   ],
   banner: {
     // Prisma generated client uses require() internally (CJS).
