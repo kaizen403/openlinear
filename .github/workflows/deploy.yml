@@ -49,15 +49,12 @@ jobs:
 
       - name: Typecheck
         run: pnpm --filter @openlinear/api typecheck
-        continue-on-error: true
 
       - name: Build API
         run: pnpm --filter @openlinear/api build
-        continue-on-error: true
 
       - name: Test
         run: pnpm --filter @openlinear/api test
-        continue-on-error: true
 
   deploy:
     name: Deploy

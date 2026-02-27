@@ -6,8 +6,9 @@ import {
   safeValidateExecutionMetadataSync,
   type ExecutionMetadataSync,
 } from '../types/execution-metadata';
+import { broadcast } from '../sse';
 
-const router = Router();
+const router: import('express').Router = Router();
 
 /**
  * POST /api/execution/sync
@@ -38,7 +39,7 @@ router.post('/sync', requireAuth, async (req, res) => {
     }
 
     const metadata: ExecutionMetadataSync = validation.data;
-    const userId = req.userId;
+    const userId = (req as AuthRequest).userId;
 
     if (!userId) {
       return res.status(401).json({ error: 'Authentication required' });
@@ -52,7 +53,7 @@ router.post('/sync', requireAuth, async (req, res) => {
       include: {
         project: {
           include: {
-            team: true,
+            projectTeams: true,
           },
         },
       },
@@ -70,7 +71,6 @@ router.post('/sync', requireAuth, async (req, res) => {
         executionStartedAt: metadata.startedAt ? new Date(metadata.startedAt) : undefined,
         executionElapsedMs: metadata.durationMs ?? 0,
         executionProgress: metadata.progress,
-        branchName: metadata.branch,
         prUrl: metadata.prUrl,
         outcome: metadata.outcome,
         // Store execution run reference
@@ -79,8 +79,7 @@ router.post('/sync', requireAuth, async (req, res) => {
     });
 
     // Broadcast update to connected clients
-    broadcast({
-      type: 'task_updated',
+    broadcast('execution:task_updated', {
       taskId: metadata.taskId,
       status: metadata.status,
       progress: metadata.progress,
@@ -106,7 +105,7 @@ router.post('/sync', requireAuth, async (req, res) => {
 router.post('/start', requireAuth, async (req, res) => {
   try {
     const { taskId, runId } = req.body;
-    const userId = req.userId;
+    const userId = (req as AuthRequest).userId;
 
     if (!taskId || !runId) {
       return res.status(400).json({
@@ -131,8 +130,7 @@ router.post('/start', requireAuth, async (req, res) => {
       },
     });
 
-    broadcast({
-      type: 'execution_started',
+    broadcast('execution:started', {
       taskId,
       runId,
     });
@@ -155,7 +153,7 @@ router.post('/start', requireAuth, async (req, res) => {
 router.post('/progress', requireAuth, async (req, res) => {
   try {
     const { taskId, progress } = req.body;
-    const userId = req.userId;
+    const userId = (req as AuthRequest).userId;
 
     if (!taskId || typeof progress !== 'number') {
       return res.status(400).json({
@@ -170,8 +168,7 @@ router.post('/progress', requireAuth, async (req, res) => {
       },
     });
 
-    broadcast({
-      type: 'execution_progress',
+    broadcast('execution:progress', {
       taskId,
       progress,
     });
@@ -210,14 +207,12 @@ router.post('/finish', requireAuth, async (req, res) => {
         status: mapExecutionStatusToTaskStatus(metadata.status),
         executionElapsedMs: metadata.durationMs ?? 0,
         executionProgress: 100,
-        branchName: metadata.branch,
         prUrl: metadata.prUrl,
         outcome: metadata.outcome,
       },
     });
 
-    broadcast({
-      type: 'execution_finished',
+    broadcast('execution:finished', {
       taskId: metadata.taskId,
       status: metadata.status,
       prUrl: metadata.prUrl,
@@ -248,7 +243,5 @@ function mapExecutionStatusToTaskStatus(status: ExecutionMetadataSync['status'])
       return 'todo';
   }
 }
-
-import { broadcast } from '../sse';
 
 export default router;
