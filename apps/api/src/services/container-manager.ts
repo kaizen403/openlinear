@@ -3,7 +3,7 @@ import getPort from 'get-port';
 import { createOpencodeClient, OpencodeClient } from '@opencode-ai/sdk';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { execSync } from 'child_process';
+import { execSync, spawn } from 'child_process';
 import { mkdirSync, accessSync, constants } from 'fs';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -62,6 +62,7 @@ const containers = new Map<string, UserContainer>();
 const allocatedPorts = new Set<number>();
 
 let cleanupInterval: NodeJS.Timeout | null = null;
+let workerImageBuildPromise: Promise<void> | null = null;
 
 // ---------------------------------------------------------------------------
 // Port allocation
@@ -97,6 +98,11 @@ function containerName(userId: string): string {
  * Returns the container metadata (idempotent — won't create duplicates).
  */
 export async function ensureContainer(userId: string): Promise<UserContainer> {
+  if (workerImageBuildPromise) {
+    console.log(`[ContainerManager] Waiting for worker image to finish building...`);
+    await workerImageBuildPromise;
+  }
+
   // Fast path: already tracked and running
   const existing = containers.get(userId);
   if (existing && (existing.status === 'running' || existing.status === 'starting')) {
@@ -445,18 +451,31 @@ export async function initContainerManager(): Promise<void> {
       filters: { reference: [OPENCODE_IMAGE] },
     });
     if (images.length === 0) {
-      console.log('[ContainerManager] Worker image not found, building...');
+      console.log('[ContainerManager] Worker image not found, starting background build...');
       const projectRoot = path.resolve(__dirname, '..', '..', '..', '..');
-      execSync(`docker build -t ${OPENCODE_IMAGE} docker/opencode-worker/`, {
-        cwd: projectRoot,
-        stdio: 'inherit',
+      
+      workerImageBuildPromise = new Promise((resolve, reject) => {
+        const child = spawn('docker', ['build', '-t', OPENCODE_IMAGE, 'docker/opencode-worker/'], {
+          cwd: projectRoot,
+          stdio: 'inherit'
+        });
+        child.on('close', (code: number | null) => {
+          if (code === 0) {
+            console.log('[ContainerManager] Worker image built successfully');
+            workerImageBuildPromise = null;
+            resolve();
+          } else {
+            console.error(`[ContainerManager] Failed to build worker image (code ${code})`);
+            workerImageBuildPromise = null;
+            reject(new Error(`Docker build failed with code ${code}`));
+          }
+        });
       });
-      console.log('[ContainerManager] Worker image built successfully');
     } else {
       console.log(`[ContainerManager] Worker image ${OPENCODE_IMAGE} found`);
     }
   } catch (err) {
-    console.error('[ContainerManager] Failed to build worker image:', err);
+    console.error('[ContainerManager] Failed to check for worker image:', err);
     console.error('[ContainerManager] Container creation will fail until image is available');
   }
 
