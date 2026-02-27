@@ -13,3 +13,4 @@ coverage
 .opencode-monitor/
 *.tsbuildinfo
 package-lock.json
+\nnpm-recovery-codes.txt
