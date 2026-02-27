@@ -36,9 +36,29 @@ function download(url, destination) {
         return;
       }
 
+      const totalBytes = parseInt(response.headers['content-length'], 10);
+      let downloadedBytes = 0;
+      let lastPrintedPercentage = -1;
+
+      console.log(`\x1b[36m==>\x1b[0m Downloading OpenLinear AppImage (~${(totalBytes / 1024 / 1024).toFixed(1)} MB)...`);
+      
+      // Simple progress tracking
+      response.on('data', (chunk) => {
+        downloadedBytes += chunk.length;
+        if (!isNaN(totalBytes)) {
+          const percentage = Math.floor((downloadedBytes / totalBytes) * 100);
+          // Only print every 10% to avoid spamming the console
+          if (percentage % 10 === 0 && percentage !== lastPrintedPercentage) {
+            process.stdout.write(`\r\x1b[36m==>\x1b[0m Progress: ${percentage}%`);
+            lastPrintedPercentage = percentage;
+          }
+        }
+      });
+
       const fileStream = fs.createWriteStream(destination);
       response.pipe(fileStream);
       fileStream.on('finish', () => {
+        process.stdout.write(`\r\x1b[36m==>\x1b[0m Progress: 100%\n`);
         fileStream.close(resolve);
       });
       fileStream.on('error', (err) => {
@@ -56,9 +76,10 @@ async function main() {
     fs.mkdirSync(installDir, { recursive: true });
     await download(downloadUrl, targetPath);
     fs.chmodSync(targetPath, 0o755);
-    console.log(`OpenLinear AppImage downloaded to ${targetPath}`);
+    console.log(`\n\x1b[32m✓\x1b[0m OpenLinear AppImage successfully installed to ${targetPath}`);
+    console.log(`\x1b[32m✓\x1b[0m You can now run \x1b[1mopenlinear\x1b[0m in your terminal.`);
   } catch (error) {
-    console.error(`Failed to download OpenLinear AppImage: ${error.message}`);
+    console.error(`\n\x1b[31m✗\x1b[0m Failed to download OpenLinear AppImage: ${error.message}`);
   }
 }
 
