@@ -48,10 +48,11 @@ interface TaskFormDialogProps {
   onSuccess?: () => void
   defaultStatus?: "todo" | "in_progress" | "done" | "cancelled"
   defaultProjectId?: string | null
+  defaultTeamId?: string | null
   projects?: Project[]
 }
 
-import { API_URL } from "@/lib/api/client"
+import { API_URL, getAuthHeader } from "@/lib/api/client"
 
 const API_BASE_URL = `${API_URL}/api`
 
@@ -75,6 +76,7 @@ export function TaskFormDialog({
   onSuccess,
   defaultStatus,
   defaultProjectId,
+  defaultTeamId,
   projects = [],
 }: TaskFormDialogProps) {
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -122,6 +124,7 @@ export function TaskFormDialog({
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          ...getAuthHeader(),
         },
          body: JSON.stringify({
            title: values.title,
@@ -129,6 +132,7 @@ export function TaskFormDialog({
            status: values.status,
            labelIds: values.labelIds.length > 0 ? values.labelIds : undefined,
            projectId: values.projectId || undefined,
+           teamId: values.projectId ? undefined : (defaultTeamId || undefined),
            dueDate: values.dueDate ? new Date(values.dueDate).toISOString() : undefined,
          }),
       })

@@ -244,6 +244,7 @@ function HomeContent() {
         onOpenChange={setIsTaskFormOpen}
         onSuccess={handleTaskCreated}
         defaultProjectId={selectedProjectId}
+        defaultTeamId={selectedTeamId}
         projects={projects}
       />
     </AppShell>

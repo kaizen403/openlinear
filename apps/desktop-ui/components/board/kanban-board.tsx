@@ -349,6 +349,7 @@ export function KanbanBoard(props: KanbanBoardProps) {
           onOpenChange={setIsTaskFormOpen}
           defaultStatus={defaultStatus}
           defaultProjectId={props.projectId}
+          defaultTeamId={props.teamId}
           projects={props.projects}
         />
 
