@@ -1,0 +1,5 @@
+grep -E 'Cloud-Allowed|Local-Only|Forbidden to Sync|Enforcement' docs/security/trust-boundary.md
+## Cloud-Allowed
+## Local-Only
+## Forbidden to Sync
+## Enforcement

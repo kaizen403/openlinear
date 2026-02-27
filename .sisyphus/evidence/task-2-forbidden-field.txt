@@ -1,0 +1,41 @@
+Task 2: Forbidden Field Rejection Evidence
+Generated: 2026-02-27
+
+Forbidden Fields Tested (all rejected):
+  1. prompt - Rejected ✓
+  2. logs - Rejected ✓
+  3. toolLogs - Rejected ✓
+  4. executionLogs - Rejected ✓
+  5. repoPath - Rejected ✓
+  6. accessToken - Rejected ✓
+  7. apiKey - Rejected ✓
+  8. passwordHash - Rejected ✓
+  9. jwt - Rejected ✓
+  10. client - Rejected ✓
+  11. timeoutId - Rejected ✓
+  12. rawOutput - Rejected ✓
+  13. diff - Rejected ✓
+  14. fileContents - Rejected ✓
+  15. env - Rejected ✓
+  16. environment - Rejected ✓
+  17. processEnv - Rejected ✓
+
+Rejection Format:
+  HTTP Status: 400 Bad Request
+  Error Code: FORBIDDEN_FIELDS
+  Message: "Unrecognized key(s) in object: '<field>'"
+
+Test Evidence:
+  test('should reject payload with prompt field', () => {
+    const payload = {
+      taskId: 'tsk_123',
+      runId: 'run_456',
+      status: 'completed',
+      prompt: 'Fix the bug in src/auth.ts',
+    };
+    
+    const result = safeValidateExecutionMetadataSync(payload);
+    expect(result.success).toBe(false);
+  });
+
+Status: ALL FORBIDDEN FIELDS CORRECTLY REJECTED

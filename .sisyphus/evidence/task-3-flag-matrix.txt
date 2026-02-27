@@ -1,0 +1,36 @@
+Task 3: Feature Flags Evidence
+Generated: 2026-02-27
+
+Files Created:
+  - apps/api/src/config/feature-flags.ts
+  - apps/api/src/config/feature-flags.test.ts
+
+Test Results:
+  Total Tests: 21
+  Passed: 21
+  Failed: 0
+
+Flag Coverage:
+  ✓ LOCAL_EXECUTION_ENABLED - Toggle local execution mode
+  ✓ SERVER_EXECUTION_ENABLED - Toggle server/container mode
+  ✓ CANARY_PERCENTAGE - Gradual rollout (0-100)
+  ✓ FORCE_LOCAL_EXECUTION - Emergency force flag
+  ✓ KILL_SWITCH_LOCAL_EXECUTION - Emergency kill switch
+
+Validation Tests:
+  ✓ Default values
+  ✓ Custom values
+  ✓ Invalid canary percentage rejection
+  ✓ Negative canary rejection
+  ✓ User cohort assignment (deterministic hash)
+  ✓ Canary distribution (~50% at 50% setting)
+  ✓ Kill switch priority over force
+  ✓ Flag configuration validation
+  ✓ Migration phase detection (shadow/canary/cutover/rollback)
+
+Evidence Command:
+  cd apps/api && pnpm test src/config/feature-flags.test.ts
+
+Expected: "21 passed"
+
+Status: FLAGS IMPLEMENTED

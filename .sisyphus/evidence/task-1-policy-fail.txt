@@ -1,0 +1,7 @@
+grep -E 'prompt|toolLogs|raw terminal output|absolute local paths' docs/security/trust-boundary.md
+*   **Local Execution Context**: `repoPath` (absolute local paths), `client`, `timeoutId`, `dockerContainerId`.
+*   **Logs**: `logs`, `toolLogs`, `executionLogs`, raw terminal output, stdout/stderr streams.
+*   **User Input/Prompts**: `prompt`, `systemPrompt`, `customInstructions`.
+2.  **No Blocklists**: Do not rely on blocklists (e.g., `omit(['prompt', 'logs'])`), as new sensitive fields may be added in the future and accidentally leaked.
+  "prompt": "Fix the authentication bug in src/auth.ts",
+  "toolLogs": ["[bash] npm install -> success", "[edit] src/auth.ts -> success"]

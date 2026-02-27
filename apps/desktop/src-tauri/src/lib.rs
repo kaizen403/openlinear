@@ -1,5 +1,6 @@
 mod deeplink;
 mod opencode;
+mod secure_storage;
 mod sidecar;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -18,7 +19,12 @@ pub fn run() {
             opencode::check_opencode,
             opencode::pick_local_folder,
             sidecar::start_api_server,
-            sidecar::stop_api_server
+            sidecar::stop_api_server,
+            secure_storage::store_secret,
+            secure_storage::retrieve_secret,
+            secure_storage::remove_secret,
+            secure_storage::check_secret_exists,
+            secure_storage::get_all_secret_keys
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

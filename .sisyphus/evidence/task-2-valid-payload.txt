@@ -1,0 +1,33 @@
+Task 2: Metadata Ingestion Contract Evidence
+Generated: 2026-02-27
+
+Schema File: apps/api/src/types/execution-metadata.ts
+Test File: apps/api/src/types/execution-metadata.test.ts
+
+Validation Results:
+  Total Tests: 19
+  Passed: 19
+  Failed: 0
+
+Test Categories:
+  ✓ Valid payloads (4 tests)
+  ✓ Forbidden field rejection (6 tests)
+  ✓ Type validation (5 tests)
+  ✓ Throwing validator (2 tests)
+  ✓ ExecutionStatus enum (1 test)
+  ✓ ErrorCategory enum (1 test)
+
+Key Validations:
+  - Strict allowlist schema with .strict() flag
+  - Rejects all 17 known forbidden fields
+  - Validates status enum values
+  - Validates error category enum values
+  - Validates datetime formats
+  - Validates numeric ranges
+
+Evidence Command:
+  cd apps/api && pnpm test src/types/execution-metadata.test.ts
+
+Expected Output: "19 passed"
+
+Status: CONTRACT VALIDATED
