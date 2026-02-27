@@ -11,7 +11,11 @@ pnpm --filter @openlinear/api build
 
 echo "==> Bundling with esbuild (ESM -> CJS)..."
 cd "$API_DIR"
-npx esbuild src/index.ts --bundle --platform=node --target=node18 --outfile=dist/bundle.cjs --format=cjs
+
+# Create a stub for ssh2 because it requires native addons that fail in pkg
+echo "module.exports = { Client: class Client {} };" > stub-ssh2.cjs
+
+npx esbuild src/index.ts --bundle --platform=node --target=node18 --outfile=dist/bundle.cjs --format=cjs --alias:ssh2=./stub-ssh2.cjs --define:import.meta.dirname=__dirname
 
 echo "==> Copying Prisma engine and schema..."
 PRISMA_CLIENT="$ROOT_DIR/node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/.prisma/client"
