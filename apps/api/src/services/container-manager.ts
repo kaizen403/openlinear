@@ -2,8 +2,12 @@ import Docker from 'dockerode';
 import getPort from 'get-port';
 import { createOpencodeClient, OpencodeClient } from '@opencode-ai/sdk';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import { execSync } from 'child_process';
 import { mkdirSync, accessSync, constants } from 'fs';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const OPENCODE_IMAGE = process.env.OPENCODE_IMAGE || 'opencode-worker:latest';
 const CONTAINER_PORT = 4096;

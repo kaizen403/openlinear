@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 
 const SERVICE_NAME: &str = "com.openlinear.app";
 
+#[allow(dead_code)]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct StoredSecret {
     pub key: String,
@@ -87,6 +88,7 @@ pub fn get_all_secret_keys() -> Result<Vec<String>, String> {
     list_secrets()
 }
 
+#[allow(dead_code)]
 pub fn register_commands(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry> {
     builder.invoke_handler(tauri::generate_handler![
         store_secret,
@@ -97,6 +99,7 @@ pub fn register_commands(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<
     ])
 }
 
+#[allow(dead_code)]
 pub mod keys {
     pub const GITHUB_TOKEN: &str = "github_token";
     pub const OPENAI_API_KEY: &str = "openai_api_key";
