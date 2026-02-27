@@ -345,6 +345,22 @@ Tag push (`v*`) triggers desktop distribution:
 3. Publishes CLI package to GitHub Packages (npm)
 4. AUR package available via `packaging/aur/openlinear-bin/PKGBUILD`
 
+## Local Development vs NPM Package
+
+There is an important distinction between developing OpenLinear locally and installing the published npm package:
+
+**1. Developing Locally (`pnpm dev`)**
+When you run `pnpm dev` in the cloned repository, it runs `./scripts/dev.sh`. This is strictly for contributors to test and build the application. It automatically:
+- Starts a temporary local PostgreSQL database using Docker (so you don't mess up production data).
+- Seeds the database with test data.
+- Starts the API server.
+- Starts the Tauri desktop app (or falls back to a Next.js web view if Tauri isn't fully configured on your machine).
+
+**2. The Published NPM Package (`npm install -g @kaizen403/openlinear`)**
+The published npm package is just a lightweight launcher for end-users. It does **not** include the `pnpm dev` script, does not require Docker, and does not start a local database. Instead, the npm package:
+- Downloads the pre-compiled, standalone Desktop Application (Linux AppImage) directly from GitHub Releases during the `postinstall` step.
+- Acts as a CLI shortcut (`openlinear`) that launches the downloaded desktop app.
+
 ## Data Model
 
 ```
