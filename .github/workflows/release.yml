@@ -69,7 +69,6 @@ jobs:
 
   publish-cli:
     runs-on: ubuntu-22.04
-    needs: build-release
     steps:
       - name: Checkout
         uses: actions/checkout@v4

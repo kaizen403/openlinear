@@ -1,6 +1,6 @@
 {
   "name": "openlinear",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "OpenLinear launcher and installer",
   "license": "MIT",
   "repository": {
@@ -21,7 +21,6 @@
     "node": ">=18"
   },
   "publishConfig": {
-    "registry": "https://npm.pkg.github.com",
     "access": "public"
   }
 }
