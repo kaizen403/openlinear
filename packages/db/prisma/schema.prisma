@@ -122,6 +122,7 @@ model Task {
   comments     Comment[]
   agentRuns    AgentRun[]
   activityLogs ActivityLog[]
+  notifications Notification[]
 
   @@unique([teamId, number])
   @@index([teamId, archived])
@@ -293,6 +294,7 @@ model Comment {
   mentions  String[] @default([])
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  notifications Notification[]
 
   @@index([taskId, createdAt])
   @@map("comments")
@@ -326,7 +328,9 @@ model Notification {
   user        User             @relation("notificationRecipient", fields: [userId], references: [id], onDelete: Cascade)
   type        NotificationType
   taskId      String?
+  task        Task?            @relation(fields: [taskId], references: [id], onDelete: Cascade)
   commentId   String?
+  comment     Comment?         @relation(fields: [commentId], references: [id], onDelete: Cascade)
   actorUserId String?
   actor       User?            @relation("notificationActor", fields: [actorUserId], references: [id], onDelete: SetNull)
   body        String
