@@ -1,4 +1,4 @@
-import { Router, Request, Response, NextFunction } from 'express';
+import { Router, Response, NextFunction } from 'express';
 import { prisma } from '@openlinear/db';
 import { requireAuth, AuthRequest } from '../middleware/auth';
 import { validateBody, ValidatedRequest } from '../middleware/validate';
@@ -19,14 +19,16 @@ import {
   getUserRepositories,
   GitHubRepo,
   addRepositoryByUrl,
+  decryptUserAccessToken,
 } from '../services/github';
 
 const router: Router = Router();
 
 router.post(
   '/url',
+  requireAuth,
   validateBody(repoUrlBodySchema),
-  async (req: ValidatedRequest<RepoUrlBody>, res: Response, next: NextFunction) => {
+  async (req: AuthRequest & ValidatedRequest<RepoUrlBody>, res: Response, next: NextFunction) => {
     try {
       const project = await addRepositoryByUrl(req.validBody!.url);
       res.status(201).json(project);
@@ -37,7 +39,7 @@ router.post(
   },
 );
 
-router.get('/active/public', async (_req: Request, res: Response, next: NextFunction) => {
+router.get('/active/public', requireAuth, async (_req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const project = await prisma.repository.findFirst({
       where: { userId: null, isActive: true },
@@ -48,7 +50,7 @@ router.get('/active/public', async (_req: Request, res: Response, next: NextFunc
   }
 });
 
-router.get('/public', async (_req: Request, res: Response, next: NextFunction) => {
+router.get('/public', requireAuth, async (_req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const projects = await prisma.repository.findMany({
       where: { userId: null },
@@ -60,7 +62,7 @@ router.get('/public', async (_req: Request, res: Response, next: NextFunction) =
   }
 });
 
-router.post('/:id/activate/public', async (req: Request, res: Response, next: NextFunction) => {
+router.post('/:id/activate/public', requireAuth, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     await prisma.repository.updateMany({
       where: { userId: null },
@@ -100,7 +102,14 @@ router.get('/github', requireAuth, async (req: AuthRequest, res: Response, next:
       );
     }
 
-    const repos = await getGitHubRepos(user.accessToken);
+    const accessToken = decryptUserAccessToken(user.accessToken);
+    if (!accessToken) {
+      return next(
+        new HttpError(500, 'GITHUB_TOKEN_DECRYPT_FAILED', 'Stored GitHub token could not be decrypted'),
+      );
+    }
+
+    const repos = await getGitHubRepos(accessToken);
     res.json(repos);
   } catch (err) {
     next(err);
