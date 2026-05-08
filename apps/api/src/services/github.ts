@@ -1,4 +1,14 @@
-import { prisma } from '@openlinear/db';
+import { prisma, decryptToken, encryptToken } from '@openlinear/db';
+
+export function decryptUserAccessToken(stored: string | null | undefined): string | null {
+  if (!stored) return null;
+  try {
+    return decryptToken(stored);
+  } catch (err) {
+    console.error('[github] Failed to decrypt access token:', err);
+    return null;
+  }
+}
 
 // Read env vars lazily to avoid ESM import hoisting issues with dotenv
 function getGitHubConfig() {
@@ -210,20 +220,21 @@ export async function createOrUpdateUser(
   githubUser: GitHubUser,
   accessToken: string
 ) {
+  const encryptedToken = encryptToken(accessToken);
   return prisma.user.upsert({
     where: { githubId: githubUser.id },
     update: {
       username: githubUser.login,
       email: githubUser.email,
       avatarUrl: githubUser.avatar_url,
-      accessToken,
+      accessToken: encryptedToken,
     },
     create: {
       githubId: githubUser.id,
       username: githubUser.login,
       email: githubUser.email,
       avatarUrl: githubUser.avatar_url,
-      accessToken,
+      accessToken: encryptedToken,
     },
   });
 }
