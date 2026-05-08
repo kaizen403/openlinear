@@ -6,7 +6,6 @@ import express, {
   Response,
 } from 'express';
 import cors from 'cors';
-import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 import rateLimit, { RateLimitRequestHandler } from 'express-rate-limit';
 import pinoHttp from 'pino-http';
@@ -30,7 +29,7 @@ import { clients, SSEClient } from './sse';
 import { logger } from './logger';
 import { isOwnershipError } from './services/ownership';
 import { isValidationError, isHttpError } from './errors';
-import { Prisma } from '@openlinear/db';
+import { Prisma, prisma } from '@openlinear/db';
 import { getUserTeamIds } from './services/team-scope';
 
 function buildCorsOrigin(): cors.CorsOptions['origin'] {
@@ -76,6 +75,10 @@ function makeRateLimiter(windowMs: number, max: number, name: string): RateLimit
   });
 }
 
+function isMountedGithubOAuthPath(path: string): boolean {
+  return path === '/github' || path.startsWith('/github/');
+}
+
 export function createApp(): Application {
   const app: Application = express();
 
@@ -83,6 +86,10 @@ export function createApp(): Application {
   app.use(
     helmet({
       contentSecurityPolicy: false,
+      hsts: {
+        maxAge: 31536000,
+        includeSubDomains: true,
+      },
     }),
   );
 
@@ -100,6 +107,7 @@ export function createApp(): Application {
         paths: [
           'req.headers.authorization',
           'req.headers.cookie',
+          'req.query.token',
           'res.headers["set-cookie"]',
         ],
         censor: '[REDACTED]',
@@ -115,6 +123,7 @@ export function createApp(): Application {
   // Rate limiters mount BEFORE body parsing so floods are cheap to reject
   const defaultLimiter = makeRateLimiter(60_000, 100, 'default');
   const authLimiter = makeRateLimiter(60_000, 5, 'auth');
+  const githubOAuthLimiter = makeRateLimiter(60_000, 30, 'github-oauth');
   const reposUrlLimiter = makeRateLimiter(60_000, 10, 'repos-url');
 
   app.use((req, res, next) => {
@@ -123,7 +132,13 @@ export function createApp(): Application {
     }
     return defaultLimiter(req, res, next);
   });
-  app.use('/api/auth', authLimiter);
+  app.use('/api/auth/github', githubOAuthLimiter);
+  app.use('/api/auth', (req, res, next) => {
+    if (isMountedGithubOAuthPath(req.path)) {
+      return next();
+    }
+    return authLimiter(req, res, next);
+  });
   app.use('/api/repos/url', reposUrlLimiter);
 
   app.use(
@@ -134,7 +149,6 @@ export function createApp(): Application {
   );
 
   app.use(express.json({ limit: '256kb' }));
-  app.use(cookieParser());
 
   app.use('/api/auth', authRouter);
   app.use('/api/repos', reposRouter);
@@ -151,12 +165,24 @@ export function createApp(): Application {
   app.use('/api/agent-runs', agentRunsRouter);
   app.use('/api/usage', usageRouter);
 
-  app.get('/health', (_req: Request, res: Response) => {
-    res.json({
-      status: 'ok',
-      timestamp: new Date().toISOString(),
-      clients: clients.size,
-    });
+  app.get('/health', async (req: Request, res: Response) => {
+    try {
+      await prisma.$queryRaw`SELECT 1`;
+      res.json({
+        status: 'ok',
+        timestamp: new Date().toISOString(),
+        clients: clients.size,
+        database: 'ok',
+      });
+    } catch (err) {
+      req.log?.warn({ err }, '[Health] database check failed');
+      res.status(503).json({
+        status: 'error',
+        timestamp: new Date().toISOString(),
+        clients: clients.size,
+        database: 'error',
+      });
+    }
   });
 
   app.get('/api/events', async (req: Request, res: Response) => {
@@ -179,10 +205,7 @@ export function createApp(): Application {
 
     let userId: string;
     try {
-      const trustProxy = process.env.OPENLINEAR_TRUST_PROXY_AUTH === '1';
-      const claims = trustProxy
-        ? (jwt.decode(token) as { userId?: string } | null)
-        : (jwt.verify(token, secret) as { userId?: string });
+      const claims = jwt.verify(token, secret) as { userId?: string };
       if (!claims?.userId) {
         res.status(401).json({ error: 'invalid_token' });
         return;
