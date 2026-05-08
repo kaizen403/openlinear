@@ -5,7 +5,10 @@ config({ path: resolve(import.meta.dirname, '../../../.env') });
 
 import { prisma } from '@openlinear/db';
 import { createApp } from './app';
+import { validateStartupEnv } from './env';
 import { logger } from './logger';
+
+validateStartupEnv();
 
 const app = createApp();
 const PORT = Number(process.env.API_PORT ?? 3001);
