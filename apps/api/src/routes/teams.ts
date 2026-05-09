@@ -6,6 +6,7 @@ import { requireAuth, optionalAuth, AuthRequest } from '../middleware/auth';
 import { validateBody, ValidatedRequest } from '../middleware/validate';
 import { assertTeamRole, OwnershipError } from '../services/ownership';
 import { logActivity } from '../services/activity';
+import { HttpError } from '../errors';
 import {
   createTeamBodySchema,
   updateTeamBodySchema,
@@ -188,10 +189,13 @@ router.delete('/:id', requireAuth, async (req: AuthRequest, res: Response, next:
         where: { teamId: id },
         select: { userId: true },
       });
+      const taskCount = await tx.task.count({ where: { teamId: id } });
+      if (taskCount > 0) {
+        throw new HttpError(409, 'TEAM_HAS_TASKS', 'Cannot delete a team that still has tasks');
+      }
       memberUserIds.push(...members.map((m) => m.userId));
       await tx.teamMember.deleteMany({ where: { teamId: id } });
       await tx.projectTeam.deleteMany({ where: { teamId: id } });
-      await tx.task.updateMany({ where: { teamId: id }, data: { teamId: null } });
       await tx.team.delete({ where: { id } });
     }, { timeout: 15000, maxWait: 5000 });
     for (const uid of memberUserIds) {
@@ -203,9 +207,11 @@ router.delete('/:id', requireAuth, async (req: AuthRequest, res: Response, next:
   }
 });
 
-router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.get('/:id', requireAuth, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const id = req.params.id as string;
+    await assertTeamRole(id, req.userId!, ['owner', 'admin', 'member']);
+
     const team = await prisma.team.findUnique({
       where: { id },
       include: {
@@ -226,14 +232,10 @@ router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
   }
 });
 
-router.get('/:id/members', async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.get('/:id/members', requireAuth, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const id = req.params.id as string;
-
-    const team = await prisma.team.findUnique({ where: { id } });
-    if (!team) {
-      throw new OwnershipError('team', id, 'not_found');
-    }
+    await assertTeamRole(id, req.userId!, ['owner', 'admin', 'member']);
 
     const members = await prisma.teamMember.findMany({
       where: { teamId: id },
