@@ -55,12 +55,11 @@ interface TaskWithLabels {
   [key: string]: unknown;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function flattenLabels(task: any) {
+function flattenLabels<T extends { labels: TaskLabel[] }>(task: T): Omit<T, 'labels'> & { labels: Label[] } {
   const { labels, ...rest } = task;
   return {
     ...rest,
-    labels: (labels as TaskLabel[]).map((tl: TaskLabel) => tl.label),
+    labels: labels.map((tl) => tl.label),
   };
 }
 
@@ -345,10 +344,17 @@ router.patch(
         data.dueDate = dueDate ? new Date(dueDate) : null;
       }
 
-      if (updateData.status === 'in_progress' && existing.status !== 'in_progress') {
+      const shouldResetExecutionState =
+        updateData.status !== undefined &&
+        updateData.status !== existing.status &&
+        ['done', 'cancelled', 'todo'].includes(updateData.status);
+
+      if (shouldResetExecutionState) {
+        data.sessionId = null;
         data.executionStartedAt = null;
         data.executionPausedAt = null;
         data.executionElapsedMs = 0;
+        data.executionProgress = null;
       }
 
       if (projectId !== undefined) {
