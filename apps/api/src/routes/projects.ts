@@ -278,12 +278,14 @@ router.delete('/:id', requireAuth, async (req: AuthRequest, res: Response, next:
       await assertTeamRole(tid, req.userId!, ['owner', 'admin']);
     }
 
-    await prisma.task.updateMany({
-      where: { projectId: id },
-      data: { projectId: null },
-    });
+    await prisma.$transaction(async (tx) => {
+      await tx.task.updateMany({
+        where: { projectId: id },
+        data: { projectId: null },
+      });
 
-    await prisma.project.delete({ where: { id } });
+      await tx.project.delete({ where: { id } });
+    }, { timeout: 15000, maxWait: 5000 });
 
     if (owned.teamIds.length > 0) {
       for (const tid of owned.teamIds) {
