@@ -104,7 +104,9 @@ describe('Teams API', () => {
       expect(createRes.status).toBe(201);
       const teamId = createRes.body.id;
 
-      const getRes = await request(app).get(`/api/teams/${teamId}`);
+      const getRes = await request(app)
+        .get(`/api/teams/${teamId}`)
+        .set('Authorization', `Bearer ${authToken}`);
       expect(getRes.status).toBe(200);
 
       const res = await request(app)
@@ -135,7 +137,9 @@ describe('Teams API', () => {
       expect(createRes.status).toBe(201);
       const teamId = createRes.body.id;
 
-      const getRes = await request(app).get(`/api/teams/${teamId}`);
+      const getRes = await request(app)
+        .get(`/api/teams/${teamId}`)
+        .set('Authorization', `Bearer ${authToken}`);
       expect(getRes.status).toBe(200);
 
       const res = await request(app)
@@ -143,6 +147,28 @@ describe('Teams API', () => {
         .set('Authorization', `Bearer ${authToken}`);
 
       expect(res.status).toBe(204);
+    });
+
+    it('rejects deleting a team that still has tasks', async () => {
+      const createRes = await request(app)
+        .post('/api/teams')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ name: 'Team With Tasks', key: 'TWT' });
+      expect(createRes.status).toBe(201);
+
+      await prisma.task.create({
+        data: { title: 'Still attached', teamId: createRes.body.id },
+      });
+
+      const res = await request(app)
+        .delete(`/api/teams/${createRes.body.id}`)
+        .set('Authorization', `Bearer ${authToken}`);
+
+      expect(res.status).toBe(409);
+      expect(res.body.code).toBe('TEAM_HAS_TASKS');
+      await expect(
+        prisma.team.findUnique({ where: { id: createRes.body.id } }),
+      ).resolves.not.toBeNull();
     });
 
     it('returns 404 for non-existent team', async () => {
@@ -162,16 +188,48 @@ describe('Teams API', () => {
         .send({ name: 'Detail Team', key: 'DTL' });
       expect(createRes.status).toBe(201);
 
-      const res = await request(app).get(`/api/teams/${createRes.body.id}`);
+      const res = await request(app)
+        .get(`/api/teams/${createRes.body.id}`)
+        .set('Authorization', `Bearer ${authToken}`);
       expect(res.status).toBe(200);
       expect(res.body.name).toBe('Detail Team');
       expect(res.body.members).toHaveLength(1);
       expect(res.body.projectTeams).toBeDefined();
     });
 
-    it('returns 404 for non-existent team', async () => {
+    it('returns 401 without auth', async () => {
       const res = await request(app).get('/api/teams/00000000-0000-0000-0000-000000000000');
+      expect(res.status).toBe(401);
+    });
+
+    it('returns 404 for non-existent team', async () => {
+      const res = await request(app)
+        .get('/api/teams/00000000-0000-0000-0000-000000000000')
+        .set('Authorization', `Bearer ${authToken}`);
       expect(res.status).toBe(404);
+    });
+  });
+
+  describe('GET /api/teams/:id/members', () => {
+    it('returns members for an authenticated team member', async () => {
+      const createRes = await request(app)
+        .post('/api/teams')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ name: 'Members Detail Team', key: 'MDT' });
+      expect(createRes.status).toBe(201);
+
+      const res = await request(app)
+        .get(`/api/teams/${createRes.body.id}/members`)
+        .set('Authorization', `Bearer ${authToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body).toHaveLength(1);
+      expect(res.body[0].userId).toBe(testUserId);
+    });
+
+    it('returns 401 without auth', async () => {
+      const res = await request(app).get('/api/teams/00000000-0000-0000-0000-000000000000/members');
+      expect(res.status).toBe(401);
     });
   });
 
