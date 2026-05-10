@@ -238,6 +238,35 @@ describe('Tasks API', () => {
       expect(res.body.status).toBe('in_progress');
     });
 
+    it('clears execution state when moving to a terminal status', async () => {
+      const task = await prisma.task.create({
+        data: {
+          title: 'Finish Me',
+          priority: 'medium',
+          status: 'in_progress',
+          teamId: testTeamId,
+          sessionId: 'session-123',
+          executionStartedAt: new Date(),
+          executionPausedAt: new Date(),
+          executionElapsedMs: 42_000,
+          executionProgress: 65,
+        },
+      });
+
+      const res = await request(app)
+        .patch(`/api/tasks/${task.id}`)
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ status: 'done' });
+
+      expect(res.status).toBe(200);
+      expect(res.body.status).toBe('done');
+      expect(res.body.sessionId).toBeNull();
+      expect(res.body.executionStartedAt).toBeNull();
+      expect(res.body.executionPausedAt).toBeNull();
+      expect(res.body.executionElapsedMs).toBe(0);
+      expect(res.body.executionProgress).toBeNull();
+    });
+
     it('returns 404 for non-existent task', async () => {
       const res = await request(app)
         .patch('/api/tasks/00000000-0000-0000-0000-000000000000')
