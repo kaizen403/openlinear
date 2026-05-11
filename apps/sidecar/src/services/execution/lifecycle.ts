@@ -1,5 +1,4 @@
-import { join } from 'path';
-import { prisma } from '@openlinear/db';
+import { prisma, decryptToken } from '@openlinear/db';
 import { getClientForUser } from '../opencode';
 import { getOrCreateBuffer } from '../delta-buffer';
 
@@ -18,8 +17,8 @@ import {
   ExecutionState,
   ExecuteTaskParams,
   TaskLabelRelation,
-  REPOS_DIR,
   TASK_TIMEOUT_MS,
+  buildReposPath,
 } from './state';
 
 export async function executeTask({ taskId, userId }: ExecuteTaskParams): Promise<{ success: boolean; error?: string }> {
@@ -43,7 +42,12 @@ export async function executeTask({ taskId, userId }: ExecuteTaskParams): Promis
       where: { id: userId },
       select: { accessToken: true },
     });
-    accessToken = user?.accessToken ?? null;
+    try {
+      accessToken = decryptToken(user?.accessToken ?? null);
+    } catch (err) {
+      console.error(`[Execution] Failed to decrypt access token for user ${userId}:`, err);
+      accessToken = null;
+    }
   }
 
   const taskWithProject = await prisma.task.findUnique({
@@ -82,7 +86,7 @@ export async function executeTask({ taskId, userId }: ExecuteTaskParams): Promis
   if (useLocalPath) {
     repoPath = useLocalPath;
   } else if (project) {
-    repoPath = join(REPOS_DIR, project.name, taskId.slice(0, 8));
+    repoPath = buildReposPath(project.name, taskId.slice(0, 8));
   } else {
     return { success: false, error: 'No active project selected' };
   }
@@ -163,6 +167,7 @@ export async function executeTask({ taskId, userId }: ExecuteTaskParams): Promis
       userId: userId ?? null,
       accessToken,
       timeoutId,
+      streamTimeoutId: null,
       status: 'executing',
       logs: [],
       client,
