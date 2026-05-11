@@ -1,5 +1,5 @@
 import { Router, Response, NextFunction } from 'express';
-import { prisma } from '@openlinear/db';
+import { prisma, decryptToken } from '@openlinear/db';
 import { broadcastToTask } from '@openlinear/api/sse';
 import { optionalAuth, AuthRequest } from '@openlinear/api/middleware';
 import { assertTaskOwned } from '@openlinear/api/ownership';
@@ -11,13 +11,23 @@ const taskInclude = {
   project: { select: { id: true, name: true, status: true, color: true } },
 };
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function flattenLabels(task: any) {
+interface LabelLite {
+  id: string;
+  name: string;
+  color: string;
+}
+
+interface TaskLabelLite {
+  label: LabelLite;
+}
+
+function flattenLabels<T extends { labels: TaskLabelLite[] }>(
+  task: T,
+): Omit<T, 'labels'> & { labels: LabelLite[] } {
   const { labels, ...rest } = task;
   return {
     ...rest,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    labels: (labels as Array<{ label: any }>).map((tl) => tl.label),
+    labels: labels.map((tl) => tl.label),
   };
 }
 
@@ -82,7 +92,12 @@ router.post('/:id/refresh-pr', optionalAuth, async (req: AuthRequest, res: Respo
         where: { id: req.userId },
         select: { accessToken: true },
       });
-      accessToken = user?.accessToken ?? null;
+      try {
+        accessToken = decryptToken(user?.accessToken ?? null);
+      } catch (err) {
+        console.error('[execution] failed to decrypt access token:', err);
+        accessToken = null;
+      }
     }
 
     if (!accessToken) {
