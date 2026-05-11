@@ -1,6 +1,4 @@
 import crypto from 'crypto';
-import { exec } from 'child_process';
-import { promisify } from 'util';
 import { prisma } from '@openlinear/db';
 import { broadcastToTask, broadcastToTaskById, broadcastToUser } from '@openlinear/api/sse';
 import { getClientForUser } from './opencode';
@@ -9,11 +7,13 @@ import type { BatchState, BatchTask, BatchSettings, CreateBatchParams, BatchEven
 import type { OpencodeClient } from '@opencode-ai/sdk';
 import { getOrCreateBuffer, appendTextDelta, appendReasoningDelta, flushDeltaBuffer, cleanupDeltaBuffer, markThinking } from './delta-buffer';
 import { getGitIdentityEnv } from './git-identity';
-
-const execAsync = promisify(exec);
+import { execFileAsync } from './execution/exec';
 
 const activeBatches = new Map<string, BatchState>();
 const sessionToBatch = new Map<string, { batchId: string; taskId: string }>();
+const completingBatchTasks = new Set<string>();
+const finalizingBatches = new Set<string>();
+const BATCH_EVENT_TIMEOUT_MS = 30_000;
 
 /**
  * T14 — On sidecar restart, `activeBatches` is empty (in-memory only). Any
@@ -38,8 +38,23 @@ function broadcastBatchEvent(type: BatchEventType, batchId: string, data: Record
   const batch = activeBatches.get(batchId);
   const payload = { batchId, ...data, timestamp: new Date().toISOString() };
   if (batch?.userId) {
-    broadcastToUser(batch.userId, type, payload);
+    try {
+      broadcastToUser(batch.userId, type, payload);
+    } catch (error) {
+      console.error(`[Batch] Failed to broadcast ${type} for batch ${batchId.slice(0, 8)}:`, error);
+    }
   }
+}
+
+function isBatchTaskTerminal(task: BatchTask): boolean {
+  return task.status === 'completed'
+    || task.status === 'failed'
+    || task.status === 'skipped'
+    || task.status === 'cancelled';
+}
+
+function completionKey(batchId: string, taskId: string): string {
+  return `${batchId}:${taskId}`;
 }
 
 export async function createBatch(params: CreateBatchParams): Promise<BatchState> {
@@ -144,11 +159,39 @@ export async function startBatch(batchId: string): Promise<void> {
   if (batch.mode === 'parallel') {
     const count = Math.min(batch.settings.maxConcurrent, batch.tasks.length);
     for (let i = 0; i < count; i++) {
-      startTask(batch, i);
+      launchTask(batch, i);
     }
   } else {
-    startTask(batch, 0);
+    launchTask(batch, 0);
   }
+}
+
+function launchTask(batch: BatchState, taskIndex: number): void {
+  const task = batch.tasks[taskIndex];
+  if (!task || isBatchTaskTerminal(task)) return;
+
+  startTask(batch, taskIndex).catch(async (error: unknown) => {
+    const errorMsg = error instanceof Error ? error.message : 'Unknown task launch error';
+    console.error(`[Batch] Unhandled task launch failure for ${task.taskId.slice(0, 8)}:`, error);
+
+    if (!isBatchTaskTerminal(task)) {
+      task.status = 'failed';
+      task.error = errorMsg;
+      task.completedAt = new Date();
+      broadcastBatchEvent('batch:task:failed', batch.id, { taskId: task.taskId, error: errorMsg });
+      emitBatchLog(task.taskId, 'error', `Failed to start task: ${errorMsg}`);
+      await updateTaskInDb(task.taskId, 'todo', { outcome: `Failed: ${errorMsg}` });
+    }
+
+    if (batch.settings.stopOnFailure) {
+      await cancelBatch(batch.id);
+      return;
+    }
+
+    await advanceQueue(batch);
+  }).catch((reportError: unknown) => {
+    console.error(`[Batch] Failed to report task launch failure for ${task.taskId.slice(0, 8)}:`, reportError);
+  });
 }
 
 async function startTask(batch: BatchState, taskIndex: number): Promise<void> {
@@ -158,11 +201,11 @@ async function startTask(batch: BatchState, taskIndex: number): Promise<void> {
   task.status = 'running';
   task.startedAt = new Date();
 
-  if (!batch.userId) {
-    throw new Error('Cannot start task without an authenticated user (userId is required for execution)');
-  }
-
   try {
+    if (!batch.userId) {
+      throw new Error('Cannot start task without an authenticated user (userId is required for execution)');
+    }
+
     const project = await prisma.repository.findUnique({ where: { id: batch.projectId } });
 
     const worktreePath = await createWorktree(
@@ -216,6 +259,10 @@ async function startTask(batch: BatchState, taskIndex: number): Promise<void> {
       console.log(`[Batch] Prompt sent for task ${task.taskId.slice(0, 8)} in batch ${batch.id.slice(0, 8)}`);
     }).catch((err: Error) => {
       console.error(`[Batch] Failed to send prompt for task ${task.taskId.slice(0, 8)}:`, err.message);
+      emitBatchLog(task.taskId, 'error', 'Failed to send prompt to agent', err.message);
+      void handleTaskComplete(batch.id, task.taskId, false, err.message).catch((completeError: unknown) => {
+        console.error(`[Batch] Failed to mark prompt failure for task ${task.taskId.slice(0, 8)}:`, completeError);
+      });
     });
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : 'Unknown error';
@@ -225,6 +272,7 @@ async function startTask(batch: BatchState, taskIndex: number): Promise<void> {
     task.completedAt = new Date();
     broadcastBatchEvent('batch:task:failed', batch.id, { taskId: task.taskId, error: errorMsg });
     emitBatchLog(task.taskId, 'error', `Failed to start task: ${errorMsg}`);
+    await updateTaskInDb(task.taskId, 'todo', { outcome: `Failed: ${errorMsg}` });
 
     if (batch.settings.stopOnFailure) {
       await cancelBatch(batch.id);
@@ -243,7 +291,9 @@ function emitBatchLog(taskId: string, type: 'info' | 'agent' | 'tool' | 'error' 
   }
   batchTaskLogs.get(taskId)!.push(entry);
 
-  broadcastToTaskById(taskId, 'execution:log', { taskId, entry }).catch(() => {});
+  broadcastToTaskById(taskId, 'execution:log', { taskId, entry }).catch((error: unknown) => {
+    console.error(`[Batch] Failed to broadcast log for task ${taskId.slice(0, 8)}:`, error);
+  });
 }
 
 function subscribeToTaskEvents(
@@ -253,13 +303,39 @@ function subscribeToTaskEvents(
   taskId: string
 ): void {
   let promptSent = false;
+  let timedOut = false;
+  let timeoutId: NodeJS.Timeout | null = null;
+
+  const clearEventTimeout = () => {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+      timeoutId = null;
+    }
+  };
+  const resetEventTimeout = () => {
+    clearEventTimeout();
+    timeoutId = setTimeout(() => {
+      timedOut = true;
+      flushDeltaBuffer(taskId);
+      cleanupDeltaBuffer(taskId);
+      emitBatchLog(taskId, 'error', 'Execution timed out waiting for agent events');
+      void handleTaskComplete(batchId, taskId, false, 'Event stream timed out').catch((error: unknown) => {
+        console.error(`[Batch] Failed to complete timed out task ${taskId.slice(0, 8)}:`, error);
+      });
+    }, BATCH_EVENT_TIMEOUT_MS);
+    timeoutId.unref();
+  };
+
   getOrCreateBuffer(taskId, (msg) => emitBatchLog(taskId, 'agent', msg));
 
   (async () => {
     try {
       const events = await client.event.subscribe();
+      resetEventTimeout();
 
       for await (const event of events.stream) {
+        if (timedOut) break;
+        resetEventTimeout();
         const type = event.type as string;
         const props = (event.properties || {}) as Record<string, unknown>;
 
@@ -268,6 +344,7 @@ function subscribeToTaskEvents(
         // Terminal events
         if (type === 'session.completed' || type === 'session.idle') {
           if (!promptSent) continue;
+          clearEventTimeout();
           flushDeltaBuffer(taskId);
           cleanupDeltaBuffer(taskId);
           emitBatchLog(taskId, 'success', 'Agent completed work');
@@ -276,6 +353,7 @@ function subscribeToTaskEvents(
         }
 
         if (type === 'session.error') {
+          clearEventTimeout();
           flushDeltaBuffer(taskId);
           cleanupDeltaBuffer(taskId);
           const errorMsg = String(props.error || 'Session error');
@@ -354,8 +432,11 @@ function subscribeToTaskEvents(
       }
     } catch (error) {
       cleanupDeltaBuffer(taskId);
+      clearEventTimeout();
       console.error(`[Batch] Event subscription error for task ${taskId.slice(0, 8)}:`, error);
       await handleTaskComplete(batchId, taskId, false, 'Event subscription failed');
+    } finally {
+      clearEventTimeout();
     }
   })();
 }
@@ -399,20 +480,26 @@ async function handleTaskComplete(
   if (!batch) return;
 
   const task = batch.tasks.find(t => t.taskId === taskId);
-  if (!task || task.status === 'completed' || task.status === 'failed') return;
+  if (!task || isBatchTaskTerminal(task)) return;
+
+  const key = completionKey(batchId, taskId);
+  if (completingBatchTasks.has(key)) return;
+  completingBatchTasks.add(key);
 
   const elapsedMs = task.startedAt ? Date.now() - task.startedAt.getTime() : 0;
+  task.completedAt = new Date();
 
+  try {
     if (success) {
       // Commit changes from worktree
       if (task.worktreePath) {
         try {
           const env = { ...process.env, ...getGitIdentityEnv() };
-          const { stdout: status } = await execAsync('git status --porcelain', { cwd: task.worktreePath });
+          const { stdout: status } = await execFileAsync('git', ['-C', task.worktreePath, 'status', '--porcelain']);
           if (status.trim()) {
-            await execAsync('git add -A', { cwd: task.worktreePath });
+            await execFileAsync('git', ['-C', task.worktreePath, 'add', '-A']);
             const commitMsg = `feat: ${task.title.toLowerCase().replace(/[^a-z0-9\s]/g, '').slice(0, 50)}`;
-            await execAsync(`git commit -m "${commitMsg}"`, { cwd: task.worktreePath, env });
+            await execFileAsync('git', ['-C', task.worktreePath, 'commit', '-m', commitMsg], { env });
             console.log(`[Batch] Committed changes for task ${task.taskId.slice(0, 8)}`);
           } else {
             console.log(`[Batch] No changes for task ${task.taskId.slice(0, 8)}`);
@@ -422,52 +509,53 @@ async function handleTaskComplete(
         }
       }
 
-    task.status = 'completed';
-    broadcastBatchEvent('batch:task:completed', batchId, { taskId });
-    emitBatchLog(taskId, 'success', 'Batch task completed');
+      task.status = 'completed';
+      broadcastBatchEvent('batch:task:completed', batchId, { taskId });
+      emitBatchLog(taskId, 'success', 'Batch task completed');
 
-    await updateTaskInDb(taskId, 'done', {
-      executionElapsedMs: elapsedMs,
-      executionProgress: 100,
-      outcome: 'Completed via batch execution',
-    });
-  } else {
-    task.status = 'failed';
-    task.error = error || 'Unknown error';
-    broadcastBatchEvent('batch:task:failed', batchId, { taskId, error: task.error });
-    emitBatchLog(taskId, 'error', `Batch task failed: ${task.error}`);
-
-    await updateTaskInDb(taskId, 'todo', {
-      executionElapsedMs: elapsedMs,
-      outcome: `Failed: ${task.error}`,
-    });
-  }
-
-  task.completedAt = new Date();
-
-  const logs = batchTaskLogs.get(taskId) || [];
-  if (logs.length > 0) {
-    try {
-      await prisma.task.update({
-        where: { id: taskId },
-        data: { executionLogs: JSON.parse(JSON.stringify(logs)) },
+      await updateTaskInDb(taskId, 'done', {
+        executionElapsedMs: elapsedMs,
+        executionProgress: 100,
+        outcome: 'Completed via batch execution',
       });
-    } catch (err) {
-      console.error(`[Batch] Failed to persist logs for task ${taskId.slice(0, 8)}:`, err);
+    } else {
+      task.status = 'failed';
+      task.error = error || 'Unknown error';
+      broadcastBatchEvent('batch:task:failed', batchId, { taskId, error: task.error });
+      emitBatchLog(taskId, 'error', `Batch task failed: ${task.error}`);
+
+      await updateTaskInDb(taskId, 'todo', {
+        executionElapsedMs: elapsedMs,
+        outcome: `Failed: ${task.error}`,
+      });
     }
-    batchTaskLogs.delete(taskId);
-  }
 
-  if (task.sessionId) {
-    sessionToBatch.delete(task.sessionId);
-  }
+    const logs = batchTaskLogs.get(taskId) || [];
+    if (logs.length > 0) {
+      try {
+        await prisma.task.update({
+          where: { id: taskId },
+          data: { executionLogs: JSON.parse(JSON.stringify(logs)) },
+        });
+      } catch (err) {
+        console.error(`[Batch] Failed to persist logs for task ${taskId.slice(0, 8)}:`, err);
+      }
+      batchTaskLogs.delete(taskId);
+    }
 
-  if (!success && batch.settings.stopOnFailure) {
-    await cancelBatch(batchId);
-    return;
-  }
+    if (task.sessionId) {
+      sessionToBatch.delete(task.sessionId);
+    }
 
-  await advanceQueue(batch);
+    if (!success && batch.settings.stopOnFailure) {
+      await cancelBatch(batchId);
+      return;
+    }
+
+    await advanceQueue(batch);
+  } finally {
+    completingBatchTasks.delete(key);
+  }
 }
 
 async function advanceQueue(batch: BatchState): Promise<void> {
@@ -481,9 +569,9 @@ async function advanceQueue(batch: BatchState): Promise<void> {
   if (nextIndex === -1) return;
 
   if (batch.mode === 'parallel') {
-    startTask(batch, nextIndex);
+    launchTask(batch, nextIndex);
   } else if (batch.settings.autoApprove) {
-    startTask(batch, nextIndex);
+    launchTask(batch, nextIndex);
   }
 }
 
@@ -491,123 +579,149 @@ async function finalizeBatch(batchId: string): Promise<void> {
   const batch = activeBatches.get(batchId);
   if (!batch) return;
 
-  batch.status = 'merging';
-  broadcastBatchEvent('batch:merging', batchId);
+  if (
+    finalizingBatches.has(batchId)
+    || batch.status === 'merging'
+    || batch.status === 'completed'
+    || batch.status === 'failed'
+    || batch.status === 'cancelled'
+  ) {
+    return;
+  }
 
-  const project = await prisma.repository.findUnique({ where: { id: batch.projectId } });
-  const targetBranch = project?.defaultBranch || 'main';
+  finalizingBatches.add(batchId);
 
-  await createBatchBranch(batch.projectId, batch.batchBranch, targetBranch);
+  try {
+    batch.status = 'merging';
+    broadcastBatchEvent('batch:merging', batchId);
 
-  let hasFatalFailure = false;
+    const project = await prisma.repository.findUnique({ where: { id: batch.projectId } });
+    const targetBranch = project?.defaultBranch || 'main';
 
-  for (const task of batch.tasks) {
-    if (task.status !== 'completed') continue;
+    await createBatchBranch(batch.projectId, batch.batchBranch, targetBranch);
 
-    try {
-      const merged = await mergeBranch(batch.projectId, task.branch, batch.batchBranch);
+    let hasFatalFailure = false;
 
-      if (!merged) {
+    for (const task of batch.tasks) {
+      if (task.status !== 'completed') continue;
+
+      try {
+        const merged = await mergeBranch(batch.projectId, task.branch, batch.batchBranch);
+
+        if (!merged) {
+          if (batch.settings.conflictBehavior === 'fail') {
+            task.status = 'failed';
+            task.error = 'Merge conflict';
+            hasFatalFailure = true;
+            broadcastBatchEvent('batch:task:failed', batchId, { taskId: task.taskId, error: 'Merge conflict' });
+            break;
+          } else {
+            task.status = 'skipped';
+            task.error = 'Merge conflict (skipped)';
+            broadcastBatchEvent('batch:task:skipped', batchId, { taskId: task.taskId });
+          }
+        }
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : 'Merge error';
+        console.error(`[Batch] Merge failed for task ${task.taskId.slice(0, 8)}:`, errorMsg);
+
         if (batch.settings.conflictBehavior === 'fail') {
           task.status = 'failed';
-          task.error = 'Merge conflict';
+          task.error = errorMsg;
           hasFatalFailure = true;
-          broadcastBatchEvent('batch:task:failed', batchId, { taskId: task.taskId, error: 'Merge conflict' });
+          broadcastBatchEvent('batch:task:failed', batchId, { taskId: task.taskId, error: errorMsg });
           break;
         } else {
           task.status = 'skipped';
-          task.error = 'Merge conflict (skipped)';
+          task.error = errorMsg;
           broadcastBatchEvent('batch:task:skipped', batchId, { taskId: task.taskId });
         }
       }
-    } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : 'Merge error';
-      console.error(`[Batch] Merge failed for task ${task.taskId.slice(0, 8)}:`, errorMsg);
-
-      if (batch.settings.conflictBehavior === 'fail') {
-        task.status = 'failed';
-        task.error = errorMsg;
-        hasFatalFailure = true;
-        broadcastBatchEvent('batch:task:failed', batchId, { taskId: task.taskId, error: errorMsg });
-        break;
-      } else {
-        task.status = 'skipped';
-        task.error = errorMsg;
-        broadcastBatchEvent('batch:task:skipped', batchId, { taskId: task.taskId });
-      }
     }
-  }
 
-  if (hasFatalFailure) {
-    batch.status = 'failed';
-    batch.completedAt = new Date();
-    broadcastBatchEvent('batch:failed', batchId);
-  } else {
-    try {
-      const proj = await prisma.repository.findUnique({ where: { id: batch.projectId } });
-      if (proj) {
-        await pushBranch(batch.projectId, batch.batchBranch, proj.cloneUrl, batch.accessToken);
+    if (hasFatalFailure) {
+      batch.status = 'failed';
+      batch.completedAt = new Date();
+      broadcastBatchEvent('batch:failed', batchId);
+    } else {
+      try {
+        const proj = await prisma.repository.findUnique({ where: { id: batch.projectId } });
+        if (proj) {
+          await pushBranch(batch.projectId, batch.batchBranch, proj.cloneUrl, batch.accessToken);
 
-        const completedTasks = batch.tasks.filter(t => t.status === 'completed');
-        const taskTitles = completedTasks.map(t => `- ${t.title}`).join('\n');
-        const prTitle = `Batch: ${completedTasks.length} tasks`;
-        const prBody = `Automated batch PR by OpenLinear\n\n## Tasks\n${taskTitles}`;
+          const completedTasks = batch.tasks.filter(t => t.status === 'completed');
+          const taskTitles = completedTasks.map(t => `- ${t.title}`).join('\n');
+          const prTitle = `Batch: ${completedTasks.length} tasks`;
+          const prBody = `Automated batch PR by OpenLinear\n\n## Tasks\n${taskTitles}`;
 
-        const [owner, repo] = proj.fullName.split('/');
-        const compareUrl = `https://github.com/${owner}/${repo}/compare/${targetBranch}...${batch.batchBranch}`;
+          const [owner, repo] = proj.fullName.split('/');
+          const compareUrl = `https://github.com/${owner}/${repo}/compare/${targetBranch}...${batch.batchBranch}`;
 
-        if (batch.accessToken) {
-          try {
-            const response = await fetch(`https://api.github.com/repos/${owner}/${repo}/pulls`, {
-              method: 'POST',
-              headers: {
-                Authorization: `Bearer ${batch.accessToken}`,
-                Accept: 'application/vnd.github.v3+json',
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                title: prTitle,
-                head: batch.batchBranch,
-                base: targetBranch,
-                body: prBody,
-              }),
-            });
-            if (response.ok) {
-              const pr = await response.json() as { html_url: string };
-              batch.prUrl = pr.html_url;
-            } else {
+          if (batch.accessToken) {
+            try {
+              const response = await fetch(`https://api.github.com/repos/${owner}/${repo}/pulls`, {
+                method: 'POST',
+                headers: {
+                  Authorization: `Bearer ${batch.accessToken}`,
+                  Accept: 'application/vnd.github.v3+json',
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                  title: prTitle,
+                  head: batch.batchBranch,
+                  base: targetBranch,
+                  body: prBody,
+                }),
+              });
+              if (response.ok) {
+                const pr = await response.json() as { html_url: string };
+                batch.prUrl = pr.html_url;
+              } else {
+                batch.prUrl = compareUrl;
+              }
+            } catch {
               batch.prUrl = compareUrl;
             }
-          } catch {
+          } else {
             batch.prUrl = compareUrl;
           }
-        } else {
-          batch.prUrl = compareUrl;
+        }
+      } catch (pushError) {
+        console.error(`[Batch] Push/PR creation failed:`, pushError);
+      }
+
+      batch.status = 'completed';
+      batch.completedAt = new Date();
+
+      if (batch.prUrl) {
+        const completedTaskIds = batch.tasks
+          .filter(t => t.status === 'completed')
+          .map(t => t.taskId);
+        for (const taskId of completedTaskIds) {
+          await updateTaskInDb(taskId, 'done', { prUrl: batch.prUrl });
         }
       }
-    } catch (pushError) {
-      console.error(`[Batch] Push/PR creation failed:`, pushError);
+
+      broadcastBatchEvent('batch:completed', batchId, { prUrl: batch.prUrl });
     }
 
-    batch.status = 'completed';
-    batch.completedAt = new Date();
-
-    if (batch.prUrl) {
-      const completedTaskIds = batch.tasks
-        .filter(t => t.status === 'completed')
-        .map(t => t.taskId);
-      for (const taskId of completedTaskIds) {
-        await updateTaskInDb(taskId, 'done', { prUrl: batch.prUrl });
-      }
+    try {
+      await cleanupBatch(batch.projectId, batchId);
+    } catch (error) {
+      console.error(`[Batch] Cleanup failed for batch ${batchId.slice(0, 8)}:`, error);
     }
-
-    broadcastBatchEvent('batch:completed', batchId, { prUrl: batch.prUrl });
-  }
-
-  try {
-    await cleanupBatch(batch.projectId, batchId);
   } catch (error) {
-    console.error(`[Batch] Cleanup failed for batch ${batchId.slice(0, 8)}:`, error);
+    const errorMsg = error instanceof Error ? error.message : 'Batch finalization failed';
+    console.error(`[Batch] Finalization failed for batch ${batchId.slice(0, 8)}:`, error);
+    batch.status = 'failed';
+    batch.completedAt = new Date();
+    broadcastBatchEvent('batch:failed', batchId, { error: errorMsg });
+  } finally {
+    for (const task of batch.tasks) {
+      cleanupDeltaBuffer(task.taskId);
+      completingBatchTasks.delete(completionKey(batchId, task.taskId));
+    }
+    finalizingBatches.delete(batchId);
   }
 }
 
@@ -629,9 +743,13 @@ export async function cancelBatch(batchId: string): Promise<void> {
       }
       task.status = 'cancelled';
       task.completedAt = new Date();
+      cleanupDeltaBuffer(task.taskId);
+      completingBatchTasks.delete(completionKey(batchId, task.taskId));
       sessionToBatch.delete(task.sessionId);
     } else if (task.status === 'queued') {
       task.status = 'cancelled';
+      cleanupDeltaBuffer(task.taskId);
+      completingBatchTasks.delete(completionKey(batchId, task.taskId));
     }
   }
 
@@ -657,6 +775,8 @@ export async function cancelTask(batchId: string, taskId: string): Promise<void>
 
   task.status = 'cancelled';
   task.completedAt = new Date();
+  cleanupDeltaBuffer(taskId);
+  completingBatchTasks.delete(completionKey(batchId, taskId));
 
   if (task.sessionId && task.worktreePath && batch.userId) {
     try {
@@ -690,5 +810,5 @@ export async function approveNextTask(batchId: string): Promise<void> {
     throw new Error('No queued tasks to approve');
   }
 
-  await startTask(batch, nextIndex);
+  launchTask(batch, nextIndex);
 }
