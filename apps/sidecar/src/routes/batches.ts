@@ -1,6 +1,6 @@
 import { Router, Response, NextFunction } from 'express';
 import { z } from 'zod';
-import { prisma } from '@openlinear/db';
+import { prisma, decryptToken } from '@openlinear/db';
 import { optionalAuth, AuthRequest } from '@openlinear/api/middleware';
 import { assertTaskOwned } from '@openlinear/api/ownership';
 import {
@@ -44,7 +44,12 @@ router.post('/', optionalAuth, async (req: AuthRequest, res: Response, next: Nex
         where: { id: userId },
         select: { accessToken: true },
       });
-      accessToken = user?.accessToken ?? null;
+      try {
+        accessToken = decryptToken(user?.accessToken ?? null);
+      } catch (err) {
+        console.error('[batch] failed to decrypt access token:', err);
+        accessToken = null;
+      }
     }
 
     const batch = await createBatch({
