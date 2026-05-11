@@ -11,6 +11,7 @@
  */
 
 const FLUSH_DELAY_MS = 800;
+const BUFFER_IDLE_TTL_MS = 35 * 60 * 1000;
 
 type EmitFn = (message: string) => void;
 
@@ -19,6 +20,7 @@ interface BufferState {
   reasoning: string;
   textTimer: ReturnType<typeof setTimeout> | null;
   reasoningTimer: ReturnType<typeof setTimeout> | null;
+  idleTimer: ReturnType<typeof setTimeout> | null;
   isThinking: boolean;
   emit: EmitFn;
 }
@@ -32,19 +34,33 @@ export function getOrCreateBuffer(taskId: string, emit: EmitFn): void {
       reasoning: '',
       textTimer: null,
       reasoningTimer: null,
+      idleTimer: null,
       isThinking: false,
       emit,
     });
   }
+  touchBuffer(taskId);
 }
 
 function getBuffer(taskId: string): BufferState | undefined {
   return buffers.get(taskId);
 }
 
+function touchBuffer(taskId: string): void {
+  const buf = getBuffer(taskId);
+  if (!buf) return;
+
+  if (buf.idleTimer) clearTimeout(buf.idleTimer);
+  buf.idleTimer = setTimeout(() => {
+    cleanupDeltaBuffer(taskId);
+  }, BUFFER_IDLE_TTL_MS);
+  buf.idleTimer.unref();
+}
+
 export function markThinking(taskId: string): boolean {
   const buf = getBuffer(taskId);
   if (!buf) return true;
+  touchBuffer(taskId);
   if (buf.isThinking) return false;
   buf.isThinking = true;
   return true;
@@ -52,13 +68,17 @@ export function markThinking(taskId: string): boolean {
 
 export function clearThinking(taskId: string): void {
   const buf = getBuffer(taskId);
-  if (buf) buf.isThinking = false;
+  if (buf) {
+    touchBuffer(taskId);
+    buf.isThinking = false;
+  }
 }
 
 export function appendTextDelta(taskId: string, delta: string): void {
   const buf = getBuffer(taskId);
   if (!buf) return;
 
+  touchBuffer(taskId);
   buf.text += delta;
 
   if (buf.textTimer) clearTimeout(buf.textTimer);
@@ -86,6 +106,7 @@ export function appendReasoningDelta(taskId: string, delta: string): void {
   const buf = getBuffer(taskId);
   if (!buf) return;
 
+  touchBuffer(taskId);
   buf.reasoning += delta;
 
   if (buf.reasoningTimer) clearTimeout(buf.reasoningTimer);
@@ -121,5 +142,6 @@ export function cleanupDeltaBuffer(taskId: string): void {
 
   if (buf.textTimer) clearTimeout(buf.textTimer);
   if (buf.reasoningTimer) clearTimeout(buf.reasoningTimer);
+  if (buf.idleTimer) clearTimeout(buf.idleTimer);
   buffers.delete(taskId);
 }
