@@ -1,10 +1,9 @@
-import { exec } from 'child_process';
-import { promisify } from 'util';
 import { prisma } from '@openlinear/db';
 import { broadcastToTask, broadcastToTaskById } from '@openlinear/api/sse';
 
 import type { OpencodeClient } from '@opencode-ai/sdk';
 import { cleanupDeltaBuffer, flushDeltaBuffer } from '../delta-buffer';
+import { assertPathInsideReposDir, buildReposPath, REPOS_DIR } from '../repo-storage';
 
 export interface Label {
   id: string;
@@ -18,10 +17,12 @@ export interface TaskLabelRelation {
   label: Label;
 }
 
-export const execAsync = promisify(exec);
-
-export const REPOS_DIR = process.env.REPOS_DIR || '/tmp/openlinear-repos';
+export { assertPathInsideReposDir, buildReposPath, REPOS_DIR };
 export const TASK_TIMEOUT_MS = 30 * 60 * 1000;
+
+const BROADCAST_RETRY_DELAY_MS = 1_000;
+const BROADCAST_MAX_ATTEMPTS = 3;
+const criticalProgressStatuses = new Set(['done', 'error', 'cancelled']);
 
 export interface ExecutionState {
   taskId: string;
@@ -32,6 +33,8 @@ export interface ExecutionState {
   userId: string | null;
   accessToken: string | null;
   timeoutId: NodeJS.Timeout;
+  streamTimeoutId: NodeJS.Timeout | null;
+  eventStreamCleanup?: () => Promise<void> | void;
   status: 'cloning' | 'executing' | 'committing' | 'creating_pr' | 'done' | 'error';
   logs: ExecutionLogEntry[];
   client: OpencodeClient;
@@ -80,9 +83,37 @@ export function getExecutionStatus(taskId: string): ExecutionState | undefined {
   return activeExecutions.get(taskId);
 }
 
+function scheduleTaskBroadcast(
+  taskId: string,
+  event: string,
+  payload: unknown,
+  critical = false,
+  attempt = 1,
+): void {
+  broadcastToTaskById(taskId, event, payload).catch((error: unknown) => {
+    console.error(
+      `[Execution] Failed to broadcast ${event} for task ${taskId.slice(0, 8)} (attempt ${attempt}):`,
+      error,
+    );
+
+    if (!critical || attempt >= BROADCAST_MAX_ATTEMPTS) {
+      return;
+    }
+
+    setTimeout(() => {
+      scheduleTaskBroadcast(taskId, event, payload, critical, attempt + 1);
+    }, BROADCAST_RETRY_DELAY_MS).unref();
+  });
+}
+
 export function broadcastProgress(taskId: string, status: string, message: string, data?: Record<string, unknown>) {
   console.log(`[Execution] ${taskId.slice(0, 8)} → ${status}: ${message}`);
-  void broadcastToTaskById(taskId, 'execution:progress', { taskId, status, message, ...data });
+  scheduleTaskBroadcast(
+    taskId,
+    'execution:progress',
+    { taskId, status, message, ...data },
+    criticalProgressStatuses.has(status),
+  );
 }
 
 export function addLogEntry(taskId: string, type: ExecutionLogEntry['type'], message: string, details?: string) {
@@ -105,7 +136,7 @@ export function addLogEntry(taskId: string, type: ExecutionLogEntry['type'], mes
   const detailStr = typeof details === 'string' ? details : details ? JSON.stringify(details) : undefined;
   console.log(`[Execution] ${taskId.slice(0, 8)} ${emoji} ${message}${detailStr ? ` (${detailStr.slice(0, 50)})` : ''}`);
 
-  broadcastToTaskById(taskId, 'execution:log', { taskId, entry }).catch(() => {});
+  scheduleTaskBroadcast(taskId, 'execution:log', { taskId, entry });
 }
 
 export function getExecutionLogs(taskId: string): ExecutionLogEntry[] {
@@ -174,6 +205,18 @@ export async function cleanupExecution(taskId: string): Promise<void> {
     flushDeltaBuffer(taskId);
     cleanupDeltaBuffer(taskId);
     clearTimeout(execution.timeoutId);
+    if (execution.streamTimeoutId) {
+      clearTimeout(execution.streamTimeoutId);
+      execution.streamTimeoutId = null;
+    }
+    if (execution.eventStreamCleanup) {
+      try {
+        await execution.eventStreamCleanup();
+      } catch (error) {
+        console.error(`[Execution] Failed to clean up event stream for task ${taskId.slice(0, 8)}:`, error);
+      }
+      execution.eventStreamCleanup = undefined;
+    }
     sessionToTask.delete(execution.sessionId);
     activeExecutions.delete(taskId);
     console.log(`[Execution] Cleaned up task ${taskId.slice(0, 8)}, remaining: ${activeExecutions.size}`);
