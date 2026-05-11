@@ -1,42 +1,21 @@
 import { existsSync, mkdirSync, rmSync } from 'fs';
-import { join } from 'path';
 import { getGitIdentityEnv } from './git-identity';
 import { execFileAsync } from './execution/exec';
-
-const REPOS_DIR = process.env.REPOS_DIR || '/tmp/openlinear-repos';
-
-function buildCredentialHelperArgs(accessToken: string | null): {
-  args: string[];
-  env: NodeJS.ProcessEnv;
-} {
-  if (!accessToken) {
-    return { args: [], env: {} };
-  }
-  const helperScript = 'f() { echo "username=oauth2"; echo "password=$GH_TOKEN"; }; f';
-  return {
-    args: ['-c', `credential.helper=!${helperScript}`],
-    env: { GH_TOKEN: accessToken },
-  };
-}
+import { assertPathInsideReposDir, buildReposPath } from './repo-storage';
+import { execGitWithCredentials } from './git-credentials';
 
 export async function ensureMainRepo(
   projectId: string,
   cloneUrl: string,
   accessToken: string | null
 ): Promise<string> {
-  const projectDir = join(REPOS_DIR, projectId);
-  const mainRepoPath = join(projectDir, '.main');
-
-  const { args: credArgs, env: credEnv } = buildCredentialHelperArgs(accessToken);
+  const projectDir = buildReposPath(projectId);
+  const mainRepoPath = buildReposPath(projectId, '.main');
 
   try {
     if (existsSync(mainRepoPath)) {
       console.log(`[Worktree] Fetching latest for project ${projectId}`);
-      await execFileAsync(
-        'git',
-        ['-C', mainRepoPath, ...credArgs, 'fetch', 'origin', '--prune'],
-        { env: { ...process.env, ...credEnv } }
-      );
+      await execGitWithCredentials(['-C', mainRepoPath, 'fetch', 'origin', '--prune'], accessToken, cloneUrl);
       console.log(`[Worktree] Fetch complete for project ${projectId}`);
     } else {
       if (!existsSync(projectDir)) {
@@ -45,11 +24,7 @@ export async function ensureMainRepo(
       }
 
       console.log(`[Worktree] Creating bare clone for project ${projectId}`);
-      await execFileAsync(
-        'git',
-        [...credArgs, 'clone', '--bare', cloneUrl, mainRepoPath],
-        { env: { ...process.env, ...credEnv } }
-      );
+      await execGitWithCredentials(['clone', '--bare', cloneUrl, mainRepoPath], accessToken, cloneUrl);
       console.log(`[Worktree] Bare clone complete for project ${projectId}`);
     }
 
@@ -66,9 +41,9 @@ export async function createWorktree(
   taskId: string,
   defaultBranch: string
 ): Promise<string> {
-  const mainRepoPath = join(REPOS_DIR, projectId, '.main');
-  const batchDir = join(REPOS_DIR, projectId, `batch-${batchId}`);
-  const worktreePath = join(batchDir, `task-${taskId}`);
+  const mainRepoPath = buildReposPath(projectId, '.main');
+  const batchDir = buildReposPath(projectId, `batch-${batchId}`);
+  const worktreePath = buildReposPath(projectId, `batch-${batchId}`, `task-${taskId}`);
   const branchName = `openlinear/${taskId}`;
 
   try {
@@ -94,16 +69,23 @@ export async function createWorktree(
           const wtPath = lines[i].slice('worktree '.length);
           for (let j = i + 1; j < lines.length && lines[j] !== ''; j++) {
             if (lines[j] === `branch refs/heads/${branchName}`) {
-              console.log(`[Worktree] Removing stale worktree at ${wtPath} for branch ${branchName}`);
+              let safeWtPath: string;
+              try {
+                safeWtPath = assertPathInsideReposDir(wtPath, 'stale worktree path');
+              } catch (error) {
+                console.error(`[Worktree] Refusing to remove stale worktree outside repo storage: ${wtPath}`, error);
+                continue;
+              }
+              console.log(`[Worktree] Removing stale worktree at ${safeWtPath} for branch ${branchName}`);
               await execFileAsync('git', [
                 '-C',
                 mainRepoPath,
                 'worktree',
                 'remove',
-                wtPath,
+                safeWtPath,
                 '--force',
               ]).catch(() => {
-                if (existsSync(wtPath)) rmSync(wtPath, { recursive: true, force: true });
+                if (existsSync(safeWtPath)) rmSync(safeWtPath, { recursive: true, force: true });
               });
               break;
             }
@@ -157,33 +139,34 @@ export async function removeWorktree(
   projectId: string,
   worktreePath: string
 ): Promise<void> {
-  const mainRepoPath = join(REPOS_DIR, projectId, '.main');
+  const mainRepoPath = buildReposPath(projectId, '.main');
+  const safeWorktreePath = assertPathInsideReposDir(worktreePath, 'worktree path');
 
   try {
-    console.log(`[Worktree] Removing worktree: ${worktreePath}`);
+    console.log(`[Worktree] Removing worktree: ${safeWorktreePath}`);
     await execFileAsync('git', [
       '-C',
       mainRepoPath,
       'worktree',
       'remove',
-      worktreePath,
+      safeWorktreePath,
       '--force',
     ]);
-    console.log(`[Worktree] Worktree removed: ${worktreePath}`);
+    console.log(`[Worktree] Worktree removed: ${safeWorktreePath}`);
   } catch (error) {
-    console.error(`[Worktree] Failed to remove worktree ${worktreePath}:`, error);
+    console.error(`[Worktree] Failed to remove worktree ${safeWorktreePath}:`, error);
   }
 
-  if (existsSync(worktreePath)) {
-    rmSync(worktreePath, { recursive: true, force: true });
-    console.log(`[Worktree] Cleaned up remaining directory: ${worktreePath}`);
+  if (existsSync(safeWorktreePath)) {
+    rmSync(safeWorktreePath, { recursive: true, force: true });
+    console.log(`[Worktree] Cleaned up remaining directory: ${safeWorktreePath}`);
   }
 }
 
 export async function listWorktrees(
   projectId: string
 ): Promise<string[]> {
-  const mainRepoPath = join(REPOS_DIR, projectId, '.main');
+  const mainRepoPath = buildReposPath(projectId, '.main');
 
   if (!existsSync(mainRepoPath)) {
     return [];
@@ -216,15 +199,22 @@ export async function cleanupBatch(
   projectId: string,
   batchId: string
 ): Promise<void> {
-  const batchDir = join(REPOS_DIR, projectId, `batch-${batchId}`);
+  const batchDir = buildReposPath(projectId, `batch-${batchId}`);
 
   try {
     console.log(`[Worktree] Cleaning up batch ${batchId} for project ${projectId}`);
 
     const worktrees = await listWorktrees(projectId);
     for (const wt of worktrees) {
-      if (wt.includes(`batch-${batchId}/`)) {
-        await removeWorktree(projectId, wt);
+      let safeWt: string;
+      try {
+        safeWt = assertPathInsideReposDir(wt, 'listed worktree path');
+      } catch (error) {
+        console.error(`[Worktree] Skipping cleanup for worktree outside repo storage: ${wt}`, error);
+        continue;
+      }
+      if (safeWt === batchDir || safeWt.startsWith(`${batchDir}/`)) {
+        await removeWorktree(projectId, safeWt);
       }
     }
 
@@ -247,8 +237,8 @@ export async function mergeBranch(
   taskBranch: string,
   targetBranch: string
 ): Promise<boolean> {
-  const mainRepoPath = join(REPOS_DIR, projectId, '.main');
-  const mergePath = join(REPOS_DIR, projectId, 'merge-temp');
+  const mainRepoPath = buildReposPath(projectId, '.main');
+  const mergePath = buildReposPath(projectId, 'merge-temp');
 
   try {
     const env = { ...process.env, ...getGitIdentityEnv() };
@@ -356,7 +346,7 @@ export async function createBatchBranch(
   batchBranch: string,
   defaultBranch: string
 ): Promise<void> {
-  const mainRepoPath = join(REPOS_DIR, projectId, '.main');
+  const mainRepoPath = buildReposPath(projectId, '.main');
   console.log(`[Worktree] Creating batch branch ${batchBranch} from ${defaultBranch}`);
   await execFileAsync('git', [
     '-C',
@@ -373,13 +363,12 @@ export async function pushBranch(
   cloneUrl: string,
   accessToken: string | null
 ): Promise<void> {
-  const mainRepoPath = join(REPOS_DIR, projectId, '.main');
-  const { args: credArgs, env: credEnv } = buildCredentialHelperArgs(accessToken);
+  const mainRepoPath = buildReposPath(projectId, '.main');
   console.log(`[Worktree] Pushing ${branchName} to remote`);
-  await execFileAsync(
-    'git',
-    ['-C', mainRepoPath, ...credArgs, 'push', '--force-with-lease', cloneUrl, branchName],
-    { env: { ...process.env, ...credEnv } }
+  await execGitWithCredentials(
+    ['-C', mainRepoPath, 'push', '--force-with-lease', cloneUrl, branchName],
+    accessToken,
+    cloneUrl,
   );
   console.log(`[Worktree] Push complete for ${branchName}`);
 }
