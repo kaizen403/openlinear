@@ -14,7 +14,71 @@ import {
   cleanupExecution,
   getTaskTitle,
   findTaskBySessionId,
+  estimateProgress,
 } from './state';
+
+const EVENT_STREAM_IDLE_TIMEOUT_MS = 30_000;
+
+type OpenCodeEvent = { type: string; properties?: Record<string, unknown> };
+type ClosableEventStream = AsyncIterable<OpenCodeEvent> & {
+  return?: (value?: unknown) => Promise<unknown> | unknown;
+};
+
+function clearEventStreamTimeout(taskId: string): void {
+  const execution = activeExecutions.get(taskId);
+  if (execution?.streamTimeoutId) {
+    clearTimeout(execution.streamTimeoutId);
+    execution.streamTimeoutId = null;
+  }
+}
+
+async function failExecutionFromEventStream(taskId: string, message: string, details?: string): Promise<void> {
+  const execution = activeExecutions.get(taskId);
+  if (!execution || execution.cancelled) return;
+
+  execution.status = 'error';
+  execution.cancelled = true;
+  clearEventStreamTimeout(taskId);
+
+  const elapsedMs = Date.now() - execution.startedAt.getTime();
+  const estimatedProgress = estimateProgress(execution);
+  const outcome = details ? `${message}: ${details}` : message;
+
+  addLogEntry(taskId, 'error', message, details);
+  broadcastProgress(taskId, 'error', message);
+
+  try {
+    await execution.client.session.abort({ path: { id: execution.sessionId } });
+  } catch (error) {
+    console.error(`[Execution] Abort after event stream failure failed for task ${taskId.slice(0, 8)}:`, error);
+  }
+
+  await finalizeAgentRun(execution, 'failed', { errorMessage: outcome });
+  await updateTaskStatus(taskId, 'cancelled', null, {
+    executionElapsedMs: elapsedMs,
+    executionProgress: estimatedProgress,
+    outcome,
+  });
+  await persistLogs(taskId);
+  await cleanupExecution(taskId);
+}
+
+function resetEventStreamTimeout(taskId: string, sessionId: string): void {
+  clearEventStreamTimeout(taskId);
+  const execution = activeExecutions.get(taskId);
+  if (!execution || execution.sessionId !== sessionId || execution.cancelled) return;
+
+  execution.streamTimeoutId = setTimeout(() => {
+    void failExecutionFromEventStream(taskId, 'Agent event stream timed out').catch((error: unknown) => {
+      console.error(`[Execution] Failed to handle event stream timeout for task ${taskId.slice(0, 8)}:`, error);
+    });
+  }, EVENT_STREAM_IDLE_TIMEOUT_MS);
+  execution.streamTimeoutId.unref();
+}
+
+function isTerminalSessionEvent(eventType: string): boolean {
+  return eventType === 'session.idle' || eventType === 'session.completed' || eventType === 'session.error';
+}
 
 async function handleSessionComplete(taskId: string): Promise<void> {
   const execution = activeExecutions.get(taskId);
@@ -332,21 +396,61 @@ async function handleOpenCodeEvent(event: { type: string; properties?: Record<st
 export async function subscribeToSessionEvents(taskId: string, client: OpencodeClient, sessionId: string): Promise<void> {
   try {
     const events = await client.event.subscribe();
+    const stream = events.stream as unknown as ClosableEventStream;
+    const execution = activeExecutions.get(taskId);
+    if (execution) {
+      execution.eventStreamCleanup = async () => {
+        clearEventStreamTimeout(taskId);
+        if (typeof stream.return === 'function') {
+          await stream.return();
+        }
+      };
+      resetEventStreamTimeout(taskId, sessionId);
+    }
     
     (async () => {
+      let failureHandled = false;
       try {
-        for await (const event of events.stream) {
+        for await (const event of stream) {
           const eventSessionId = extractSessionId(event);
           if (eventSessionId === sessionId) {
+            if (isTerminalSessionEvent(event.type)) {
+              clearEventStreamTimeout(taskId);
+            } else {
+              resetEventStreamTimeout(taskId, sessionId);
+            }
             await handleOpenCodeEvent(event);
+            if (!activeExecutions.has(taskId)) {
+              break;
+            }
           }
         }
       } catch (error) {
         console.error(`[Execution] Event stream error for task ${taskId.slice(0, 8)}:`, error);
+        failureHandled = true;
+        await failExecutionFromEventStream(
+          taskId,
+          'Agent event stream failed',
+          error instanceof Error ? error.message : String(error),
+        );
+      } finally {
+        clearEventStreamTimeout(taskId);
+        const current = activeExecutions.get(taskId);
+        if (current && current.eventStreamCleanup === execution?.eventStreamCleanup) {
+          current.eventStreamCleanup = undefined;
+        }
+        if (current && !current.cancelled && !failureHandled) {
+          await failExecutionFromEventStream(taskId, 'Agent event stream ended unexpectedly');
+        }
       }
     })();
   } catch (error) {
     console.error(`[Execution] Failed to subscribe to events for task ${taskId.slice(0, 8)}:`, error);
     addLogEntry(taskId, 'error', 'Failed to subscribe to agent events');
+    await failExecutionFromEventStream(
+      taskId,
+      'Failed to subscribe to agent events',
+      error instanceof Error ? error.message : String(error),
+    );
   }
 }
