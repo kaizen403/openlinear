@@ -2,6 +2,8 @@ import { existsSync, mkdirSync, rmSync, accessSync, constants } from 'fs';
 import { PullRequestResult, REPOS_DIR } from './state';
 import { getGitIdentityEnv } from '../git-identity';
 import { execFileAsync } from './exec';
+import { assertPathInsideReposDir } from '../repo-storage';
+import { execGitWithCredentials } from '../git-credentials';
 
 export type CommitPushResult =
   | { status: 'no_changes' }
@@ -18,27 +20,14 @@ function getExecErrorReason(error: unknown): string {
   return 'Unknown git error';
 }
 
-function buildCredentialHelperArgs(accessToken: string | null): {
-  args: string[];
-  env: NodeJS.ProcessEnv;
-} {
-  if (!accessToken) {
-    return { args: [], env: {} };
-  }
-  const helperScript = 'f() { echo "username=oauth2"; echo "password=$GH_TOKEN"; }; f';
-  return {
-    args: ['-c', `credential.helper=!${helperScript}`],
-    env: { GH_TOKEN: accessToken },
-  };
-}
-
 export async function cloneRepository(
   cloneUrl: string,
   repoPath: string,
   accessToken: string | null,
   defaultBranch: string
 ): Promise<void> {
-  console.log(`[Execution] Preparing to clone into ${repoPath}`);
+  const safeRepoPath = assertPathInsideReposDir(repoPath);
+  console.log(`[Execution] Preparing to clone into ${safeRepoPath}`);
 
   if (!existsSync(REPOS_DIR)) {
     mkdirSync(REPOS_DIR, { recursive: true });
@@ -51,20 +40,18 @@ export async function cloneRepository(
     throw new Error(`[Execution] No write access to ${REPOS_DIR}. Check directory ownership.`);
   }
 
-  if (existsSync(repoPath)) {
-    rmSync(repoPath, { recursive: true, force: true });
-    console.log(`[Execution] Removed existing directory: ${repoPath}`);
+  if (existsSync(safeRepoPath)) {
+    rmSync(safeRepoPath, { recursive: true, force: true });
+    console.log(`[Execution] Removed existing directory: ${safeRepoPath}`);
   }
 
-  const { args: credArgs, env: credEnv } = buildCredentialHelperArgs(accessToken);
-
   console.log(`[Execution] Cloning ${cloneUrl} (branch: ${defaultBranch})...`);
-  await execFileAsync(
-    'git',
-    [...credArgs, 'clone', '--depth', '1', '--branch', defaultBranch, cloneUrl, repoPath],
-    { env: { ...process.env, ...credEnv } }
+  await execGitWithCredentials(
+    ['clone', '--depth', '1', '--branch', defaultBranch, cloneUrl, safeRepoPath],
+    accessToken,
+    cloneUrl,
   );
-  await execFileAsync('chmod', ['-R', 'a+rwX', repoPath]);
+  await execFileAsync('chmod', ['-R', 'a+rwX', safeRepoPath]);
   console.log(`[Execution] Clone complete`);
 }
 
@@ -99,11 +86,12 @@ export async function commitAndPush(
     await execFileAsync('git', ['-C', repoPath, 'commit', '-m', commitMessage], { env });
 
     console.log(`[Execution] Pushing to origin/${branchName}...`);
-    const { args: credArgs, env: credEnv } = buildCredentialHelperArgs(accessToken);
-    await execFileAsync(
-      'git',
-      ['-C', repoPath, ...credArgs, 'push', '--force-with-lease', '-u', 'origin', branchName],
-      { env: { ...env, ...credEnv } }
+    const { stdout: originUrl } = await execFileAsync('git', ['-C', repoPath, 'remote', 'get-url', 'origin']);
+    await execGitWithCredentials(
+      ['-C', repoPath, 'push', '--force-with-lease', '-u', 'origin', branchName],
+      accessToken,
+      originUrl.trim(),
+      { env },
     );
     console.log(`[Execution] Push complete`);
 
