@@ -625,10 +625,10 @@ function SettingsContent() {
                   <img
                     src={user.avatarUrl}
                     alt={user.username}
-                    className="w-16 h-16 rounded-full border border-linear-border"
+                    className="w-16 h-16 rounded-full object-cover ring-2 ring-linear-border shadow-sm"
                   />
                 ) : (
-                  <div className="w-16 h-16 rounded-full bg-linear-bg-tertiary border border-linear-border flex items-center justify-center">
+                  <div className="w-16 h-16 rounded-full bg-linear-bg-tertiary ring-2 ring-linear-border shadow-sm flex items-center justify-center">
                     <UserIcon className="w-7 h-7 text-linear-text-tertiary" />
                   </div>
                 )}
