@@ -20,6 +20,15 @@ import {
 import { Button } from "@/components/ui/button"
 import { buttonVariants } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
+import {
+  PRIORITY_COLORS,
+  PROJECT_STATUS_COLORS,
+  STATUS_COLORS,
+  TEAM_ROLE_COLORS,
+  type ColorTriad,
+  type PriorityKey,
+  type StatusKey,
+} from "@/lib/design-tokens"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
@@ -61,11 +70,15 @@ const roleIcons = {
   member: User,
 }
 
-const roleColors = {
-  owner: "bg-yellow-500/10 text-yellow-500 border-yellow-500/20",
-  admin: "bg-blue-500/10 text-blue-500 border-blue-500/20",
-  member: "bg-linear-text-tertiary/10 text-linear-text-secondary border-linear-border",
+const taskStatusColorKeys: Record<string, StatusKey> = {
+  backlog: "todo",
+  completed: "done",
+  done: "done",
+  in_progress: "in_progress",
+  todo: "todo",
 }
+
+const getBadgeColorClasses = (colors: ColorTriad) => cn(colors.bg, colors.text, colors.border)
 
 interface Task {
   id: string
@@ -260,48 +273,16 @@ function TeamDetailPageContent() {
   }
 
   const getPriorityColor = (priority: string) => {
-    switch (priority.toLowerCase()) {
-      case 'high':
-        return 'bg-red-500/10 text-red-500 border-red-500/20'
-      case 'medium':
-        return 'bg-yellow-500/10 text-yellow-500 border-yellow-500/20'
-      case 'low':
-        return 'bg-green-500/10 text-green-500 border-green-500/20'
-      default:
-        return 'bg-linear-text-tertiary/10 text-linear-text-secondary border-linear-border'
-    }
+    const key = priority.toLowerCase() as PriorityKey
+    return getBadgeColorClasses(PRIORITY_COLORS[key] ?? PRIORITY_COLORS.low)
   }
 
   const getStatusColor = (status: string) => {
-    switch (status.toLowerCase()) {
-      case 'done':
-      case 'completed':
-        return 'bg-green-500/10 text-green-500 border-green-500/20'
-      case 'in_progress':
-        return 'bg-blue-500/10 text-blue-500 border-blue-500/20'
-      case 'todo':
-      case 'backlog':
-        return 'bg-linear-text-tertiary/10 text-linear-text-secondary border-linear-border'
-      default:
-        return 'bg-linear-text-tertiary/10 text-linear-text-secondary border-linear-border'
-    }
+    return getBadgeColorClasses(STATUS_COLORS[taskStatusColorKeys[status.toLowerCase()] ?? "todo"])
   }
 
-  const getProjectStatusColor = (status: string) => {
-    switch (status) {
-      case 'planned':
-        return 'bg-linear-text-tertiary/10 text-linear-text-secondary border-linear-border'
-      case 'in_progress':
-        return 'bg-blue-500/10 text-blue-500 border-blue-500/20'
-      case 'paused':
-        return 'bg-yellow-500/10 text-yellow-500 border-yellow-500/20'
-      case 'completed':
-        return 'bg-green-500/10 text-green-500 border-green-500/20'
-      case 'cancelled':
-        return 'bg-red-500/10 text-red-500 border-red-500/20'
-      default:
-        return 'bg-linear-text-tertiary/10 text-linear-text-secondary border-linear-border'
-    }
+  const getProjectStatusColor = (status: Project["status"]) => {
+    return getBadgeColorClasses(PROJECT_STATUS_COLORS[status])
   }
 
   const formatDate = (dateString: string | null) => {
@@ -492,12 +473,12 @@ function TeamDetailPageContent() {
                         className="flex items-center justify-between p-3 rounded-sm bg-linear-bg-secondary border border-linear-border/50 hover:border-linear-border transition-colors"
                       >
                         <div className="flex items-center gap-3">
-                          <div className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-medium text-linear-text-secondary bg-linear-bg-tertiary border border-linear-border">
+                          <div className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-medium text-linear-text-secondary bg-linear-bg-tertiary border border-linear-border overflow-hidden">
                             {member.user?.avatarUrl ? (
                               <img
                                 src={member.user.avatarUrl}
                                 alt={member.user.username}
-                                className="w-full h-full rounded-full"
+                                className="w-full h-full object-cover"
                               />
                             ) : (
                               getInitials(member.user?.username || 'U')
@@ -515,17 +496,20 @@ function TeamDetailPageContent() {
                         <div className="flex items-center gap-3">
                           <Badge
                             variant="outline"
-                            className={`${roleColors[member.role]} flex items-center gap-1 capitalize`}
+                            className={cn(
+                              getBadgeColorClasses(TEAM_ROLE_COLORS[member.role]),
+                              "flex items-center gap-1 capitalize",
+                            )}
                           >
                             <RoleIcon className="w-3 h-3" />
                             {member.role}
                           </Badge>
                           <button
                             onClick={() => handleRemoveMember(member.userId)}
-                            className="p-1.5 rounded-sm hover:bg-red-500/10 transition-colors"
+                            className="p-1.5 rounded-sm hover:bg-destructive/10 transition-colors"
                             title="Remove member"
                           >
-                            <Trash2 className="w-4 h-4 text-red-500" />
+                            <Trash2 className="w-4 h-4 text-destructive" />
                           </button>
                         </div>
                       </div>
@@ -580,12 +564,12 @@ function TeamDetailPageContent() {
                             </div>
                           </td>
                           <td className="py-3 px-4">
-                            <Badge variant="outline" className={`${getStatusColor(task.status)} text-xs capitalize`}>
+                            <Badge variant="outline" className={cn(getStatusColor(task.status), "text-xs capitalize")}>
                               {task.status.replace('_', ' ')}
                             </Badge>
                           </td>
                           <td className="py-3 px-4">
-                            <Badge variant="outline" className={`${getPriorityColor(task.priority)} text-xs capitalize`}>
+                            <Badge variant="outline" className={cn(getPriorityColor(task.priority), "text-xs capitalize")}>
                               {task.priority}
                             </Badge>
                           </td>
@@ -646,7 +630,7 @@ function TeamDetailPageContent() {
                             </div>
                           </td>
                           <td className="py-3 px-4">
-                            <Badge variant="outline" className={`${getProjectStatusColor(project.status)} text-xs capitalize`}>
+                            <Badge variant="outline" className={cn(getProjectStatusColor(project.status), "text-xs capitalize")}>
                               {project.status.replace('_', ' ')}
                             </Badge>
                           </td>
@@ -656,10 +640,10 @@ function TeamDetailPageContent() {
                           <td className="py-3 px-4">
                             <button
                               onClick={() => handleDeleteProject(project.id, project.name)}
-                              className="p-1.5 rounded-sm hover:bg-red-500/10 transition-colors"
+                              className="p-1.5 rounded-sm hover:bg-destructive/10 transition-colors"
                               title="Delete project"
                             >
-                              <Trash2 className="w-4 h-4 text-red-500" />
+                              <Trash2 className="w-4 h-4 text-destructive" />
                             </button>
                           </td>
                         </tr>
@@ -677,11 +661,11 @@ function TeamDetailPageContent() {
             </section>
 
             <section>
-              <h2 className="text-lg font-medium text-red-500 mb-4 flex items-center gap-2">
+              <h2 className="text-lg font-medium text-destructive mb-4 flex items-center gap-2">
                 <AlertTriangle className="w-5 h-5" />
                 Danger Zone
               </h2>
-              <div className="p-4 rounded-sm bg-red-500/5 border border-red-500/20">
+              <div className="p-4 rounded-sm bg-destructive/5 border border-destructive/20">
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                   <div>
                     <h3 className="text-sm font-medium text-linear-text">Delete this team</h3>
@@ -692,7 +676,7 @@ function TeamDetailPageContent() {
                   <Button
                     variant="outline"
                     onClick={() => setIsDeleteDialogOpen(true)}
-                    className="border-red-500/30 text-red-500 hover:bg-red-500/10 hover:text-red-500"
+                    className="border-destructive/30 text-destructive hover:bg-destructive/10 hover:text-destructive"
                   >
                     <Trash2 className="w-4 h-4 mr-1.5" />
                     Delete team
@@ -708,7 +692,7 @@ function TeamDetailPageContent() {
         <DialogContent className="bg-linear-bg-secondary border-linear-border">
           <DialogHeader>
             <DialogTitle className="text-linear-text flex items-center gap-2">
-              <AlertTriangle className="w-5 h-5 text-red-500" />
+              <AlertTriangle className="w-5 h-5 text-destructive" />
               Delete Team
             </DialogTitle>
             <DialogDescription className="text-linear-text-secondary">
@@ -730,7 +714,7 @@ function TeamDetailPageContent() {
               type="button"
               onClick={handleDeleteTeam}
               disabled={isDeleting}
-              className="bg-red-500 hover:bg-red-600 text-white"
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               {isDeleting ? "Deleting..." : "Delete team"}
             </Button>
