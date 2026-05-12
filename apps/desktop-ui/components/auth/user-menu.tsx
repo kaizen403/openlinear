@@ -32,7 +32,7 @@ export function UserMenu() {
           <img
             src={user.avatarUrl}
             alt={user.username}
-            className="w-8 h-8 rounded-full"
+            className="w-8 h-8 rounded-full object-cover ring-1 ring-linear-border"
           />
         )}
         <span className="text-sm font-medium">{user?.username}</span>
