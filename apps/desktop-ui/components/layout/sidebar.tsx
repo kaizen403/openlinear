@@ -34,7 +34,6 @@ import {
     DropdownMenu,
     DropdownMenuContent,
     DropdownMenuItem,
-    DropdownMenuLabel,
     DropdownMenuSeparator,
     DropdownMenuSub,
     DropdownMenuSubContent,
@@ -116,7 +115,7 @@ function TeamSection({ team, pathname, searchParams, onDelete }: { team: Team; p
                         </Link>
                         <button
                             onClick={() => { setMenuOpen(false); onDelete(team.id, team.name) }}
-                            className="flex items-center gap-2 px-2 py-1.5 rounded-sm text-sm text-red-500 hover:bg-red-500/10 transition-colors w-full"
+                            className="flex items-center gap-2 px-2 py-1.5 rounded-sm text-sm text-destructive hover:bg-destructive/10 transition-colors w-full"
                         >
                             <Trash2 className="w-3.5 h-3.5" />
                             Delete
@@ -164,6 +163,7 @@ export function Sidebar({ open, onClose, width, animating }: SidebarProps) {
     const [isTauri, setIsTauri] = useState(false)
     const [unreadCount, setUnreadCount] = useState<number>(0)
     const [isFullscreen, setIsFullscreen] = useState(false)
+    const [eventSourceToken, setEventSourceToken] = useState<string | null>(null)
 
     useEffect(() => {
         const tauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
@@ -194,10 +194,25 @@ export function Sidebar({ open, onClose, width, animating }: SidebarProps) {
 
     useEffect(() => {
         if (typeof window === 'undefined') return
-        const token = getAuthToken()
-        if (!token) return
+        setEventSourceToken(isAuthenticated ? getAuthToken() : null)
+    }, [isAuthenticated, user])
+
+    useEffect(() => {
+        if (typeof window === 'undefined') return
+        const handleStorage = (event: StorageEvent) => {
+            if (event.key === 'token') {
+                setEventSourceToken(isAuthenticated ? getAuthToken() : null)
+            }
+        }
+        window.addEventListener('storage', handleStorage)
+        return () => window.removeEventListener('storage', handleStorage)
+    }, [isAuthenticated])
+
+    useEffect(() => {
+        if (typeof window === 'undefined') return
+        if (!eventSourceToken) return
         const url = new URL(`${getApiUrl()}/api/events`)
-        url.searchParams.set('token', token)
+        url.searchParams.set('token', eventSourceToken)
         const es = new EventSource(url.toString())
         const onCreated = () => setUnreadCount((c) => c + 1)
         es.addEventListener('notification:created', onCreated)
@@ -205,7 +220,7 @@ export function Sidebar({ open, onClose, width, animating }: SidebarProps) {
             es.removeEventListener('notification:created', onCreated)
             es.close()
         }
-    }, [])
+    }, [eventSourceToken])
 
     const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null)
     const [isDeletingTeam, setIsDeletingTeam] = useState(false)
@@ -403,42 +418,81 @@ export function Sidebar({ open, onClose, width, animating }: SidebarProps) {
             {/* Auth Section */}
             <div className="p-3 border-t border-linear-border min-w-0">
                 {isLoading ? (
-                    <div className="flex items-center gap-3 px-3 py-2">
-                        <div className="w-7 h-7 rounded-full bg-linear-bg-tertiary animate-pulse" />
-                        <div className="h-3 w-20 bg-linear-bg-tertiary rounded animate-pulse" />
+                    <div className="flex items-center gap-3 px-2 py-2">
+                        <div className="w-8 h-8 rounded-full bg-linear-bg-tertiary animate-pulse flex-shrink-0" />
+                        <div className="flex-1 space-y-1.5">
+                            <div className="h-3 w-24 bg-linear-bg-tertiary rounded animate-pulse" />
+                            <div className="h-2.5 w-16 bg-linear-bg-tertiary/60 rounded animate-pulse" />
+                        </div>
                     </div>
                 ) : isAuthenticated && user ? (
                     <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                             <button
-                                className="flex items-center gap-3 w-full px-2 py-2 rounded-sm hover:bg-linear-bg-tertiary/50 transition-colors text-left"
+                                className="flex items-center gap-2.5 w-full px-2 py-1.5 rounded-md hover:bg-linear-bg-tertiary/60 transition-colors text-left group"
                                 aria-label="User menu"
                             >
-                                <Avatar className="w-7 h-7 flex-shrink-0">
-                                    {user.avatarUrl && (
-                                        <AvatarImage src={user.avatarUrl} alt={user.username} />
+                                <div className="relative flex-shrink-0">
+                                    <Avatar className="w-8 h-8 rounded-full ring-1 ring-linear-border">
+                                        {user.avatarUrl && (
+                                            <AvatarImage
+                                                src={user.avatarUrl}
+                                                alt={user.username}
+                                                className="object-cover"
+                                            />
+                                        )}
+                                        <AvatarFallback className="text-[11px] font-semibold bg-linear-bg-tertiary text-linear-text">
+                                            {user.username.charAt(0).toUpperCase()}
+                                        </AvatarFallback>
+                                    </Avatar>
+                                    <span
+                                        aria-hidden
+                                        className="absolute bottom-0 right-0 w-2 h-2 rounded-full bg-emerald-500 ring-2 ring-linear-bg-secondary"
+                                    />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                    <div className="text-sm font-medium text-linear-text truncate leading-tight">
+                                        {user.username}
+                                    </div>
+                                    {user.email && (
+                                        <div className="text-[11px] text-linear-text-tertiary truncate leading-tight mt-0.5">
+                                            {user.email}
+                                        </div>
                                     )}
-                                    <AvatarFallback className="text-xs">
-                                        {user.username.charAt(0).toUpperCase()}
-                                    </AvatarFallback>
-                                </Avatar>
-                                <span className="text-sm text-linear-text truncate flex-1">{user.username}</span>
-                                <ChevronsUpDown className="w-3.5 h-3.5 text-linear-text-tertiary flex-shrink-0" />
+                                </div>
+                                <ChevronsUpDown className="w-3.5 h-3.5 text-linear-text-tertiary flex-shrink-0 opacity-60 group-hover:opacity-100 transition-opacity" />
                             </button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" side="top" className="w-56">
-                            <DropdownMenuLabel className="truncate">{user.username}</DropdownMenuLabel>
+                            <div className="flex items-center gap-2.5 px-2 py-2">
+                                <Avatar className="w-9 h-9 rounded-full ring-1 ring-linear-border flex-shrink-0">
+                                    {user.avatarUrl && (
+                                        <AvatarImage
+                                            src={user.avatarUrl}
+                                            alt={user.username}
+                                            className="object-cover"
+                                        />
+                                    )}
+                                    <AvatarFallback className="text-xs font-semibold bg-linear-bg-tertiary text-linear-text">
+                                        {user.username.charAt(0).toUpperCase()}
+                                    </AvatarFallback>
+                                </Avatar>
+                                <div className="min-w-0 flex-1">
+                                    <div className="text-sm font-medium text-linear-text truncate leading-tight">
+                                        {user.username}
+                                    </div>
+                                    {user.email && (
+                                        <div className="text-[11px] text-linear-text-tertiary truncate leading-tight mt-0.5">
+                                            {user.email}
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem asChild>
-                                <Link href="/settings" className="cursor-pointer">
+                                <Link href="/settings?section=profile" className="cursor-pointer">
                                     <UserIcon className="w-4 h-4 mr-2" />
                                     Profile
-                                </Link>
-                            </DropdownMenuItem>
-                            <DropdownMenuItem asChild>
-                                <Link href="/settings" className="cursor-pointer">
-                                    <Settings className="w-4 h-4 mr-2" />
-                                    Settings
                                 </Link>
                             </DropdownMenuItem>
                             <DropdownMenuSub>
@@ -462,7 +516,7 @@ export function Sidebar({ open, onClose, width, animating }: SidebarProps) {
                                 </DropdownMenuSubContent>
                             </DropdownMenuSub>
                             <DropdownMenuSeparator />
-                            <DropdownMenuItem onClick={() => logout()} className="cursor-pointer text-red-500 focus:text-red-500">
+                            <DropdownMenuItem onClick={() => logout()} className="cursor-pointer text-destructive focus:text-destructive">
                                 <LogOut className="w-4 h-4 mr-2" />
                                 Sign out
                             </DropdownMenuItem>
@@ -471,8 +525,9 @@ export function Sidebar({ open, onClose, width, animating }: SidebarProps) {
                 ) : (
                     <a
                         href="/login"
-                        className="flex items-center gap-3 w-full px-3 py-2 rounded-sm text-sm font-medium bg-linear-accent hover:bg-linear-accent-hover text-white transition-colors"
+                        className="flex items-center justify-center gap-2 w-full px-3 py-2 rounded-sm text-sm font-medium bg-linear-accent hover:bg-linear-accent-hover text-white transition-colors"
                     >
+                        <UserIcon className="w-4 h-4" />
                         Sign in
                     </a>
                 )}
