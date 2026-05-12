@@ -288,8 +288,8 @@ export function CommentsThread({ taskId }: CommentsThreadProps) {
             const isEditing = editingId === c.id
             return (
               <div key={c.id} className="flex gap-3">
-                <Avatar className="h-8 w-8 flex-shrink-0">
-                  {c.user.avatarUrl && <AvatarImage src={c.user.avatarUrl} alt={c.user.username} />}
+                <Avatar className="h-8 w-8 rounded-full flex-shrink-0">
+                  {c.user.avatarUrl && <AvatarImage src={c.user.avatarUrl} alt={c.user.username} className="object-cover" />}
                   <AvatarFallback className="text-[10px] bg-linear-bg-secondary text-linear-text-secondary border border-linear-border">
                     {initialsOf(c.user.username)}
                   </AvatarFallback>
@@ -415,8 +415,8 @@ export function CommentsThread({ taskId }: CommentsThreadProps) {
                     active ? "bg-linear-accent/15 text-linear-text" : "text-linear-text-secondary hover:bg-linear-bg-secondary"
                   )}
                 >
-                  <Avatar className="h-5 w-5">
-                    {u.avatarUrl && <AvatarImage src={u.avatarUrl} alt={u.username} />}
+                  <Avatar className="h-5 w-5 rounded-full">
+                    {u.avatarUrl && <AvatarImage src={u.avatarUrl} alt={u.username} className="object-cover" />}
                     <AvatarFallback className="text-[9px] bg-linear-bg-secondary border border-linear-border">
                       {initialsOf(u.username)}
                     </AvatarFallback>
