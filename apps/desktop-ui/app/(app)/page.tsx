@@ -9,6 +9,42 @@ import { TaskFormDialog } from "@/components/task-form"
 import { useAuth } from "@/hooks/use-auth"
 import { fetchProjects, fetchTeams, Project, Team } from "@/lib/api"
 import { OnboardingWizard } from "@/components/onboarding/onboarding-wizard"
+import { Skeleton } from "@/components/ui/skeleton"
+
+function HomePageSkeleton() {
+  return (
+    <main className="flex flex-1 flex-col bg-linear-bg">
+      <header className="min-h-14 border-b border-linear-border flex items-center px-4 sm:px-6 py-2 sm:py-0 bg-linear-bg gap-2 sm:gap-4">
+        <Skeleton className="h-5 w-36" />
+        <div className="ml-auto flex items-center gap-2">
+          <Skeleton className="h-8 w-28" />
+          <Skeleton className="h-8 w-20" />
+        </div>
+      </header>
+      <div className="flex-1 p-4 sm:p-6">
+        <div className="mb-4 flex items-center gap-3">
+          <Skeleton className="h-9 w-64" />
+          <Skeleton className="h-9 w-24" />
+        </div>
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, columnIndex) => (
+            <div
+              key={columnIndex}
+              className="rounded-sm border border-linear-border bg-linear-bg-secondary p-3"
+            >
+              <Skeleton className="mb-3 h-4 w-24" />
+              <div className="space-y-3">
+                {Array.from({ length: 3 }).map((_, cardIndex) => (
+                  <Skeleton key={cardIndex} className="h-24 w-full" />
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </main>
+  )
+}
 
 function HomeContent() {
   const searchParams = useSearchParams()
@@ -63,7 +99,7 @@ function HomeContent() {
           : "Dashboard"
 
   if (isLoading || !isAuthenticated) {
-    return null
+    return <HomePageSkeleton />
   }
 
   if (!selectedProjectId && !urlProjectId && !urlTeamId) {
@@ -251,7 +287,7 @@ function HomeContent() {
 
 export default function HomePage() {
   return (
-    <Suspense>
+    <Suspense fallback={<HomePageSkeleton />}>
       <HomeContent />
     </Suspense>
   )
