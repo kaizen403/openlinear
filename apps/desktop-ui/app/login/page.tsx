@@ -28,6 +28,10 @@ export default function LoginPage() {
     }
   }
 
+  const handleCancel = () => {
+    setIsLoading(false)
+  }
+
   return (
     <div className="min-h-screen bg-linear-bg flex items-center justify-center p-4">
       <div className="w-full max-w-md">
@@ -61,6 +65,15 @@ export default function LoginPage() {
               </>
             )}
           </Button>
+
+          {isLoading && (
+            <button
+              onClick={handleCancel}
+              className="w-full mt-3 text-sm text-linear-text-tertiary hover:text-linear-text-secondary transition-colors"
+            >
+              Cancel
+            </button>
+          )}
         </div>
 
         <p className="text-center text-xs text-linear-text-tertiary mt-6">
