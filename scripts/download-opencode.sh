@@ -73,7 +73,13 @@ else
 fi
 
 echo "  - Fetching release metadata from $RELEASE_URL..."
-RELEASE_JSON=$(curl -sL "$RELEASE_URL")
+GH_AUTH_HEADER=()
+if [ -n "${GH_TOKEN:-}" ]; then
+  GH_AUTH_HEADER=(-H "Authorization: Bearer $GH_TOKEN")
+elif [ -n "${GITHUB_TOKEN:-}" ]; then
+  GH_AUTH_HEADER=(-H "Authorization: Bearer $GITHUB_TOKEN")
+fi
+RELEASE_JSON=$(curl -sL "${GH_AUTH_HEADER[@]}" "$RELEASE_URL")
 DOWNLOAD_URL=$(echo "$RELEASE_JSON" | grep "browser_download_url.*$ASSET_NAME" | cut -d '"' -f 4)
 
 if [ -z "$DOWNLOAD_URL" ]; then

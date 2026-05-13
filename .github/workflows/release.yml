@@ -51,6 +51,8 @@ jobs:
         run: pnpm --filter @openlinear/db db:generate
 
       - name: Download opencode binary
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: bash ./scripts/download-opencode.sh
 
       - name: Build desktop
@@ -99,6 +101,8 @@ jobs:
         run: pnpm --filter @openlinear/db db:generate
 
       - name: Download opencode binary
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: bash ./scripts/download-opencode.sh
 
       - name: Build desktop
@@ -153,6 +157,8 @@ jobs:
         run: pnpm --filter @openlinear/db db:generate
 
       - name: Download opencode binary
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: bash ./scripts/download-opencode.sh
 
       - name: Build desktop
