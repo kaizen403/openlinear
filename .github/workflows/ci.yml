@@ -40,9 +40,6 @@ jobs:
           bash ./scripts/sync-aur-metadata.sh
           git diff --exit-code -- packaging/aur/openlinear-bin/PKGBUILD packaging/aur/openlinear-bin/.SRCINFO
 
-      - name: Build sidecar artifacts
-        run: bash ./scripts/build-sidecar.sh
-
       - name: Typecheck desktop UI
         run: pnpm --filter @openlinear/desktop-ui lint
 
