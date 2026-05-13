@@ -1,5 +1,5 @@
 pkgname=openlinear-bin
-pkgver=0.1.57
+pkgver=0.1.58
 pkgrel=1
 pkgdesc="OpenLinear desktop app (AppImage)"
 arch=('x86_64')
