@@ -50,9 +50,6 @@ jobs:
       - name: Generate Prisma client
         run: pnpm --filter @openlinear/db db:generate
 
-      - name: Build sidecar
-        run: pnpm build:sidecar
-
       - name: Build desktop
         run: pnpm build:desktop
 
@@ -65,9 +62,6 @@ jobs:
           mkdir -p dist/release
           cp "$APPIMAGE" "dist/release/openlinear-${VERSION}-x86_64.AppImage"
           cp "$DEB" "dist/release/openlinear-${VERSION}-x86_64.deb"
-          if [ -f apps/sidecar/dist/sidecar-linux-x64 ]; then
-            cp apps/sidecar/dist/sidecar-linux-x64 "dist/release/openlinear-sidecar-${VERSION}-x86_64"
-          fi
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -100,9 +94,6 @@ jobs:
 
       - name: Generate Prisma client
         run: pnpm --filter @openlinear/db db:generate
-
-      - name: Build sidecar
-        run: pnpm build:sidecar
 
       - name: Build desktop
         env:
@@ -154,9 +145,6 @@ jobs:
 
       - name: Generate Prisma client
         run: pnpm --filter @openlinear/db db:generate
-
-      - name: Build sidecar
-        run: pnpm build:sidecar
 
       - name: Build desktop
         env:
