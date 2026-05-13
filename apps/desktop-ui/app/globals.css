@@ -1,8 +1,17 @@
-:root {
-  --font-sans: var(--font-space-grotesk), system-ui, -apple-system, sans-serif;
-  --font-ui: var(--font-dm-sans), system-ui, -apple-system, sans-serif;
+/* Anthropic Sans — variable font (weight 300-800) */
+@font-face {
+  font-family: 'Anthropic Sans';
+  src: url('/fonts/AnthropicSans.woff2') format('woff2');
+  font-weight: 300 800;
+  font-style: normal;
+  font-display: swap;
+}
 
-  --font-mono: var(--font-dm-mono), ui-monospace, "SFMono-Regular", "Menlo", "Monaco", "Consolas", monospace;
+:root {
+  --font-sans: 'Anthropic Sans', system-ui, -apple-system, sans-serif;
+  --font-ui: 'Anthropic Sans', system-ui, -apple-system, sans-serif;
+
+  --font-mono: ui-monospace, "SFMono-Regular", "Menlo", "Monaco", "Consolas", monospace;
 }
 
 @tailwind base;
