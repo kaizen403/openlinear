@@ -1,5 +1,4 @@
 import type { Metadata, Viewport } from "next"
-import { DM_Mono, DM_Sans, Space_Grotesk } from "next/font/google"
 import "./globals.css"
 import { ThemeProvider } from "next-themes"
 import { AuthProvider } from "@/hooks/use-auth"
@@ -11,22 +10,6 @@ import { GlobalQuickCapture } from "@/components/global-quick-capture"
 import { GodModeOverlay } from "@/components/god-mode-overlay"
 import { CommandPalette } from "@/components/command-palette"
 import { ShortcutsOverlay } from "@/components/shortcuts-overlay"
-
-const spaceGrotesk = Space_Grotesk({
-  subsets: ["latin"],
-  variable: "--font-space-grotesk",
-})
-
-const dmSans = DM_Sans({
-  subsets: ["latin"],
-  variable: "--font-dm-sans",
-})
-
-const dmMono = DM_Mono({
-  subsets: ["latin"],
-  variable: "--font-dm-mono",
-  weight: ["400", "500"],
-})
 
 export const viewport: Viewport = {
   width: "device-width",
@@ -77,7 +60,6 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${spaceGrotesk.variable} ${dmSans.variable} ${dmMono.variable}`}
       suppressHydrationWarning
     >
       <head>
