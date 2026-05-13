@@ -44,7 +44,7 @@ export async function startLogin(): Promise<void> {
       console.warn('[Auth] Tauri shell.open failed, falling back to window.location:', err);
     }
   }
-  window.location.href = url;
+  window.open(url, '_blank', 'noopener,noreferrer');
 }
 
 export function logout(): void {
