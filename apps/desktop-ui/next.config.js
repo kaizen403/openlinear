@@ -11,7 +11,7 @@ const nextConfig = {
       }
     : {}),
   typescript: {
-    ignoreBuildErrors: process.env.NEXT_IGNORE_BUILD_ERRORS === "1",
+    ignoreBuildErrors: false,
   },
   experimental: {
     cpus: process.env.CI ? 1 : undefined,
