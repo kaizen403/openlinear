@@ -89,29 +89,3 @@ jobs:
         with:
           files: dist/release/*
 
-  publish-cli:
-    runs-on: ubuntu-22.04
-    needs: create-release
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          registry-url: https://npm.pkg.github.com
-          cache: pnpm
-          scope: '@openlinear'
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Publish CLI
-        working-directory: packages/openlinear-cli
-        run: npm publish --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
