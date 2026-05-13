@@ -50,6 +50,9 @@ jobs:
       - name: Generate Prisma client
         run: pnpm --filter @openlinear/db db:generate
 
+      - name: Download opencode binary
+        run: bash ./scripts/download-opencode.sh
+
       - name: Build desktop
         run: pnpm build:desktop
 
@@ -94,6 +97,9 @@ jobs:
 
       - name: Generate Prisma client
         run: pnpm --filter @openlinear/db db:generate
+
+      - name: Download opencode binary
+        run: bash ./scripts/download-opencode.sh
 
       - name: Build desktop
         env:
@@ -145,6 +151,9 @@ jobs:
 
       - name: Generate Prisma client
         run: pnpm --filter @openlinear/db db:generate
+
+      - name: Download opencode binary
+        run: bash ./scripts/download-opencode.sh
 
       - name: Build desktop
         env:
