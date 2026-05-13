@@ -12,14 +12,6 @@ pub fn run() {
         .plugin(tauri_plugin_os::init())
         .setup(|app| {
             deeplink::setup_deep_link_handler(app);
-
-            let app_handle = app.handle().clone();
-            tauri::async_runtime::spawn(async move {
-                if let Err(err) = sidecar::launch_sidecar(app_handle).await {
-                    eprintln!("[Setup] Failed to auto-start sidecar: {}", err);
-                }
-            });
-
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

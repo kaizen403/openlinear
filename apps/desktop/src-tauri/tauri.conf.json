@@ -37,7 +37,6 @@
       "icons/icon.png"
     ],
     "externalBin": [
-      "binaries/openlinear-sidecar",
       "binaries/opencode"
     ],
     "macOS": {
