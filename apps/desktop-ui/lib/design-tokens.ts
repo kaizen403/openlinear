@@ -22,6 +22,15 @@ export type StatusKey =
 
 export type PriorityKey = "low" | "medium" | "high" | "urgent"
 
+export type TeamRoleKey = "owner" | "admin" | "member"
+
+export type ProjectStatusKey =
+  | "planned"
+  | "in_progress"
+  | "paused"
+  | "completed"
+  | "cancelled"
+
 export interface ColorTriad {
   /** Background tailwind class (10% opacity). */
   bg: string
@@ -115,6 +124,20 @@ export const PRIORITY_COLORS: Readonly<Record<PriorityKey, ColorTriad>> = {
     border: "border-destructive/40",
     dot: "bg-destructive",
   },
+} as const
+
+export const TEAM_ROLE_COLORS: Readonly<Record<TeamRoleKey, ColorTriad>> = {
+  owner: PRIORITY_COLORS.high,
+  admin: STATUS_COLORS.in_progress,
+  member: STATUS_COLORS.todo,
+} as const
+
+export const PROJECT_STATUS_COLORS: Readonly<Record<ProjectStatusKey, ColorTriad>> = {
+  planned: STATUS_COLORS.todo,
+  in_progress: STATUS_COLORS.in_progress,
+  paused: STATUS_COLORS.committing,
+  completed: STATUS_COLORS.done,
+  cancelled: STATUS_COLORS.cancelled,
 } as const
 
 /**
