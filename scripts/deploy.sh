@@ -16,13 +16,69 @@ step() { echo -e "${CYAN}==>${NC} $1"; }
 ok()   { echo -e "${GREEN}  ✓${NC} $1"; }
 fail() { echo -e "${RED}  ✗${NC} $1"; exit 1; }
 
+usage() {
+    cat <<EOF
+Usage: $(basename "$0") [--ref <git-ref>] [--skip-rollback-record]
+
+Options:
+  --ref <git-ref>            Deploy a specific commit, tag, or branch ref.
+  --skip-rollback-record     Do not overwrite the saved rollback point.
+EOF
+}
+
+DEPLOY_REF="${DEPLOY_REF:-}"
+DEPLOY_RECORD_ROLLBACK="${DEPLOY_RECORD_ROLLBACK:-1}"
+
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --ref)
+            [ "${2:-}" ] || fail "--ref requires a git ref"
+            DEPLOY_REF="$2"
+            shift 2
+            ;;
+        --skip-rollback-record)
+            DEPLOY_RECORD_ROLLBACK=0
+            shift
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            fail "Unknown argument: $1"
+            ;;
+    esac
+done
+
 # ── Pull latest code ──────────────────────────────────────────────
 step "Pulling latest code..."
 git reset --hard HEAD
 DEPLOY_BRANCH="${DEPLOY_BRANCH:-$(git rev-parse --abbrev-ref HEAD)}"
-git fetch origin "$DEPLOY_BRANCH"
-git reset --hard "origin/$DEPLOY_BRANCH"
-ok "Code updated to origin/$DEPLOY_BRANCH"
+DEPLOY_STATE_DIR="${DEPLOY_STATE_DIR:-.deploy}"
+mkdir -p "$DEPLOY_STATE_DIR"
+
+current_ref="$(git rev-parse --verify HEAD 2>/dev/null || true)"
+if [ "$DEPLOY_RECORD_ROLLBACK" = "1" ] && [ -n "$current_ref" ]; then
+    printf '%s\n' "$current_ref" > "$DEPLOY_STATE_DIR/rollback-ref"
+    {
+        printf 'ref=%s\n' "$current_ref"
+        printf 'recorded_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        printf 'branch=%s\n' "$DEPLOY_BRANCH"
+    } > "$DEPLOY_STATE_DIR/rollback-meta"
+    git tag -f openlinear-rollback "$current_ref" >/dev/null 2>&1 || true
+    ok "Rollback point recorded at $current_ref"
+fi
+
+if [ -n "$DEPLOY_REF" ]; then
+    git fetch --all --tags --prune
+    target_ref="$(git rev-parse --verify "${DEPLOY_REF}^{commit}")"
+    git reset --hard "$target_ref"
+    ok "Code updated to $DEPLOY_REF ($target_ref)"
+else
+    git fetch origin "$DEPLOY_BRANCH"
+    git reset --hard "origin/$DEPLOY_BRANCH"
+    ok "Code updated to origin/$DEPLOY_BRANCH"
+fi
 
 # ── Install dependencies ─────────────────────────────────────────
 step "Installing dependencies..."
@@ -66,6 +122,7 @@ done
 # overwrites packages/db/.env with the local Docker URL.
 if [ -f .env ]; then
     set -a
+    # shellcheck disable=SC1091
     source .env
     set +a
 fi
@@ -102,7 +159,6 @@ step "Building Web..."
 NEXT_PUBLIC_API_URL=https://openlinear.tech \
 NEXT_TELEMETRY_DISABLED=1 \
 NEXT_PRIVATE_BUILD_WORKER=1 \
-NEXT_IGNORE_BUILD_ERRORS=1 \
 NODE_OPTIONS="--max-old-space-size=768" \
 pnpm --filter @openlinear/desktop-ui build
 ok "Web built"
