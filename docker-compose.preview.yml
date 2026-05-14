@@ -12,7 +12,6 @@ services:
       - "3000:3000"
       - "3001:3001"
       - "3002:3002"
-      - "5432:5432"
     environment:
       NEXT_PUBLIC_API_URL: http://localhost:3001
       SIDECAR_BIND_HOST: 0.0.0.0
