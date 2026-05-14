@@ -14,7 +14,7 @@ PG_VERSION="$(ls /etc/postgresql 2>/dev/null | head -1)"
 PG_BIN="/usr/lib/postgresql/${PG_VERSION}/bin"
 
 echo "[entrypoint] Starting Postgres in background..."
-su postgres -c "$PG_BIN/postgres -D $PGDATA -c logging_collector=off" \
+su postgres -c "$PG_BIN/postgres -D $PGDATA -c logging_collector=off -c listen_addresses=127.0.0.1" \
   > "$LOG_DIR/postgres.log" 2>&1 &
 PG_PID=$!
 echo "[entrypoint] Postgres PID=$PG_PID"
@@ -63,7 +63,7 @@ shutdown() {
 }
 trap shutdown SIGTERM SIGINT
 
-start_service api          node /app/apps/sidecar/dist/index.js
+start_service api          node /app/apps/api/dist/index.js
 start_service desktop-ui   pnpm --filter @openlinear/desktop-ui exec next start -p 3000
 start_service landing      pnpm --filter @openlinear/landing exec next start -p 3002
 
@@ -73,7 +73,7 @@ echo " OpenLinear preview is live"
 echo "   Web (kanban):     http://localhost:3000"
 echo "   API:              http://localhost:3001/health"
 echo "   Landing:          http://localhost:3002"
-echo "   Postgres:         localhost:5432  (user/pass: openlinear)"
+echo "   Postgres:         container-local only (127.0.0.1:5432)"
 echo ""
 echo " Tail logs:          docker exec openlinear tail -F /var/log/openlinear/*.log"
 echo "================================================================"
