@@ -75,7 +75,7 @@ COPY scripts/docker/entrypoint.sh /usr/local/bin/openlinear-entrypoint
 COPY scripts/docker/init-db.sh /usr/local/bin/openlinear-init-db
 RUN chmod +x /usr/local/bin/openlinear-entrypoint /usr/local/bin/openlinear-init-db
 
-EXPOSE 3000 3001 3002 5432
+EXPOSE 3000 3001 3002
 
 HEALTHCHECK --interval=15s --timeout=5s --start-period=90s --retries=8 \
   CMD curl -fsS http://localhost:3001/health || exit 1
