@@ -8,7 +8,7 @@ import { MarkdownView } from "@/components/markdown-view"
 import { CommentsThread } from "@/components/comments-thread"
 import { cn, openExternal } from "@/lib/utils"
 import { Task, ExecutionProgress, ExecutionLogEntry, formatDuration } from "@/types/task"
-import { BRAND_COLORS } from "@/lib/design-tokens"
+import { BRAND_COLORS, STATUS_COLORS, PRIORITY_COLORS } from "@/lib/design-tokens"
 
 interface TaskDetailViewProps {
   task: Task | null
@@ -25,16 +25,16 @@ interface TaskDetailViewProps {
 }
 
 const statusConfig = {
-  todo: { label: 'Todo', color: 'bg-slate-500' },
-  in_progress: { label: 'In Progress', color: 'bg-blue-500' },
-  done: { label: 'Done', color: 'bg-purple-500' },
-  cancelled: { label: 'Cancelled', color: 'bg-zinc-500' },
+  todo: { label: 'Todo', color: STATUS_COLORS.todo.dot },
+  in_progress: { label: 'In Progress', color: STATUS_COLORS.in_progress.dot },
+  done: { label: 'Done', color: STATUS_COLORS.done.dot },
+  cancelled: { label: 'Cancelled', color: STATUS_COLORS.cancelled.dot },
 }
 
 const priorityConfig = {
-  low: { label: 'Low', color: 'text-emerald-600', icon: Flag },
-  medium: { label: 'Medium', color: 'text-yellow-600', icon: Flag },
-  high: { label: 'High', color: 'text-red-600', icon: AlertTriangle },
+  low: { label: 'Low', color: PRIORITY_COLORS.low.text, dot: PRIORITY_COLORS.low.dot, icon: Flag },
+  medium: { label: 'Medium', color: PRIORITY_COLORS.medium.text, dot: PRIORITY_COLORS.medium.dot, icon: Flag },
+  high: { label: 'High', color: PRIORITY_COLORS.high.text, dot: PRIORITY_COLORS.high.dot, icon: AlertTriangle },
 }
 
 const logIcons = {
@@ -254,7 +254,7 @@ export function TaskDetailView({ task, logs, progress, open, onClose, onDelete, 
             <main className="flex-1 min-w-0 overflow-y-auto p-4 sm:p-6">
               <div className="max-w-3xl mx-auto">
                 <div className="flex items-start gap-3 mb-6">
-                  <div className={cn("w-2.5 h-2.5 rounded-full mt-2 flex-shrink-0", priorityConfig[task.priority].color.replace('text-', 'bg-'))} />
+                  <div className={cn("w-2.5 h-2.5 rounded-full mt-2 flex-shrink-0", priorityConfig[task.priority].dot)} />
                   {editingTitle ? (
                     <input
                       ref={titleInputRef}
@@ -284,7 +284,7 @@ export function TaskDetailView({ task, logs, progress, open, onClose, onDelete, 
                 </div>
 
                 {task.status === 'done' && (
-                  <div className="mb-6 p-4 bg-linear-bg-secondary border border-linear-border rounded-lg">
+                  <div className="mb-6 p-4 bg-linear-bg-secondary border border-linear-border rounded-sm">
                     <div className="flex items-center gap-2 mb-2">
                       <div className="w-6 h-6 rounded-full bg-green-500/20 flex items-center justify-center">
                         <Check className="w-4 h-4 text-green-400" />
@@ -300,10 +300,7 @@ export function TaskDetailView({ task, logs, progress, open, onClose, onDelete, 
                     {(task.prUrl || progress?.prUrl) && (
                       <button
                         onClick={() => openExternal((task.prUrl || progress?.prUrl)!)}
-                        className="mt-3 inline-flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-medium text-white transition-colors"
-                        style={{ backgroundColor: BRAND_COLORS.githubPurple }}
-                        onMouseEnter={(e: MouseEvent<HTMLButtonElement>) => { e.currentTarget.style.backgroundColor = BRAND_COLORS.githubPurpleHover }}
-                        onMouseLeave={(e: MouseEvent<HTMLButtonElement>) => { e.currentTarget.style.backgroundColor = BRAND_COLORS.githubPurple }}
+                        className="mt-3 inline-flex items-center gap-2 px-3 py-1.5 rounded-sm text-xs font-medium text-white bg-[#8b5cf6] hover:bg-[#7c3aed] transition-colors"
                       >
                         <GitMerge className="w-3.5 h-3.5" />
                         View Pull Request
@@ -336,7 +333,7 @@ export function TaskDetailView({ task, logs, progress, open, onClose, onDelete, 
                   {editingDescription ? (
                     <textarea
                       ref={descriptionRef}
-                      className="w-full text-sm text-linear-text-secondary leading-relaxed bg-transparent border border-linear-border rounded-md p-2 outline-none focus:border-linear-accent resize-y min-h-[80px]"
+                      className="w-full text-sm text-linear-text-secondary leading-relaxed bg-transparent border border-linear-border rounded-sm p-2 outline-none focus:border-linear-accent resize-y min-h-[80px]"
                       value={descriptionDraft}
                       onChange={(e) => setDescriptionDraft(e.target.value)}
                       onBlur={saveDescription}
@@ -352,7 +349,7 @@ export function TaskDetailView({ task, logs, progress, open, onClose, onDelete, 
                     />
                   ) : task.description ? (
                     <div
-                      className="cursor-text rounded-md -mx-2 px-2 py-1 hover:bg-linear-bg-secondary/40"
+                      className="cursor-text rounded-sm -mx-2 px-2 py-1 hover:bg-linear-bg-secondary/40"
                       onClick={(e) => {
                         // Don't enter edit mode when clicking embedded markdown links.
                         const target = e.target as HTMLElement
@@ -483,7 +480,7 @@ export function TaskDetailView({ task, logs, progress, open, onClose, onDelete, 
                           {task.labels.map((label) => (
                             <span
                               key={label.id}
-                              className="text-[11px] px-2 py-0.5 h-5 font-medium rounded-[4px] inline-flex items-center backdrop-blur-sm border border-white/10"
+                              className="text-[11px] px-2 py-0.5 h-5 font-medium rounded-[4px] inline-flex items-center backdrop-blur-sm border border-linear-border"
                               style={{ 
                                 backgroundColor: `${label.color}20`,
                                 color: label.color
