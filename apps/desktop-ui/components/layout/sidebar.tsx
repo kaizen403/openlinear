@@ -44,7 +44,7 @@ import {
 
 const navItemClass = (isActive: boolean) =>
     cn(
-        "flex items-center gap-3 px-3 py-1.5 rounded-md text-sm font-medium transition-all duration-200 cursor-pointer group",
+        "flex items-center gap-3 px-3 py-1.5 rounded-sm text-sm font-medium transition-all duration-200 cursor-pointer group",
         isActive
             ? "bg-linear-bg-tertiary text-linear-text shadow-sm"
             : "text-linear-text-secondary hover:text-linear-text hover:bg-linear-bg-tertiary/50"
@@ -52,7 +52,7 @@ const navItemClass = (isActive: boolean) =>
 
 const subNavItemClass = (isActive: boolean) =>
     cn(
-        "flex items-center gap-2.5 px-3 py-1 rounded-md text-[13px] transition-all duration-200 cursor-pointer",
+        "flex items-center gap-2.5 px-3 py-1 rounded-sm text-[13px] transition-all duration-200 cursor-pointer",
         isActive
             ? "bg-linear-bg-tertiary text-linear-text"
             : "text-linear-text-secondary hover:text-linear-text hover:bg-linear-bg-tertiary/50"
@@ -79,7 +79,7 @@ function TeamSection({ team, pathname, searchParams, onDelete }: { team: Team; p
             <div className="flex items-center">
                 <button
                     onClick={() => setExpanded(!expanded)}
-                    className="flex items-center gap-2 flex-1 min-w-0 px-3 py-1.5 rounded-md text-[13px] font-medium text-linear-text-secondary hover:text-linear-text hover:bg-linear-bg-tertiary/50 transition-colors"
+                    className="flex items-center gap-2 flex-1 min-w-0 px-3 py-1.5 rounded-sm text-[13px] font-medium text-linear-text-secondary hover:text-linear-text hover:bg-linear-bg-tertiary/50 transition-colors"
                 >
                     {expanded ? (
                         <ChevronDown className="w-3 h-3 flex-shrink-0 text-linear-text-tertiary" />
@@ -109,14 +109,14 @@ function TeamSection({ team, pathname, searchParams, onDelete }: { team: Team; p
                         <Link
                             href={`/teams/manage?id=${team.id}`}
                             onClick={() => setMenuOpen(false)}
-                            className="flex items-center gap-2 px-2 py-1.5 rounded-md text-sm text-linear-text-secondary hover:text-linear-text hover:bg-linear-bg-tertiary transition-colors w-full"
+                            className="flex items-center gap-2 px-2 py-1.5 rounded-sm text-sm text-linear-text-secondary hover:text-linear-text hover:bg-linear-bg-tertiary transition-colors w-full"
                         >
                             <Pencil className="w-3.5 h-3.5" />
                             Edit
                         </Link>
                         <button
                             onClick={() => { setMenuOpen(false); onDelete(team.id, team.name) }}
-                            className="flex items-center gap-2 px-2 py-1.5 rounded-md text-sm text-red-500 hover:bg-red-500/10 transition-colors w-full"
+                            className="flex items-center gap-2 px-2 py-1.5 rounded-sm text-sm text-red-500 hover:bg-red-500/10 transition-colors w-full"
                         >
                             <Trash2 className="w-3.5 h-3.5" />
                             Delete
@@ -126,7 +126,7 @@ function TeamSection({ team, pathname, searchParams, onDelete }: { team: Team; p
             </div>
 
             {expanded && (
-                <div className="ml-3 pl-3 border-l border-white/[0.06] mt-0.5 space-y-0.5">
+                <div className="ml-3 pl-3 border-l border-linear-border mt-0.5 space-y-0.5">
                     <Link
                         href={`/?teamId=${team.id}`}
                         className={subNavItemClass(isIssuesActive)}
@@ -361,7 +361,7 @@ export function Sidebar({ open, onClose, width, animating }: SidebarProps) {
                     ) : (
                         <Link
                             href="/teams"
-                            className="flex items-center gap-2 px-3 py-1.5 rounded-md text-[13px] text-linear-text-tertiary hover:text-linear-text hover:bg-linear-bg-tertiary/50 transition-colors"
+                            className="flex items-center gap-2 px-3 py-1.5 rounded-sm text-[13px] text-linear-text-tertiary hover:text-linear-text hover:bg-linear-bg-tertiary/50 transition-colors"
                         >
                             <Plus className="w-3.5 h-3.5" />
                             <span>Create a team</span>
@@ -389,7 +389,7 @@ export function Sidebar({ open, onClose, width, animating }: SidebarProps) {
                 <Link
                     href="/settings"
                     className={cn(
-                        "flex items-center gap-3 w-full px-3 py-2 rounded-md text-sm font-medium transition-all duration-200",
+                        "flex items-center gap-3 w-full px-3 py-2 rounded-sm text-sm font-medium transition-all duration-200",
                         pathname === "/settings"
                             ? "bg-linear-bg-tertiary text-linear-text"
                             : "text-linear-text-secondary hover:text-linear-text hover:bg-linear-bg-tertiary/50"
@@ -411,7 +411,7 @@ export function Sidebar({ open, onClose, width, animating }: SidebarProps) {
                     <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                             <button
-                                className="flex items-center gap-3 w-full px-2 py-2 rounded-md hover:bg-linear-bg-tertiary/50 transition-colors text-left"
+                                className="flex items-center gap-3 w-full px-2 py-2 rounded-sm hover:bg-linear-bg-tertiary/50 transition-colors text-left"
                                 aria-label="User menu"
                             >
                                 <Avatar className="w-7 h-7 flex-shrink-0">
@@ -471,7 +471,7 @@ export function Sidebar({ open, onClose, width, animating }: SidebarProps) {
                 ) : (
                     <a
                         href="/login"
-                        className="flex items-center gap-3 w-full px-3 py-2 rounded-md text-sm font-medium bg-linear-accent hover:bg-linear-accent-hover text-white transition-colors"
+                        className="flex items-center gap-3 w-full px-3 py-2 rounded-sm text-sm font-medium bg-linear-accent hover:bg-linear-accent-hover text-white transition-colors"
                     >
                         Sign in
                     </a>
