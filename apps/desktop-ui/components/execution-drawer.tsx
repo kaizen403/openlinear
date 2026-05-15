@@ -138,7 +138,7 @@ export function ExecutionDrawer({ task, logs, progress, open, onClose }: Executi
           <div className={cn("px-4 py-3 border-b border-linear-border", statusConfig[currentStatus].bg)}>
             <div className="flex items-center gap-2">
               {['cloning', 'executing', 'committing', 'creating_pr'].includes(currentStatus) && (
-                <div className="w-2 h-2 rounded-full bg-current animate-pulse" style={{ color: statusConfig[currentStatus].color.replace('text-', '') }} />
+                <div className={cn("w-2 h-2 rounded-full animate-pulse", STATUS_COLORS[currentStatus].dot)} />
               )}
               <span className={cn("text-sm font-medium", statusConfig[currentStatus].color)}>
                 {statusConfig[currentStatus].label}
@@ -199,7 +199,7 @@ export function ExecutionDrawer({ task, logs, progress, open, onClose }: Executi
           <div className="p-4 border-t border-linear-border">
             <button
               onClick={() => openExternal(progress.prUrl!)}
-              className="flex items-center justify-center gap-2 w-full py-2 px-4 bg-linear-accent hover:bg-linear-accent-hover text-white text-sm font-medium rounded-md transition-colors"
+              className="flex items-center justify-center gap-2 w-full py-2 px-4 bg-linear-accent hover:bg-linear-accent-hover text-white text-sm font-medium rounded-sm transition-colors"
             >
               View Pull Request
             </button>
