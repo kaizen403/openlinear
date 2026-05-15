@@ -23,12 +23,14 @@ export type StatusKey =
 export type PriorityKey = "low" | "medium" | "high" | "urgent"
 
 export interface ColorTriad {
-  /** Background tailwind class. */
+  /** Background tailwind class (10% opacity). */
   bg: string
   /** Text tailwind class. */
   text: string
   /** Border tailwind class. */
   border: string
+  /** Solid dot/indicator background class. */
+  dot: string
 }
 
 export const STATUS_COLORS: Readonly<Record<StatusKey, ColorTriad>> = {
@@ -36,46 +38,55 @@ export const STATUS_COLORS: Readonly<Record<StatusKey, ColorTriad>> = {
     bg: "bg-muted",
     text: "text-muted-foreground",
     border: "border-border",
+    dot: "bg-muted-foreground",
   },
   in_progress: {
     bg: "bg-blue-500/10",
     text: "text-blue-400",
     border: "border-blue-500/30",
+    dot: "bg-blue-400",
   },
   done: {
     bg: "bg-green-500/10",
     text: "text-green-400",
     border: "border-green-500/30",
+    dot: "bg-green-400",
   },
   cancelled: {
     bg: "bg-gray-500/10",
     text: "text-gray-400",
     border: "border-gray-500/30",
+    dot: "bg-gray-400",
   },
   error: {
     bg: "bg-red-500/10",
     text: "text-red-400",
     border: "border-red-500/30",
+    dot: "bg-red-400",
   },
   cloning: {
     bg: "bg-blue-500/10",
     text: "text-blue-400",
     border: "border-blue-500/30",
+    dot: "bg-blue-400",
   },
   executing: {
     bg: "bg-linear-accent/10",
     text: "text-linear-accent",
     border: "border-linear-accent/30",
+    dot: "bg-linear-accent",
   },
   committing: {
     bg: "bg-yellow-500/10",
     text: "text-yellow-400",
     border: "border-yellow-500/30",
+    dot: "bg-yellow-400",
   },
   creating_pr: {
     bg: "bg-purple-500/10",
     text: "text-purple-400",
     border: "border-purple-500/30",
+    dot: "bg-purple-400",
   },
 } as const
 
@@ -84,21 +95,25 @@ export const PRIORITY_COLORS: Readonly<Record<PriorityKey, ColorTriad>> = {
     bg: "bg-muted",
     text: "text-muted-foreground",
     border: "border-border",
+    dot: "bg-muted-foreground",
   },
   medium: {
     bg: "bg-sky-500/10",
     text: "text-sky-400",
     border: "border-sky-500/30",
+    dot: "bg-sky-400",
   },
   high: {
     bg: "bg-amber-500/10",
     text: "text-amber-400",
     border: "border-amber-500/30",
+    dot: "bg-amber-400",
   },
   urgent: {
     bg: "bg-destructive/10",
     text: "text-destructive",
     border: "border-destructive/40",
+    dot: "bg-destructive",
   },
 } as const
 
