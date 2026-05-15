@@ -140,7 +140,7 @@ export function ShortcutsOverlay() {
     <Sheet open={open} onOpenChange={setOpen}>
       <SheetContent side="right" className="w-full max-w-md overflow-y-auto">
         <SheetHeader>
-          <SheetTitle className="font-display text-2xl tracking-tight">
+          <SheetTitle className="font-sans text-2xl tracking-tight">
             Keyboard Shortcuts
           </SheetTitle>
           <SheetDescription>

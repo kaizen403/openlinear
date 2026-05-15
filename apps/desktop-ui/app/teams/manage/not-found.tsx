@@ -12,7 +12,7 @@ export default function NotFound() {
         <p className="font-mono text-xs uppercase tracking-[0.2em] text-muted-foreground">
           404
         </p>
-        <h2 className="mt-2 font-display text-2xl font-semibold tracking-tight text-foreground">
+        <h2 className="mt-2 font-sans text-2xl font-semibold tracking-tight text-foreground">
           Not found in Manage teams
         </h2>
         <p className="mt-1.5 text-sm text-muted-foreground">

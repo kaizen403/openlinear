@@ -25,7 +25,7 @@ export default function SectionError({
         <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl bg-destructive/10 text-destructive">
           <AlertTriangle className="h-5 w-5" />
         </div>
-        <h2 className="font-display text-xl font-semibold tracking-tight text-foreground">
+        <h2 className="font-sans text-xl font-semibold tracking-tight text-foreground">
           Couldn't load Teams
         </h2>
         <p className="mt-1.5 text-sm text-muted-foreground">

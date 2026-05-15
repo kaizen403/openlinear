@@ -28,7 +28,7 @@ export default function GlobalError({
         <div className="mb-5 flex h-12 w-12 items-center justify-center rounded-xl bg-destructive/10 text-destructive">
           <AlertTriangle className="h-6 w-6" />
         </div>
-        <h1 className="font-display text-2xl font-semibold tracking-tight text-foreground">
+        <h1 className="font-sans text-2xl font-semibold tracking-tight text-foreground">
           Something went wrong
         </h1>
         <p className="mt-2 text-sm text-muted-foreground">
