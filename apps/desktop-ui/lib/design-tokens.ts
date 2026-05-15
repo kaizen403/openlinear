@@ -130,8 +130,8 @@ export const BRAND_COLORS = {
 export const BATCH_STATUS_COLORS = {
   queued: { text: "text-linear-text-tertiary", bg: "bg-linear-border" },
   running: { text: "text-linear-accent", bg: "bg-linear-accent" },
-  completed: { text: "#4a7c5c", bg: "#1f3a2a", dot: "#2d5a3d" },
-  failed: { text: "#8b5a5a", bg: "#3d2626", dot: "#5a2d2d" },
-  skipped: { text: "#7c6a4a", bg: "#3d3526" },
+  completed: { text: "text-green-400", bg: "bg-green-500/10", dot: "bg-green-500" },
+  failed: { text: "text-red-400", bg: "bg-red-500/10", dot: "bg-red-500" },
+  skipped: { text: "text-amber-400", bg: "bg-amber-500/10" },
   cancelled: { text: "text-linear-text-tertiary", bg: "bg-linear-border-hover" },
 } as const

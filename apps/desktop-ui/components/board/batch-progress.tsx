@@ -23,12 +23,12 @@ interface BatchProgressProps {
   onViewActivity?: (taskId: string) => void
 }
 
-const statusConfig: Record<string, { color: string; bg: string; icon: typeof Check; label: string; inlineColor?: string; inlineBg?: string }> = {
+const statusConfig: Record<string, { color: string; bg: string; icon: typeof Check; label: string; dot?: string }> = {
   queued: { color: BATCH_STATUS_COLORS.queued.text, bg: BATCH_STATUS_COLORS.queued.bg, icon: Clock, label: 'Queued' },
   running: { color: BATCH_STATUS_COLORS.running.text, bg: BATCH_STATUS_COLORS.running.bg, icon: Loader2, label: 'Running' },
-  completed: { color: '', bg: '', inlineColor: BATCH_STATUS_COLORS.completed.text, inlineBg: BATCH_STATUS_COLORS.completed.bg, icon: Check, label: 'Done' },
-  failed: { color: '', bg: '', inlineColor: BATCH_STATUS_COLORS.failed.text, inlineBg: BATCH_STATUS_COLORS.failed.bg, icon: AlertCircle, label: 'Failed' },
-  skipped: { color: '', bg: '', inlineColor: BATCH_STATUS_COLORS.skipped.text, inlineBg: BATCH_STATUS_COLORS.skipped.bg, icon: SkipForward, label: 'Skipped' },
+  completed: { color: BATCH_STATUS_COLORS.completed.text, bg: BATCH_STATUS_COLORS.completed.bg, icon: Check, label: 'Done', dot: BATCH_STATUS_COLORS.completed.dot },
+  failed: { color: BATCH_STATUS_COLORS.failed.text, bg: BATCH_STATUS_COLORS.failed.bg, icon: AlertCircle, label: 'Failed', dot: BATCH_STATUS_COLORS.failed.dot },
+  skipped: { color: BATCH_STATUS_COLORS.skipped.text, bg: BATCH_STATUS_COLORS.skipped.bg, icon: SkipForward, label: 'Skipped' },
   cancelled: { color: BATCH_STATUS_COLORS.cancelled.text, bg: BATCH_STATUS_COLORS.cancelled.bg, icon: Ban, label: 'Cancelled' },
 }
 
@@ -54,20 +54,15 @@ export function BatchProgress({ batchId, status, mode, tasks, prUrl, onCancel, o
               <div
                 className={cn(
                   "w-2 h-2 rounded-full",
-                  status !== 'completed' && status !== 'failed' && 'bg-linear-border-hover'
+                  status === 'completed' ? statusConfig.completed.dot
+                    : status === 'failed' ? statusConfig.failed.dot
+                    : 'bg-linear-border-hover'
                 )}
-                style={
-                  status === 'completed'
-                    ? { backgroundColor: BATCH_STATUS_COLORS.completed.dot }
-                    : status === 'failed'
-                    ? { backgroundColor: BATCH_STATUS_COLORS.failed.dot }
-                    : undefined
-                }
               />
             )}
             <span className="text-sm text-linear-text">
               {mode === 'queue' ? 'Queue' : 'Parallel'} Issues: {completed}/{total} complete
-              {failed > 0 && <span className="ml-1" style={{ color: BATCH_STATUS_COLORS.failed.text }}>({failed} failed)</span>}
+              {failed > 0 && <span className={cn("ml-1", BATCH_STATUS_COLORS.failed.text)}>({failed} failed)</span>}
             </span>
             {expanded ? (
               <ChevronUp className="w-3.5 h-3.5 text-linear-text-tertiary" />
@@ -139,7 +134,6 @@ export function BatchProgress({ batchId, status, mode, tasks, prUrl, onCancel, o
               <div
                 key={task.taskId}
                 className={cn("h-1.5 flex-1 rounded-full", cfg.bg)}
-                style={cfg.inlineBg ? { backgroundColor: cfg.inlineBg } : undefined}
               />
             )
           })}
@@ -159,7 +153,6 @@ export function BatchProgress({ batchId, status, mode, tasks, prUrl, onCancel, o
                 <div className="flex items-center gap-3">
                   <Icon
                     className={cn("w-4 h-4 flex-shrink-0", cfg.color, task.status === 'running' && 'animate-spin')}
-                    style={cfg.inlineColor ? { color: cfg.inlineColor } : undefined}
                   />
                   <span className="text-sm text-linear-text truncate flex-1">{task.title}</span>
                   <button
