@@ -118,11 +118,11 @@ export function TaskCard({ task, onExecute, onCancel, onDelete, onMoveToInProgre
     <Card 
       className={cn(
         isDragging
-          ? "bg-linear-bg-secondary border border-white/[0.12] shadow-2xl"
-          : "bg-white/[0.03] backdrop-blur-md border border-white/[0.08] shadow-[0_4px_24px_-8px_rgba(0,0,0,0.4),0_1px_3px_rgba(0,0,0,0.2),inset_0_1px_0_rgba(255,255,255,0.05)]",
-        "cursor-pointer group rounded-xl",
-        selected && !isDragging && "bg-white/[0.06] border-white/[0.15]",
-        isBatchTask && "border-white/[0.10]",
+          ? "bg-linear-bg-secondary border border-linear-border shadow-2xl"
+          : "bg-linear-bg-secondary/50 backdrop-blur-md border border-linear-border shadow-card",
+        "cursor-pointer group rounded-sm",
+        selected && !isDragging && "bg-linear-bg-tertiary border-linear-border-hover",
+        isBatchTask && "border-linear-border",
         isCompletedBatchTask && ""
       )}
       onClick={handleCardClick}
@@ -154,7 +154,7 @@ export function TaskCard({ task, onExecute, onCancel, onDelete, onMoveToInProgre
             ) : (
               <Loader2 className={cn(
                 "w-3 h-3 animate-spin flex-shrink-0 mt-0.5",
-                isActiveProgress ? "text-linear-accent" : "text-zinc-500"
+                isActiveProgress ? "text-linear-accent" : "text-linear-text-tertiary"
               )} />
             )
           )}
@@ -167,7 +167,7 @@ export function TaskCard({ task, onExecute, onCancel, onDelete, onMoveToInProgre
               <span
                 key={label.id}
                 className={cn(
-                  "text-[11px] px-2 py-0.5 h-5 font-medium rounded-[4px] inline-flex items-center border border-white/10",
+                  "text-[11px] px-2 py-0.5 h-5 font-medium rounded-[4px] inline-flex items-center border border-linear-border",
                   !isDragging && "backdrop-blur-sm"
                 )}
                 style={{
@@ -182,7 +182,7 @@ export function TaskCard({ task, onExecute, onCancel, onDelete, onMoveToInProgre
         )}
 
         {showProgress && (
-          <div className="mb-3 p-2 bg-white/[0.03] rounded-md">
+          <div className="mb-3 p-2 bg-linear-bg-tertiary rounded-sm">
             <div className="flex items-center gap-2">
               {isActiveProgress ? (
                 <Loader2 className={cn('w-3 h-3 animate-spin', progressConfig[executionProgress.status].color)} />
@@ -268,7 +268,7 @@ export function TaskCard({ task, onExecute, onCancel, onDelete, onMoveToInProgre
               <Button
                 size="sm"
                 variant="ghost"
-                className="h-6 w-6 rounded-md p-0 text-linear-accent bg-linear-accent/10 border border-linear-accent/30 hover:bg-linear-accent/20"
+                className="h-6 w-6 rounded-sm p-0 text-linear-accent bg-linear-accent/10 border border-linear-accent/30 hover:bg-linear-accent/20"
                 onClick={(e) => {
                   e.stopPropagation()
                   handleExecute()
