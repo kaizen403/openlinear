@@ -7,6 +7,7 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import * as z from "zod"
 
 import { Button } from "@/components/ui/button"
+import { cn } from "@/lib/utils"
 import {
   Dialog,
   DialogContent,
@@ -53,13 +54,7 @@ interface TaskFormDialogProps {
 
 import { apiFetch, ApiError } from "@/lib/api/fetch"
 import { toast } from "sonner"
-
-const statusColors = {
-  todo: "#a0a0a0",
-  in_progress: "#f59e0b",
-  done: "#22c55e",
-  cancelled: "#ef4444",
-}
+import { STATUS_COLORS } from "@/lib/design-tokens"
 
 const statusLabels = {
   todo: "Todo",
@@ -233,13 +228,10 @@ export function TaskFormDialog({
                       value={field.value}
                     >
                       <FormControl>
-                        <SelectTrigger className="h-7 w-auto px-2.5 text-xs rounded-md bg-transparent border-none hover:bg-white/[0.06] text-linear-text-secondary gap-1.5 focus:ring-0 shadow-none">
+                        <SelectTrigger className="h-7 w-auto px-2.5 text-xs rounded-sm bg-transparent border-none hover:bg-linear-bg-tertiary text-linear-text-secondary gap-1.5 focus:ring-0 shadow-none">
                           <div className="flex items-center gap-1.5">
                             <div
-                              className="w-2 h-2 rounded-full"
-                              style={{
-                                backgroundColor: statusColors[field.value as keyof typeof statusColors],
-                              }}
+                              className={cn("w-2 h-2 rounded-full", STATUS_COLORS[field.value as keyof typeof STATUS_COLORS]?.dot ?? "bg-muted-foreground")}
                             />
                             <SelectValue placeholder="Status">
                               {statusLabels[field.value as keyof typeof statusLabels]}
@@ -250,37 +242,37 @@ export function TaskFormDialog({
                       <SelectContent className="bg-linear-bg-secondary border-linear-border">
                         <SelectItem
                           value="todo"
-                          className="text-linear-text focus:bg-white/[0.06] focus:text-linear-text text-xs"
+                          className="text-linear-text focus:bg-linear-bg-tertiary focus:text-linear-text text-xs"
                         >
                           <div className="flex items-center gap-2">
-                            <div className="w-2 h-2 rounded-full" style={{ backgroundColor: statusColors.todo }} />
+                            <div className={cn("w-2 h-2 rounded-full", STATUS_COLORS.todo.dot)} />
                             Todo
                           </div>
                         </SelectItem>
                         <SelectItem
                           value="in_progress"
-                          className="text-linear-text focus:bg-white/[0.06] focus:text-linear-text text-xs"
+                          className="text-linear-text focus:bg-linear-bg-tertiary focus:text-linear-text text-xs"
                         >
                           <div className="flex items-center gap-2">
-                            <div className="w-2 h-2 rounded-full" style={{ backgroundColor: statusColors.in_progress }} />
+                            <div className={cn("w-2 h-2 rounded-full", STATUS_COLORS.in_progress.dot)} />
                             In Progress
                           </div>
                         </SelectItem>
                         <SelectItem
                           value="done"
-                          className="text-linear-text focus:bg-white/[0.06] focus:text-linear-text text-xs"
+                          className="text-linear-text focus:bg-linear-bg-tertiary focus:text-linear-text text-xs"
                         >
                           <div className="flex items-center gap-2">
-                            <div className="w-2 h-2 rounded-full" style={{ backgroundColor: statusColors.done }} />
+                            <div className={cn("w-2 h-2 rounded-full", STATUS_COLORS.done.dot)} />
                             Done
                           </div>
                         </SelectItem>
                         <SelectItem
                           value="cancelled"
-                          className="text-linear-text focus:bg-white/[0.06] focus:text-linear-text text-xs"
+                          className="text-linear-text focus:bg-linear-bg-tertiary focus:text-linear-text text-xs"
                         >
                           <div className="flex items-center gap-2">
-                            <div className="w-2 h-2 rounded-full" style={{ backgroundColor: statusColors.cancelled }} />
+                            <div className={cn("w-2 h-2 rounded-full", STATUS_COLORS.cancelled.dot)} />
                             Cancelled
                           </div>
                         </SelectItem>
@@ -300,7 +292,7 @@ export function TaskFormDialog({
                       <LabelPicker
                         selectedIds={field.value}
                         onChange={field.onChange}
-                        triggerClassName="h-7 w-auto px-2.5 text-xs rounded-md bg-transparent border-none hover:bg-white/[0.06] hover:border-none text-linear-text-secondary shadow-none"
+                        triggerClassName="h-7 w-auto px-2.5 text-xs rounded-sm bg-transparent border-none hover:bg-linear-bg-tertiary hover:border-none text-linear-text-secondary shadow-none"
                       />
                     </FormControl>
                     <FormMessage className="text-red-400 text-xs" />
@@ -317,7 +309,7 @@ export function TaskFormDialog({
                       <div className="relative">
                         <button
                           type="button"
-                          className="h-7 w-auto px-2.5 text-xs rounded-md bg-transparent border-none hover:bg-white/[0.06] text-linear-text-secondary flex items-center gap-1.5 cursor-pointer"
+                          className="h-7 w-auto px-2.5 text-xs rounded-sm bg-transparent border-none hover:bg-linear-bg-tertiary text-linear-text-secondary flex items-center gap-1.5 cursor-pointer"
                           onClick={() => {
                             const input = document.getElementById('dueDate-input') as HTMLInputElement
                             input?.showPicker?.()
@@ -352,7 +344,7 @@ export function TaskFormDialog({
                         value={field.value || ""}
                       >
                         <FormControl>
-                          <SelectTrigger className="h-7 w-auto px-2.5 text-xs rounded-md bg-transparent border-none hover:bg-white/[0.06] text-linear-text-secondary gap-1.5 focus:ring-0 shadow-none data-[state=error]:border-red-500">
+                          <SelectTrigger className="h-7 w-auto px-2.5 text-xs rounded-sm bg-transparent border-none hover:bg-linear-bg-tertiary text-linear-text-secondary gap-1.5 focus:ring-0 shadow-none data-[state=error]:border-red-500">
                             <div className="flex items-center gap-1.5">
                               <FolderKanban className="w-3 h-3 text-linear-text-tertiary" />
                               <SelectValue placeholder="Select project">
@@ -368,7 +360,7 @@ export function TaskFormDialog({
                             <SelectItem
                               key={project.id}
                               value={project.id}
-                              className="text-linear-text focus:bg-white/[0.06] focus:text-linear-text text-xs"
+                              className="text-linear-text focus:bg-linear-bg-tertiary focus:text-linear-text text-xs"
                             >
                               <div className="flex items-center gap-2">
                                 <div
@@ -402,7 +394,7 @@ export function TaskFormDialog({
                 variant="ghost"
                 onClick={() => handleOpenChange(false)}
                 disabled={isSubmitting}
-                className="h-8 px-3 text-xs bg-transparent text-linear-text-secondary hover:bg-white/[0.06] hover:text-linear-text"
+                className="h-8 px-3 text-xs bg-transparent text-linear-text-secondary hover:bg-linear-bg-tertiary hover:text-linear-text"
               >
                 Cancel
               </Button>
