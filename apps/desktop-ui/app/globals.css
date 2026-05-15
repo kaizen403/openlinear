@@ -1,7 +1,7 @@
 :root {
   --font-sans: var(--font-space-grotesk), system-ui, -apple-system, sans-serif;
   --font-ui: var(--font-dm-sans), system-ui, -apple-system, sans-serif;
-  --font-serif: var(--font-eb-garamond), "Times New Roman", serif;
+
   --font-mono: var(--font-dm-mono), ui-monospace, "SFMono-Regular", "Menlo", "Monaco", "Consolas", monospace;
 }
 
@@ -11,27 +11,27 @@
 
 @layer base {
   :root {
-    /* Linear-inspired dark theme - using dark mode as default */
-    --background: 0 0% 10%;
-    --foreground: 0 0% 96%;
-    --card: 0 0% 8%;
+    /* Unified dark theme — hex-matched to linear-* palette */
+    --background: 0 0% 7%;          /* #111111 = linear-bg */
+    --foreground: 0 0% 96%;         /* #f5f5f5 = linear-text */
+    --card: 0 0% 8%;                /* #141414 = linear-bg-secondary */
     --card-foreground: 0 0% 96%;
-    --popover: 0 0% 8%;
+    --popover: 0 0% 6%;             /* #0f0f0f = linear-bg-tertiary */
     --popover-foreground: 0 0% 96%;
     --primary: 217 91% 60%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 0 0% 14%;
+    --secondary: 0 0% 8%;           /* #141414 */
     --secondary-foreground: 0 0% 96%;
-    --muted: 0 0% 14%;
-    --muted-foreground: 0 0% 60%;
+    --muted: 0 0% 8%;               /* #141414 */
+    --muted-foreground: 0 0% 42%;   /* #6a6a6a = linear-text-tertiary */
     --accent: 217 91% 60%;
     --accent-foreground: 0 0% 100%;
     --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 100%;
-    --border: 0 0% 16%;
-    --input: 0 0% 16%;
+    --border: 0 0% 17%;             /* #2a2a2a = linear-border */
+    --input: 0 0% 17%;
     --ring: 217 91% 60%;
-    --radius: 0.5rem;
+    --radius: 0.125rem;
 
     /* Linear accent – overridden at runtime by the accent-color picker */
     --linear-accent: #1d4ed8;
@@ -76,10 +76,7 @@
     font-family: var(--font-mono);
   }
 
-  blockquote,
-  .font-editorial {
-    font-family: var(--font-serif);
-  }
+
 }
 
 /* ── Dark scrollbars ─────────────────────────────────── */
