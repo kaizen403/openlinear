@@ -28,8 +28,8 @@
     --accent-foreground: 0 0% 100%;
     --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 100%;
-    --border: 0 0% 17%;             /* #2a2a2a = linear-border */
-    --input: 0 0% 17%;
+    --border: 0 0% 16%;             /* #2a2a2a = linear-border */
+    --input: 0 0% 16%;
     --ring: 217 91% 60%;
     --radius: 0.125rem;
 
@@ -105,6 +105,18 @@
 
 *::-webkit-scrollbar-corner {
   background: transparent;
+}
+
+/* ── Smooth transitions on interactive elements ──────── */
+button,
+a,
+[role="button"],
+input,
+select,
+textarea {
+  transition-property: color, background-color, border-color, opacity, box-shadow;
+  transition-duration: 150ms;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 /* ── Native-feel: no text selection on UI chrome ─────── */
