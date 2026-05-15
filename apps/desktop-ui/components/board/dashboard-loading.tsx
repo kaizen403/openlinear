@@ -35,7 +35,7 @@ function SkeletonColumn({
 
 function SkeletonCard() {
   return (
-    <div className="bg-linear-bg-secondary rounded-lg p-4 border border-linear-border">
+    <div className="bg-linear-bg-secondary rounded-sm p-4 border border-linear-border">
       <div className="space-y-3">
         <div className="h-4 bg-linear-border rounded w-3/4" />
 

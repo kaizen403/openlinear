@@ -6,7 +6,7 @@ export default function NotFound() {
   return (
     <div className="flex min-h-screen w-full items-center justify-center bg-background p-6">
       <div className="w-full max-w-md text-center">
-        <div className="mx-auto mb-6 flex h-14 w-14 items-center justify-center rounded-2xl border border-border/60 bg-muted/40 text-muted-foreground">
+        <div className="mx-auto mb-6 flex h-14 w-14 items-center justify-center rounded-sm border border-border/60 bg-muted/40 text-muted-foreground">
           <Compass className="h-7 w-7" />
         </div>
         <p className="font-mono text-xs uppercase tracking-[0.2em] text-muted-foreground">

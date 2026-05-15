@@ -121,7 +121,7 @@ export function DatabaseSettings() {
 
         {connectionStatus && (
           <div
-            className={`flex items-center gap-2 p-3 rounded-lg ${
+            className={`flex items-center gap-2 p-3 rounded-sm ${
               connectionStatus.connected
                 ? "bg-green-500/10 text-green-400"
                 : "bg-red-500/10 text-red-400"

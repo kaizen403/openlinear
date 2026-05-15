@@ -270,7 +270,7 @@ export function CommentsThread({ taskId }: CommentsThreadProps) {
       </h2>
 
       {loadError && (
-        <div className="mb-3 px-3 py-2 rounded-md border border-red-500/30 bg-red-500/10 text-xs text-red-400">
+        <div className="mb-3 px-3 py-2 rounded-sm border border-red-500/30 bg-red-500/10 text-xs text-red-400">
           {loadError}
         </div>
       )}
@@ -337,7 +337,7 @@ export function CommentsThread({ taskId }: CommentsThreadProps) {
                             void saveEdit(c.id)
                           }
                         }}
-                        className="w-full text-sm text-linear-text bg-linear-bg-secondary border border-linear-border rounded-md p-2 outline-none focus:border-linear-accent resize-y min-h-[60px]"
+                        className="w-full text-sm text-linear-text bg-linear-bg-secondary border border-linear-border rounded-sm p-2 outline-none focus:border-linear-accent resize-y min-h-[60px]"
                         rows={3}
                       />
                       <div className="flex items-center gap-2">
@@ -362,7 +362,7 @@ export function CommentsThread({ taskId }: CommentsThreadProps) {
       </div>
 
       <div className="relative">
-        <div className="border border-linear-border rounded-md bg-linear-bg-secondary focus-within:border-linear-accent transition-colors">
+        <div className="border border-linear-border rounded-sm bg-linear-bg-secondary focus-within:border-linear-accent transition-colors">
           <textarea
             ref={textareaRef}
             value={body}
@@ -395,7 +395,7 @@ export function CommentsThread({ taskId }: CommentsThreadProps) {
 
         {mention.open && memberCandidates.length > 0 && (
           <div
-            className="absolute left-0 bottom-full mb-1 z-50 w-64 rounded-md border border-linear-border bg-linear-bg shadow-lg overflow-hidden"
+            className="absolute left-0 bottom-full mb-1 z-50 w-64 rounded-sm border border-linear-border bg-linear-bg shadow-lg overflow-hidden"
             onMouseDown={(e) => e.preventDefault()}
           >
             <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-linear-text-tertiary border-b border-linear-border">

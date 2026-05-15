@@ -74,7 +74,7 @@ const components: Components = {
   },
   pre: ({ children, ...props }) => (
     <pre
-      className="font-mono text-xs p-3 mb-3 rounded-md bg-linear-bg-secondary border border-linear-border text-linear-text overflow-x-auto"
+      className="font-mono text-xs p-3 mb-3 rounded-sm bg-linear-bg-secondary border border-linear-border text-linear-text overflow-x-auto"
       {...props}
     >
       {children}

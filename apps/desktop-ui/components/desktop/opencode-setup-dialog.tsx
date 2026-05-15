@@ -190,7 +190,7 @@ export function OpencodeSetupDialog({
         </DialogHeader>
 
         <div className="space-y-4 py-4">
-          <div className="flex items-center justify-between rounded-lg border p-3">
+          <div className="flex items-center justify-between rounded-sm border p-3">
             <span className="text-sm font-medium">Your Platform</span>
             <span className="text-sm text-muted-foreground">
               {getPlatformLabel()}

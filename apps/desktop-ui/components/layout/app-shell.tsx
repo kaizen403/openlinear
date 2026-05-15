@@ -133,7 +133,7 @@ export function AppShell({ children }: AppShellProps) {
             <button
                 type="button"
                 onClick={() => setSidebarOpen(true)}
-                className="fixed top-3 left-3 z-50 w-8 h-8 rounded-md flex items-center justify-center bg-linear-bg-secondary/95 border border-linear-border text-linear-text-tertiary hover:text-linear-text hover:bg-linear-bg-tertiary shadow-lg backdrop-blur"
+                className="fixed top-3 left-3 z-50 w-8 h-8 rounded-sm flex items-center justify-center bg-linear-bg-secondary/95 border border-linear-border text-linear-text-tertiary hover:text-linear-text hover:bg-linear-bg-tertiary shadow-lg backdrop-blur"
                 style={{
                     opacity: sidebarOpen ? 0 : 1,
                     transform: sidebarOpen ? 'scale(0.8)' : 'scale(1)',

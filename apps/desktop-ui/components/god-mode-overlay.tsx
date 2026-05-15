@@ -174,7 +174,7 @@ export function GodModeOverlay() {
                 <button
                   onClick={() => setWebSearchEnabled((prev) => !prev)}
                   className={cn(
-                    "flex h-6 w-6 items-center justify-center rounded-md transition-colors",
+                    "flex h-6 w-6 items-center justify-center rounded-sm transition-colors",
                     webSearchEnabled
                       ? "text-blue-400 bg-blue-500/10"
                       : "text-zinc-600 hover:text-zinc-400 hover:bg-white/[0.04]"
@@ -232,7 +232,7 @@ export function GodModeOverlay() {
                 }}
                 disabled={!micSupported}
                 className={cn(
-                  "flex h-6 w-6 items-center justify-center rounded-md transition-colors",
+                  "flex h-6 w-6 items-center justify-center rounded-sm transition-colors",
                   !micSupported && "opacity-40 cursor-not-allowed",
                   isRecording
                     ? "text-red-500 animate-pulse"

@@ -76,7 +76,7 @@ export function RepoConnector({ onRepoConnected, onRepoDisconnected }: RepoConne
     return (
       <div className="flex items-center gap-2">
         <div
-          className="flex items-center gap-2 px-3 py-1.5 rounded-md border"
+          className="flex items-center gap-2 px-3 py-1.5 rounded-sm border"
           style={{
             backgroundColor: 'color-mix(in srgb, var(--linear-accent) 10%, transparent)',
             borderColor: 'color-mix(in srgb, var(--linear-accent) 20%, transparent)',
@@ -102,7 +102,7 @@ export function RepoConnector({ onRepoConnected, onRepoDisconnected }: RepoConne
     return (
       <button
         onClick={() => setIsExpanded(true)}
-        className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-linear-bg-tertiary hover:bg-linear-border text-sm text-linear-text-secondary transition-colors"
+        className="flex items-center gap-2 px-3 py-1.5 rounded-sm bg-linear-bg-tertiary hover:bg-linear-border text-sm text-linear-text-secondary transition-colors"
       >
         <LinkIcon className="w-3.5 h-3.5" />
         <span>Connect Repo</span>
@@ -120,7 +120,7 @@ export function RepoConnector({ onRepoConnected, onRepoDisconnected }: RepoConne
           onChange={(e) => setUrl(e.target.value)}
           onKeyDown={handleKeyDown}
           placeholder="github.com/owner/repo"
-          className="w-full h-8 pl-9 pr-3 rounded-md bg-linear-bg-tertiary border border-linear-border text-sm placeholder:text-linear-text-tertiary focus:outline-none focus:border-linear-accent transition-colors"
+          className="w-full h-8 pl-9 pr-3 rounded-sm bg-linear-bg-tertiary border border-linear-border text-sm placeholder:text-linear-text-tertiary focus:outline-none focus:border-linear-accent transition-colors"
           autoFocus
           disabled={isLoading}
         />
@@ -128,7 +128,7 @@ export function RepoConnector({ onRepoConnected, onRepoDisconnected }: RepoConne
       <button
         onClick={handleConnect}
         disabled={isLoading || !url.trim()}
-        className="h-8 px-3 rounded-md bg-linear-accent hover:bg-linear-accent-hover disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium transition-colors"
+        className="h-8 px-3 rounded-sm bg-linear-accent hover:bg-linear-accent-hover disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium transition-colors"
       >
         {isLoading ? (
           <Loader2 className="w-4 h-4 animate-spin" />
@@ -142,7 +142,7 @@ export function RepoConnector({ onRepoConnected, onRepoDisconnected }: RepoConne
           setUrl('');
           setError(null);
         }}
-        className="h-8 px-2 rounded-md hover:bg-linear-bg-tertiary text-linear-text-secondary transition-colors"
+        className="h-8 px-2 rounded-sm hover:bg-linear-bg-tertiary text-linear-text-secondary transition-colors"
       >
         <X className="w-4 h-4" />
       </button>

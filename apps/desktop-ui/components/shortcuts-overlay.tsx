@@ -162,7 +162,7 @@ export function ShortcutsOverlay() {
                 {group.shortcuts.map((s) => (
                   <li
                     key={s.description}
-                    className="flex items-center justify-between gap-4 rounded-md border border-border/40 bg-muted/20 px-3 py-2"
+                    className="flex items-center justify-between gap-4 rounded-sm border border-border/40 bg-muted/20 px-3 py-2"
                   >
                     <span className="text-sm">{s.description}</span>
                     <span className="flex items-center gap-1">

@@ -40,7 +40,7 @@ function WelcomeStep({ onNext }: { onNext: () => void }) {
         initial={reduceMotion ? false : { scale: 0.8, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
         transition={reduceMotion ? { duration: 0 } : { ...SPRING, delay: 0.1 }}
-        className="w-20 h-20 mx-auto rounded-2xl bg-linear-accent/10 flex items-center justify-center"
+        className="w-20 h-20 mx-auto rounded-sm bg-linear-accent/10 flex items-center justify-center"
       >
         <Rocket className="w-10 h-10 text-linear-accent" />
       </motion.div>
@@ -67,7 +67,7 @@ function WelcomeStep({ onNext }: { onNext: () => void }) {
         <button
           type="button"
           onClick={onNext}
-          className="bg-linear-accent hover:bg-linear-accent-hover text-white rounded-md h-10 px-6 text-sm font-medium transition-colors inline-flex items-center gap-2"
+          className="bg-linear-accent hover:bg-linear-accent-hover text-white rounded-sm h-10 px-6 text-sm font-medium transition-colors inline-flex items-center gap-2"
         >
           Get Started
           <ArrowRight className="w-4 h-4" />
@@ -92,7 +92,7 @@ function RepoItem({
     <button
       type="button"
       onClick={onSelect}
-      className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left transition-colors ${
+      className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-sm text-left transition-colors ${
         isSelected
           ? "bg-linear-accent/10 border border-linear-accent/40"
           : "hover:bg-linear-bg-tertiary border border-transparent"
@@ -175,7 +175,7 @@ function GitHubRepoTab({
   if (!hasGitHub) {
     return (
       <div className="flex flex-col items-center justify-center py-8 space-y-4">
-        <div className="w-14 h-14 rounded-xl bg-linear-bg-tertiary flex items-center justify-center">
+        <div className="w-14 h-14 rounded-sm bg-linear-bg-tertiary flex items-center justify-center">
           <Github className="w-7 h-7 text-linear-text-secondary" />
         </div>
         <div className="text-center space-y-1">
@@ -333,7 +333,7 @@ function ProjectStep({
   return (
     <div className="space-y-5">
       <div className="text-center space-y-2">
-        <div className="w-12 h-12 mx-auto rounded-xl bg-linear-accent/10 flex items-center justify-center mb-4">
+        <div className="w-12 h-12 mx-auto rounded-sm bg-linear-accent/10 flex items-center justify-center mb-4">
           <FolderKanban className="w-6 h-6 text-linear-accent" />
         </div>
         <h2 className="text-xl font-semibold text-linear-text">
@@ -344,7 +344,7 @@ function ProjectStep({
         </p>
       </div>
 
-      <div className="flex rounded-lg bg-linear-bg-tertiary p-0.5 border border-linear-border">
+      <div className="flex rounded-sm bg-linear-bg-tertiary p-0.5 border border-linear-border">
         {tabs.map((tab) => {
           const Icon = tab.icon
           const isActive = activeTab === tab.id
@@ -357,7 +357,7 @@ function ProjectStep({
                 if (tab.id === "github") setRepoUrl("")
                 if (tab.id === "link") setSelectedRepo(null)
               }}
-              className={`flex-1 flex items-center justify-center gap-1.5 h-8 rounded-md text-xs font-medium transition-all ${
+              className={`flex-1 flex items-center justify-center gap-1.5 h-8 rounded-sm text-xs font-medium transition-all ${
                 isActive
                   ? "bg-linear-bg-secondary text-linear-text shadow-sm"
                   : "text-linear-text-tertiary hover:text-linear-text-secondary"
@@ -406,7 +406,7 @@ function ProjectStep({
         type="button"
         onClick={handleCreate}
         disabled={isCreating || !canCreate}
-        className="w-full bg-linear-accent hover:bg-linear-accent-hover disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-md h-10 px-6 text-sm font-medium transition-colors inline-flex items-center justify-center gap-2"
+        className="w-full bg-linear-accent hover:bg-linear-accent-hover disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-sm h-10 px-6 text-sm font-medium transition-colors inline-flex items-center justify-center gap-2"
       >
         {isCreating ? (
           <>
@@ -486,7 +486,7 @@ function TeamStep({
     return (
       <div className="space-y-5">
         <div className="text-center space-y-2">
-          <div className="w-12 h-12 mx-auto rounded-xl bg-linear-accent/10 flex items-center justify-center mb-4">
+          <div className="w-12 h-12 mx-auto rounded-sm bg-linear-accent/10 flex items-center justify-center mb-4">
             <Users2 className="w-6 h-6 text-linear-accent" />
           </div>
           <h2 className="text-xl font-semibold text-linear-text">Team Ready</h2>
@@ -495,7 +495,7 @@ function TeamStep({
           </p>
         </div>
 
-        <div className="rounded-lg border border-linear-border bg-linear-bg-tertiary px-4 py-3">
+        <div className="rounded-sm border border-linear-border bg-linear-bg-tertiary px-4 py-3">
           <div className="text-[10px] uppercase tracking-[0.16em] text-linear-text-tertiary">Team</div>
           <div className="text-sm font-medium text-linear-text truncate">{team.name}</div>
           <div className="text-xs text-linear-text-tertiary mt-0.5">Key: {team.key}</div>
@@ -504,7 +504,7 @@ function TeamStep({
         <button
           type="button"
           onClick={() => onTeamReady(team)}
-          className="w-full bg-linear-accent hover:bg-linear-accent-hover text-white rounded-md h-10 px-6 text-sm font-medium transition-colors inline-flex items-center justify-center gap-2"
+          className="w-full bg-linear-accent hover:bg-linear-accent-hover text-white rounded-sm h-10 px-6 text-sm font-medium transition-colors inline-flex items-center justify-center gap-2"
         >
           Continue
           <ArrowRight className="w-4 h-4" />
@@ -516,7 +516,7 @@ function TeamStep({
   return (
     <div className="space-y-5">
       <div className="text-center space-y-2">
-        <div className="w-12 h-12 mx-auto rounded-xl bg-linear-accent/10 flex items-center justify-center mb-4">
+        <div className="w-12 h-12 mx-auto rounded-sm bg-linear-accent/10 flex items-center justify-center mb-4">
           <Users2 className="w-6 h-6 text-linear-accent" />
         </div>
         <h2 className="text-xl font-semibold text-linear-text">Create Your Team</h2>
@@ -557,7 +557,7 @@ function TeamStep({
         type="button"
         onClick={handleCreate}
         disabled={isCreating || !canCreate}
-        className="w-full bg-linear-accent hover:bg-linear-accent-hover disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-md h-10 px-6 text-sm font-medium transition-colors inline-flex items-center justify-center gap-2"
+        className="w-full bg-linear-accent hover:bg-linear-accent-hover disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-sm h-10 px-6 text-sm font-medium transition-colors inline-flex items-center justify-center gap-2"
       >
         {isCreating ? (
           <>
@@ -668,7 +668,7 @@ export function OnboardingWizard({ teams, onComplete }: OnboardingWizardProps) {
           animate={{ opacity: 1, x: 0 }}
           exit={reduceMotion ? { opacity: 0 } : { opacity: 0, x: -20 }}
           transition={reduceMotion ? { duration: 0 } : SPRING}
-          className="bg-linear-bg-secondary border border-linear-border rounded-xl p-6"
+          className="bg-linear-bg-secondary border border-linear-border rounded-sm p-6"
         >
           {steps[currentStep]}
         </motion.div>

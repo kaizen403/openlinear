@@ -17,7 +17,7 @@ export function UserMenu() {
     return (
       <a
         href={getLoginUrl()}
-        className="flex items-center gap-2 h-9 px-4 rounded-md bg-linear-bg-tertiary hover:bg-linear-border text-sm font-medium transition-colors"
+        className="flex items-center gap-2 h-9 px-4 rounded-sm bg-linear-bg-tertiary hover:bg-linear-border text-sm font-medium transition-colors"
       >
         <Github className="w-4 h-4" />
         Sign in with GitHub
@@ -39,7 +39,7 @@ export function UserMenu() {
       </div>
       <button
         onClick={logout}
-        className="p-2 rounded-md hover:bg-linear-bg-tertiary transition-colors"
+        className="p-2 rounded-sm hover:bg-linear-bg-tertiary transition-colors"
         title="Sign out"
       >
         <LogOut className="w-4 h-4 text-linear-text-secondary" />

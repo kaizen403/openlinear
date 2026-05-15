@@ -37,7 +37,7 @@ export function InProgressBatchGroup({
         <div
           ref={provided.innerRef}
           {...provided.draggableProps}
-          className={`border border-dashed border-white/[0.08] rounded-lg p-2 mb-3 bg-white/[0.01] transition-all duration-200 ${snapshot.isDragging ? 'shadow-2xl shadow-black/50 ring-1 ring-white/10 scale-[1.02] rotate-1' : ''}`}
+          className={`border border-dashed border-white/[0.08] rounded-sm p-2 mb-3 bg-white/[0.01] transition-all duration-200 ${snapshot.isDragging ? 'shadow-2xl shadow-black/50 ring-1 ring-white/10 scale-[1.02] rotate-1' : ''}`}
         >
           <div className="flex items-center gap-1.5 px-1 mb-1.5" {...provided.dragHandleProps}>
             <GripVertical className="w-3 h-3 text-zinc-500/60 cursor-grab active:cursor-grabbing" />

@@ -67,7 +67,7 @@ export function DoneColumnContent({
                 <div
                   ref={provided.innerRef}
                   {...provided.draggableProps}
-                  className={`border border-dashed border-purple-500/20 rounded-lg p-2 space-y-3 mb-3 hover:border-purple-500/40 transition-all duration-200 ${snapshot.isDragging ? 'shadow-2xl shadow-black/50 ring-1 ring-purple-500/20 scale-[1.02] rotate-1' : ''}`}
+                  className={`border border-dashed border-purple-500/20 rounded-sm p-2 space-y-3 mb-3 hover:border-purple-500/40 transition-all duration-200 ${snapshot.isDragging ? 'shadow-2xl shadow-black/50 ring-1 ring-purple-500/20 scale-[1.02] rotate-1' : ''}`}
                 >
                   <div className="flex items-center justify-between gap-3 px-1" {...provided.dragHandleProps}>
                     <div className="flex items-center gap-1.5 min-w-0">
@@ -80,7 +80,7 @@ export function DoneColumnContent({
                     {groupPrUrl && (
                       <button
                         onClick={() => openExternal(groupPrUrl)}
-                        className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-purple-500/15 hover:bg-purple-500/25 border border-purple-500/30 hover:border-purple-500/50 text-[11px] text-purple-300 font-medium transition-all duration-200 flex-shrink-0"
+                        className="flex items-center gap-1.5 px-2.5 py-1 rounded-sm bg-purple-500/15 hover:bg-purple-500/25 border border-purple-500/30 hover:border-purple-500/50 text-[11px] text-purple-300 font-medium transition-all duration-200 flex-shrink-0"
                       >
                         <GitPullRequest className="w-3 h-3" />
                         Open PR

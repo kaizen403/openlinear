@@ -78,7 +78,7 @@ export function OAuthCallbackClient() {
 
   return (
     <main className="min-h-screen bg-linear-bg flex items-center justify-center p-6">
-      <div className="w-full max-w-lg rounded-lg border border-linear-border bg-linear-bg-secondary p-6 space-y-4">
+      <div className="w-full max-w-lg rounded-sm border border-linear-border bg-linear-bg-secondary p-6 space-y-4">
         <div className="flex items-center gap-2">
           {error ? (
             <AlertCircle className="h-5 w-5 text-red-400" />
@@ -104,7 +104,7 @@ export function OAuthCallbackClient() {
           </p>
         )}
 
-        <div className="rounded-md border border-linear-border bg-linear-bg p-3 text-xs text-linear-text-tertiary break-all">
+        <div className="rounded-sm border border-linear-border bg-linear-bg p-3 text-xs text-linear-text-tertiary break-all">
           {callbackUrl || "Loading callback URL..."}
         </div>
 
@@ -121,7 +121,7 @@ export function OAuthCallbackClient() {
           </Button>
           <Link
             href="/settings?section=ai-providers"
-            className="inline-flex h-9 items-center rounded-md bg-linear-accent px-3 text-sm font-medium text-white hover:bg-linear-accent-hover"
+            className="inline-flex h-9 items-center rounded-sm bg-linear-accent px-3 text-sm font-medium text-white hover:bg-linear-accent-hover"
           >
             Back to AI Providers
           </Link>

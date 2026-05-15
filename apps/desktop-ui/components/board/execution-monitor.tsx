@@ -36,7 +36,7 @@ export function ExecutionMonitor({ taskId, progress }: ExecutionMonitorProps) {
   const isActive = ['cloning', 'executing', 'committing', 'creating_pr'].includes(progress.status);
 
   return (
-    <div className="mt-2 p-2 bg-linear-bg-tertiary rounded-md">
+    <div className="mt-2 p-2 bg-linear-bg-tertiary rounded-sm">
       <div className="flex items-center gap-2">
         {isActive ? (
           <Loader2 className={cn('w-3 h-3 animate-spin', config.color)} />

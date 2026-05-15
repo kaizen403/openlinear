@@ -19,7 +19,7 @@ export function BatchControls({ selectedCount, mode, onExecuteParallel, onExecut
   if (selectedCount === 0) return null
 
   return (
-    <div className="fixed bottom-3 sm:bottom-6 left-3 right-3 sm:left-1/2 sm:right-auto sm:-translate-x-1/2 z-50 flex flex-wrap items-center gap-2 sm:gap-3 px-3 sm:px-4 py-2.5 sm:py-3 bg-linear-bg-secondary border border-linear-border rounded-xl shadow-2xl backdrop-blur-sm sm:max-w-[calc(100vw-2rem)]">
+    <div className="fixed bottom-3 sm:bottom-6 left-3 right-3 sm:left-1/2 sm:right-auto sm:-translate-x-1/2 z-50 flex flex-wrap items-center gap-2 sm:gap-3 px-3 sm:px-4 py-2.5 sm:py-3 bg-linear-bg-secondary border border-linear-border rounded-sm shadow-2xl backdrop-blur-sm sm:max-w-[calc(100vw-2rem)]">
       <span className="text-xs sm:text-sm text-linear-text-secondary whitespace-nowrap">
         {selectedCount} task{selectedCount !== 1 ? 's' : ''} selected
       </span>

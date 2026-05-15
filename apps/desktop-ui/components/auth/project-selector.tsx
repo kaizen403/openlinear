@@ -63,7 +63,7 @@ export function ProjectSelector() {
   return (
     <Dialog open={isOpen} onOpenChange={setIsOpen}>
       <DialogTrigger asChild>
-        <button className="flex items-center gap-2 px-3 py-2 rounded-md bg-linear-bg-tertiary hover:bg-linear-border text-sm transition-colors w-full">
+        <button className="flex items-center gap-2 px-3 py-2 rounded-sm bg-linear-bg-tertiary hover:bg-linear-border text-sm transition-colors w-full">
           <GitBranch className="w-4 h-4 text-linear-text-secondary" />
           <span className="flex-1 text-left truncate">
             {activeRepository?.fullName || 'Select Project'}
@@ -85,7 +85,7 @@ export function ProjectSelector() {
                 <button
                   key={project.id}
                   onClick={() => handleActivate(project)}
-                  className="flex items-center gap-3 w-full px-3 py-2 rounded-md hover:bg-linear-bg-tertiary transition-colors text-left"
+                  className="flex items-center gap-3 w-full px-3 py-2 rounded-sm hover:bg-linear-bg-tertiary transition-colors text-left"
                 >
                   <GitBranch className="w-4 h-4 text-linear-text-secondary" />
                   <span className="flex-1 truncate">{project.fullName}</span>
@@ -115,7 +115,7 @@ export function ProjectSelector() {
                 return (
                   <div
                     key={repo.id}
-                    className="flex items-center gap-3 px-3 py-2 rounded-md hover:bg-linear-bg-tertiary transition-colors"
+                    className="flex items-center gap-3 px-3 py-2 rounded-sm hover:bg-linear-bg-tertiary transition-colors"
                   >
                     <GitBranch className="w-4 h-4 text-linear-text-secondary" />
                     <div className="flex-1 min-w-0">

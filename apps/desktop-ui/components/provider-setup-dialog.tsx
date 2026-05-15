@@ -170,7 +170,7 @@ export function ProviderSetupDialog({ open, onOpenChange, onSetupComplete }: Pro
             <div className="space-y-1">
               <button
                 onClick={handleGoToSettings}
-                className="flex items-center gap-2 w-full px-3 py-2 rounded-lg text-sm text-linear-text-secondary hover:text-linear-text bg-linear-bg border border-dashed border-linear-border hover:border-linear-text-tertiary transition-colors"
+                className="flex items-center gap-2 w-full px-3 py-2 rounded-sm text-sm text-linear-text-secondary hover:text-linear-text bg-linear-bg border border-dashed border-linear-border hover:border-linear-text-tertiary transition-colors"
               >
                 <Settings className="w-4 h-4" />
                 Configure providers in Settings
@@ -237,7 +237,7 @@ interface ProviderRowProps {
 function ProviderRow({ provider, selected, onSelect, activeModel }: ProviderRowProps) {
   return (
     <div
-      className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors cursor-pointer ${
+      className={`flex items-center gap-3 px-3 py-2.5 rounded-sm transition-colors cursor-pointer ${
         selected
           ? "bg-linear-bg border border-linear-accent ring-1 ring-linear-accent/30"
           : "bg-linear-bg border border-linear-border hover:border-linear-text-tertiary"
@@ -249,7 +249,7 @@ function ProviderRow({ provider, selected, onSelect, activeModel }: ProviderRowP
       }`}>
         {selected && <div className="w-2 h-2 rounded-full bg-linear-accent" />}
       </div>
-      <div className="w-7 h-7 rounded-md bg-linear-bg-tertiary flex items-center justify-center flex-shrink-0">
+      <div className="w-7 h-7 rounded-sm bg-linear-bg-tertiary flex items-center justify-center flex-shrink-0">
         <Brain className="w-3.5 h-3.5 text-linear-text-secondary" />
       </div>
       <div className="flex-1 min-w-0">

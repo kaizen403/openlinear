@@ -36,7 +36,7 @@ export default function LoginPage() {
           <p className="text-sm text-linear-text-secondary">Sign in to continue</p>
         </div>
 
-        <div className="bg-linear-bg-secondary border border-linear-border rounded-lg p-6">
+        <div className="bg-linear-bg-secondary border border-linear-border rounded-sm p-6">
           <p className="text-sm text-linear-text-secondary text-center mb-4">
             Sign in with your GitHub account to access OpenLinear
           </p>
