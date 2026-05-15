@@ -36,13 +36,13 @@ export function Column({
   isDraggingOver,
 }: ColumnProps) {
   return (
-    <div className="flex flex-col h-full border-r border-white/[0.06] last:border-r-0 w-[90vw] sm:w-[72vw] flex-none md:w-full md:flex-auto snap-start bg-gradient-to-b from-white/[0.02] to-transparent">
-      <div className="flex items-center justify-between px-3 sm:px-4 py-2.5 sm:py-3 backdrop-blur-sm bg-white/[0.02] border-b border-white/[0.04] gap-2 flex-nowrap min-h-11 flex-shrink-0">
+    <div className="flex flex-col h-full border-r border-linear-border last:border-r-0 w-[90vw] sm:w-[72vw] flex-none md:w-full md:flex-auto snap-start bg-gradient-to-b from-linear-bg-secondary to-transparent">
+      <div className="flex items-center justify-between px-3 sm:px-4 py-2.5 sm:py-3 backdrop-blur-sm bg-linear-bg-secondary border-b border-linear-border gap-2 flex-nowrap min-h-11 flex-shrink-0">
         <div className="flex items-center gap-2 min-w-0 flex-shrink overflow-hidden">
-          <h3 className="text-zinc-400 text-xs font-medium uppercase tracking-wider truncate">{title}</h3>
+          <h3 className="text-linear-text-tertiary text-xs font-medium uppercase tracking-wider truncate">{title}</h3>
           <Badge
             variant="secondary"
-            className="bg-white/[0.06] text-zinc-400 text-xs px-2 py-0 h-5 backdrop-blur-sm border border-white/[0.08] flex-shrink-0"
+            className="bg-linear-bg-tertiary text-linear-text-tertiary text-xs px-2 py-0 h-5 backdrop-blur-sm border border-linear-border flex-shrink-0"
           >
             {taskCount}
           </Badge>
@@ -52,7 +52,7 @@ export function Column({
             <button
               type="button"
               onClick={onToggleSelection}
-              className="h-6 px-2 rounded-md text-[11px] uppercase tracking-wider text-linear-text-secondary bg-linear-bg-tertiary border border-white/[0.12] hover:bg-linear-bg-secondary hover:text-linear-text transition-colors flex-shrink-0 whitespace-nowrap"
+              className="h-6 px-2 rounded-sm text-[11px] uppercase tracking-wider text-linear-text-secondary bg-linear-bg-tertiary border border-linear-border hover:bg-linear-bg-secondary hover:text-linear-text transition-colors flex-shrink-0 whitespace-nowrap"
             >
               {selectionActive ? 'Cancel' : 'Select'}
             </button>
@@ -61,7 +61,7 @@ export function Column({
             <button
               type="button"
               onClick={onSelectAll}
-              className="h-6 px-2 rounded-md text-[11px] uppercase tracking-wider text-linear-text-secondary bg-linear-bg-tertiary border border-white/[0.12] hover:bg-linear-bg-secondary hover:text-linear-text transition-colors flex-shrink-0 whitespace-nowrap"
+              className="h-6 px-2 rounded-sm text-[11px] uppercase tracking-wider text-linear-text-secondary bg-linear-bg-tertiary border border-linear-border hover:bg-linear-bg-secondary hover:text-linear-text transition-colors flex-shrink-0 whitespace-nowrap"
             >
               All
             </button>
@@ -70,7 +70,7 @@ export function Column({
             <button
               type="button"
               onClick={onAddTask}
-              className="w-6 h-6 rounded-md flex items-center justify-center text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.06] transition-colors flex-shrink-0"
+              className="w-6 h-6 rounded-sm flex items-center justify-center text-linear-text-tertiary hover:text-linear-text-secondary hover:bg-linear-bg-tertiary transition-colors flex-shrink-0"
               aria-label={`Add task to ${title}`}
             >
               <Plus className="w-4 h-4" />
@@ -85,7 +85,7 @@ export function Column({
         className={cn(
           "flex-1 p-2.5 sm:p-3 overflow-y-auto",
           "space-y-3",
-          isDraggingOver && "bg-white/[0.02] border border-dashed border-white/[0.1] rounded-xl backdrop-blur-sm"
+          isDraggingOver && "bg-linear-bg-secondary border border-dashed border-linear-border rounded-sm backdrop-blur-sm"
         )}
       >
         {children}
@@ -137,7 +137,7 @@ function InlineAddTask({ columnTitle, onCreate }: InlineAddTaskProps) {
       <button
         type="button"
         onClick={() => setEditing(true)}
-        className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-[12px] text-linear-text-tertiary hover:text-linear-text hover:bg-white/[0.03] transition-colors group"
+        className="w-full flex items-center gap-2 px-3 py-2 rounded-sm text-[12px] text-linear-text-tertiary hover:text-linear-text hover:bg-linear-bg-tertiary transition-colors group"
       >
         <Plus className="w-3.5 h-3.5 opacity-60 group-hover:opacity-100" />
         <span>Add task</span>
@@ -146,7 +146,7 @@ function InlineAddTask({ columnTitle, onCreate }: InlineAddTaskProps) {
   }
 
   return (
-    <div className="rounded-lg border border-white/[0.10] bg-white/[0.04] backdrop-blur-sm focus-within:border-linear-accent/50 focus-within:bg-white/[0.06] transition-colors">
+    <div className="rounded-sm border border-linear-border bg-linear-bg-secondary backdrop-blur-sm focus-within:border-linear-accent/50 focus-within:bg-linear-bg-tertiary transition-colors">
       <input
         ref={inputRef}
         type="text"
