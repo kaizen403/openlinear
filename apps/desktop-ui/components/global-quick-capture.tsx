@@ -66,7 +66,7 @@ function Spinner({ className }: { className?: string }) {
   return (
     <span
       className={cn(
-        "inline-block h-3 w-3 rounded-full border border-zinc-700 border-t-zinc-300 animate-spin",
+        "inline-block h-3 w-3 rounded-full border border-muted-foreground/30 border-t-linear-text-secondary animate-spin",
         className,
       )}
       aria-hidden
@@ -76,14 +76,14 @@ function Spinner({ className }: { className?: string }) {
 
 function SkeletonCard() {
   return (
-    <div className="rounded-lg border border-white/[0.06] bg-zinc-900/60 p-4 space-y-3">
+    <div className="rounded-sm border border-linear-border bg-linear-bg-secondary p-4 space-y-3">
       <div className="flex items-center gap-2">
-        <div className="w-1.5 h-1.5 rounded-full bg-zinc-700 animate-pulse" />
-        <div className="h-3.5 w-3/4 rounded bg-zinc-800 animate-pulse" />
+        <div className="w-1.5 h-1.5 rounded-full bg-muted-foreground/30 animate-pulse" />
+        <div className="h-3.5 w-3/4 rounded bg-linear-bg-tertiary animate-pulse" />
       </div>
       <div className="space-y-1.5 pl-3.5">
-        <div className="h-2.5 w-full rounded bg-zinc-800/60 animate-pulse" />
-        <div className="h-2.5 w-5/6 rounded bg-zinc-800/60 animate-pulse" />
+        <div className="h-2.5 w-full rounded bg-linear-bg-tertiary animate-pulse" />
+        <div className="h-2.5 w-5/6 rounded bg-linear-bg-tertiary animate-pulse" />
       </div>
     </div>
   )
@@ -111,9 +111,9 @@ function TaskCard({
       transition={reduceMotion ? { duration: 0 } : { type: "spring", stiffness: 260, damping: 28 }}
       whileHover={reduceMotion ? undefined : { scale: 1.005 }}
       className={cn(
-        "group relative rounded-lg border border-white/[0.06] bg-zinc-900/60 backdrop-blur-sm",
+        "group relative rounded-sm border border-linear-border bg-linear-bg-secondary backdrop-blur-sm",
         "border-l-2",
-        "transition-opacity hover:border-white/10",
+        "transition-opacity hover:border-linear-border-hover",
         PRIORITY_COLORS[task.priority],
         !task.selected && "opacity-50"
       )}
@@ -124,14 +124,14 @@ function TaskCard({
             type="checkbox"
             checked={task.selected}
             onChange={() => onToggle(task.id)}
-            className="mt-1 h-3.5 w-3.5 rounded border-white/20 bg-transparent accent-white cursor-pointer shrink-0"
+            className="mt-1 h-3.5 w-3.5 rounded border-linear-border bg-transparent accent-white cursor-pointer shrink-0"
           />
-          <h4 className="text-[13px] font-medium leading-snug text-zinc-100 flex-1">
+          <h4 className="text-[13px] font-medium leading-snug text-linear-text flex-1">
             {task.title}
           </h4>
         </div>
 
-        <p className="pl-[22px] text-[11px] leading-relaxed text-zinc-500">
+        <p className="pl-[22px] text-[11px] leading-relaxed text-linear-text-tertiary">
           {task.description}
         </p>
 
@@ -142,7 +142,7 @@ function TaskCard({
               PRIORITY_DOTS[task.priority]
             )}
           />
-          <span className="text-[10px] font-medium uppercase tracking-wider text-zinc-600">
+          <span className="text-[10px] font-medium uppercase tracking-wider text-linear-text-tertiary">
             {task.priority}
           </span>
         </div>
@@ -161,15 +161,15 @@ function ModeToggle({
   proAvailable: boolean
 }) {
   return (
-    <div className="flex items-center gap-1 rounded-md bg-white/[0.03] border border-white/[0.06] p-1">
+    <div className="flex items-center gap-1 rounded-sm bg-linear-bg-secondary border border-linear-border p-1">
       <button
         type="button"
         onClick={() => onChange("basic")}
         className={cn(
           "flex flex-1 items-center justify-center gap-1.5 rounded px-2.5 py-1.5 text-[11px] font-medium transition-colors",
           mode === "basic"
-            ? "bg-white/[0.08] text-zinc-100"
-            : "text-zinc-500 hover:text-zinc-300",
+            ? "bg-linear-bg-tertiary text-linear-text"
+            : "text-linear-text-tertiary hover:text-linear-text-secondary",
         )}
       >
         <Zap className="h-3 w-3" />
@@ -183,9 +183,9 @@ function ModeToggle({
         className={cn(
           "flex flex-1 items-center justify-center gap-1.5 rounded px-2.5 py-1.5 text-[11px] font-medium transition-colors",
           mode === "pro"
-            ? "bg-white/[0.08] text-zinc-100"
-            : "text-zinc-500 hover:text-zinc-300",
-          !proAvailable && "opacity-50 cursor-not-allowed hover:text-zinc-500",
+            ? "bg-linear-bg-tertiary text-linear-text"
+            : "text-linear-text-tertiary hover:text-linear-text-secondary",
+          !proAvailable && "opacity-50 cursor-not-allowed hover:text-linear-text-tertiary",
         )}
       >
         {proAvailable ? (
@@ -209,11 +209,11 @@ function ScopeSlider({
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between">
-        <label className="text-[11px] text-zinc-500 font-medium">Scope</label>
-        <span className="text-[11px] text-zinc-400 tabular-nums">~{value} tasks</span>
+        <label className="text-[11px] text-linear-text-tertiary font-medium">Scope</label>
+        <span className="text-[11px] text-linear-text-tertiary tabular-nums">~{value} tasks</span>
       </div>
       <div className="flex items-center gap-2.5">
-        <span className="text-[10px] text-zinc-700 tabular-nums w-3 text-right">{MIN_TASKS}</span>
+        <span className="text-[10px] text-muted-foreground/50 tabular-nums w-3 text-right">{MIN_TASKS}</span>
         <input
           type="range"
           min={MIN_TASKS}
@@ -222,24 +222,24 @@ function ScopeSlider({
           value={value}
           onChange={(e) => onChange(Number(e.target.value))}
           className={cn(
-            "flex-1 h-1 appearance-none rounded-full bg-white/[0.06] outline-none cursor-pointer",
+            "flex-1 h-1 appearance-none rounded-full bg-linear-bg-tertiary outline-none cursor-pointer",
             "[&::-webkit-slider-thumb]:appearance-none",
             "[&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:w-3",
             "[&::-webkit-slider-thumb]:rounded-full",
-            "[&::-webkit-slider-thumb]:bg-zinc-300",
-            "[&::-webkit-slider-thumb]:border [&::-webkit-slider-thumb]:border-white/20",
+            "[&::-webkit-slider-thumb]:bg-linear-text-secondary",
+            "[&::-webkit-slider-thumb]:border [&::-webkit-slider-thumb]:border-linear-border",
             "[&::-webkit-slider-thumb]:shadow-[0_0_0_3px_rgba(255,255,255,0.04)]",
             "[&::-webkit-slider-thumb]:cursor-pointer",
             "[&::-webkit-slider-thumb]:transition-transform",
             "[&::-webkit-slider-thumb]:hover:scale-110",
             "[&::-moz-range-thumb]:h-3 [&::-moz-range-thumb]:w-3",
             "[&::-moz-range-thumb]:rounded-full",
-            "[&::-moz-range-thumb]:bg-zinc-300",
+            "[&::-moz-range-thumb]:bg-linear-text-secondary",
             "[&::-moz-range-thumb]:border-0",
             "[&::-moz-range-thumb]:cursor-pointer",
           )}
         />
-        <span className="text-[10px] text-zinc-700 tabular-nums w-5">{MAX_TASKS}</span>
+        <span className="text-[10px] text-muted-foreground/50 tabular-nums w-5">{MAX_TASKS}</span>
       </div>
     </div>
   )
@@ -600,11 +600,11 @@ export function GlobalQuickCapture() {
             className={cn(
               "fixed right-0 top-1/2 -translate-y-1/2 z-[9999]",
               "w-3 h-24",
-              "bg-white/[0.08] backdrop-blur-xl",
-              "rounded-l-lg",
+              "bg-linear-bg-tertiary backdrop-blur-xl",
+              "rounded-l-sm",
               "cursor-pointer",
-              "hover:w-4 hover:bg-white/[0.14]",
-              "border-l border-t border-b border-white/[0.12]",
+              "hover:w-4 hover:bg-linear-bg-tertiary/80",
+              "border-l border-t border-b border-linear-border",
               "shadow-[-4px_0_20px_rgba(0,0,0,0.4)]",
               "transition-all duration-300 ease-out",
             )}
@@ -645,7 +645,7 @@ export function GlobalQuickCapture() {
                 "fixed right-0 top-0 z-[9999] h-full",
                 "flex flex-col",
                 "backdrop-blur-xl",
-                "border-l border-white/10",
+                "border-l border-linear-border",
                 "shadow-[-8px_0_30px_rgba(0,0,0,0.5)]",
               )}
               style={{ backgroundColor: `${BRAND_COLORS.overlaySurface}cc` }}
@@ -653,19 +653,19 @@ export function GlobalQuickCapture() {
               {/* ---------- Top bar ---------- */}
               <div className="flex items-center justify-between px-5 pt-5 pb-3">
                 <div className="flex items-baseline gap-2">
-                  <span className="text-[20px] font-semibold tracking-tight bg-gradient-to-r from-white via-white to-zinc-400 bg-clip-text text-transparent">
+                  <span className="text-[20px] font-semibold tracking-tight bg-gradient-to-r from-white via-white to-linear-text-tertiary bg-clip-text text-transparent">
                     Brainstorm
                   </span>
-                  <span className="text-[14px] text-zinc-600 font-light tracking-wide">
+                  <span className="text-[14px] text-linear-text-tertiary font-light tracking-wide">
                     by
                   </span>
-                  <span className="text-[14px] font-medium tracking-wider text-zinc-500 uppercase">
+                  <span className="text-[14px] font-medium tracking-wider text-linear-text-tertiary uppercase">
                     OpenLinear
                   </span>
                 </div>
                 <button
                   onClick={handleClose}
-                  className="flex h-8 w-8 items-center justify-center rounded-md text-zinc-600 hover:text-zinc-300 hover:bg-white/[0.06] transition-colors"
+                  className="flex h-8 w-8 items-center justify-center rounded-sm text-linear-text-tertiary hover:text-linear-text-secondary hover:bg-linear-bg-tertiary transition-colors"
                   aria-label="Close"
                 >
                   <X className="h-5 w-5" />
@@ -678,7 +678,7 @@ export function GlobalQuickCapture() {
                   initial={{ opacity: 0, scaleX: 0 }}
                   animate={{ opacity: 1, scaleX: 1 }}
                   transition={{ ...SPRING, delay: 0.1 }}
-                  className="mx-4 h-px bg-gradient-to-r from-transparent via-white/[0.08] to-transparent"
+                  className="mx-4 h-px bg-gradient-to-r from-transparent via-linear-border to-transparent"
                 />
               )}
 
@@ -696,7 +696,7 @@ export function GlobalQuickCapture() {
                       className="flex flex-col px-1 space-y-5"
                     >
                       {brainstormAvailable === false && (
-                        <div className="rounded-lg bg-yellow-900/20 border border-yellow-700/30 px-4 py-2.5">
+                        <div className="rounded-sm bg-yellow-900/20 border border-yellow-700/30 px-4 py-2.5">
                           <p className="text-[11px] text-yellow-400/90 leading-relaxed">
                             AI provider not configured. Set{" "}
                             <code className="text-yellow-300 font-mono">BRAINSTORM_API_KEY</code> in
@@ -707,7 +707,7 @@ export function GlobalQuickCapture() {
 
                       {/* Mode toggle */}
                       <div className="space-y-1.5">
-                        <label className="text-[11px] text-zinc-500 font-medium">Mode</label>
+                        <label className="text-[11px] text-linear-text-tertiary font-medium">Mode</label>
                         <ModeToggle
                           mode={mode}
                           onChange={handleModeChange}
@@ -720,11 +720,11 @@ export function GlobalQuickCapture() {
 
                       {/* Project select */}
                       <div className="space-y-1.5">
-                        <label className="text-[11px] text-zinc-500 font-medium">Project</label>
+                        <label className="text-[11px] text-linear-text-tertiary font-medium">Project</label>
                         <select
                           value={selectedProjectId || ""}
                           onChange={(e) => setSelectedProjectId(e.target.value || null)}
-                          className="w-full bg-zinc-900/80 border border-white/[0.06] rounded-md px-3 py-2 text-[12px] text-zinc-200 outline-none focus:border-white/[0.12] appearance-none cursor-pointer"
+                          className="w-full bg-linear-bg-secondary border border-linear-border rounded-sm px-3 py-2 text-[12px] text-linear-text-secondary outline-none focus:border-linear-border-hover appearance-none cursor-pointer"
                         >
                           <option value="">Select project...</option>
                           {projects.map((p) => (
@@ -736,22 +736,22 @@ export function GlobalQuickCapture() {
                       </div>
 
                       {/* Step instructions */}
-                      <div className="rounded-lg bg-white/[0.03] border border-white/[0.06] px-4 py-3 space-y-2">
+                      <div className="rounded-sm bg-linear-bg-secondary border border-linear-border px-4 py-3 space-y-2">
                         <div className="flex items-center gap-2.5 text-left">
-                          <span className="text-[11px] font-mono text-zinc-500 shrink-0">1</span>
-                          <span className="text-[12px] text-zinc-400 leading-snug">
+                          <span className="text-[11px] font-mono text-linear-text-tertiary shrink-0">1</span>
+                          <span className="text-[12px] text-linear-text-tertiary leading-snug">
                             Describe what you want to build
                           </span>
                         </div>
                         <div className="flex items-center gap-2.5 text-left">
-                          <span className="text-[11px] font-mono text-zinc-500 shrink-0">2</span>
-                          <span className="text-[12px] text-zinc-400 leading-snug">
+                          <span className="text-[11px] font-mono text-linear-text-tertiary shrink-0">2</span>
+                          <span className="text-[12px] text-linear-text-tertiary leading-snug">
                             AI analyzes your codebase and generates tasks
                           </span>
                         </div>
                         <div className="flex items-center gap-2.5 text-left">
-                          <span className="text-[11px] font-mono text-zinc-500 shrink-0">3</span>
-                          <span className="text-[12px] text-zinc-400 leading-snug">
+                          <span className="text-[11px] font-mono text-linear-text-tertiary shrink-0">3</span>
+                          <span className="text-[12px] text-linear-text-tertiary leading-snug">
                             Select and add tasks to your project
                           </span>
                         </div>
@@ -760,7 +760,7 @@ export function GlobalQuickCapture() {
                       {questionsLoading && (
                         <div className="flex items-center gap-2 justify-center">
                           <Spinner />
-                          <span className="text-[11px] text-zinc-600">Preparing...</span>
+                          <span className="text-[11px] text-linear-text-tertiary">Preparing...</span>
                         </div>
                       )}
                     </motion.div>
@@ -776,11 +776,11 @@ export function GlobalQuickCapture() {
                       transition={SPRING}
                       className="space-y-4"
                     >
-                      <div className="rounded-lg bg-white/[0.03] border border-white/[0.06] px-4 py-3">
-                        <p className="text-[11px] text-zinc-600 mb-1">Your prompt</p>
-                        <p className="text-[13px] text-zinc-300 leading-relaxed">{query}</p>
-                        <div className="mt-2 flex items-center gap-2 text-[10px] text-zinc-600">
-                          <span className="inline-flex items-center gap-1 rounded bg-white/[0.04] px-1.5 py-0.5">
+                      <div className="rounded-sm bg-linear-bg-secondary border border-linear-border px-4 py-3">
+                        <p className="text-[11px] text-linear-text-tertiary mb-1">Your prompt</p>
+                        <p className="text-[13px] text-linear-text-secondary leading-relaxed">{query}</p>
+                        <div className="mt-2 flex items-center gap-2 text-[10px] text-linear-text-tertiary">
+                          <span className="inline-flex items-center gap-1 rounded bg-linear-bg-tertiary px-1.5 py-0.5">
                             <FlaskConical className="h-2.5 w-2.5" />
                             Deep Research
                           </span>
@@ -797,7 +797,7 @@ export function GlobalQuickCapture() {
                       {questionsLoading ? (
                         <div className="flex items-center gap-2 py-8 justify-center">
                           <Spinner />
-                          <span className="text-[11px] text-zinc-600">
+                          <span className="text-[11px] text-linear-text-tertiary">
                             Generating questions...
                           </span>
                         </div>
@@ -813,10 +813,10 @@ export function GlobalQuickCapture() {
                                 className="space-y-1.5"
                               >
                                 <label className="flex items-start gap-2">
-                                  <span className="text-[11px] font-mono text-zinc-600 mt-0.5 shrink-0">
+                                  <span className="text-[11px] font-mono text-linear-text-tertiary mt-0.5 shrink-0">
                                     {index + 1}
                                   </span>
-                                  <span className="text-[12px] text-zinc-400 leading-snug">
+                                  <span className="text-[12px] text-linear-text-tertiary leading-snug">
                                     {question}
                                   </span>
                                 </label>
@@ -830,7 +830,7 @@ export function GlobalQuickCapture() {
                                     }))
                                   }
                                   placeholder="Your answer..."
-                                  className="w-full ml-5 bg-zinc-900/80 border border-white/[0.06] rounded-md px-3 py-2 text-[13px] text-zinc-200 placeholder:text-zinc-700 outline-none focus:border-white/[0.12] transition-colors"
+                                  className="w-full ml-5 bg-linear-bg-secondary border border-linear-border rounded-sm px-3 py-2 text-[13px] text-linear-text-secondary placeholder:text-muted-foreground/50 outline-none focus:border-linear-border-hover transition-colors"
                                 />
                               </motion.div>
                             ))}
@@ -843,7 +843,7 @@ export function GlobalQuickCapture() {
                                 setQuestions([])
                                 setAnswers({})
                               }}
-                              className="text-[12px] text-zinc-500 hover:text-zinc-300 transition-colors"
+                              className="text-[12px] text-linear-text-tertiary hover:text-linear-text-secondary transition-colors"
                             >
                               ← Back
                             </button>
@@ -860,7 +860,7 @@ export function GlobalQuickCapture() {
                               disabled={
                                 Object.values(answers).filter((a) => a.trim()).length === 0
                               }
-                              className="flex items-center gap-1.5 rounded-md bg-white/[0.08] px-3 py-1.5 text-[12px] font-medium text-zinc-300 hover:bg-white/[0.12] disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                              className="flex items-center gap-1.5 rounded-sm bg-linear-bg-tertiary px-3 py-1.5 text-[12px] font-medium text-linear-text-secondary hover:bg-linear-bg-tertiary/80 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
                             >
                               <FlaskConical className="h-3 w-3" />
                               Generate Tasks
@@ -883,7 +883,7 @@ export function GlobalQuickCapture() {
                     >
                       <div className="flex items-center gap-2 pb-2">
                         <Spinner />
-                        <span className="text-[11px] text-zinc-600">Generating tasks...</span>
+                        <span className="text-[11px] text-linear-text-tertiary">Generating tasks...</span>
                       </div>
                       <SkeletonCard />
                       <SkeletonCard />
@@ -899,10 +899,10 @@ export function GlobalQuickCapture() {
                       className="space-y-2.5"
                     >
                       <div className="flex items-center justify-between pb-1">
-                        <span className="text-[11px] font-medium text-zinc-500">
+                        <span className="text-[11px] font-medium text-linear-text-tertiary">
                           {tasks.length} task{tasks.length !== 1 && "s"} generated
                         </span>
-                        <span className="text-[10px] text-zinc-700">
+                        <span className="text-[10px] text-muted-foreground/50">
                           from &quot;{query.slice(0, 32)}
                           {query.length > 32 && "..."}&quot;
                         </span>
@@ -926,10 +926,10 @@ export function GlobalQuickCapture() {
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: 8 }}
                     transition={SPRING}
-                    className="border-t border-white/[0.06] px-4 py-3"
+                    className="border-t border-linear-border px-4 py-3"
                   >
                     <div className="flex items-center justify-between">
-                      <span className="text-[11px] text-zinc-600">
+                      <span className="text-[11px] text-linear-text-tertiary">
                         {tasks.filter((t) => t.selected).length}/{tasks.length} selected
                       </span>
                       <div className="flex items-center gap-2">
@@ -940,7 +940,7 @@ export function GlobalQuickCapture() {
                             setPhase("input")
                             setStreamingDone(false)
                           }}
-                          className="text-[11px] font-medium text-zinc-500 hover:text-zinc-300 transition-colors"
+                          className="text-[11px] font-medium text-linear-text-tertiary hover:text-linear-text-secondary transition-colors"
                         >
                           New query
                         </button>
@@ -956,7 +956,7 @@ export function GlobalQuickCapture() {
                               ? "Select a project first"
                               : undefined
                           }
-                          className="flex items-center gap-1.5 rounded-md bg-white/[0.08] px-3 py-1.5 text-[12px] font-medium text-zinc-300 hover:bg-white/[0.12] disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                          className="flex items-center gap-1.5 rounded-sm bg-linear-bg-tertiary px-3 py-1.5 text-[12px] font-medium text-linear-text-secondary hover:bg-linear-bg-tertiary/80 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
                         >
                           {inserting ? (
                             <>
@@ -977,20 +977,20 @@ export function GlobalQuickCapture() {
               </AnimatePresence>
 
               {/* ---------- Input Bar ---------- */}
-              <div className="border-t border-white/[0.06] px-4 py-3">
+              <div className="border-t border-linear-border px-4 py-3">
                 <div
                   className={cn(
                     "flex items-center gap-3",
-                    "rounded-full",
-                    "bg-zinc-900/90 border border-white/[0.06]",
+                    "rounded-sm",
+                    "bg-linear-bg-secondary border border-linear-border",
                     "px-4 py-3",
                     "transition-shadow duration-300",
                     "focus-within:shadow-[0_0_0_1px_rgba(255,255,255,0.1),0_0_20px_rgba(255,255,255,0.04)]",
-                    "focus-within:border-white/[0.12]",
+                    "focus-within:border-linear-border-hover",
                   )}
                 >
-                  <div className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-white/[0.06]">
-                    <Plus className="h-4 w-4 text-zinc-500" />
+                  <div className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-linear-bg-tertiary">
+                    <Plus className="h-4 w-4 text-linear-text-tertiary" />
                   </div>
 
                   <input
@@ -1001,10 +1001,10 @@ export function GlobalQuickCapture() {
                     onKeyDown={handleKeyDown}
                     placeholder="Ask agents to..."
                     className={cn(
-                      "flex-1 bg-transparent text-[16px] text-zinc-200",
-                      "placeholder:text-zinc-600",
+                      "flex-1 bg-transparent text-[16px] text-linear-text-secondary",
+                      "placeholder:text-linear-text-tertiary",
                       "outline-none border-none",
-                      "caret-zinc-400",
+                      "caret-linear-text-tertiary",
                     )}
                   />
 
@@ -1012,10 +1012,10 @@ export function GlobalQuickCapture() {
                     <button
                       onClick={() => setWebSearchEnabled((prev) => !prev)}
                       className={cn(
-                        "flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md transition-colors",
+                        "flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-sm transition-colors",
                         webSearchEnabled
                           ? "text-blue-400 bg-blue-500/10"
-                          : "text-zinc-600 hover:text-zinc-400 hover:bg-white/[0.04]",
+                          : "text-linear-text-tertiary hover:text-linear-text-secondary hover:bg-linear-bg-tertiary",
                       )}
                       aria-label="Toggle web search"
                     >
@@ -1069,10 +1069,10 @@ export function GlobalQuickCapture() {
                     }}
                     disabled={!micSupported}
                     className={cn(
-                      "flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md transition-colors",
+                      "flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-sm transition-colors",
                       isRecording
                         ? "text-red-400 animate-pulse"
-                        : "text-zinc-600 hover:text-zinc-400 hover:bg-white/[0.04]",
+                        : "text-linear-text-tertiary hover:text-linear-text-secondary hover:bg-linear-bg-tertiary",
                       !micSupported && "opacity-40 cursor-not-allowed",
                     )}
                     aria-label={isRecording ? "Stop recording" : "Start voice input"}
