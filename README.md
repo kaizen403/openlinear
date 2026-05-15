@@ -83,6 +83,7 @@ pnpm --filter @openlinear/desktop dev
 |----------|-------------|
 | `DATABASE_URL` | PostgreSQL connection string |
 | `JWT_SECRET` | Secret for signing auth tokens (REQUIRED in production) |
+| `TOKEN_ENCRYPTION_KEY` | Secret used to AES-256-GCM encrypt stored GitHub access tokens at rest (REQUIRED in production, ≥16 chars). Run `pnpm --filter @openlinear/db db:encrypt-tokens` once after deploy to backfill existing rows. |
 | `GITHUB_CLIENT_ID` | GitHub OAuth app client ID |
 | `GITHUB_CLIENT_SECRET` | GitHub OAuth app client secret |
 | `GITHUB_REDIRECT_URI` | OAuth callback URL (e.g. `http://localhost:3001/api/auth/github/callback` for dev, `https://openlinear.tech/api/auth/github/callback` for prod). The same URL handles both web and desktop logins; desktop callbacks are auto-detected by the `?client=desktop` state and redirected to the `openlinear://` deep link. |
