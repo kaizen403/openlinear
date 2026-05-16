@@ -5,21 +5,11 @@ use std::process::Command;
 use which::which;
 
 /// Status of OpenCode CLI installation
-#[derive(Debug, Clone, Serialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, PartialEq)]
 pub struct OpenCodeStatus {
     pub found: bool,
     pub version: Option<String>,
     pub path: Option<String>,
-}
-
-impl Default for OpenCodeStatus {
-    fn default() -> Self {
-        Self {
-            found: false,
-            version: None,
-            path: None,
-        }
-    }
 }
 
 #[tauri::command]

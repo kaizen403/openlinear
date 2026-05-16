@@ -18,11 +18,38 @@ import {
   getActiveRepository,
   getUserRepositories,
   GitHubRepo,
+  GitHubRepoFilter,
+  GitHubRepoSort,
   addRepositoryByUrl,
   decryptUserAccessToken,
 } from '../services/github';
 
 const router: Router = Router();
+
+const GITHUB_REPO_SORTS = new Set<GitHubRepoSort>(['pushed', 'name', 'stars']);
+const GITHUB_REPO_FILTERS = new Set<GitHubRepoFilter>(['all', 'owned', 'private', 'public', 'no_forks']);
+
+function readQueryString(value: unknown): string | undefined {
+  if (Array.isArray(value)) return readQueryString(value[0]);
+  return typeof value === 'string' ? value : undefined;
+}
+
+function readBoundedInt(value: unknown, fallback: number, min: number, max: number): number {
+  const raw = readQueryString(value);
+  const parsed = raw ? Number.parseInt(raw, 10) : NaN;
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(Math.max(parsed, min), max);
+}
+
+function readRepoSort(value: unknown): GitHubRepoSort {
+  const raw = readQueryString(value);
+  return raw && GITHUB_REPO_SORTS.has(raw as GitHubRepoSort) ? (raw as GitHubRepoSort) : 'pushed';
+}
+
+function readRepoFilter(value: unknown): GitHubRepoFilter {
+  const raw = readQueryString(value);
+  return raw && GITHUB_REPO_FILTERS.has(raw as GitHubRepoFilter) ? (raw as GitHubRepoFilter) : 'all';
+}
 
 router.post(
   '/url',
@@ -93,7 +120,7 @@ router.get('/github', requireAuth, async (req: AuthRequest, res: Response, next:
   try {
     const user = await prisma.user.findUnique({
       where: { id: req.userId! },
-      select: { accessToken: true },
+      select: { accessToken: true, username: true },
     });
 
     if (!user?.accessToken) {
@@ -109,7 +136,15 @@ router.get('/github', requireAuth, async (req: AuthRequest, res: Response, next:
       );
     }
 
-    const repos = await getGitHubRepos(accessToken);
+    const repos = await getGitHubRepos(accessToken, {
+      userId: req.userId!,
+      username: user.username,
+      page: readBoundedInt(req.query.page, 1, 1, 1000),
+      perPage: readBoundedInt(req.query.per_page, 30, 1, 100),
+      sort: readRepoSort(req.query.sort),
+      filter: readRepoFilter(req.query.filter),
+      q: readQueryString(req.query.q)?.trim() || undefined,
+    });
     res.json(repos);
   } catch (err) {
     next(err);

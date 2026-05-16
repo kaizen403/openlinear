@@ -22,6 +22,7 @@ describe('Projects API', () => {
       data: { projectId: null },
     });
     await prisma.project.deleteMany({});
+    await prisma.repository.deleteMany({ where: { githubRepoId: { in: [909001] } } });
     await prisma.teamMember.deleteMany({});
     await prisma.team.deleteMany({});
 
@@ -36,6 +37,7 @@ describe('Projects API', () => {
       },
     });
     testUserId = user.id;
+    await prisma.repository.deleteMany({ where: { userId: testUserId } });
     authToken = generateToken(user.id, user.username);
   }, 30000);
 
@@ -46,6 +48,7 @@ describe('Projects API', () => {
       data: { projectId: null },
     });
     await prisma.project.deleteMany({});
+    await prisma.repository.deleteMany({ where: { userId: testUserId } });
     await prisma.teamMember.deleteMany({});
     await prisma.team.deleteMany({});
   }, 30000);
@@ -115,6 +118,46 @@ describe('Projects API', () => {
       expect(res.status).toBe(201);
       expect(res.body.teams).toHaveLength(1);
       expect(res.body.teams[0].id).toBe(team.id);
+    });
+
+    it('creates project from an imported repository and updates the selected branch', async () => {
+      const repo = await prisma.repository.create({
+        data: {
+          githubRepoId: 909001,
+          name: 'imported',
+          fullName: 'projecttester/imported',
+          cloneUrl: 'https://github.com/projecttester/imported.git',
+          defaultBranch: 'main',
+          userId: testUserId,
+        },
+      });
+
+      const res = await request(app)
+        .post('/api/projects')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ name: 'Imported Repo Project', repositoryId: repo.id, defaultBranch: 'develop' });
+
+      expect(res.status).toBe(201);
+      expect(res.body.repositoryId).toBe(repo.id);
+      expect(res.body.repoUrl).toBe('https://github.com/projecttester/imported');
+      expect(res.body.repository.defaultBranch).toBe('develop');
+    });
+
+    it('accepts SSH clone URLs without fetching public repository metadata', async () => {
+      const res = await request(app)
+        .post('/api/projects')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({
+          name: 'SSH Repo Project',
+          repoUrl: 'git@github.com:projecttester/private-app.git',
+          defaultBranch: 'develop',
+        });
+
+      expect(res.status).toBe(201);
+      expect(res.body.repoUrl).toBe('git@github.com:projecttester/private-app.git');
+      expect(res.body.repositoryId).toEqual(expect.any(String));
+      expect(res.body.repository.defaultBranch).toBe('develop');
+      expect(res.body.repository.cloneUrl).toBe('git@github.com:projecttester/private-app.git');
     });
 
     it('validates status enum', async () => {

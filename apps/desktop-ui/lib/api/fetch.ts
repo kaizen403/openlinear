@@ -1,4 +1,4 @@
-import { getApiUrl, getSidecarApiUrl, getAuthHeader } from './client';
+import { getApiUrl, getSidecarApiUrl, getAuthHeader, getAuthToken } from './client';
 
 /**
  * Server error envelope shape — backend returns `{ error, code?, details? }` on non-2xx.
@@ -60,10 +60,21 @@ export interface ApiFetchInit extends Omit<RequestInit, 'headers'> {
 
 let authExpiredFired = false;
 
-function fireAuthExpired() {
+function getBearerToken(headers: Headers): string | null {
+  const authHeader = headers.get('Authorization');
+  if (!authHeader) return null;
+  const match = /^Bearer\s+(.+)$/i.exec(authHeader);
+  return match?.[1] ?? null;
+}
+
+function fireAuthExpired(tokenUsedForRequest: string | null) {
+  if (!tokenUsedForRequest) return;
   if (authExpiredFired) return;
-  authExpiredFired = true;
   if (typeof window !== 'undefined') {
+    if (getAuthToken() !== tokenUsedForRequest) {
+      return;
+    }
+    authExpiredFired = true;
     try {
       localStorage.removeItem('token');
     } catch {
@@ -82,7 +93,7 @@ function fireAuthExpired() {
  *
  * - Resolves base URL lazily (cloud vs sidecar) — never at module load
  * - Auto-attaches Authorization + x-openlinear-client headers
- * - On 401: clears token, dispatches `auth:expired`, throws AuthExpiredError
+ * - On 401: clears the same token used for the request, dispatches `auth:expired`, throws AuthExpiredError
  * - On other non-2xx: parses `{ error, code, details }` envelope, throws ApiError
  * - On network failure: throws NetworkError
  *
@@ -99,6 +110,7 @@ export async function apiFetch<T = unknown>(
   const url = path.startsWith('http') ? path : `${baseUrl}${path}`;
 
   const headers = buildHeaders(customHeaders, body);
+  const tokenUsedForRequest = getBearerToken(headers);
 
   let response: Response;
   try {
@@ -115,7 +127,7 @@ export async function apiFetch<T = unknown>(
   }
 
   if (response.status === 401 && !allowUnauthenticated) {
-    fireAuthExpired();
+    fireAuthExpired(tokenUsedForRequest);
     const envelope = await readErrorEnvelope(response);
     throw new AuthExpiredError(envelope.error || 'Session expired');
   }
@@ -171,6 +183,7 @@ export async function apiFetchRaw(
   const url = path.startsWith('http') ? path : `${baseUrl}${path}`;
 
   const headers = buildHeaders(customHeaders, body);
+  const tokenUsedForRequest = getBearerToken(headers);
 
   let response: Response;
   try {
@@ -187,7 +200,7 @@ export async function apiFetchRaw(
   }
 
   if (response.status === 401 && !allowUnauthenticated) {
-    fireAuthExpired();
+    fireAuthExpired(tokenUsedForRequest);
     const envelope = await readErrorEnvelope(response.clone());
     throw new AuthExpiredError(envelope.error || 'Session expired');
   }

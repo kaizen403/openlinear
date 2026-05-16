@@ -23,9 +23,27 @@ export interface GitHubRepo {
   name: string;
   full_name: string;
   clone_url: string;
+  html_url?: string;
+  ssh_url?: string;
   default_branch: string;
   private: boolean;
   description: string | null;
+  owner?: {
+    login: string;
+    avatar_url: string | null;
+  };
+  pushed_at?: string | null;
+  stargazers_count?: number;
+  fork?: boolean;
+}
+
+export type GitHubRepoSort = 'pushed' | 'name' | 'stars';
+export type GitHubRepoFilter = 'all' | 'owned' | 'private' | 'public' | 'no_forks';
+
+export interface GitHubReposResponse {
+  repos: GitHubRepo[];
+  hasMore: boolean;
+  totalCount: number;
 }
 
 export interface PublicRepository {

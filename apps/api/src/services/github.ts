@@ -26,20 +26,97 @@ export interface GitHubUser {
   avatar_url: string;
 }
 
+interface GitHubOrg {
+  login: string;
+}
+
 export interface GitHubRepo {
   id: number;
   name: string;
   full_name: string;
   clone_url: string;
+  html_url?: string;
+  ssh_url?: string;
   default_branch: string;
   private: boolean;
   description: string | null;
+  owner?: {
+    login: string;
+    avatar_url: string | null;
+  };
+  pushed_at?: string | null;
+  stargazers_count?: number;
+  fork?: boolean;
+}
+
+export type GitHubRepoSort = 'pushed' | 'name' | 'stars';
+export type GitHubRepoFilter = 'all' | 'owned' | 'private' | 'public' | 'no_forks';
+
+export interface GetGitHubReposOptions {
+  userId: string;
+  username: string;
+  page: number;
+  perPage: number;
+  sort: GitHubRepoSort;
+  filter: GitHubRepoFilter;
+  q?: string;
+}
+
+export interface GitHubReposResult {
+  repos: GitHubRepo[];
+  hasMore: boolean;
+  totalCount: number;
+}
+
+const GITHUB_REPO_CACHE_TTL_MS = 60_000;
+const githubRepoCache = new Map<string, { expiresAt: number; result: GitHubReposResult }>();
+
+function getGitHubHeaders(accessToken: string) {
+  return {
+    Authorization: `Bearer ${accessToken}`,
+    Accept: 'application/vnd.github.v3+json',
+    'User-Agent': 'OpenLinear',
+  };
+}
+
+function getGitHubErrorMessage(response: Response, fallback: string) {
+  return `${fallback}: ${response.status} ${response.statusText}`.trim();
+}
+
+function getCacheKey(options: GetGitHubReposOptions): string {
+  return JSON.stringify({
+    userId: options.userId,
+    username: options.username,
+    page: options.page,
+    perPage: options.perPage,
+    sort: options.sort,
+    filter: options.filter,
+    q: options.q?.trim() || '',
+  });
+}
+
+function sortRepos(repos: GitHubRepo[], sort: GitHubRepoSort): GitHubRepo[] {
+  if (sort === 'name') {
+    return [...repos].sort((a, b) => a.full_name.localeCompare(b.full_name));
+  }
+  if (sort === 'stars') {
+    return [...repos].sort((a, b) => (b.stargazers_count ?? 0) - (a.stargazers_count ?? 0));
+  }
+  return repos;
+}
+
+function applyRepoFilter(repos: GitHubRepo[], filter: GitHubRepoFilter): GitHubRepo[] {
+  if (filter === 'no_forks') {
+    return repos.filter((repo) => !repo.fork);
+  }
+  return repos;
 }
 
 export function parseGitHubUrl(url: string): { owner: string; repo: string } | null {
   const patterns = [
     /^https?:\/\/github\.com\/([^\/]+)\/([^\/]+?)(\.git)?$/,
     /^git@github\.com:([^\/]+)\/([^\/]+?)(\.git)?$/,
+    /^ssh:\/\/git@github\.com\/([^\/]+)\/([^\/]+?)(\.git)?$/,
     /^([^\/]+)\/([^\/]+)$/,
   ];
   
@@ -130,6 +207,57 @@ export async function addRepositoryByUrl(url: string): Promise<{
   });
 }
 
+function getSyntheticRepoId(url: string): number {
+  let hash = 0;
+  for (let i = 0; i < url.length; i++) {
+    hash = ((hash << 5) - hash + url.charCodeAt(i)) | 0;
+  }
+  return -Math.max(1, Math.abs(hash));
+}
+
+export async function addRepositoryFromCloneUrl(
+  userId: string,
+  url: string,
+  defaultBranch = 'main',
+): Promise<{
+  id: string;
+  name: string;
+  fullName: string;
+  cloneUrl: string;
+  defaultBranch: string;
+  isActive: boolean;
+}> {
+  const parsed = parseGitHubUrl(url);
+  if (!parsed) {
+    throw new Error('Invalid GitHub clone URL format');
+  }
+
+  const fullName = `${parsed.owner}/${parsed.repo}`;
+  const githubRepoId = getSyntheticRepoId(`${userId}:${url.trim()}`);
+
+  return prisma.repository.upsert({
+    where: {
+      userId_githubRepoId: { userId, githubRepoId },
+    },
+    update: {
+      name: parsed.repo,
+      fullName,
+      cloneUrl: url.trim(),
+      defaultBranch,
+      isActive: true,
+    },
+    create: {
+      githubRepoId,
+      name: parsed.repo,
+      fullName,
+      cloneUrl: url.trim(),
+      defaultBranch,
+      userId,
+      isActive: true,
+    },
+  });
+}
+
 export function getAuthorizationUrl(state: string): string {
   const { clientId, redirectUri } = getGitHubConfig();
   const params = new URLSearchParams({
@@ -186,34 +314,169 @@ export async function getGitHubUser(accessToken: string): Promise<GitHubUser> {
   return (await response.json()) as GitHubUser;
 }
 
-export async function getGitHubRepos(accessToken: string): Promise<GitHubRepo[]> {
-  const repos: GitHubRepo[] = [];
-  let page = 1;
-  const perPage = 100;
+function buildRepoSearchQuery(
+  options: GetGitHubReposOptions,
+  scope: { type: 'user' | 'org'; login: string },
+): string {
+  const queryParts = [
+    options.q?.trim() || '',
+    'in:name,description',
+    `${scope.type}:${scope.login}`,
+  ];
 
-  while (true) {
-    const response = await fetch(
-      `https://api.github.com/user/repos?page=${page}&per_page=${perPage}&sort=updated&affiliation=owner,collaborator`,
-      {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          Accept: 'application/vnd.github.v3+json',
-        },
-      }
-    );
+  if (options.filter === 'private') queryParts.push('is:private');
+  if (options.filter === 'public') queryParts.push('is:public');
+  if (options.filter === 'no_forks') queryParts.push('fork:false');
+  return queryParts.filter(Boolean).join(' ');
+}
 
-    if (!response.ok) {
-      throw new Error('Failed to fetch repositories');
-    }
+async function getGitHubOrgLogins(accessToken: string): Promise<string[]> {
+  const response = await fetch('https://api.github.com/user/orgs?per_page=100', {
+    headers: getGitHubHeaders(accessToken),
+  });
 
-    const data = (await response.json()) as GitHubRepo[];
-    repos.push(...data);
-
-    if (data.length < perPage) break;
-    page++;
+  if (!response.ok) {
+    return [];
   }
 
-  return repos;
+  const data = (await response.json()) as GitHubOrg[];
+  return data.map((org) => org.login).filter(Boolean);
+}
+
+async function searchGitHubRepoScope(
+  accessToken: string,
+  options: GetGitHubReposOptions,
+  scope: { type: 'user' | 'org'; login: string },
+  requestedEnd: number,
+): Promise<{ repos: GitHubRepo[]; totalCount: number }> {
+  const repos: GitHubRepo[] = [];
+  let totalCount = 0;
+  const pagesNeeded = Math.max(1, Math.ceil(requestedEnd / 100));
+
+  for (let page = 1; page <= pagesNeeded; page++) {
+    const params = new URLSearchParams({
+      q: buildRepoSearchQuery(options, scope),
+      page: String(page),
+      per_page: '100',
+    });
+
+    if (options.sort === 'stars') {
+      params.set('sort', 'stars');
+      params.set('order', 'desc');
+    } else if (options.sort === 'pushed') {
+      params.set('sort', 'updated');
+      params.set('order', 'desc');
+    }
+
+    const response = await fetch(`https://api.github.com/search/repositories?${params.toString()}`, {
+      headers: getGitHubHeaders(accessToken),
+    });
+
+    if (!response.ok) {
+      throw new Error(getGitHubErrorMessage(response, 'Failed to search repositories'));
+    }
+
+    const data = (await response.json()) as { items: GitHubRepo[]; total_count: number };
+    totalCount = data.total_count;
+    repos.push(...data.items);
+
+    if (data.items.length < 100) break;
+  }
+
+  return {
+    repos: applyRepoFilter(repos, options.filter),
+    totalCount,
+  };
+}
+
+async function searchGitHubRepos(
+  accessToken: string,
+  options: GetGitHubReposOptions,
+): Promise<GitHubReposResult> {
+  const orgLogins = options.filter === 'owned' ? [] : await getGitHubOrgLogins(accessToken);
+  const scopes: Array<{ type: 'user' | 'org'; login: string }> = [
+    { type: 'user', login: options.username },
+    ...orgLogins.map((login) => ({ type: 'org' as const, login })),
+  ];
+  const requestedEnd = options.page * options.perPage;
+  const scopeResults = await Promise.all(
+    scopes.map((scope) => searchGitHubRepoScope(accessToken, options, scope, requestedEnd)),
+  );
+  const repoMap = new Map<number, GitHubRepo>();
+
+  for (const result of scopeResults) {
+    for (const repo of result.repos) {
+      repoMap.set(repo.id, repo);
+    }
+  }
+
+  const repos = sortRepos([...repoMap.values()], options.sort);
+  const start = (options.page - 1) * options.perPage;
+  const end = start + options.perPage;
+  const totalCount = scopeResults.reduce((total, result) => total + result.totalCount, 0);
+
+  return {
+    repos: repos.slice(start, end),
+    hasMore: end < repos.length || requestedEnd < totalCount,
+    totalCount,
+  };
+}
+
+async function listGitHubRepos(
+  accessToken: string,
+  options: GetGitHubReposOptions,
+): Promise<GitHubReposResult> {
+  const params = new URLSearchParams({
+    page: String(options.page),
+    per_page: String(options.perPage),
+    sort: options.sort === 'name' ? 'full_name' : 'pushed',
+    direction: options.sort === 'name' ? 'asc' : 'desc',
+    affiliation: options.filter === 'owned' ? 'owner' : 'owner,collaborator,organization_member',
+  });
+
+  if (options.filter === 'private') params.set('visibility', 'private');
+  if (options.filter === 'public') params.set('visibility', 'public');
+
+  const response = await fetch(`https://api.github.com/user/repos?${params.toString()}`, {
+    headers: getGitHubHeaders(accessToken),
+  });
+
+  if (!response.ok) {
+    throw new Error(getGitHubErrorMessage(response, 'Failed to fetch repositories'));
+  }
+
+  const data = (await response.json()) as GitHubRepo[];
+  const repos = sortRepos(applyRepoFilter(data, options.filter), options.sort);
+
+  return {
+    repos,
+    hasMore: data.length === options.perPage,
+    totalCount: (options.page - 1) * options.perPage + repos.length + (data.length === options.perPage ? 1 : 0),
+  };
+}
+
+export async function getGitHubRepos(
+  accessToken: string,
+  options: GetGitHubReposOptions,
+): Promise<GitHubReposResult> {
+  const cacheKey = getCacheKey(options);
+  const cached = githubRepoCache.get(cacheKey);
+  const now = Date.now();
+
+  if (cached && cached.expiresAt > now) {
+    return cached.result;
+  }
+
+  const result = options.q?.trim()
+    ? await searchGitHubRepos(accessToken, options)
+    : await listGitHubRepos(accessToken, options);
+
+  githubRepoCache.set(cacheKey, {
+    expiresAt: now + GITHUB_REPO_CACHE_TTL_MS,
+    result,
+  });
+
+  return result;
 }
 
 export async function createOrUpdateUser(

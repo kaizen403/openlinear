@@ -1,7 +1,7 @@
 use serde::Serialize;
 use std::sync::Mutex;
 use std::time::Duration;
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter};
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
 use tauri_plugin_store::StoreExt;
@@ -15,8 +15,7 @@ const STORE_KEY_GITHUB_CLIENT_ID: &str = "github_client_id";
 const STORE_KEY_FRONTEND_URL: &str = "frontend_url";
 const STORE_KEY_REPOS_DIR: &str = "repos_dir";
 
-const DEFAULT_DATABASE_URL: &str =
-    "postgresql://openlinear:openlinear@localhost:5432/openlinear";
+const DEFAULT_DATABASE_URL: &str = "postgresql://openlinear:openlinear@localhost:5432/openlinear";
 const DEFAULT_FRONTEND_URL: &str = "http://localhost:3000";
 
 #[derive(Clone, Serialize)]
@@ -76,9 +75,8 @@ fn build_sidecar_env(app: &AppHandle, port: u16) -> Vec<(String, String)> {
             path.to_string_lossy().to_string()
         });
 
-    let cors_origin = std::env::var("CORS_ORIGIN").unwrap_or_else(|_| {
-        format!("{},tauri://localhost,https://tauri.localhost", frontend_url)
-    });
+    let cors_origin = std::env::var("CORS_ORIGIN")
+        .unwrap_or_else(|_| format!("{},tauri://localhost,https://tauri.localhost", frontend_url));
 
     let mut env = vec![
         ("API_PORT".to_string(), port.to_string()),

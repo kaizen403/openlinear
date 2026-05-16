@@ -26,6 +26,20 @@ export async function fetchMyIssues(
   return unwrap(data);
 }
 
+export async function createTask(data: {
+  title: string;
+  description?: string;
+  priority?: 'low' | 'medium' | 'high';
+  status?: 'todo' | 'in_progress' | 'done' | 'cancelled';
+  teamId?: string;
+  projectId?: string;
+}): Promise<MyIssueTask> {
+  return apiFetch<MyIssueTask>('/api/tasks', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
 export async function executeTaskPublic(taskId: string): Promise<void> {
   await apiFetch<void>(`/api/tasks/${taskId}/execute`, {
     method: 'POST',

@@ -19,6 +19,8 @@ export async function createProject(data: {
   targetDate?: string;
   leadId?: string;
   repoUrl?: string;
+  repositoryId?: string;
+  defaultBranch?: string;
   localPath?: string;
 }): Promise<Project> {
   return apiFetch<Project>('/api/projects', {

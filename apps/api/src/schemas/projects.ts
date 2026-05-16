@@ -1,5 +1,11 @@
 import { z } from 'zod';
 
+const branchNameSchema = z
+  .string()
+  .min(1)
+  .max(255)
+  .regex(/^[A-Za-z0-9._/-]+$/);
+
 export const createProjectBodySchema = z.object({
   name: z.string().min(1).max(100),
   description: z.string().max(1000).optional(),
@@ -16,6 +22,8 @@ export const createProjectBodySchema = z.object({
   leadId: z.string().uuid().optional(),
   teamIds: z.array(z.string().uuid()).min(1).max(1).optional(),
   repoUrl: z.string().optional(),
+  repositoryId: z.string().uuid().optional(),
+  defaultBranch: branchNameSchema.optional(),
   localPath: z.string().optional(),
 });
 

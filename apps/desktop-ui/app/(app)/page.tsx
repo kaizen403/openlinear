@@ -63,9 +63,10 @@ function HomeContent() {
   const [isMobileSearchOpen, setIsMobileSearchOpen] = useState(false)
 
   useEffect(() => {
+    if (!isAuthenticated) return
     fetchProjects().then(setProjects).catch(() => setProjects([]))
     fetchTeams().then(setTeams).catch(() => setTeams([]))
-  }, [])
+  }, [isAuthenticated])
 
   useEffect(() => {
     if (urlProjectId) {

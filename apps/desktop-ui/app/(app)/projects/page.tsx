@@ -222,7 +222,7 @@ function ProjectsContent() {
     }
 
     try {
-      const repos = await fetchGitHubRepos()
+      const { repos } = await fetchGitHubRepos({ perPage: 100 })
       if (isEdit) {
         setEditGithubRepos(repos)
       } else {

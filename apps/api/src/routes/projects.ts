@@ -3,7 +3,7 @@ import { prisma } from '@openlinear/db';
 import { broadcastToTeam, broadcastToUser } from '../sse';
 import { requireAuth, optionalAuth, AuthRequest } from '../middleware/auth';
 import { validateBody, validateQuery, ValidatedRequest } from '../middleware/validate';
-import { addRepositoryByUrl } from '../services/github';
+import { addRepositoryByUrl, addRepositoryFromCloneUrl } from '../services/github';
 import { getUserTeamIds } from '../services/team-scope';
 import { assertProjectOwned, assertTeamRole } from '../services/ownership';
 import { HttpError } from '../errors';
@@ -30,6 +30,11 @@ function transformProject(project: { projectTeams: { team: unknown }[]; reposito
     teams: project.projectTeams.map((pt) => pt.team),
     projectTeams: undefined,
   };
+}
+
+function isSshRepoUrl(url: string): boolean {
+  const trimmed = url.trim();
+  return trimmed.startsWith('git@') || trimmed.startsWith('ssh://');
 }
 
 const projectInclude = {
@@ -82,7 +87,16 @@ router.post(
   validateBody(createProjectBodySchema),
   async (req: AuthRequest & ValidatedRequest<CreateProjectBody>, res: Response, next: NextFunction) => {
     try {
-      const { teamIds, startDate, targetDate, repoUrl, localPath, ...projectData } = req.validBody!;
+      const {
+        teamIds,
+        startDate,
+        targetDate,
+        repoUrl,
+        repositoryId,
+        defaultBranch,
+        localPath,
+        ...projectData
+      } = req.validBody!;
 
       if (localPath && !isDesktopClient(req)) {
         throw new HttpError(403, 'DESKTOP_REQUIRED', 'localPath can only be set from the desktop app');
@@ -94,18 +108,57 @@ router.post(
         }
       }
 
-      let repositoryId: string | undefined;
+      let resolvedRepositoryId: string | undefined;
+      let resolvedRepoUrl = repoUrl || undefined;
 
-      if (repoUrl) {
-        try {
-          const repo = await addRepositoryByUrl(repoUrl);
-          repositoryId = repo.id;
-        } catch (err) {
-          throw new HttpError(
-            400,
-            'REPOSITORY_CONNECT_FAILED',
-            `Failed to connect repository: ${(err as Error).message}`,
-          );
+      if (repositoryId) {
+        const repo = await prisma.repository.findFirst({
+          where: { id: repositoryId, userId: req.userId! },
+        });
+
+        if (!repo) {
+          throw new HttpError(404, 'REPOSITORY_NOT_FOUND', 'Repository not found');
+        }
+
+        resolvedRepositoryId = repo.id;
+        resolvedRepoUrl = resolvedRepoUrl || `https://github.com/${repo.fullName}`;
+
+        if (defaultBranch && defaultBranch !== repo.defaultBranch) {
+          await prisma.repository.update({
+            where: { id: repo.id },
+            data: { defaultBranch },
+          });
+        }
+      } else if (repoUrl) {
+        if (isSshRepoUrl(repoUrl)) {
+          try {
+            const repo = await addRepositoryFromCloneUrl(req.userId!, repoUrl, defaultBranch || 'main');
+            resolvedRepositoryId = repo.id;
+            resolvedRepoUrl = repoUrl;
+          } catch (err) {
+            throw new HttpError(
+              400,
+              'REPOSITORY_CONNECT_FAILED',
+              `Failed to connect repository: ${(err as Error).message}`,
+            );
+          }
+        } else {
+          try {
+            const repo = await addRepositoryByUrl(repoUrl);
+            resolvedRepositoryId = repo.id;
+            if (defaultBranch && defaultBranch !== repo.defaultBranch) {
+              await prisma.repository.update({
+                where: { id: repo.id },
+                data: { defaultBranch },
+              });
+            }
+          } catch (err) {
+            throw new HttpError(
+              400,
+              'REPOSITORY_CONNECT_FAILED',
+              `Failed to connect repository: ${(err as Error).message}`,
+            );
+          }
         }
       }
 
@@ -120,8 +173,8 @@ router.post(
           startDate: startDate ? new Date(startDate) : undefined,
           targetDate: targetDate ? new Date(targetDate) : undefined,
           localPath: localPath || undefined,
-          repoUrl: repoUrl || undefined,
-          repositoryId: repositoryId || undefined,
+          repoUrl: resolvedRepoUrl,
+          repositoryId: resolvedRepositoryId,
           ...(teamIds?.length ? {
             projectTeams: {
               create: teamIds.map((teamId) => ({ teamId })),

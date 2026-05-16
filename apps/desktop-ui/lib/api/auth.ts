@@ -10,6 +10,14 @@ function isTauriRuntime(): boolean {
   return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 }
 
+function removeTokenIfCurrent(token: string): void {
+  try {
+    if (localStorage.getItem('token') === token) {
+      localStorage.removeItem('token');
+    }
+  } catch {}
+}
+
 export async function fetchCurrentUser(): Promise<User | null> {
   if (typeof window === 'undefined') return null;
   const token = localStorage.getItem('token');
@@ -19,9 +27,7 @@ export async function fetchCurrentUser(): Promise<User | null> {
     return await apiFetch<User>('/api/auth/me', { allowUnauthenticated: true });
   } catch (err) {
     if (err instanceof AuthExpiredError) return null;
-    try {
-      localStorage.removeItem('token');
-    } catch {}
+    removeTokenIfCurrent(token);
     return null;
   }
 }
@@ -44,7 +50,7 @@ export async function startLogin(): Promise<void> {
       console.warn('[Auth] Tauri shell.open failed, falling back to window.location:', err);
     }
   }
-  window.open(url, '_blank', 'noopener,noreferrer');
+  window.location.href = url;
 }
 
 export function logout(): void {

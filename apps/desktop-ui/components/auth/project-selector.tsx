@@ -23,8 +23,8 @@ export function ProjectSelector() {
   useEffect(() => {
     if (isOpen && isAuthenticated) {
       setIsLoading(true);
-      fetchGitHubRepos()
-        .then(setRepos)
+      fetchGitHubRepos({ perPage: 100 })
+        .then((result) => setRepos(result.repos))
         .catch(() => setRepos([]))
         .finally(() => setIsLoading(false));
     }

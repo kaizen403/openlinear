@@ -2,9 +2,18 @@ mod deeplink;
 mod opencode;
 mod sidecar;
 
+use tauri::Manager;
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.unminimize();
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_fs::init())
@@ -25,6 +34,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             opencode::check_opencode,
             opencode::pick_local_folder,
+            deeplink::consume_pending_auth_callback,
             sidecar::start_api_server,
             sidecar::stop_api_server,
             sidecar::get_api_server_port,

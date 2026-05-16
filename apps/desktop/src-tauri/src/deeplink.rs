@@ -1,5 +1,7 @@
+use std::sync::Mutex;
+
 use serde::Serialize;
-use tauri::Emitter;
+use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_deep_link::DeepLinkExt;
 use url::Url;
 
@@ -12,20 +14,73 @@ pub struct AuthCallbackResult {
     pub error: Option<String>,
 }
 
+#[derive(Default)]
+pub struct PendingAuthCallback(Mutex<Option<AuthCallbackResult>>);
+
+#[tauri::command]
+pub fn consume_pending_auth_callback(
+    state: tauri::State<'_, PendingAuthCallback>,
+) -> Option<AuthCallbackResult> {
+    match state.0.lock() {
+        Ok(mut pending) => pending.take(),
+        Err(_) => None,
+    }
+}
+
 pub fn setup_deep_link_handler(app: &tauri::App) {
+    app.manage(PendingAuthCallback::default());
+
     let handle = app.handle().clone();
 
     app.deep_link().on_open_url(move |event| {
         for url in event.urls() {
-            let url_str = url.as_str();
-            println!("[DeepLink] Received: {}", url_str);
-
-            if url_str.starts_with("openlinear://callback") {
-                let result = parse_callback(url_str);
-                let _ = handle.emit("auth:callback", result);
-            }
+            handle_callback_url(&handle, url.as_str());
         }
     });
+
+    if let Ok(Some(urls)) = app.deep_link().get_current() {
+        let handle = app.handle().clone();
+        for url in urls {
+            handle_callback_url(&handle, url.as_str());
+        }
+    }
+}
+
+fn handle_callback_url(handle: &AppHandle, url_str: &str) {
+    println!("[DeepLink] Received: {}", url_str);
+
+    if !is_auth_callback_url(url_str) {
+        return;
+    }
+
+    let result = parse_callback(url_str);
+    if let Some(state) = handle.try_state::<PendingAuthCallback>() {
+        if let Ok(mut pending) = state.0.lock() {
+            pending.replace(result.clone());
+        }
+    }
+
+    focus_main_window(handle);
+    let _ = handle.emit("auth:callback", result);
+}
+
+fn focus_main_window(handle: &AppHandle) {
+    if let Some(window) = handle.get_webview_window("main") {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+}
+
+fn is_auth_callback_url(url_str: &str) -> bool {
+    match Url::parse(url_str) {
+        Ok(url) => {
+            url.scheme() == "openlinear"
+                && url.host_str() == Some("callback")
+                && matches!(url.path(), "" | "/")
+        }
+        Err(_) => false,
+    }
 }
 
 fn parse_callback(url_str: &str) -> AuthCallbackResult {
@@ -104,5 +159,17 @@ mod tests {
         let result = parse_callback("not a url");
         assert!(!result.success);
         assert!(result.error.is_some());
+    }
+
+    #[test]
+    fn test_is_auth_callback_url_only_matches_callback_host() {
+        assert!(is_auth_callback_url("openlinear://callback?token=abc"));
+        assert!(is_auth_callback_url("openlinear://callback/?token=abc"));
+        assert!(!is_auth_callback_url(
+            "openlinear://callback-extra?token=abc"
+        ));
+        assert!(!is_auth_callback_url(
+            "https://openlinear.tech/callback?token=abc"
+        ));
     }
 }

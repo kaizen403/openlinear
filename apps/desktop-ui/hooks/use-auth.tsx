@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { toast } from 'sonner';
 import { User, Repository, fetchCurrentUser, getActiveRepository, logout as apiLogout } from '@/lib/api';
@@ -17,21 +17,41 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+type AuthCallbackPayload = {
+  success: boolean;
+  token?: string;
+  error?: string;
+};
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const [user, setUser] = useState<User | null>(null);
   const [activeRepository, setActiveRepository] = useState<Repository | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const authRequestId = useRef(0);
 
-  const refreshUser = useCallback(async () => {
+  const loadUser = useCallback(async (): Promise<{ stale: boolean; user: User | null }> => {
+    const requestId = ++authRequestId.current;
     try {
       const userData = await fetchCurrentUser();
+      if (requestId !== authRequestId.current) {
+        return { stale: true, user: null };
+      }
       setUser(userData);
+      return { stale: false, user: userData };
     } catch {
+      if (requestId !== authRequestId.current) {
+        return { stale: true, user: null };
+      }
       setUser(null);
+      return { stale: false, user: null };
     }
   }, []);
+
+  const refreshUser = useCallback(async () => {
+    await loadUser();
+  }, [loadUser]);
 
   const refreshActiveRepository = useCallback(async () => {
     try {
@@ -57,10 +77,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       window.history.replaceState({}, '', window.location.pathname);
     }
 
-    Promise.all([refreshUser(), refreshActiveRepository()]).finally(() => {
+    (async () => {
+      const result = await loadUser();
+      if (result.stale) return;
+      if (result.user) {
+        await refreshActiveRepository();
+      }
+      if (!result.stale) {
+        setIsLoading(false);
+      }
+    })();
+  }, [loadUser, refreshActiveRepository]);
+
+  const handleAuthCallback = useCallback(async (payload: AuthCallbackPayload) => {
+    if (payload.success && payload.token) {
+      setIsLoading(true);
+      localStorage.setItem('token', payload.token);
+      setActiveRepository(null);
+
+      const result = await loadUser();
+      if (result.stale) return;
+      if (result.user) {
+        await refreshActiveRepository();
+        if (pathname === '/login') {
+          router.replace('/');
+        }
+      }
       setIsLoading(false);
-    });
-  }, [refreshUser, refreshActiveRepository]);
+    } else if (payload.error) {
+      console.error('[Auth] Tauri callback error:', payload.error);
+    }
+  }, [loadUser, pathname, refreshActiveRepository, router]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -72,23 +119,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     (async () => {
       try {
         const { listen } = await import('@tauri-apps/api/event');
-        const dispose = await listen<{
-          success: boolean;
-          token?: string;
-          error?: string;
-        }>('auth:callback', (event) => {
-          const payload = event.payload;
-          if (payload.success && payload.token) {
-            localStorage.setItem('token', payload.token);
-            void refreshUser();
-          } else if (payload.error) {
-            console.error('[Auth] Tauri callback error:', payload.error);
-          }
+        const { invoke } = await import('@tauri-apps/api/core');
+        const dispose = await listen<AuthCallbackPayload>('auth:callback', (event) => {
+          void handleAuthCallback(event.payload);
+          void invoke('consume_pending_auth_callback').catch(() => null);
         });
         if (cancelled) {
           dispose();
         } else {
           unlisten = dispose;
+        }
+        const pending = await invoke<AuthCallbackPayload | null>('consume_pending_auth_callback').catch(() => null);
+        if (!cancelled && pending) {
+          void handleAuthCallback(pending);
         }
       } catch (err) {
         console.warn('[Auth] Failed to register Tauri auth:callback listener:', err);
@@ -99,7 +142,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       cancelled = true;
       unlisten?.();
     };
-  }, [refreshUser]);
+  }, [handleAuthCallback]);
 
   const logout = useCallback(() => {
     apiLogout();
