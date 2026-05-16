@@ -7,10 +7,14 @@ dist
 .env
 .env.local
 .env.*.local
+.env.bak.*
 coverage
 .turbo
 .vercel
 .opencode-monitor/
+.omx/
+.sisyphus/
 *.tsbuildinfo
 package-lock.json
 apps/desktop/src-tauri/binaries/opencode-*
+apps/intro-video/build/
