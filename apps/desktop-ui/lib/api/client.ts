@@ -1,6 +1,8 @@
 const DEFAULT_API_URL = 'http://localhost:3001';
 const CLOUD_DEFAULT = 'https://openlinear.tech';
 const TAURI_SIDECAR_URL_KEY = 'openlinear:tauri-sidecar-url';
+const SIDECAR_READY_TIMEOUT_MS = 15_000;
+const SIDECAR_READY_POLL_MS = 250;
 
 let cachedSidecarUrl: string | null = null;
 let listenerInstalled = false;
@@ -29,9 +31,47 @@ function persistSidecarUrl(url: string) {
   }
 }
 
+function clearCachedSidecarUrl() {
+  cachedSidecarUrl = null;
+  if (typeof window !== 'undefined') {
+    try {
+      window.sessionStorage.removeItem(TAURI_SIDECAR_URL_KEY);
+    } catch {}
+  }
+}
+
 async function readSidecarPort(command: 'get_api_server_port' | 'start_api_server') {
   const { invoke } = await import('@tauri-apps/api/core');
   return invoke<number | null>(command).catch(() => null);
+}
+
+async function isSidecarHealthy(url: string): Promise<boolean> {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 1_000);
+  try {
+    const response = await fetch(`${url}/health`, {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+      cache: 'no-store',
+      signal: controller.signal,
+    });
+    if (!response.ok) return false;
+    const data = (await response.json().catch(() => null)) as { status?: string } | null;
+    return data?.status === 'ok';
+  } catch {
+    return false;
+  } finally {
+    window.clearTimeout(timeout);
+  }
+}
+
+async function waitForSidecarHealth(url: string): Promise<boolean> {
+  const deadline = Date.now() + SIDECAR_READY_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    if (await isSidecarHealthy(url)) return true;
+    await new Promise((resolve) => window.setTimeout(resolve, SIDECAR_READY_POLL_MS));
+  }
+  return false;
 }
 
 async function ensureSidecarListener() {
@@ -95,17 +135,21 @@ export async function resolveSidecarApiUrl(): Promise<string> {
 
   await ensureSidecarListener();
 
-  const cached = loadCachedSidecarUrl();
-  if (cached) return cached;
-
-  const port = await readSidecarPort('start_api_server');
+  const currentPort = await readSidecarPort('get_api_server_port');
+  const port = currentPort ?? (await readSidecarPort('start_api_server'));
   if (port) {
     const url = `http://127.0.0.1:${port}`;
     persistSidecarUrl(url);
-    return url;
+    if (await waitForSidecarHealth(url)) return url;
+    clearCachedSidecarUrl();
+    throw new Error(`Sidecar API did not become ready at ${url}`);
   }
 
-  return getSidecarApiUrl();
+  const cached = loadCachedSidecarUrl();
+  if (cached && (await waitForSidecarHealth(cached))) return cached;
+
+  clearCachedSidecarUrl();
+  throw new Error('Sidecar API is not available');
 }
 
 export function getApiUrl(): string {
