@@ -12,15 +12,26 @@ function isTauriRuntime(): boolean {
 function loadCachedSidecarUrl(): string | null {
   if (cachedSidecarUrl) return cachedSidecarUrl;
   if (typeof window === 'undefined') return null;
-  cachedSidecarUrl = window.sessionStorage.getItem(TAURI_SIDECAR_URL_KEY);
+  try {
+    cachedSidecarUrl = window.sessionStorage.getItem(TAURI_SIDECAR_URL_KEY);
+  } catch {
+    cachedSidecarUrl = null;
+  }
   return cachedSidecarUrl;
 }
 
 function persistSidecarUrl(url: string) {
   cachedSidecarUrl = url;
   if (typeof window !== 'undefined') {
-    window.sessionStorage.setItem(TAURI_SIDECAR_URL_KEY, url);
+    try {
+      window.sessionStorage.setItem(TAURI_SIDECAR_URL_KEY, url);
+    } catch {}
   }
+}
+
+async function readSidecarPort(command: 'get_api_server_port' | 'start_api_server') {
+  const { invoke } = await import('@tauri-apps/api/core');
+  return invoke<number | null>(command).catch(() => null);
 }
 
 async function ensureSidecarListener() {
@@ -38,8 +49,7 @@ async function ensureSidecarListener() {
       },
     );
 
-    const { invoke } = await import('@tauri-apps/api/core');
-    const port = await invoke<number | null>('get_api_server_port').catch(() => null);
+    const port = await readSidecarPort('get_api_server_port');
     if (port) {
       persistSidecarUrl(`http://127.0.0.1:${port}`);
     }
@@ -78,6 +88,24 @@ export function getSidecarApiUrl(): string {
     return loadCachedSidecarUrl() ?? envApiUrl() ?? DEFAULT_API_URL;
   }
   return envApiUrl() ?? DEFAULT_API_URL;
+}
+
+export async function resolveSidecarApiUrl(): Promise<string> {
+  if (!isTauriRuntime()) return getSidecarApiUrl();
+
+  await ensureSidecarListener();
+
+  const cached = loadCachedSidecarUrl();
+  if (cached) return cached;
+
+  const port = await readSidecarPort('start_api_server');
+  if (port) {
+    const url = `http://127.0.0.1:${port}`;
+    persistSidecarUrl(url);
+    return url;
+  }
+
+  return getSidecarApiUrl();
 }
 
 export function getApiUrl(): string {

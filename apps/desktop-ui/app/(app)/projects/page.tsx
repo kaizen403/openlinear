@@ -47,7 +47,7 @@ import {
   updateProject,
   deleteProject,
   fetchGitHubRepos,
-  getLoginUrl,
+  startLogin,
   ApiError,
   type Project,
   type Team,
@@ -755,12 +755,13 @@ function ProjectsContent() {
                                 ) : githubError ? (
                                   <div className="text-sm text-linear-text-secondary py-4">
                                     Connect your GitHub account to browse repos.{" "}
-                                    <a
-                                      href={getLoginUrl()}
+                                    <button
+                                      type="button"
+                                      onClick={() => void startLogin()}
                                       className="text-linear-accent hover:underline"
                                     >
                                       Connect GitHub
-                                    </a>
+                                    </button>
                                   </div>
                                 ) : (
                                   <>
@@ -1358,12 +1359,13 @@ function ProjectsContent() {
                       ) : editGithubError ? (
                         <div className="text-sm text-linear-text-secondary py-4">
                           Connect your GitHub account to browse repos.{" "}
-                          <a
-                            href={getLoginUrl()}
+                          <button
+                            type="button"
+                            onClick={() => void startLogin()}
                             className="text-linear-accent hover:underline"
                           >
                             Connect GitHub
-                          </a>
+                          </button>
                         </div>
                       ) : (
                         <>

@@ -1,10 +1,6 @@
 import { apiFetch, AuthExpiredError } from './fetch';
-import { getApiUrl } from './client';
+import { getApiUrl, getSidecarApiUrl, resolveSidecarApiUrl } from './client';
 import type { User } from './types';
-
-const CLOUD_AUTH_URL =
-  (typeof process !== 'undefined' && process.env?.NEXT_PUBLIC_CLOUD_API_URL) ||
-  'https://openlinear.tech';
 
 function isTauriRuntime(): boolean {
   return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
@@ -34,14 +30,14 @@ export async function fetchCurrentUser(): Promise<User | null> {
 
 export function getLoginUrl(): string {
   if (isTauriRuntime()) {
-    return `${CLOUD_AUTH_URL}/api/auth/github?client=desktop`;
+    return `${getSidecarApiUrl()}/api/auth/github?client=desktop`;
   }
   return `${getApiUrl()}/api/auth/github`;
 }
 
 export async function startLogin(): Promise<void> {
-  const url = getLoginUrl();
   if (isTauriRuntime()) {
+    const url = `${await resolveSidecarApiUrl()}/api/auth/github?client=desktop`;
     try {
       const { open } = await import('@tauri-apps/plugin-shell');
       await open(url);
@@ -50,6 +46,7 @@ export async function startLogin(): Promise<void> {
       console.warn('[Auth] Tauri shell.open failed, falling back to window.location:', err);
     }
   }
+  const url = getLoginUrl();
   window.location.href = url;
 }
 

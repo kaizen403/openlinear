@@ -3,6 +3,7 @@ import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import {
   getAuthorizationUrl,
+  getConfiguredGitHubRedirectUri,
   exchangeCodeForToken,
   getGitHubUser,
   createOrUpdateUser,
@@ -29,6 +30,46 @@ function getJwtSecret(): string {
 
 function getFrontendUrl() {
   return process.env.FRONTEND_URL || 'http://localhost:3000';
+}
+
+function isLoopbackHostname(hostname: string): boolean {
+  const normalized = hostname.toLowerCase();
+  return (
+    normalized === 'localhost' ||
+    normalized === '127.0.0.1' ||
+    normalized === '::1' ||
+    normalized === '[::1]'
+  );
+}
+
+function parseHttpHost(host: string | undefined): URL | null {
+  if (!host) return null;
+  try {
+    return new URL(`http://${host}`);
+  } catch {
+    return null;
+  }
+}
+
+function buildDesktopRedirectUri(req: Request): string | undefined {
+  const requestUrl = parseHttpHost(req.get('host'));
+  if (!requestUrl || !isLoopbackHostname(requestUrl.hostname) || !requestUrl.port) {
+    return undefined;
+  }
+
+  try {
+    const configured = new URL(getConfiguredGitHubRedirectUri());
+    if (configured.protocol === 'http:' && isLoopbackHostname(configured.hostname)) {
+      configured.port = requestUrl.port;
+      configured.search = '';
+      configured.hash = '';
+      return configured.toString();
+    }
+  } catch {
+    // Fall through to the request-derived loopback callback below.
+  }
+
+  return `http://${requestUrl.host}/api/auth/github/callback`;
 }
 
 function signState(payload: { client: OAuthClient; nonce: string; issuedAt: number }): string {
@@ -85,7 +126,9 @@ router.get('/github', (req: Request, res: Response) => {
     nonce: crypto.randomUUID(),
     issuedAt: Date.now(),
   });
-  const authUrl = getAuthorizationUrl(state);
+  const redirectUri =
+    requestedClient === 'desktop' ? buildDesktopRedirectUri(req) : undefined;
+  const authUrl = getAuthorizationUrl(state, redirectUri);
   res.redirect(authUrl);
 });
 

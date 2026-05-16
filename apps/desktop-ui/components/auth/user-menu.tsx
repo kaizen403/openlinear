@@ -2,7 +2,7 @@
 
 import { Github, LogOut } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
-import { getLoginUrl } from '@/lib/api';
+import { startLogin } from '@/lib/api';
 
 export function UserMenu() {
   const { user, isLoading, isAuthenticated, logout } = useAuth();
@@ -15,13 +15,14 @@ export function UserMenu() {
 
   if (!isAuthenticated) {
     return (
-      <a
-        href={getLoginUrl()}
+      <button
+        type="button"
+        onClick={() => void startLogin()}
         className="flex items-center gap-2 h-9 px-4 rounded-sm bg-linear-bg-tertiary hover:bg-linear-border text-sm font-medium transition-colors"
       >
         <Github className="w-4 h-4" />
         Sign in with GitHub
-      </a>
+      </button>
     );
   }
 

@@ -258,11 +258,15 @@ export async function addRepositoryFromCloneUrl(
   });
 }
 
-export function getAuthorizationUrl(state: string): string {
+export function getConfiguredGitHubRedirectUri(): string {
+  return getGitHubConfig().redirectUri;
+}
+
+export function getAuthorizationUrl(state: string, redirectUriOverride?: string): string {
   const { clientId, redirectUri } = getGitHubConfig();
   const params = new URLSearchParams({
     client_id: clientId,
-    redirect_uri: redirectUri,
+    redirect_uri: redirectUriOverride ?? redirectUri,
     scope: 'read:user user:email repo',
     state,
   });

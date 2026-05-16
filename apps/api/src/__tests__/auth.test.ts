@@ -1,9 +1,18 @@
-import { describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect } from 'vitest';
 import request from 'supertest';
 import { createApp } from '../app';
 
 describe('Auth API', () => {
   const app = createApp();
+  const originalGitHubRedirectUri = process.env.GITHUB_REDIRECT_URI;
+
+  afterEach(() => {
+    if (originalGitHubRedirectUri === undefined) {
+      delete process.env.GITHUB_REDIRECT_URI;
+    } else {
+      process.env.GITHUB_REDIRECT_URI = originalGitHubRedirectUri;
+    }
+  });
 
   describe('GET /api/auth/github', () => {
     it('redirects to GitHub OAuth URL', async () => {
@@ -17,6 +26,35 @@ describe('Auth API', () => {
       const location = res.headers.location;
       expect(location).toContain('scope=');
       expect(location).toContain('read%3Auser');  // read:user URL-encoded
+    });
+
+    it('uses the current loopback sidecar port for desktop OAuth redirects', async () => {
+      process.env.GITHUB_REDIRECT_URI = 'http://localhost:3001/api/auth/github/callback';
+
+      const res = await request(app)
+        .get('/api/auth/github?client=desktop')
+        .set('Host', '127.0.0.1:45678')
+        .redirects(0);
+
+      const location = new URL(res.headers.location);
+      expect(location.hostname).toBe('github.com');
+      expect(location.searchParams.get('redirect_uri')).toBe(
+        'http://localhost:45678/api/auth/github/callback',
+      );
+    });
+
+    it('keeps the configured redirect URI for web OAuth redirects', async () => {
+      process.env.GITHUB_REDIRECT_URI = 'http://localhost:3001/api/auth/github/callback';
+
+      const res = await request(app)
+        .get('/api/auth/github')
+        .set('Host', '127.0.0.1:45678')
+        .redirects(0);
+
+      const location = new URL(res.headers.location);
+      expect(location.searchParams.get('redirect_uri')).toBe(
+        'http://localhost:3001/api/auth/github/callback',
+      );
     });
   });
 
