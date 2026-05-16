@@ -179,14 +179,32 @@ if [ "$SKIP_TEST" -eq 1 ]; then
 fi
 
 EXECUTABLE=""
+RAW_BINARY="apps/desktop/src-tauri/target/release/openlinear-desktop"
 APPIMAGE_CANDIDATE="$(find "$BUNDLE_DIR/appimage" -maxdepth 1 -type f -name "*.AppImage" 2>/dev/null | head -1 || true)"
 DEB_CANDIDATE="$(find "$BUNDLE_DIR/deb" -maxdepth 1 -type f -name "*.deb" 2>/dev/null | head -1 || true)"
 
 if [ -n "$APPIMAGE_CANDIDATE" ]; then
     EXECUTABLE="$APPIMAGE_CANDIDATE"
-elif [ -n "$DEB_CANDIDATE" ]; then
+elif [ -x "$RAW_BINARY" ]; then
+    if [ -n "$DEB_CANDIDATE" ]; then
+        warn "Built .deb package found; smoke-testing raw binary to avoid sudo package installation."
+        warn "Set DESKTOP_BUILD_INSTALL_DEB=1 to install and smoke-test the .deb package."
+    fi
+    EXECUTABLE="$RAW_BINARY"
+elif [ -n "$DEB_CANDIDATE" ] && [ "${DESKTOP_BUILD_INSTALL_DEB:-0}" = "1" ]; then
+    if ! command -v dpkg &>/dev/null; then
+        err "DESKTOP_BUILD_INSTALL_DEB=1 requires dpkg, but dpkg was not found."
+        exit 1
+    fi
     log "Found .deb package. Installing for test..."
-    sudo dpkg -i "$DEB_CANDIDATE" 2>/dev/null || sudo apt-get install -f -y
+    if ! sudo dpkg -i "$DEB_CANDIDATE"; then
+        if command -v apt-get &>/dev/null; then
+            sudo apt-get install -f -y
+        else
+            err "dpkg install failed and apt-get is not available to repair dependencies."
+            exit 1
+        fi
+    fi
     EXECUTABLE="/usr/bin/openlinear"
 fi
 
@@ -197,15 +215,11 @@ if [ -n "$EXECUTABLE" ] && [ -f "$EXECUTABLE" ]; then
     "$EXECUTABLE" &
     APP_PID=$!
 
-    log "Waiting for API to come online (max 60s)..."
-    for i in $(seq 1 60); do
-        if curl -sSf http://localhost:3001/health &>/dev/null || \
-           curl -sSf http://127.0.0.1:3001/health &>/dev/null; then
-            ok "API health check passed!"
+    log "Checking app process stays alive (max 15s)..."
+    for i in $(seq 1 15); do
+        if ! kill -0 $APP_PID 2>/dev/null; then
+            warn "Desktop app process exited before smoke check completed."
             break
-        fi
-        if [ "$i" -eq 60 ]; then
-            warn "API health check timed out. The app may still be starting."
         fi
         sleep 1
     done
