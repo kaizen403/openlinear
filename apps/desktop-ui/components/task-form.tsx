@@ -317,7 +317,7 @@ export function TaskFormDialog({
                 )}
               />
 
-              {hasProjects && (
+              {hasProjects && !defaultProjectId && (
                 <FormField
                   control={form.control}
                   name="projectId"

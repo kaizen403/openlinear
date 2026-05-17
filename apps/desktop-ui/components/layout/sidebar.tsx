@@ -8,10 +8,12 @@ import {
     Home, Inbox, Layers, Settings,
     PanelLeftClose, LogOut, Archive, Brain, BarChart3,
     ChevronRight, ChevronDown, CircleDot, Hexagon, MoreHorizontal, Pencil, Trash2, Plus,
-    User as UserIcon, Sun, Moon, Monitor, ChevronsUpDown
+    ChevronsUpDown,
+    User as UserIcon, Sun, Moon, Monitor
 } from "lucide-react"
 import { ProjectSelector } from "@/components/auth/project-selector"
 import { useAuth } from "@/hooks/use-auth"
+import { useProject } from "@/hooks/use-project"
 import { cn } from "@/lib/utils"
 import { BRAND_COLORS } from "@/lib/design-tokens"
 import { deleteTeam, apiFetch, type Team } from "@/lib/api"
@@ -157,6 +159,46 @@ function TeamSection({ team, pathname, searchParams, onDelete }: { team: Team; p
                     </Link>
                 </div>
             )}
+        </div>
+    )
+}
+
+function ProjectDropdown() {
+    const { activeProject, projects, setActiveProject, isLoading } = useProject()
+    const [isOpen, setIsOpen] = useState(false)
+
+    if (isLoading || projects.length === 0) return null
+
+    return (
+        <div className="px-3 py-2 border-b border-linear-border">
+            <Popover open={isOpen} onOpenChange={setIsOpen}>
+                <PopoverTrigger asChild>
+                    <button className="flex items-center gap-2 w-full px-2 py-1.5 rounded-sm text-sm hover:bg-linear-bg-tertiary transition-colors">
+                        <Hexagon className="w-3.5 h-3.5 text-linear-text-tertiary flex-shrink-0" />
+                        <span className="flex-1 text-left truncate text-linear-text-secondary">
+                            {activeProject?.name || "Select project"}
+                        </span>
+                        <ChevronsUpDown className="w-3.5 h-3.5 text-linear-text-tertiary flex-shrink-0" />
+                    </button>
+                </PopoverTrigger>
+                <PopoverContent align="start" className="w-56 p-1" sideOffset={4}>
+                    {projects.map((project) => (
+                        <button
+                            key={project.id}
+                            onClick={() => { setActiveProject(project); setIsOpen(false) }}
+                            className={cn(
+                                "flex items-center gap-2 w-full px-2 py-1.5 rounded-sm text-sm transition-colors text-left",
+                                project.id === activeProject?.id
+                                    ? "bg-linear-bg-tertiary text-linear-text"
+                                    : "text-linear-text-secondary hover:bg-linear-bg-tertiary"
+                            )}
+                        >
+                            <Hexagon className="w-3.5 h-3.5 flex-shrink-0" />
+                            <span className="truncate">{project.name}</span>
+                        </button>
+                    ))}
+                </PopoverContent>
+            </Popover>
         </div>
     )
 }
@@ -322,6 +364,8 @@ export function Sidebar({ open, onClose, width }: SidebarProps) {
                     </button>
                 </div>
             </div>
+
+            <ProjectDropdown />
 
             <nav className="flex-1 overflow-y-auto py-2 min-w-0">
                 <div className="px-3 space-y-0.5">

@@ -15,8 +15,7 @@ import {
 import { cn } from "@/lib/utils"
 import { BRAND_COLORS } from "@/lib/design-tokens"
 import { checkBrainstormAvailability, generateBrainstormQuestions, streamBrainstormTasks, transcribeAudio, type BrainstormTask } from "@/lib/api/brainstorm"
-import { fetchProjects } from "@/lib/api/projects"
-import type { Project } from "@/lib/api/types"
+import { useProject } from "@/hooks/use-project"
 import { getApiUrl, getAuthHeader } from "@/lib/api/client"
 import { ApiError } from "@/lib/api/fetch"
 import { isWhisperHallucination } from "@/lib/audio-utils"
@@ -257,8 +256,8 @@ export function GlobalQuickCapture() {
   const [questions, setQuestions] = useState<string[]>([])
   const [answers, setAnswers] = useState<Record<string, string>>({})
   const [questionsLoading, setQuestionsLoading] = useState(false)
-  const [projects, setProjects] = useState<Project[]>([])
-  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
+  const { activeProject } = useProject()
+  const selectedProjectId = activeProject?.id ?? null
   const [inserting, setInserting] = useState(false)
   const [streamingDone, setStreamingDone] = useState(false)
   const [brainstormAvailable, setBrainstormAvailable] = useState<boolean | null>(null)
@@ -299,8 +298,6 @@ export function GlobalQuickCapture() {
           setWebSearchAvailable(false)
           setProAvailable(false)
         })
-
-      fetchProjects().then(setProjects).catch(console.error)
     }
   }, [phase])
 
@@ -317,8 +314,6 @@ export function GlobalQuickCapture() {
     setQuestions([])
     setAnswers({})
     setQuestionsLoading(false)
-    setProjects([])
-    setSelectedProjectId(null)
     setInserting(false)
     setStreamingDone(false)
     setBrainstormAvailable(null)
@@ -577,7 +572,7 @@ export function GlobalQuickCapture() {
     [handleSubmit],
   )
 
-  const selectedProject = projects.find((p) => p.id === selectedProjectId) ?? null
+  const selectedProject = activeProject
 
   // --------------------------------------------------
   // Render
@@ -717,23 +712,6 @@ export function GlobalQuickCapture() {
 
                       {/* Scope slider */}
                       <ScopeSlider value={taskCount} onChange={setTaskCount} />
-
-                      {/* Project select */}
-                      <div className="space-y-1.5">
-                        <label className="text-[11px] text-linear-text-tertiary font-medium">Project</label>
-                        <select
-                          value={selectedProjectId || ""}
-                          onChange={(e) => setSelectedProjectId(e.target.value || null)}
-                          className="w-full bg-linear-bg-secondary border border-linear-border rounded-sm px-3 py-2 text-[12px] text-linear-text-secondary outline-none focus:border-linear-border-hover appearance-none cursor-pointer"
-                        >
-                          <option value="">Select project...</option>
-                          {projects.map((p) => (
-                            <option key={p.id} value={p.id}>
-                              {p.name}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
 
                       {/* Step instructions */}
                       <div className="rounded-sm bg-linear-bg-secondary border border-linear-border px-4 py-3 space-y-2">
