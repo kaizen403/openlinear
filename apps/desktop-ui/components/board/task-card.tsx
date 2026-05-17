@@ -105,6 +105,16 @@ export function TaskCard({ task, onExecute, onCancel, onDelete, onMoveToInProgre
       onToggleSelect(task.id, { shift: e.shiftKey, meta: e.metaKey || e.ctrlKey })
       return
     }
+    // When the card is rendered in selection mode (column-level or any task
+    // already selected), a plain click toggles selection too. Without this,
+    // users have to hit the tiny checkbox to add a card to the selection
+    // even though the board is clearly in selection mode.
+    if (selectionMode && !isBatchTask && onToggleSelect) {
+      e.preventDefault()
+      e.stopPropagation()
+      onToggleSelect(task.id, { shift: e.shiftKey, meta: e.metaKey || e.ctrlKey })
+      return
+    }
     if (onTaskClick) {
       onTaskClick(task.id)
     }
@@ -117,12 +127,15 @@ export function TaskCard({ task, onExecute, onCancel, onDelete, onMoveToInProgre
   return (
     <div>
     <Card 
+      role={selectionMode ? 'checkbox' : undefined}
+      aria-checked={selectionMode ? selected : undefined}
+      aria-label={selectionMode ? `Select task ${task.title}` : undefined}
       className={cn(
         isDragging
           ? "bg-linear-bg-secondary border border-linear-border shadow-2xl"
           : "bg-linear-bg-secondary/50 backdrop-blur-md border border-linear-border shadow-card",
         "cursor-pointer group rounded-sm",
-        selected && !isDragging && "bg-linear-bg-tertiary border-linear-border-hover",
+        selected && !isDragging && "bg-linear-bg-tertiary border-linear-border-hover ring-1 ring-linear-accent/40",
         isBatchTask && "border-linear-border",
         isCompletedBatchTask && ""
       )}
