@@ -122,6 +122,13 @@ function SettingsContent() {
   const [prBaseBranch, setPrBaseBranch] = useState("")
   const [savedPrBaseBranch, setSavedPrBaseBranch] = useState("")
 
+  const handleGitHubLogin = useCallback(async () => {
+    const started = await startLogin()
+    if (!started) {
+      toast.error("Could not open GitHub sign-in. Check that the desktop API is running and try again.")
+    }
+  }, [])
+
   const [twoFactor] = useState(false)
   const [sessionTimeout, setSessionTimeout] = useState("4h")
 
@@ -609,7 +616,7 @@ function SettingsContent() {
               description="Sign in with GitHub to manage your profile."
               action={
                 <Button
-                  onClick={() => void startLogin()}
+                  onClick={() => void handleGitHubLogin()}
                   className="bg-linear-accent hover:bg-linear-accent-hover text-white gap-2"
                 >
                   <Github className="w-4 h-4" />
@@ -686,7 +693,7 @@ function SettingsContent() {
                 </div>
                 <Button
                   variant="outline"
-                  onClick={() => void startLogin()}
+                  onClick={() => void handleGitHubLogin()}
                   className="border-linear-border text-linear-text hover:bg-linear-bg-tertiary gap-2"
                 >
                   <Github className="w-4 h-4" />

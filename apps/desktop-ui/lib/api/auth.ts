@@ -35,19 +35,21 @@ export function getLoginUrl(): string {
   return `${getApiUrl()}/api/auth/github`;
 }
 
-export async function startLogin(): Promise<void> {
+export async function startLogin(): Promise<boolean> {
   if (isTauriRuntime()) {
-    const url = `${await resolveSidecarApiUrl()}/api/auth/github?client=desktop`;
     try {
+      const url = `${await resolveSidecarApiUrl()}/api/auth/github?client=desktop`;
       const { open } = await import('@tauri-apps/plugin-shell');
       await open(url);
-      return;
+      return true;
     } catch (err) {
-      console.warn('[Auth] Tauri shell.open failed, falling back to window.location:', err);
+      console.warn('[Auth] Failed to open desktop GitHub login:', err);
+      return false;
     }
   }
   const url = getLoginUrl();
   window.location.href = url;
+  return true;
 }
 
 export function logout(): void {

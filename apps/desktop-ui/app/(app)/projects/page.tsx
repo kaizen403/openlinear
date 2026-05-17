@@ -212,6 +212,13 @@ function ProjectsContent() {
   const [editRepoSearch, setEditRepoSearch] = useState('')
   const [editGithubError, setEditGithubError] = useState<string | null>(null)
 
+  const handleGitHubLogin = useCallback(async () => {
+    const started = await startLogin()
+    if (!started) {
+      toast.error("Could not open GitHub sign-in. Check that the desktop API is running and try again.")
+    }
+  }, [])
+
   const loadGitHubRepos = useCallback(async (isEdit = false) => {
     if (isEdit) {
       setEditReposLoading(true)
@@ -757,7 +764,7 @@ function ProjectsContent() {
                                     Connect your GitHub account to browse repos.{" "}
                                     <button
                                       type="button"
-                                      onClick={() => void startLogin()}
+                                      onClick={() => void handleGitHubLogin()}
                                       className="text-linear-accent hover:underline"
                                     >
                                       Connect GitHub
@@ -1361,7 +1368,7 @@ function ProjectsContent() {
                           Connect your GitHub account to browse repos.{" "}
                           <button
                             type="button"
-                            onClick={() => void startLogin()}
+                            onClick={() => void handleGitHubLogin()}
                             className="text-linear-accent hover:underline"
                           >
                             Connect GitHub

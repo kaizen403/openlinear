@@ -3,9 +3,17 @@
 import { Github, LogOut } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { startLogin } from '@/lib/api';
+import { toast } from 'sonner';
 
 export function UserMenu() {
   const { user, isLoading, isAuthenticated, logout } = useAuth();
+
+  const handleGitHubLogin = async () => {
+    const started = await startLogin();
+    if (!started) {
+      toast.error('Could not open GitHub sign-in. Check that the desktop API is running and try again.');
+    }
+  };
 
   if (isLoading) {
     return (
@@ -17,7 +25,7 @@ export function UserMenu() {
     return (
       <button
         type="button"
-        onClick={() => void startLogin()}
+        onClick={() => void handleGitHubLogin()}
         className="flex items-center gap-2 h-9 px-4 rounded-sm bg-linear-bg-tertiary hover:bg-linear-border text-sm font-medium transition-colors"
       >
         <Github className="w-4 h-4" />

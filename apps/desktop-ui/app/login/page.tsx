@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { startLogin } from "@/lib/api"
 import { useAuth } from "@/hooks/use-auth"
 import { BRAND_COLORS } from "@/lib/design-tokens"
+import { toast } from "sonner"
 
 export default function LoginPage() {
   const router = useRouter()
@@ -22,8 +23,13 @@ export default function LoginPage() {
   const handleGitHubLogin = async () => {
     setIsLoading(true)
     try {
-      await startLogin()
+      const started = await startLogin()
+      if (!started) {
+        toast.error("Could not open GitHub sign-in. Check that the desktop API is running and try again.")
+        setIsLoading(false)
+      }
     } catch {
+      toast.error("Could not open GitHub sign-in. Check that the desktop API is running and try again.")
       setIsLoading(false)
     }
   }
