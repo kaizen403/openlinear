@@ -309,7 +309,7 @@ const RepoItem = memo(function RepoItem({
     <button
       type="button"
       onClick={() => onSelect(repo)}
-      className={`w-full flex items-start gap-3 px-3 py-3 rounded-sm text-left transition-colors ${
+      className={`w-full h-[90px] flex items-start gap-3 px-3 py-3 rounded-sm text-left transition-colors overflow-hidden ${
         isSelected
           ? "bg-linear-accent/10 border border-linear-accent/40"
           : "hover:bg-linear-bg-tertiary border border-transparent"
@@ -428,9 +428,12 @@ function GitHubRepoTab({
         setHasMore(result.hasMore)
         setTotalCount(result.totalCount)
         if (replace) scrollParentRef.current?.scrollTo({ top: 0 })
-      } catch {
+      } catch (err) {
         if (requestId !== requestIdRef.current) return
-        setError("Failed to load repositories")
+        const message = err instanceof Error && err.message
+          ? err.message
+          : "Failed to load repositories"
+        setError(message)
       } finally {
         if (requestId !== requestIdRef.current) return
         setIsLoadingRepos(false)
@@ -558,7 +561,7 @@ function GitHubRepoTab({
         ) : (
           <div
             className="relative p-1"
-            style={{ height: rowVirtualizer.getTotalSize(), minHeight: "100%" }}
+            style={{ height: rowVirtualizer.getTotalSize() }}
           >
             {rowVirtualizer.getVirtualItems().map((virtualRow) => {
               const repo = repos[virtualRow.index]
@@ -568,9 +571,11 @@ function GitHubRepoTab({
                 <div
                   key={repo.id}
                   data-index={virtualRow.index}
-                  ref={rowVirtualizer.measureElement}
                   className="absolute left-0 top-0 w-full px-1 pb-1"
-                  style={{ transform: `translateY(${virtualRow.start}px)` }}
+                  style={{
+                    transform: `translateY(${virtualRow.start}px)`,
+                    height: virtualRow.size,
+                  }}
                 >
                   <RepoItem
                     repo={repo}
