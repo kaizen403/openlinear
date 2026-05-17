@@ -18,6 +18,12 @@ export const createTeamBodySchema = z.object({
 
 export const updateTeamBodySchema = z.object({
   name: z.string().min(1).max(50).optional(),
+  key: z
+    .string()
+    .min(1)
+    .max(10)
+    .regex(/^[A-Z][A-Z0-9]*$/, 'Key must be uppercase alphanumeric starting with a letter')
+    .optional(),
   description: z.string().max(500).nullable().optional(),
   color: z
     .string()

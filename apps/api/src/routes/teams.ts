@@ -37,6 +37,9 @@ router.get('/', optionalAuth, async (req: AuthRequest, res: Response, next: Next
     const teams = await prisma.team.findMany({
       where,
       include: {
+        members: {
+          include: { user: { select: { id: true, username: true, email: true, avatarUrl: true } } },
+        },
         _count: {
           select: { members: true },
         },
@@ -159,9 +162,21 @@ router.patch(
 
       await assertTeamRole(id, req.userId!, ['owner', 'admin']);
 
+      const existing = await prisma.team.findUnique({ where: { id } });
+      if (!existing) {
+        throw new OwnershipError('team', id, 'not_found');
+      }
+
+      const body = req.validBody!;
+      const updateData: Record<string, unknown> = { ...body };
+
+      if (body.key && body.key !== existing.key) {
+        updateData.inviteCode = generateInviteCode(body.key);
+      }
+
       const team = await prisma.team.update({
         where: { id },
-        data: req.validBody!,
+        data: updateData,
         include: {
           _count: {
             select: { members: true },
