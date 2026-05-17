@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
-import { Loader2, FolderKanban, CalendarDays } from "lucide-react"
+import { Loader2, FolderKanban } from "lucide-react"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import * as z from "zod"
@@ -30,6 +30,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { LabelPicker } from "@/components/label-picker"
+import { DatePicker } from "@/components/ui/date-picker"
 import { Project } from "@/lib/api"
 
 const getFormSchema = (hasProjects: boolean) => z.object({
@@ -306,27 +307,10 @@ export function TaskFormDialog({
                 render={({ field }) => (
                   <FormItem className="space-y-0">
                     <FormControl>
-                      <div className="relative">
-                        <button
-                          type="button"
-                          className="h-7 w-auto px-2.5 text-xs rounded-sm bg-transparent border-none hover:bg-linear-bg-tertiary text-linear-text-secondary flex items-center gap-1.5 cursor-pointer"
-                          onClick={() => {
-                            const input = document.getElementById('dueDate-input') as HTMLInputElement
-                            input?.showPicker?.()
-                            input?.focus()
-                          }}
-                        >
-                          <CalendarDays className="w-3 h-3 text-linear-text-tertiary" />
-                          {field.value ? new Date(field.value).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'Due date'}
-                        </button>
-                        <input
-                          id="dueDate-input"
-                          type="date"
-                          className="absolute inset-0 opacity-0 cursor-pointer"
-                          value={field.value || ""}
-                          onChange={(e) => field.onChange(e.target.value)}
-                        />
-                      </div>
+                      <DatePicker
+                        value={field.value || ""}
+                        onChange={field.onChange}
+                      />
                     </FormControl>
                     <FormMessage className="text-red-400 text-xs" />
                   </FormItem>
