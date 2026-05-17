@@ -1,18 +1,21 @@
 "use client"
 
-import { Github, Loader2 } from "lucide-react"
-import { useEffect, useState, type MouseEvent } from "react"
+import { Github, KeyRound, Loader2 } from "lucide-react"
+import { useEffect, useState, type FormEvent, type MouseEvent } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
-import { startLogin } from "@/lib/api"
+import { fetchCurrentUser, startLogin } from "@/lib/api"
 import { useAuth } from "@/hooks/use-auth"
 import { BRAND_COLORS } from "@/lib/design-tokens"
 import { toast } from "sonner"
 
 export default function LoginPage() {
   const router = useRouter()
-  const { isAuthenticated, isLoading: isAuthLoading } = useAuth()
-  const [isLoading, setIsLoading] = useState(false)
+  const { isAuthenticated, isLoading: isAuthLoading, refreshUser } = useAuth()
+  const [isStartingLogin, setIsStartingLogin] = useState(false)
+  const [showTokenFallback, setShowTokenFallback] = useState(false)
+  const [callbackToken, setCallbackToken] = useState("")
+  const [isCompletingTokenLogin, setIsCompletingTokenLogin] = useState(false)
 
   useEffect(() => {
     if (!isAuthLoading && isAuthenticated) {
@@ -21,21 +24,47 @@ export default function LoginPage() {
   }, [isAuthLoading, isAuthenticated, router])
 
   const handleGitHubLogin = async () => {
-    setIsLoading(true)
+    setIsStartingLogin(true)
     try {
       const started = await startLogin()
       if (!started) {
         toast.error("Could not open GitHub sign-in. Check that the desktop API is running and try again.")
-        setIsLoading(false)
+        setIsStartingLogin(false)
       }
     } catch {
       toast.error("Could not open GitHub sign-in. Check that the desktop API is running and try again.")
-      setIsLoading(false)
+      setIsStartingLogin(false)
     }
   }
 
   const handleCancel = () => {
-    setIsLoading(false)
+    setIsStartingLogin(false)
+  }
+
+  const handleTokenLogin = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const token = extractCallbackToken(callbackToken)
+    if (!token) {
+      toast.error("Paste the token from the browser callback page.")
+      return
+    }
+
+    setIsCompletingTokenLogin(true)
+    try {
+      localStorage.setItem("token", token)
+      const user = await fetchCurrentUser()
+      if (!user) {
+        throw new Error("invalid_token")
+      }
+      await refreshUser()
+      toast.success("Signed in with GitHub")
+      router.replace("/")
+    } catch {
+      localStorage.removeItem("token")
+      toast.error("That callback token was not accepted. Try signing in again.")
+    } finally {
+      setIsCompletingTokenLogin(false)
+    }
   }
 
   return (
@@ -53,13 +82,13 @@ export default function LoginPage() {
 
           <Button
             onClick={handleGitHubLogin}
-            disabled={isLoading}
+            disabled={isStartingLogin}
             className="w-full text-white"
             style={{ backgroundColor: BRAND_COLORS.githubBg }}
             onMouseEnter={(e: MouseEvent<HTMLButtonElement>) => { e.currentTarget.style.backgroundColor = BRAND_COLORS.githubBgHover }}
             onMouseLeave={(e: MouseEvent<HTMLButtonElement>) => { e.currentTarget.style.backgroundColor = BRAND_COLORS.githubBg }}
           >
-            {isLoading ? (
+            {isStartingLogin ? (
               <>
                 <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                 Redirecting to GitHub...
@@ -72,7 +101,7 @@ export default function LoginPage() {
             )}
           </Button>
 
-          {isLoading && (
+          {isStartingLogin && (
             <button
               onClick={handleCancel}
               className="w-full mt-3 text-sm text-linear-text-tertiary hover:text-linear-text-secondary transition-colors"
@@ -80,6 +109,42 @@ export default function LoginPage() {
               Cancel
             </button>
           )}
+
+          <div className="mt-4 border-t border-linear-border pt-4">
+            <button
+              type="button"
+              onClick={() => setShowTokenFallback((value) => !value)}
+              className="mx-auto flex items-center gap-2 text-sm text-linear-text-tertiary hover:text-linear-text-secondary transition-colors"
+            >
+              <KeyRound className="w-4 h-4" />
+              Enter callback token
+            </button>
+
+            {showTokenFallback && (
+              <form onSubmit={handleTokenLogin} className="mt-3 space-y-3">
+                <textarea
+                  value={callbackToken}
+                  onChange={(event) => setCallbackToken(event.target.value)}
+                  placeholder="Paste token or openlinear://callback URL"
+                  className="min-h-24 w-full resize-y rounded-sm border border-linear-border bg-linear-bg px-3 py-2 text-xs text-linear-text placeholder:text-linear-text-tertiary focus:outline-none focus:border-linear-border-hover font-mono"
+                />
+                <Button
+                  type="submit"
+                  disabled={isCompletingTokenLogin || !callbackToken.trim()}
+                  className="w-full bg-linear-accent hover:bg-linear-accent-hover text-white"
+                >
+                  {isCompletingTokenLogin ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Signing in...
+                    </>
+                  ) : (
+                    "Continue"
+                  )}
+                </Button>
+              </form>
+            )}
+          </div>
         </div>
 
         <p className="text-center text-xs text-linear-text-tertiary mt-6">
@@ -88,4 +153,25 @@ export default function LoginPage() {
       </div>
     </div>
   )
+}
+
+function extractCallbackToken(value: string): string {
+  const trimmed = value.trim()
+  if (!trimmed) return ""
+
+  try {
+    const url = new URL(trimmed)
+    return url.searchParams.get("token")?.trim() || trimmed
+  } catch {}
+
+  const tokenMatch = /(?:^|[?&])token=([^&\s]+)/.exec(trimmed)
+  if (tokenMatch?.[1]) {
+    try {
+      return decodeURIComponent(tokenMatch[1]).trim()
+    } catch {
+      return tokenMatch[1].trim()
+    }
+  }
+
+  return trimmed
 }

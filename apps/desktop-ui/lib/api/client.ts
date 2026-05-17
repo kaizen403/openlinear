@@ -153,6 +153,9 @@ export async function resolveSidecarApiUrl(): Promise<string> {
 }
 
 export function getApiUrl(): string {
+  if (isTauriRuntime()) {
+    return getSidecarApiUrl();
+  }
   return getCloudApiUrl();
 }
 

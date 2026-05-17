@@ -1,4 +1,4 @@
-import { apiFetch, AuthExpiredError } from './fetch';
+import { apiFetch, AuthExpiredError, NetworkError } from './fetch';
 import { getApiUrl, getSidecarApiUrl, resolveSidecarApiUrl } from './client';
 import type { User } from './types';
 
@@ -20,9 +20,13 @@ export async function fetchCurrentUser(): Promise<User | null> {
   if (!token) return null;
 
   try {
+    if (isTauriRuntime()) {
+      const sidecarReady = await resolveSidecarApiUrl().then(() => true).catch(() => false);
+      if (!sidecarReady) return null;
+    }
     return await apiFetch<User>('/api/auth/me', { allowUnauthenticated: true });
   } catch (err) {
-    if (err instanceof AuthExpiredError) return null;
+    if (err instanceof AuthExpiredError || err instanceof NetworkError) return null;
     removeTokenIfCurrent(token);
     return null;
   }
