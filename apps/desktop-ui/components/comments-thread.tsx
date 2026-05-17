@@ -346,7 +346,7 @@ export function CommentsThread({ taskId }: CommentsThreadProps) {
                             void saveEdit(c.id)
                           }
                         }}
-                        className="w-full text-sm text-linear-text bg-linear-bg-secondary border border-linear-border rounded-sm p-2 outline-none focus:border-linear-accent resize-y min-h-[60px]"
+                        className="w-full text-sm text-linear-text bg-linear-bg-secondary border border-linear-border rounded-sm p-2 outline-none focus:border-linear-border-hover resize-y min-h-[60px]"
                         rows={3}
                       />
                       <div className="flex items-center gap-2">

@@ -10,13 +10,6 @@ const DEFAULT_WIDTH = 256
 const STORAGE_KEY_OPEN = "openlinear-sidebar-open"
 const STORAGE_KEY_WIDTH = "openlinear-sidebar-width"
 
-function readStoredBoolean(key: string, fallback: boolean): boolean {
-    if (typeof window === "undefined") return fallback
-    const stored = localStorage.getItem(key)
-    if (stored === null) return fallback
-    return stored === "true"
-}
-
 function readStoredNumber(key: string, fallback: number): number {
     if (typeof window === "undefined") return fallback
     const stored = localStorage.getItem(key)
@@ -30,7 +23,7 @@ interface AppShellProps {
 }
 
 export function AppShell({ children }: AppShellProps) {
-    const [sidebarOpen, setSidebarOpen] = useState(() => readStoredBoolean(STORAGE_KEY_OPEN, true))
+    const [sidebarOpen, setSidebarOpen] = useState(true)
     const [sidebarWidth, setSidebarWidth] = useState(() => readStoredNumber(STORAGE_KEY_WIDTH, DEFAULT_WIDTH))
     const [dragging, setDragging] = useState(false)
     const [isMobile, setIsMobile] = useState(false)

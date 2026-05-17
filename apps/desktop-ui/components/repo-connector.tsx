@@ -120,7 +120,7 @@ export function RepoConnector({ onRepoConnected, onRepoDisconnected }: RepoConne
           onChange={(e) => setUrl(e.target.value)}
           onKeyDown={handleKeyDown}
           placeholder="github.com/owner/repo"
-          className="w-full h-8 pl-9 pr-3 rounded-sm bg-linear-bg-tertiary border border-linear-border text-sm placeholder:text-linear-text-tertiary focus:outline-none focus:border-linear-accent transition-colors"
+          className="w-full h-8 pl-9 pr-3 rounded-sm bg-linear-bg-tertiary border border-linear-border text-sm placeholder:text-linear-text-tertiary focus:outline-none focus:border-linear-border-hover transition-colors"
           autoFocus
           disabled={isLoading}
         />

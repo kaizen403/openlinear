@@ -333,7 +333,7 @@ export function TaskDetailView({ task, logs, progress, open, onClose, onDelete, 
                   {editingDescription ? (
                     <textarea
                       ref={descriptionRef}
-                      className="w-full text-sm text-linear-text-secondary leading-relaxed bg-transparent border border-linear-border rounded-sm p-2 outline-none focus:border-linear-accent resize-y min-h-[80px]"
+                      className="w-full text-sm text-linear-text-secondary leading-relaxed bg-transparent border border-linear-border rounded-sm p-2 outline-none focus:border-linear-border-hover resize-y min-h-[80px]"
                       value={descriptionDraft}
                       onChange={(e) => setDescriptionDraft(e.target.value)}
                       onBlur={saveDescription}
