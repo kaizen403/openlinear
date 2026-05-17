@@ -120,6 +120,13 @@ export function createApp(): Application {
     }),
   );
 
+  app.use(
+    cors({
+      origin: buildCorsOrigin(),
+      credentials: true,
+    }),
+  );
+
   // Rate limiters mount BEFORE body parsing so floods are cheap to reject
   const defaultLimiter = makeRateLimiter(60_000, 100, 'default');
   const authLimiter = makeRateLimiter(60_000, 5, 'auth');
@@ -140,13 +147,6 @@ export function createApp(): Application {
     return authLimiter(req, res, next);
   });
   app.use('/api/repos/url', reposUrlLimiter);
-
-  app.use(
-    cors({
-      origin: buildCorsOrigin(),
-      credentials: true,
-    }),
-  );
 
   app.use(express.json({ limit: '256kb' }));
 
