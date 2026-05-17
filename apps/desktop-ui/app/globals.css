@@ -39,7 +39,7 @@
     --destructive-foreground: 0 0% 100%;
     --border: 0 0% 16%;             /* #2a2a2a = linear-border */
     --input: 0 0% 16%;
-    --ring: 217 91% 60%;
+    --ring: 0 0% 25%;
     --radius: 0.125rem;
 
     /* Linear accent – overridden at runtime by the accent-color picker */
