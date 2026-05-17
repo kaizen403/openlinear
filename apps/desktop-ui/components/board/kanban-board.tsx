@@ -4,8 +4,7 @@ import { useEffect, useState, useCallback } from "react"
 import { DragDropContext, Droppable, Draggable, DropResult } from "@hello-pangea/dnd"
 import { Column } from "./column"
 import { TaskCard } from "./task-card"
-import { BatchControls } from "./batch-controls"
-import { BulkSelectionToolbar } from "./bulk-selection-toolbar"
+import { UnifiedSelectionBar, bucketSelection } from "./unified-selection-bar"
 import { BatchProgress } from "./batch-progress"
 import { DashboardLoading } from "./dashboard-loading"
 import { TaskFormDialog } from "@/components/task-form"
@@ -15,7 +14,7 @@ import { EmptyState } from "@/components/empty-state"
 import { Plus, Settings2, GitBranch, CircleDot, Layers, Play, Pencil, Inbox } from "lucide-react"
 import { Task } from "@/types/task"
 import { Project, Repository } from "@/lib/api"
-import { useKanbanBoard, COLUMNS, KanbanBoardProps } from "./use-kanban-board"
+import { useKanbanBoard, COLUMNS, KanbanBoardProps, isTaskActivelyExecuting } from "./use-kanban-board"
 import { InProgressBatchGroup } from "./in-progress-batch-group"
 import { DoneColumnContent } from "./done-column-content"
 import { ModelSelector } from "./model-selector"
@@ -169,6 +168,8 @@ export function KanbanBoard(props: KanbanBoardProps) {
     batchTaskIds,
     completedBatchTaskIds,
     selectedTask,
+    startingExecuteIds,
+    isSelectedTaskExecuting,
     getTasksByStatus,
     handleAddTask,
     handleDragEnd,
@@ -182,6 +183,7 @@ export function KanbanBoard(props: KanbanBoardProps) {
     handleBatchMoveToInProgress,
     handleBatchExecute,
     handleCancelBatch,
+    handleApproveNextBatchTask,
     toggleTaskSelect,
     toggleColumnSelection,
     toggleColumnSelectAll,
@@ -297,6 +299,7 @@ export function KanbanBoard(props: KanbanBoardProps) {
             onCancel={handleCancelBatch}
             onDismiss={activeBatch.status === 'completed' ? () => setActiveBatch(null) : undefined}
             onViewActivity={handleTaskClick}
+            onApproveNext={handleApproveNextBatchTask}
           />
         )}
         <ProjectConfigPanel
@@ -321,7 +324,6 @@ export function KanbanBoard(props: KanbanBoardProps) {
                     title={column.title}
                     taskCount={columnTasks.length}
                     onAddTask={() => handleAddTask(column.status)}
-                    onInlineCreate={(title) => handleInlineCreateTask(column.status, title)}
                     selectionActive={selectionActive}
                     onToggleSelection={!hasParallelGroup ? () => toggleColumnSelection(column.id) : undefined}
                     onSelectAll={selectionActive ? () => toggleColumnSelectAll(column.status) : undefined}
@@ -416,7 +418,7 @@ export function KanbanBoard(props: KanbanBoardProps) {
           onCancel={handleCancel}
           onExecute={selectedTaskId && batchTaskIds.includes(selectedTaskId) ? undefined : handleExecute}
           onUpdate={handleUpdateTask}
-          isExecuting={selectedTask?.status === 'in_progress'}
+          isExecuting={isSelectedTaskExecuting}
           project={selectedProject ? { id: selectedProject.id, name: selectedProject.name } : null}
         />
 
@@ -428,41 +430,23 @@ export function KanbanBoard(props: KanbanBoardProps) {
 
         {(() => {
           if (selectedTaskIds.size === 0) return null
-          const selectedTodoIds = Array.from(selectedTaskIds).filter(
-            id => tasks.find(t => t.id === id)?.status === 'todo'
-          )
-          const selectedInProgressIds = Array.from(selectedTaskIds).filter(
-            id => tasks.find(t => t.id === id)?.status === 'in_progress'
-          )
-          const hasTodo = selectedTodoIds.length > 0
-          const hasInProgress = selectedInProgressIds.length > 0
-          const showBatchControls = hasTodo || hasInProgress
-          const mode = hasTodo && hasInProgress ? 'mixed' as const : hasTodo ? 'move' as const : hasInProgress ? 'execute' as const : 'view' as const
-
+          const buckets = bucketSelection(selectedTaskIds, tasks)
+          const executeDisabledReason = !canExecute
+            ? 'Connect a repository in Project Settings to enable execution'
+            : null
           return (
-            <>
-              {showBatchControls && (
-                <div className="fixed bottom-20 sm:bottom-24 left-0 right-0 z-50 flex justify-center pointer-events-none">
-                  <div className="pointer-events-auto">
-                    <BatchControls
-                      selectedCount={selectedTaskIds.size}
-                      mode={mode}
-                      onExecuteParallel={() => handleBatchExecute('parallel')}
-                      onExecuteQueue={() => handleBatchExecute('queue')}
-                      onMoveToInProgress={handleBatchMoveToInProgress}
-                      onClearSelection={clearSelection}
-                      disabled={!canExecute}
-                    />
-                  </div>
-                </div>
-              )}
-              <BulkSelectionToolbar
-                selectedCount={selectedTaskIds.size}
-                onChangeStatus={handleBulkChangeStatus}
-                onDelete={handleBulkDelete}
-                onClear={clearSelection}
-              />
-            </>
+            <UnifiedSelectionBar
+              selectedCount={selectedTaskIds.size}
+              buckets={buckets}
+              canExecute={canExecute}
+              executeDisabledReason={executeDisabledReason}
+              onExecuteParallel={() => handleBatchExecute('parallel')}
+              onExecuteQueue={() => handleBatchExecute('queue')}
+              onMoveToInProgress={handleBatchMoveToInProgress}
+              onChangeStatus={handleBulkChangeStatus}
+              onArchive={handleBulkDelete}
+              onClear={clearSelection}
+            />
           )
         })()}
       </div>
