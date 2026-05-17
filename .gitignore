@@ -18,3 +18,4 @@ coverage
 package-lock.json
 apps/desktop/src-tauri/binaries/opencode-*
 apps/intro-video/build/
+.cache/
