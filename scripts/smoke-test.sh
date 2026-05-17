@@ -271,7 +271,7 @@ seed_smoke_user() {
 import { prisma } from '@openlinear/db';
 
 const userId = process.env.SMOKE_USER_ID;
-const githubId = Number(process.env.SMOKE_GITHUB_ID);
+const githubId = String(process.env.SMOKE_GITHUB_ID || '');
 const username = process.env.SMOKE_USERNAME;
 const email = process.env.SMOKE_EMAIL;
 const accessToken = process.env.SMOKE_GITHUB_TOKEN || null;

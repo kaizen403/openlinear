@@ -174,7 +174,7 @@ model Settings {
 
 model User {
   id              String       @id @default(uuid())
-  githubId        Int?         @unique
+  githubId        String?      @unique
   username        String       @unique
   email           String?      @unique
   avatarUrl       String?
