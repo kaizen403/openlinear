@@ -12,6 +12,10 @@ err()  { echo -e "${RED}[start]${NC} $1"; }
 
 UI_PORT="${UI_PORT:-3000}"
 export API_PORT="${API_PORT:-3001}"
+# Acknowledge OpenCode's single-tenant model so the sidecar boots against
+# multi-user databases (e.g. shared dev DB, Neon). See docs/limitations.md;
+# unset this and run one sidecar per user only in true multi-tenant deploys.
+export OPENLINEAR_ALLOW_SHARED_OPENCODE="${OPENLINEAR_ALLOW_SHARED_OPENCODE:-1}"
 
 PIDS=()
 cleanup() {

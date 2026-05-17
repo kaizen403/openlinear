@@ -20,6 +20,10 @@ pnpm db:seed
 echo "[dev] Starting execution-capable sidecar + Desktop UI..."
 echo "[dev] (sidecar serves CRUD + /api/tasks/:id/execute + /api/batches + /api/opencode)"
 
+# Acknowledge OpenCode's single-tenant model so the sidecar boots against
+# multi-user databases (shared dev DB, Neon). See docs/limitations.md.
+export OPENLINEAR_ALLOW_SHARED_OPENCODE="${OPENLINEAR_ALLOW_SHARED_OPENCODE:-1}"
+
 # Start the SIDECAR (not the CRUD-only API) on port 3001. The sidecar wraps
 # the API app and additionally mounts execution, batch, and opencode routes
 # that the desktop UI requires. Starting the CRUD-only API here causes

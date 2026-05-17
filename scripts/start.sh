@@ -31,6 +31,10 @@ trap cleanup INT TERM
 
 MODE="${1:-all}"
 
+# Acknowledge OpenCode's single-tenant model so the sidecar boots against
+# multi-user databases (e.g. shared dev DB, Neon). See docs/limitations.md.
+export OPENLINEAR_ALLOW_SHARED_OPENCODE="${OPENLINEAR_ALLOW_SHARED_OPENCODE:-1}"
+
 # ── Step 1: Check prerequisites ──────────────────────────────────
 
 if ! command -v docker &>/dev/null; then
