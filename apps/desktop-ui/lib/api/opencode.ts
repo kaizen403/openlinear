@@ -28,10 +28,14 @@ async function opencodeFetch<T>(path: string, init: ApiFetchInit, fallbackMsg: s
   try {
     return await apiFetch<T>(path, { ...init, sidecar: true });
   } catch (err) {
-    if (err instanceof ApiError && err.status >= 500) {
-      throw new OpenCodeUnavailableError(err.status, err.message || fallbackMsg);
-    }
     if (err instanceof ApiError) {
+      // 404 means the sidecar isn't running (CRUD-only API doesn't mount
+      // /api/opencode/*). 5xx means sidecar is up but unhealthy. Both should
+      // surface as "sidecar unavailable" so the UI can stop execution
+      // gracefully instead of falling through to a confusing late failure.
+      if (err.status >= 500 || err.status === 404) {
+        throw new OpenCodeUnavailableError(err.status, err.message || fallbackMsg);
+      }
       throw new Error(err.message || fallbackMsg);
     }
     throw err;
