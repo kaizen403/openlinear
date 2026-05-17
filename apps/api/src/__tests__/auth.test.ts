@@ -56,6 +56,26 @@ describe('Auth API', () => {
         'http://localhost:3001/api/auth/github/callback',
       );
     });
+
+    it('renders a desktop callback bridge when desktop OAuth returns an error', async () => {
+      process.env.GITHUB_REDIRECT_URI = 'http://localhost:3001/api/auth/github/callback';
+
+      const startRes = await request(app)
+        .get('/api/auth/github?client=desktop')
+        .set('Host', '127.0.0.1:45678')
+        .redirects(0);
+      const state = new URL(startRes.headers.location).searchParams.get('state');
+
+      const res = await request(app)
+        .get(`/api/auth/github/callback?error=access_denied&state=${encodeURIComponent(state ?? '')}`)
+        .set('Host', '127.0.0.1:45678')
+        .redirects(0);
+
+      expect(res.status).toBe(200);
+      expect(res.headers['content-type']).toContain('text/html');
+      expect(res.text).toContain('OpenLinear sign-in failed');
+      expect(res.text).toContain('openlinear://callback?error=access_denied');
+    });
   });
 
   describe('GET /api/auth/github/callback', () => {

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
 import { createApp } from '../app';
-import { getGitHubRepos } from '../services/github';
+import { exchangeCodeForToken, getGitHubRepos } from '../services/github';
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -30,6 +30,24 @@ describe('Repos API auth', () => {
 });
 
 describe('GitHub repo service', () => {
+  it('includes the loopback redirect URI when exchanging a desktop OAuth code', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ access_token: 'github-token' }), { status: 200 }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await exchangeCodeForToken(
+      'oauth-code',
+      'http://localhost:45678/api/auth/github/callback',
+    );
+
+    const init = fetchMock.mock.calls[0][1] as RequestInit;
+    expect(JSON.parse(String(init.body))).toMatchObject({
+      code: 'oauth-code',
+      redirect_uri: 'http://localhost:45678/api/auth/github/callback',
+    });
+  });
+
   it('returns a paged envelope from /user/repos by default', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(

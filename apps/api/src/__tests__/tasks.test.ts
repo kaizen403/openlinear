@@ -24,10 +24,10 @@ describe('Tasks API', () => {
     await prisma.team.deleteMany({});
 
     const user = await prisma.user.upsert({
-      where: { githubId: 777777 },
+      where: { githubId: '777777' },
       update: {},
       create: {
-        githubId: 777777,
+        githubId: '777777',
         username: 'tasktester',
         email: 'tasktest@example.com',
         accessToken: 'fake-token',
@@ -306,9 +306,9 @@ describe('Tasks API', () => {
   describe('Cross-tenant isolation', () => {
     it('prevents user B from PATCHing user A\'s task', async () => {
       const userB = await prisma.user.upsert({
-        where: { githubId: 555555 },
+        where: { githubId: '555555' },
         update: {},
-        create: { githubId: 555555, username: 'userB', email: 'b@example.com' },
+        create: { githubId: '555555', username: 'userB', email: 'b@example.com' },
       });
       const tokenB = generateToken(userB.id, userB.username);
 
@@ -327,9 +327,9 @@ describe('Tasks API', () => {
 
     it('archived delete is scoped to caller teams', async () => {
       const userB = await prisma.user.upsert({
-        where: { githubId: 444444 },
+        where: { githubId: '444444' },
         update: {},
-        create: { githubId: 444444, username: 'userBarchive', email: 'barch@example.com' },
+        create: { githubId: '444444', username: 'userBarchive', email: 'barch@example.com' },
       });
       const tokenB = generateToken(userB.id, userB.username);
       const teamB = await prisma.team.create({ data: { name: 'B Team', key: 'BBB' } });

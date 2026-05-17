@@ -27,10 +27,10 @@ describe('Projects API', () => {
     await prisma.team.deleteMany({});
 
     const user = await prisma.user.upsert({
-      where: { githubId: 888888 },
+      where: { githubId: '888888' },
       update: {},
       create: {
-        githubId: 888888,
+        githubId: '888888',
         username: 'projecttester',
         email: 'projecttest@example.com',
         accessToken: 'fake-token',

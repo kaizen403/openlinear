@@ -21,10 +21,10 @@ describe('Teams API', () => {
     await prisma.team.deleteMany({});
 
     const user = await prisma.user.upsert({
-      where: { githubId: 999999 },
+      where: { githubId: '999999' },
       update: {},
       create: {
-        githubId: 999999,
+        githubId: '999999',
         username: 'testuser',
         email: 'test@example.com',
         accessToken: 'fake-token',
@@ -242,10 +242,10 @@ describe('Teams API', () => {
       expect(createRes.status).toBe(201);
 
       const secondUser = await prisma.user.upsert({
-        where: { githubId: 666666 },
+        where: { githubId: '666666' },
         update: {},
         create: {
-          githubId: 666666,
+          githubId: '666666',
           username: 'seconduser',
           email: 'second@example.com',
           accessToken: 'fake-token-2',
@@ -304,9 +304,9 @@ describe('Teams API', () => {
       expect(createRes.status).toBe(201);
 
       const secondUser = await prisma.user.upsert({
-        where: { githubId: 333333 },
+        where: { githubId: '333333' },
         update: {},
-        create: { githubId: 333333, username: 'rmuser', email: 'rm@example.com' },
+        create: { githubId: '333333', username: 'rmuser', email: 'rm@example.com' },
       });
       await request(app)
         .post(`/api/teams/${createRes.body.id}/members`)
