@@ -23,6 +23,7 @@ import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { DatePicker } from "@/components/ui/date-picker"
 import { Badge } from "@/components/ui/badge"
 import {
   Dialog,
@@ -652,12 +653,11 @@ function ProjectsContent() {
                       
                       <div className="space-y-2">
                         <Label htmlFor="targetDate" className="text-linear-text">Target Date</Label>
-                        <Input
-                          id="targetDate"
-                          type="date"
+                        <DatePicker
                           value={formData.targetDate}
-                          onChange={(e) => setFormData(prev => ({ ...prev, targetDate: e.target.value }))}
-                          className="bg-linear-bg-tertiary border-linear-border text-linear-text"
+                          onChange={(val) => setFormData(prev => ({ ...prev, targetDate: val }))}
+                          placeholder="Select target date"
+                          className="h-8 px-3 text-sm w-full justify-start bg-linear-bg-tertiary border border-linear-border"
                         />
                       </div>
 
@@ -1256,12 +1256,11 @@ function ProjectsContent() {
 
             <div className="space-y-2">
               <Label htmlFor="edit-targetDate" className="text-linear-text">Target Date</Label>
-              <Input
-                id="edit-targetDate"
-                type="date"
+              <DatePicker
                 value={editFormData.targetDate}
-                onChange={(e) => setEditFormData(prev => ({ ...prev, targetDate: e.target.value }))}
-                className="bg-linear-bg-tertiary border-linear-border text-linear-text"
+                onChange={(val) => setEditFormData(prev => ({ ...prev, targetDate: val }))}
+                placeholder="Select target date"
+                className="h-8 px-3 text-sm w-full justify-start bg-linear-bg-tertiary border border-linear-border"
               />
             </div>
 
