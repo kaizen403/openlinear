@@ -121,7 +121,14 @@ done
 
 case "$MODE" in
     --api-only)
-        log "Starting API only..."
+        log "Starting execution-capable sidecar (CRUD + execute + batches + opencode)..."
+        API_PORT=3001 pnpm --filter @openlinear/sidecar dev &
+        PIDS+=($!)
+        sleep 2
+        ok "Sidecar:  http://localhost:3001"
+        ;;
+    --crud-only)
+        log "Starting CRUD-only API (no execution endpoints)..."
         API_PORT=3001 pnpm --filter @openlinear/api dev &
         PIDS+=($!)
         sleep 2
@@ -135,19 +142,19 @@ case "$MODE" in
         ok "UI:   http://localhost:3000"
         ;;
     --desktop)
-        log "Starting API + Desktop app..."
-        API_PORT=3001 pnpm --filter @openlinear/api dev &
+        log "Starting sidecar + Desktop app..."
+        API_PORT=3001 pnpm --filter @openlinear/sidecar dev &
         PIDS+=($!)
         sleep 2
-        ok "API:  http://localhost:3001"
+        ok "Sidecar:  http://localhost:3001"
         log "Starting Tauri desktop..."
-        API_PORT=3001 PORT=3000 pnpm --filter @openlinear/desktop tauri dev
+        OPENLINEAR_SKIP_SIDECAR=1 API_PORT=3001 PORT=3000 pnpm --filter @openlinear/desktop tauri dev
         cleanup
         exit 0
         ;;
     all|*)
-        log "Starting API..."
-        API_PORT=3001 pnpm --filter @openlinear/api dev &
+        log "Starting execution-capable sidecar..."
+        API_PORT=3001 pnpm --filter @openlinear/sidecar dev &
         PIDS+=($!)
         sleep 2
 
@@ -157,9 +164,9 @@ case "$MODE" in
         sleep 2
 
         echo ""
-        echo -e "  ${GREEN}✓${NC} API:  ${CYAN}http://localhost:3001${NC}"
-        echo -e "  ${GREEN}✓${NC} UI:   ${CYAN}http://localhost:3000${NC}"
-        echo -e "  ${GREEN}✓${NC} DB:   ${CYAN}localhost:5432${NC}"
+        echo -e "  ${GREEN}✓${NC} Sidecar:  ${CYAN}http://localhost:3001${NC}"
+        echo -e "  ${GREEN}✓${NC} UI:       ${CYAN}http://localhost:3000${NC}"
+        echo -e "  ${GREEN}✓${NC} DB:       ${CYAN}localhost:5432${NC}"
         echo ""
         ok "All services running. Press Ctrl+C to stop."
         ;;

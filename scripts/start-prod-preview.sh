@@ -61,18 +61,19 @@ if [ ! -d "$OUT_DIR" ]; then
     exit 1
 fi
 
-log "Starting API server on port $API_PORT..."
-API_PORT="$API_PORT" pnpm --filter @openlinear/api dev &
+log "Starting execution-capable sidecar on port $API_PORT..."
+log "(sidecar serves CRUD + /api/tasks/:id/execute + /api/batches + /api/opencode)"
+API_PORT="$API_PORT" pnpm --filter @openlinear/sidecar dev &
 PIDS+=($!)
 
-log "Waiting for API to be reachable..."
+log "Waiting for sidecar to be reachable..."
 for i in $(seq 1 30); do
     if curl -sf "http://127.0.0.1:$API_PORT/health" >/dev/null 2>&1; then
-        ok "API ready."
+        ok "Sidecar ready."
         break
     fi
     if [ "$i" -eq 30 ]; then
-        err "API did not become ready on port $API_PORT after 30s."
+        err "Sidecar did not become ready on port $API_PORT after 30s."
         exit 1
     fi
     sleep 1
