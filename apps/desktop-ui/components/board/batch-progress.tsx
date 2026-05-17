@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
-import { X, Loader2, ChevronDown, ChevronUp, Check, AlertCircle, SkipForward, Ban, Clock, ExternalLink, GitPullRequest } from "lucide-react"
+import { X, Loader2, ChevronDown, ChevronUp, Check, AlertCircle, SkipForward, Ban, Clock, ExternalLink, GitPullRequest, ArrowRight } from "lucide-react"
 import { cn, openExternal } from "@/lib/utils"
 import { BATCH_STATUS_COLORS } from "@/lib/design-tokens"
 
@@ -21,6 +21,7 @@ interface BatchProgressProps {
   onCancel: (batchId: string) => void
   onDismiss?: () => void
   onViewActivity?: (taskId: string) => void
+  onApproveNext?: (batchId: string) => void
 }
 
 const statusConfig: Record<string, { color: string; bg: string; icon: typeof Check; label: string; dot?: string }> = {
@@ -32,13 +33,23 @@ const statusConfig: Record<string, { color: string; bg: string; icon: typeof Che
   cancelled: { color: BATCH_STATUS_COLORS.cancelled.text, bg: BATCH_STATUS_COLORS.cancelled.bg, icon: Ban, label: 'Cancelled' },
 }
 
-export function BatchProgress({ batchId, status, mode, tasks, prUrl, onCancel, onDismiss, onViewActivity }: BatchProgressProps) {
+export function BatchProgress({ batchId, status, mode, tasks, prUrl, onCancel, onDismiss, onViewActivity, onApproveNext }: BatchProgressProps) {
   const [expanded, setExpanded] = useState(false)
   const [cancelling, setCancelling] = useState(false)
+  const [approving, setApproving] = useState(false)
   const total = tasks.length
   const completed = tasks.filter(t => t.status === 'completed').length
   const failed = tasks.filter(t => t.status === 'failed').length
+  const queued = tasks.filter(t => t.status === 'queued').length
+  const running = tasks.filter(t => t.status === 'running').length
   const isRunning = status === 'running' || status === 'merging'
+  // Queue mode without auto-approve: when nothing is running but tasks are
+  // still queued, the batch is waiting for the user to release the next task.
+  const showApproveNext = !!onApproveNext
+    && mode === 'queue'
+    && status === 'running'
+    && running === 0
+    && queued > 0
 
   return (
     <div className="mx-3 sm:mx-6 mt-4 mb-3 bg-linear-bg-secondary border border-linear-border rounded-sm">
@@ -89,6 +100,29 @@ export function BatchProgress({ batchId, status, mode, tasks, prUrl, onCancel, o
                   Cancel
                 </>
               )}
+            </Button>
+          )}
+          {showApproveNext && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={async () => {
+                setApproving(true)
+                try {
+                  await onApproveNext!(batchId)
+                } finally {
+                  setApproving(false)
+                }
+              }}
+              disabled={approving}
+              className="h-7 text-xs border-linear-accent/40 text-linear-accent hover:bg-linear-accent/10 gap-1"
+            >
+              {approving ? (
+                <Loader2 className="w-3 h-3 animate-spin" />
+              ) : (
+                <ArrowRight className="w-3 h-3" />
+              )}
+              Approve next
             </Button>
           )}
           {prUrl && !isRunning && (
