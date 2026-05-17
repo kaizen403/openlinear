@@ -1,5 +1,5 @@
 import rateLimit, { RateLimitRequestHandler } from 'express-rate-limit';
-import { createApp } from '@openlinear/api/app';
+import { createApp, buildErrorHandler } from '@openlinear/api/app';
 import executionRouter from './routes/execution';
 import opencodeRouter from './routes/opencode';
 import batchesRouter from './routes/batches';
@@ -29,12 +29,16 @@ export function createSidecarApp() {
   app.use('/api/transcribe', makeRateLimiter(60_000, 10, 'transcribe'));
   app.use('/api/brainstorm', makeRateLimiter(60_000, 10, 'brainstorm'));
 
-  // Execution routes (mounted on tasks, override CRUD-only routes with execute/cancel/running/logs/refresh-pr)
   app.use('/api/tasks', executionRouter);
   app.use('/api/opencode', opencodeRouter);
   app.use('/api/batches', batchesRouter);
   app.use('/api/brainstorm', brainstormRouter);
   app.use('/api/transcribe', transcribeRouter);
+
+  // Re-mount the shared JSON error envelope handler AFTER sidecar routes so
+  // their `next(error)` calls produce structured JSON instead of falling
+  // through to Express's default HTML 404 page. See buildErrorHandler() docs.
+  app.use(buildErrorHandler());
 
   return app;
 }
