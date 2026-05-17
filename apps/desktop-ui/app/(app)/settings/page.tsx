@@ -53,7 +53,7 @@ import { DatabaseSettings } from "@/components/desktop/database-settings"
 import { getSetupStatus, setProviderApiKey, getProviderAuthMethods, oauthAuthorize, oauthCallback, getModels, getModelConfig, setModel, SetupStatus, ProviderAuthMethods, ProviderModels } from "@/lib/api/opencode"
 import { getActiveRepository, setActiveRepositoryBaseBranch } from "@/lib/api"
 import { apiFetch } from "@/lib/api/fetch"
-import { startLogin } from "@/lib/api"
+import { startLogin, updateEmail } from "@/lib/api"
 import { useAuth } from "@/hooks/use-auth"
 import { EmptyState } from "@/components/empty-state"
 
@@ -93,10 +93,12 @@ function SettingsContent() {
   const [activeSection, setActiveSection] =
     useState<SettingsSection>(initialSection)
 
-  const { user, isLoading: authLoading } = useAuth()
+  const { user, isLoading: authLoading, refreshUser } = useAuth()
   const [language, setLanguage] = useState("en")
   const [timezone, setTimezone] = useState("UTC")
   const [autoSave, setAutoSave] = useState(true)
+  const [emailInput, setEmailInput] = useState("")
+  const [emailSaving, setEmailSaving] = useState(false)
 
   const { theme, setTheme } = useTheme()
   const [compactMode, setCompactMode] = useState(false)
@@ -128,6 +130,10 @@ function SettingsContent() {
       toast.error("Could not open GitHub sign-in. Check that the desktop API is running and try again.")
     }
   }, [])
+
+  useEffect(() => {
+    if (user?.email) setEmailInput(user.email)
+  }, [user?.email])
 
   const [twoFactor] = useState(false)
   const [sessionTimeout, setSessionTimeout] = useState("4h")
@@ -644,7 +650,7 @@ function SettingsContent() {
                     {user.username}
                   </p>
                   <p className="text-sm text-linear-text-tertiary truncate">
-                    {user.email || "No email on file"}
+                    {user.email || "Add your email below"}
                   </p>
                 </div>
               </div>
@@ -664,12 +670,34 @@ function SettingsContent() {
                   <Label className="text-xs text-linear-text-tertiary">
                     Email
                   </Label>
-                  <Input
-                    readOnly
-                    value={user.email || ""}
-                    placeholder="No email shared from GitHub"
-                    className="mt-1 bg-linear-bg border-linear-border text-linear-text"
-                  />
+                  <div className="flex gap-2 mt-1">
+                    <Input
+                      value={emailInput}
+                      onChange={(e) => setEmailInput(e.target.value)}
+                      placeholder="Enter your email"
+                      className="bg-linear-bg border-linear-border text-linear-text"
+                    />
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={emailSaving || !emailInput.trim() || emailInput.trim().toLowerCase() === (user?.email || "").toLowerCase()}
+                      onClick={async () => {
+                        setEmailSaving(true)
+                        try {
+                          await updateEmail(emailInput.trim())
+                          await refreshUser()
+                          toast.success("Email updated")
+                        } catch (err: unknown) {
+                          const msg = err instanceof Error ? err.message : "Failed to update email"
+                          toast.error(msg)
+                        } finally {
+                          setEmailSaving(false)
+                        }
+                      }}
+                    >
+                      {emailSaving ? <Loader2 className="w-3 h-3 animate-spin" /> : "Save"}
+                    </Button>
+                  </div>
                 </div>
                 <div>
                   <Label className="text-xs text-linear-text-tertiary">

@@ -56,6 +56,13 @@ export async function startLogin(): Promise<boolean> {
   return true;
 }
 
+export async function updateEmail(email: string): Promise<User> {
+  return apiFetch<User>('/api/auth/me', {
+    method: 'PATCH',
+    body: JSON.stringify({ email }),
+  });
+}
+
 export function logout(): void {
   localStorage.removeItem('token');
   window.location.href = '/';

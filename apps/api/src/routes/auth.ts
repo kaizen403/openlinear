@@ -9,6 +9,8 @@ import {
   createOrUpdateUser,
   getUserById,
 } from '../services/github';
+import { requireAuth, AuthRequest } from '../middleware/auth';
+import { prisma } from '@openlinear/db';
 
 const router: Router = Router();
 
@@ -292,6 +294,40 @@ router.get('/me', async (req: Request, res: Response) => {
     });
   } catch {
     res.status(401).json({ error: 'Invalid token' });
+  }
+});
+
+router.patch('/me', requireAuth, async (req: AuthRequest, res: Response) => {
+  const { email } = req.body;
+
+  if (!email || typeof email !== 'string') {
+    res.status(400).json({ error: 'Email is required' });
+    return;
+  }
+
+  const trimmed = email.trim().toLowerCase();
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(trimmed)) {
+    res.status(400).json({ error: 'Invalid email format' });
+    return;
+  }
+
+  try {
+    const existing = await prisma.user.findUnique({ where: { email: trimmed } });
+    if (existing && existing.id !== req.userId) {
+      res.status(409).json({ error: 'Email already in use' });
+      return;
+    }
+
+    const user = await prisma.user.update({
+      where: { id: req.userId },
+      data: { email: trimmed },
+    });
+
+    const { accessToken: _, ...safeUser } = user;
+    res.json(safeUser);
+  } catch {
+    res.status(500).json({ error: 'Failed to update email' });
   }
 });
 
