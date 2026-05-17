@@ -677,7 +677,7 @@ function SettingsContent() {
                   </Label>
                   <Input
                     readOnly
-                    value={String(user.githubId)}
+                    value={user.githubId ?? "Not linked"}
                     className="mt-1 bg-linear-bg border-linear-border text-linear-text font-mono"
                   />
                 </div>
@@ -1829,7 +1829,7 @@ function SettingsContent() {
         <div className="flex-1 h-full" data-tauri-drag-region />
       </header>
 
-      <div className="flex flex-col md:flex-row flex-1 overflow-hidden">
+      <div className="flex flex-col md:flex-row flex-1 min-h-0 overflow-hidden">
         <nav className="flex-shrink-0 border-b md:border-b-0 md:border-r border-linear-border bg-linear-bg overflow-x-auto md:overflow-y-auto md:w-52 py-2 md:py-3 px-2 [&::-webkit-scrollbar]:hidden" style={{ scrollbarWidth: 'none' }}>
           <div className="flex md:flex-col gap-1 min-w-max md:min-w-0">
           {NAV_ITEMS.map((item) => {

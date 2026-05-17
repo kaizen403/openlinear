@@ -146,7 +146,7 @@ export default function ArchivedPage() {
 
   return (
     <>
-      <div className="flex-1 flex flex-col min-w-0 bg-linear-bg">
+      <div className="flex-1 flex flex-col min-w-0 min-h-0 bg-linear-bg">
         <div className="border-b border-linear-border">
           <div className="px-4 sm:px-6 py-4">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">

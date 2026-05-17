@@ -85,14 +85,23 @@ function TeamSection({ team, pathname, searchParams, onDelete }: { team: Team; p
                     ) : (
                         <ChevronRight className="w-3 h-3 flex-shrink-0 text-linear-text-tertiary" />
                     )}
-                    <div
-                        className="w-4 h-4 rounded flex items-center justify-center flex-shrink-0"
-                        style={{ backgroundColor: `${team.color}25` }}
-                    >
-                        <span className="text-[9px] font-bold" style={{ color: team.color }}>
-                            {team.name.charAt(0).toUpperCase()}
-                        </span>
-                    </div>
+                    {(() => {
+                        const owner = team.members?.find(m => m.role === 'owner')
+                        const avatarUrl = owner?.user?.avatarUrl
+                        const fallbackChar = owner?.user?.username?.charAt(0)?.toUpperCase() || team.name.charAt(0).toUpperCase()
+                        return avatarUrl ? (
+                            <img src={avatarUrl} alt="" className="w-4 h-4 rounded-full flex-shrink-0 object-cover" />
+                        ) : (
+                            <div
+                                className="w-4 h-4 rounded-full flex items-center justify-center flex-shrink-0"
+                                style={{ backgroundColor: `${team.color}25` }}
+                            >
+                                <span className="text-[9px] font-bold" style={{ color: team.color }}>
+                                    {fallbackChar}
+                                </span>
+                            </div>
+                        )
+                    })()}
                     <span className="truncate">{team.name}</span>
                 </button>
                 <Popover open={menuOpen} onOpenChange={setMenuOpen}>

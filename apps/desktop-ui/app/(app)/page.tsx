@@ -160,10 +160,15 @@ function HomeContent() {
                   }}
                   className="group flex items-center gap-3 w-full px-4 py-3 rounded-sm bg-linear-bg-secondary border border-linear-border hover:border-linear-border-hover hover:bg-linear-bg-tertiary transition-colors text-left"
                 >
-                  <div
-                    className="w-3 h-3 rounded-full flex-shrink-0"
-                    style={{ backgroundColor: project.color }}
-                  />
+                  {user?.avatarUrl ? (
+                    <img src={user.avatarUrl} alt="" className="w-5 h-5 rounded-full flex-shrink-0 object-cover" />
+                  ) : (
+                    <div className="w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 bg-linear-bg-tertiary text-linear-text-tertiary">
+                      <span className="text-[10px] font-semibold">
+                        {user?.username?.charAt(0)?.toUpperCase() || '?'}
+                      </span>
+                    </div>
+                  )}
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-medium text-linear-text truncate">
                       {project.name}

@@ -7,14 +7,31 @@ import { Sidebar } from "./sidebar"
 const MIN_WIDTH = 200
 const MAX_WIDTH = 400
 const DEFAULT_WIDTH = 256
+const STORAGE_KEY_OPEN = "openlinear-sidebar-open"
+const STORAGE_KEY_WIDTH = "openlinear-sidebar-width"
+
+function readStoredBoolean(key: string, fallback: boolean): boolean {
+    if (typeof window === "undefined") return fallback
+    const stored = localStorage.getItem(key)
+    if (stored === null) return fallback
+    return stored === "true"
+}
+
+function readStoredNumber(key: string, fallback: number): number {
+    if (typeof window === "undefined") return fallback
+    const stored = localStorage.getItem(key)
+    if (stored === null) return fallback
+    const n = Number(stored)
+    return Number.isFinite(n) ? n : fallback
+}
 
 interface AppShellProps {
     children: ReactNode
 }
 
 export function AppShell({ children }: AppShellProps) {
-    const [sidebarOpen, setSidebarOpen] = useState(true)
-    const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_WIDTH)
+    const [sidebarOpen, setSidebarOpen] = useState(() => readStoredBoolean(STORAGE_KEY_OPEN, true))
+    const [sidebarWidth, setSidebarWidth] = useState(() => readStoredNumber(STORAGE_KEY_WIDTH, DEFAULT_WIDTH))
     const [dragging, setDragging] = useState(false)
     const [isMobile, setIsMobile] = useState(false)
     const startX = useRef(0)
@@ -33,6 +50,15 @@ export function AppShell({ children }: AppShellProps) {
         mq.addEventListener("change", handler)
         return () => mq.removeEventListener("change", handler)
     }, [])
+
+    /* Persist sidebar state to localStorage */
+    useEffect(() => {
+        localStorage.setItem(STORAGE_KEY_OPEN, String(sidebarOpen))
+    }, [sidebarOpen])
+
+    useEffect(() => {
+        localStorage.setItem(STORAGE_KEY_WIDTH, String(sidebarWidth))
+    }, [sidebarWidth])
 
     /* Drag handlers — disabled on mobile */
     const handleMouseDown = useCallback((e: React.MouseEvent) => {

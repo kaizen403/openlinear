@@ -326,7 +326,7 @@ function TeamDetailPageContent() {
 
   return (
     <>
-      <div className="flex-1 flex flex-col min-w-0 bg-linear-bg">
+      <div className="flex-1 flex flex-col min-w-0 min-h-0 bg-linear-bg">
         <div className="border-b border-linear-border">
           <div className="px-4 sm:px-6 py-4">
             <div className="flex items-center gap-4 mb-4">
