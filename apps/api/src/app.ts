@@ -312,6 +312,7 @@ export function createApp(): Application {
       res.status(err.statusCode).json({
         error: 'validation_error',
         code: err.code,
+        message: err.message || 'Validation failed',
         ...(err.details !== undefined ? { details: err.details } : {}),
         requestId,
       });
