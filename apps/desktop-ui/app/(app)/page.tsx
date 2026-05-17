@@ -75,8 +75,12 @@ function HomeContent() {
     setRefreshKey((prev) => prev + 1)
   }, [])
 
-  const selectedProjectId = urlTeamId ? null : (activeProject?.id || null)
+  const selectedProjectId = urlTeamId ? null : (activeProject?.id ?? null)
   const selectedTeamId = urlTeamId || null
+
+  if (!selectedProjectId && !selectedTeamId) {
+    return <HomePageSkeleton />
+  }
 
   const headerLabel = selectedTeamId
     ? teams.find(t => t.id === selectedTeamId)?.name || "Team Issues"
