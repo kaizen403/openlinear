@@ -61,12 +61,12 @@ function completionKey(batchId: string, taskId: string): string {
 export async function createBatch(params: CreateBatchParams): Promise<BatchState> {
   const batchId = crypto.randomUUID();
 
-  const settings = await prisma.settings.findFirst({ where: { id: 'default' } }) as Record<string, unknown> | null;
+  const settings = await getExecutionSettings(params.userId);
   const batchSettings: BatchSettings = {
-    maxConcurrent: (settings?.maxBatchSize as number) ?? 3,
-    autoApprove: (settings?.queueAutoApprove as boolean) ?? false,
-    stopOnFailure: (settings?.stopOnFailure as boolean) ?? false,
-    conflictBehavior: (settings?.conflictBehavior as 'skip' | 'fail') ?? 'skip',
+    maxConcurrent: settings.maxBatchSize,
+    autoApprove: settings.queueAutoApprove,
+    stopOnFailure: settings.stopOnFailure,
+    conflictBehavior: settings.conflictBehavior,
   };
 
   // Try to get repository from tasks' project first
@@ -74,6 +74,16 @@ export async function createBatch(params: CreateBatchParams): Promise<BatchState
     where: { id: { in: params.taskIds } },
     include: { project: { include: { repository: true } } },
   });
+
+  // Local-path projects are not supported by batch execution yet — worktree
+  // operations against the user's actual checkout could damage uncommitted
+  // work. Surface this as a clear error instead of silently falling back to
+  // the user's global active repository (which would be even more confusing).
+  if (firstTask?.project?.localPath && !firstTask?.project?.repository) {
+    throw new Error(
+      'Batch execution is not supported for local-path projects. Execute tasks individually, or connect a GitHub repository to the project.',
+    );
+  }
 
   let project: { id: string; name: string; fullName: string; cloneUrl: string; defaultBranch: string } | null = null;
 
