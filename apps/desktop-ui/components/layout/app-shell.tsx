@@ -24,11 +24,19 @@ interface AppShellProps {
 
 export function AppShell({ children }: AppShellProps) {
     const [sidebarOpen, setSidebarOpen] = useState(true)
-    const [sidebarWidth, setSidebarWidth] = useState(() => readStoredNumber(STORAGE_KEY_WIDTH, DEFAULT_WIDTH))
+    const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_WIDTH)
     const [dragging, setDragging] = useState(false)
     const [isMobile, setIsMobile] = useState(false)
+    const [mounted, setMounted] = useState(false)
     const startX = useRef(0)
     const startWidth = useRef(DEFAULT_WIDTH)
+
+    /* Hydration-safe: read localStorage only after mount */
+    useEffect(() => {
+        setSidebarOpen(readStoredBoolean(STORAGE_KEY_OPEN, true))
+        setSidebarWidth(readStoredNumber(STORAGE_KEY_WIDTH, DEFAULT_WIDTH))
+        setMounted(true)
+    }, [])
 
     /* Track mobile breakpoint */
     useEffect(() => {
@@ -89,15 +97,10 @@ export function AppShell({ children }: AppShellProps) {
 
     const closeSidebar = useCallback(() => setSidebarOpen(false), [])
 
-    const effectiveSidebarWidth = sidebarOpen ? (isMobile ? 300 : sidebarWidth) : 0
+    const effectiveWidth = isMobile ? 300 : sidebarWidth
 
     return (
-        <div
-            className="flex h-[100dvh] bg-linear-bg text-linear-text overflow-hidden"
-            style={{
-                ['--sidebar-width' as string]: isMobile ? '0px' : `${effectiveSidebarWidth}px`,
-            } as React.CSSProperties}
-        >
+        <div className="flex h-[100dvh] bg-linear-bg text-linear-text overflow-hidden">
             {/* Mobile overlay backdrop */}
             {isMobile && sidebarOpen && (
                 <button
@@ -108,20 +111,23 @@ export function AppShell({ children }: AppShellProps) {
                 />
             )}
 
-            {/* Sidebar — overlay on mobile, inline on desktop */}
+            {/* Sidebar wrapper — width transition drives the layout shift */}
             <div
                 className={
                     isMobile
                         ? "fixed inset-y-0 left-0 z-50"
-                        : "relative z-10 flex-shrink-0"
+                        : "relative z-10 flex-shrink-0 overflow-hidden"
                 }
+                style={isMobile ? undefined : {
+                    width: sidebarOpen ? `${effectiveWidth}px` : '0px',
+                    transition: (!mounted || dragging) ? 'none' : 'width 300ms cubic-bezier(0.4, 0, 0.2, 1)',
+                }}
             >
                 <Suspense>
                     <Sidebar
                         open={sidebarOpen}
                         onClose={closeSidebar}
-                        width={isMobile ? 300 : sidebarWidth}
-                        animating={!dragging}
+                        width={effectiveWidth}
                     />
                 </Suspense>
             </div>
@@ -141,23 +147,22 @@ export function AppShell({ children }: AppShellProps) {
             <div
                 className="flex-1 flex flex-col min-w-0 overflow-hidden"
                 style={{
-                    paddingLeft: isMobile ? 0 : (sidebarOpen ? 0 : 48),
-                    transition: dragging ? 'none' : 'padding-left 150ms cubic-bezier(0.25, 0.1, 0.25, 1)',
+                    paddingLeft: !isMobile && !sidebarOpen ? 48 : 0,
+                    transition: dragging ? 'none' : 'padding-left 300ms cubic-bezier(0.4, 0, 0.2, 1)',
                 }}
             >
                 {children}
             </div>
 
-            {/* Floating sidebar toggle — fades in/out */}
+            {/* Floating sidebar toggle */}
             <button
                 type="button"
                 onClick={() => setSidebarOpen(true)}
                 className="fixed top-3 left-3 z-50 w-8 h-8 rounded-sm flex items-center justify-center bg-linear-bg-secondary/95 border border-linear-border text-linear-text-tertiary hover:text-linear-text hover:bg-linear-bg-tertiary shadow-lg backdrop-blur"
                 style={{
                     opacity: sidebarOpen ? 0 : 1,
-                    transform: sidebarOpen ? 'scale(0.8)' : 'scale(1)',
                     pointerEvents: sidebarOpen ? 'none' : 'auto',
-                    transition: 'opacity 150ms ease, transform 150ms ease',
+                    transition: 'opacity 200ms ease',
                 }}
                 aria-label="Open sidebar"
             >
