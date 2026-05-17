@@ -3,8 +3,10 @@
   "private": true,
   "scripts": {
     "build": "turbo run build",
+    "build:app": "./scripts/build-and-test-desktop.sh",
     "dev": "./scripts/dev.sh",
     "dev:web": "./scripts/dev-web.sh",
+    "start": "./scripts/start-prod-preview.sh",
     "lint": "turbo run lint",
     "test": "turbo run test",
     "typecheck": "turbo run typecheck",

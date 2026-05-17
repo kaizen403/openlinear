@@ -109,6 +109,28 @@ fn build_sidecar_env(app: &AppHandle, port: u16) -> Vec<(String, String)> {
 }
 
 pub async fn launch_sidecar(app: AppHandle) -> Result<(), String> {
+    if std::env::var("OPENLINEAR_SKIP_SIDECAR").ok().as_deref() == Some("1") {
+        let port: u16 = std::env::var("API_PORT")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(3001);
+        {
+            let mut guard = API_SERVER_PORT.lock().map_err(|e| e.to_string())?;
+            *guard = Some(port);
+        }
+        let api_url = format!("http://127.0.0.1:{}", port);
+        let health_url = format!("{}/health", api_url);
+        let _ = app.emit(
+            "sidecar:ready",
+            SidecarReady {
+                port,
+                api_url,
+                health_url,
+            },
+        );
+        return Ok(());
+    }
+
     {
         let guard = API_SERVER_PROCESS.lock().map_err(|e| e.to_string())?;
         if guard.is_some() {
