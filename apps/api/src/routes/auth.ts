@@ -104,19 +104,109 @@ function verifyState(state: string): { client: OAuthClient; nonce: string; issue
   }
 }
 
-function buildSuccessRedirect(client: OAuthClient, token: string): string {
-  if (client === 'desktop') {
-    return `${DESKTOP_CALLBACK_SCHEME}?token=${encodeURIComponent(token)}`;
-  }
+function buildWebSuccessRedirect(token: string): string {
   return `${getFrontendUrl()}?token=${encodeURIComponent(token)}`;
 }
 
-function buildErrorRedirect(client: OAuthClient, error: string): string {
+function buildDesktopCallbackUrl(params: { token?: string; error?: string }): string {
+  const query = new URLSearchParams();
+  if (params.token) query.set('token', params.token);
+  if (params.error) query.set('error', params.error);
+  return `${DESKTOP_CALLBACK_SCHEME}?${query.toString()}`;
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function renderDesktopCallbackHtml(params: { token?: string; error?: string }): string {
+  const callbackUrl = buildDesktopCallbackUrl(params);
+  const hasToken = Boolean(params.token);
+  const safeToken = params.token ? escapeHtml(params.token) : '';
+  const safeError = params.error ? escapeHtml(params.error) : '';
+  const title = hasToken ? 'OpenLinear sign-in complete' : 'OpenLinear sign-in failed';
+  const statusText = hasToken
+    ? 'Return to OpenLinear to finish signing in.'
+    : `GitHub returned an error${safeError ? `: ${safeError}` : '.'}`;
+
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="cache-control" content="no-store">
+  <title>${escapeHtml(title)}</title>
+  <style>
+    :root { color-scheme: dark; font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #0f0f0f; color: #f5f5f5; }
+    main { width: min(520px, calc(100vw - 32px)); border: 1px solid #2a2a2a; background: #171717; padding: 24px; border-radius: 6px; }
+    h1 { margin: 0 0 8px; font-size: 20px; line-height: 1.25; }
+    p { margin: 0 0 16px; color: #b8b8b8; font-size: 14px; line-height: 1.5; }
+    a, button { appearance: none; border: 1px solid #3a3a3a; background: #5e6ad2; color: white; border-radius: 4px; padding: 10px 14px; font: inherit; font-size: 14px; cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; }
+    button.secondary { background: transparent; color: #f5f5f5; }
+    textarea { width: 100%; box-sizing: border-box; min-height: 104px; resize: vertical; margin: 8px 0 12px; padding: 10px; border-radius: 4px; border: 1px solid #333; background: #0f0f0f; color: #f5f5f5; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+    .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+    .fallback { margin-top: 18px; padding-top: 18px; border-top: 1px solid #2a2a2a; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>${escapeHtml(title)}</h1>
+    <p>${statusText}</p>
+    <div class="actions">
+      <a href="${escapeHtml(callbackUrl)}">Open OpenLinear</a>
+      ${hasToken ? '<button class="secondary" type="button" id="copy-token">Copy token</button>' : ''}
+    </div>
+    ${hasToken ? `<div class="fallback">
+      <p>If OpenLinear does not open, paste this token into the sign-in screen.</p>
+      <textarea id="token" readonly>${safeToken}</textarea>
+    </div>` : ''}
+  </main>
+  <script>
+    const callbackUrl = ${JSON.stringify(callbackUrl)};
+    const token = ${JSON.stringify(params.token ?? '')};
+    window.setTimeout(() => {
+      window.location.href = callbackUrl;
+    }, 100);
+    document.getElementById('copy-token')?.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(token);
+        document.getElementById('copy-token').textContent = 'Copied';
+      } catch {}
+    });
+  </script>
+</body>
+</html>`;
+}
+
+function respondWithSuccess(client: OAuthClient, token: string, res: Response): void {
+  if (client === 'desktop') {
+    res
+      .status(200)
+      .set('Content-Type', 'text/html; charset=utf-8')
+      .set('Cache-Control', 'no-store')
+      .send(renderDesktopCallbackHtml({ token }));
+    return;
+  }
+  res.redirect(buildWebSuccessRedirect(token));
+}
+
+function respondWithError(client: OAuthClient, error: string, res: Response): void {
   const encoded = encodeURIComponent(error);
   if (client === 'desktop') {
-    return `${DESKTOP_CALLBACK_SCHEME}?error=${encoded}`;
+    res
+      .status(200)
+      .set('Content-Type', 'text/html; charset=utf-8')
+      .set('Cache-Control', 'no-store')
+      .send(renderDesktopCallbackHtml({ error }));
+    return;
   }
-  return `${getFrontendUrl()}?error=${encoded}`;
+  res.redirect(`${getFrontendUrl()}?error=${encoded}`);
 }
 
 router.get('/github', (req: Request, res: Response) => {
@@ -140,23 +230,25 @@ router.get('/github/callback', async (req: Request, res: Response) => {
 
   if (error) {
     console.error('[Auth] GitHub OAuth error:', error, error_description);
-    res.redirect(buildErrorRedirect(client, String(error_description || error)));
+    respondWithError(client, String(error_description || error), res);
     return;
   }
 
   if (!code || typeof code !== 'string') {
-    res.redirect(buildErrorRedirect(client, 'missing_code'));
+    respondWithError(client, 'missing_code', res);
     return;
   }
 
   if (!verified) {
     console.warn('[Auth] OAuth callback received with invalid or expired state');
-    res.redirect(buildErrorRedirect(client, 'invalid_state'));
+    respondWithError(client, 'invalid_state', res);
     return;
   }
 
   try {
-    const accessToken = await exchangeCodeForToken(code);
+    const redirectUri =
+      client === 'desktop' ? buildDesktopRedirectUri(req) : undefined;
+    const accessToken = await exchangeCodeForToken(code, redirectUri);
     const githubUser = await getGitHubUser(accessToken);
     const user = await createOrUpdateUser(githubUser, accessToken);
 
@@ -166,11 +258,11 @@ router.get('/github/callback', async (req: Request, res: Response) => {
       { expiresIn: '7d' }
     );
 
-    res.redirect(buildSuccessRedirect(client, token));
+    respondWithSuccess(client, token, res);
   } catch (err) {
     console.error('[Auth] OAuth callback error:', err);
     const errorMsg = err instanceof Error ? err.message : 'auth_failed';
-    res.redirect(buildErrorRedirect(client, errorMsg));
+    respondWithError(client, errorMsg, res);
   }
 });
 
@@ -194,7 +286,10 @@ router.get('/me', async (req: Request, res: Response) => {
     }
 
     const { accessToken: _, ...safeUser } = user;
-    res.json(safeUser);
+    res.json({
+      ...safeUser,
+      githubLinked: Boolean(user.accessToken),
+    });
   } catch {
     res.status(401).json({ error: 'Invalid token' });
   }
