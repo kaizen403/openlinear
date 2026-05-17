@@ -20,7 +20,7 @@ function getGitHubConfig() {
 }
 
 export interface GitHubUser {
-  id: number;
+  id: number | string;
   login: string;
   email: string | null;
   avatar_url: string;
@@ -79,8 +79,30 @@ function getGitHubHeaders(accessToken: string) {
   };
 }
 
-function getGitHubErrorMessage(response: Response, fallback: string) {
-  return `${fallback}: ${response.status} ${response.statusText}`.trim();
+async function getGitHubErrorMessage(response: Response, fallback: string): Promise<string> {
+  let githubMessage = '';
+  try {
+    const body = (await response.json()) as { message?: string };
+    githubMessage = body.message ? `: ${body.message}` : '';
+  } catch {}
+
+  if (response.status === 401) {
+    return 'GitHub token expired or was revoked. Reconnect GitHub and try again.';
+  }
+
+  if (response.status === 403) {
+    const remaining = response.headers.get('x-ratelimit-remaining');
+    if (remaining === '0') {
+      const resetHeader = response.headers.get('x-ratelimit-reset');
+      const resetTime = resetHeader
+        ? new Date(Number.parseInt(resetHeader, 10) * 1000).toLocaleTimeString()
+        : 'soon';
+      return `GitHub rate limit exceeded. Resets at ${resetTime}.`;
+    }
+    return `GitHub rejected the repository request${githubMessage}`;
+  }
+
+  return `${fallback}: ${response.status} ${response.statusText}${githubMessage}`.trim();
 }
 
 function getCacheKey(options: GetGitHubReposOptions): string {
@@ -279,7 +301,7 @@ interface TokenResponse {
   error_description?: string;
 }
 
-export async function exchangeCodeForToken(code: string): Promise<string> {
+export async function exchangeCodeForToken(code: string, redirectUri?: string): Promise<string> {
   const { clientId, clientSecret } = getGitHubConfig();
   const response = await fetch('https://github.com/login/oauth/access_token', {
     method: 'POST',
@@ -291,6 +313,7 @@ export async function exchangeCodeForToken(code: string): Promise<string> {
       client_id: clientId,
       client_secret: clientSecret,
       code,
+      ...(redirectUri ? { redirect_uri: redirectUri } : {}),
     }),
   });
 
@@ -376,7 +399,7 @@ async function searchGitHubRepoScope(
       headers: getGitHubHeaders(accessToken),
     }).then(async (response) => {
       if (!response.ok) {
-        throw new Error(getGitHubErrorMessage(response, 'Failed to search repositories'));
+        throw new Error(await getGitHubErrorMessage(response, 'Failed to search repositories'));
       }
       return (await response.json()) as { items: GitHubRepo[]; total_count: number };
     });
@@ -450,7 +473,7 @@ async function listGitHubRepos(
   });
 
   if (!response.ok) {
-    throw new Error(getGitHubErrorMessage(response, 'Failed to fetch repositories'));
+    throw new Error(await getGitHubErrorMessage(response, 'Failed to fetch repositories'));
   }
 
   const data = (await response.json()) as GitHubRepo[];
@@ -491,17 +514,36 @@ export async function createOrUpdateUser(
   githubUser: GitHubUser,
   accessToken: string
 ) {
+  const githubId = String(githubUser.id);
   const encryptedToken = encryptToken(accessToken);
+
+  const existingByGithubId = await prisma.user.findUnique({
+    where: { githubId },
+  });
+
+  if (existingByGithubId) {
+    return prisma.user.update({
+      where: { id: existingByGithubId.id },
+      data: {
+        username: githubUser.login,
+        email: githubUser.email,
+        avatarUrl: githubUser.avatar_url,
+        accessToken: encryptedToken,
+      },
+    });
+  }
+
   return prisma.user.upsert({
-    where: { githubId: githubUser.id },
+    where: { username: githubUser.login },
     update: {
+      githubId,
       username: githubUser.login,
       email: githubUser.email,
       avatarUrl: githubUser.avatar_url,
       accessToken: encryptedToken,
     },
     create: {
-      githubId: githubUser.id,
+      githubId,
       username: githubUser.login,
       email: githubUser.email,
       avatarUrl: githubUser.avatar_url,
