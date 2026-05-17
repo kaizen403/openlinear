@@ -61,7 +61,6 @@ interface SidebarProps {
     open: boolean
     onClose: () => void
     width: number
-    animating: boolean
 }
 
 function TeamSection({ team, pathname, searchParams, onDelete }: { team: Team; pathname: string; searchParams: URLSearchParams; onDelete: (teamId: string, teamName: string) => void }) {
@@ -69,7 +68,7 @@ function TeamSection({ team, pathname, searchParams, onDelete }: { team: Team; p
     const [menuOpen, setMenuOpen] = useState(false)
     const teamId = searchParams.get("teamId")
 
-    const isIssuesActive = pathname === "/" && teamId === team.id
+    const isIssuesActive = pathname === "/teams/issues" && searchParams.get("id") === team.id
     const isProjectsActive = pathname === "/projects" && teamId === team.id
     const isManageActive = pathname === "/teams/manage" && searchParams.get("id") === team.id
 
@@ -136,7 +135,7 @@ function TeamSection({ team, pathname, searchParams, onDelete }: { team: Team; p
             {expanded && (
                 <div className="ml-3 pl-3 border-l border-linear-border mt-0.5 space-y-0.5">
                     <Link
-                        href={`/?teamId=${team.id}`}
+                        href={`/teams/issues?id=${team.id}&name=${encodeURIComponent(team.name)}`}
                         className={subNavItemClass(isIssuesActive)}
                     >
                         <CircleDot className="w-3.5 h-3.5 flex-shrink-0" />
@@ -162,7 +161,7 @@ function TeamSection({ team, pathname, searchParams, onDelete }: { team: Team; p
     )
 }
 
-export function Sidebar({ open, onClose, width, animating }: SidebarProps) {
+export function Sidebar({ open, onClose, width }: SidebarProps) {
     const pathname = usePathname()
     const searchParams = useSearchParams()
     const router = useRouter()
@@ -283,20 +282,10 @@ export function Sidebar({ open, onClose, width, animating }: SidebarProps) {
     return (
         <aside
             className="bg-linear-bg-secondary border-r border-linear-border flex-shrink-0 overflow-hidden h-full relative"
-            style={{
-                width: 'var(--sidebar-width, 0px)',
-            }}
+            style={{ width: `${width}px` }}
             aria-hidden={!open}
         >
-            <div
-                className="flex flex-col h-full"
-                style={{
-                    width: `${width}px`,
-                    transform: open ? 'translateX(0)' : `translateX(-${width}px)`,
-                    transition: animating ? 'transform 150ms cubic-bezier(0.25, 0.1, 0.25, 1)' : 'none',
-                    willChange: animating ? 'transform' : 'auto',
-                }}
-            >
+            <div className="flex flex-col h-full">
             <div className="p-4 border-b border-linear-border flex items-center justify-between min-w-0" data-tauri-drag-region>
                 <div className="flex items-center gap-3">
                     {isTauri && (
