@@ -127,7 +127,7 @@ function ProjectConfigPanel({ selectedProject, activeRepository, tasks, selected
                         router.push('/projects')
                       }}
                       disabled={!canEditSource}
-                      className="ml-auto p-1 rounded-sm text-linear-text-tertiary hover:text-linear-text hover:bg-white/[0.04] transition-colors disabled:opacity-40 disabled:pointer-events-none"
+                      className="ml-auto p-1 rounded-sm text-linear-text-tertiary hover:text-linear-text hover:bg-linear-bg-tertiary transition-colors disabled:opacity-40 disabled:pointer-events-none"
                       aria-label="Edit source"
                       title="Edit source"
                     >
@@ -341,7 +341,7 @@ export function KanbanBoard(props: KanbanBoardProps) {
                           <button
                             type="button"
                             onClick={() => handleAddTask(column.status)}
-                            className="inline-flex items-center gap-1.5 h-8 px-3 rounded-sm text-xs font-medium text-linear-text-secondary hover:text-linear-text hover:bg-white/[0.04] transition-colors"
+                            className="inline-flex items-center gap-1.5 h-8 px-3 rounded-sm text-xs font-medium text-linear-text-secondary hover:text-linear-text hover:bg-linear-bg-tertiary transition-colors"
                           >
                             <Plus className="w-3.5 h-3.5" />
                             Add task

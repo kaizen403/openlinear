@@ -15,8 +15,8 @@ function SkeletonColumn({
   cardCount: number
 }) {
   return (
-    <div className="flex flex-col h-full border-r border-white/[0.06] last:border-r-0 w-[85vw] flex-none md:w-full md:flex-auto snap-start">
-      <div className="flex items-center justify-between px-4 py-3 h-12 flex-shrink-0 border-b border-white/[0.04] gap-2">
+    <div className="flex flex-col h-full border-r border-linear-border last:border-r-0 w-[85vw] flex-none md:w-full md:flex-auto snap-start">
+      <div className="flex items-center justify-between px-4 py-3 h-12 flex-shrink-0 border-b border-linear-border gap-2">
         <div className="flex items-center gap-2 min-w-0 flex-shrink overflow-hidden">
           <div className="w-16 h-3 bg-linear-border rounded flex-shrink-0" />
           <div className="w-6 h-4 bg-linear-bg-tertiary rounded-full flex-shrink-0" />

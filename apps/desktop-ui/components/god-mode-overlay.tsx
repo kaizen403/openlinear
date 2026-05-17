@@ -120,14 +120,14 @@ export function GodModeOverlay() {
           "fixed bottom-4 right-4 sm:bottom-6 sm:right-6",
           "flex items-center justify-center",
           "w-12 h-12 rounded-full",
-          "bg-linear-bg-secondary/80 backdrop-blur-2xl border border-white/10 shadow-2xl",
+          "bg-linear-bg-secondary/80 backdrop-blur-2xl border border-linear-border shadow-2xl",
           "cursor-pointer",
           "transition-colors duration-200",
           "hover:bg-linear-bg-tertiary/80"
         )}
         aria-label="Toggle God Mode"
       >
-        <Brain className="w-5 h-5 text-zinc-400" />
+        <Brain className="w-5 h-5 text-linear-text-tertiary" />
       </motion.button>
 
       <AnimatePresence>
@@ -142,12 +142,12 @@ export function GodModeOverlay() {
               "pointer-events-auto",
               "fixed bottom-12 inset-x-0 mx-auto",
               "w-[calc(100%-2rem)] sm:w-[600px] max-w-[600px] h-14 sm:h-16 rounded-full",
-              "bg-linear-bg-secondary/80 backdrop-blur-2xl border border-white/10 shadow-2xl",
+              "bg-linear-bg-secondary/80 backdrop-blur-2xl border border-linear-border shadow-2xl",
               "flex items-center gap-3 px-4"
             )}
           >
-            <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-white/[0.06]">
-              <Plus className="h-4 w-4 text-zinc-500" />
+            <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-linear-bg-tertiary">
+              <Plus className="h-4 w-4 text-linear-text-tertiary" />
             </div>
 
             <input
@@ -158,15 +158,15 @@ export function GodModeOverlay() {
               onKeyDown={handleKeyDown}
               placeholder="Ask anything..."
               className={cn(
-                "flex-1 bg-transparent text-lg text-zinc-200",
-                "placeholder:text-zinc-600",
+                "flex-1 bg-transparent text-lg text-linear-text",
+                "placeholder:text-linear-text-tertiary",
                 "outline-none border-none",
-                "caret-zinc-400"
+                "caret-linear-text-secondary"
               )}
             />
 
-            <div className="flex items-center gap-2 border-l border-white/[0.06] pl-3">
-              <span className="text-[11px] font-medium tracking-wide text-zinc-600 select-none">
+            <div className="flex items-center gap-2 border-l border-linear-border pl-3">
+              <span className="text-[11px] font-medium tracking-wide text-linear-text-tertiary select-none">
                 Brainstorm
               </span>
 
@@ -177,7 +177,7 @@ export function GodModeOverlay() {
                     "flex h-6 w-6 items-center justify-center rounded-sm transition-colors",
                     webSearchEnabled
                       ? "text-blue-400 bg-blue-500/10"
-                      : "text-zinc-600 hover:text-zinc-400 hover:bg-white/[0.04]"
+                      : "text-linear-text-tertiary hover:text-linear-text-secondary hover:bg-linear-bg-tertiary"
                   )}
                 >
                   <Globe className="h-3.5 w-3.5" />
@@ -236,7 +236,7 @@ export function GodModeOverlay() {
                   !micSupported && "opacity-40 cursor-not-allowed",
                   isRecording
                     ? "text-red-500 animate-pulse"
-                    : "text-zinc-600 hover:text-zinc-400 hover:bg-white/[0.04]"
+                    : "text-linear-text-tertiary hover:text-linear-text-secondary hover:bg-linear-bg-tertiary"
                 )}
               >
                 <Mic className="h-3.5 w-3.5" />
@@ -247,7 +247,7 @@ export function GodModeOverlay() {
                 className={cn(
                   "flex items-center justify-center",
                   "w-8 h-8 rounded-full",
-                  "bg-white/[0.1] hover:bg-white/[0.15]",
+                  "bg-linear-bg-tertiary hover:bg-linear-border",
                   "transition-colors duration-150"
                 )}
               >

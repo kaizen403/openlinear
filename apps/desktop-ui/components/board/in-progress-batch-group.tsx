@@ -37,12 +37,12 @@ export function InProgressBatchGroup({
         <div
           ref={provided.innerRef}
           {...provided.draggableProps}
-          className={`border border-dashed border-white/[0.08] rounded-sm p-2 mb-3 bg-white/[0.01] transition-all duration-200 ${snapshot.isDragging ? 'shadow-2xl shadow-black/50 ring-1 ring-white/10 scale-[1.02] rotate-1' : ''}`}
+          className={`border border-dashed border-linear-border rounded-sm p-2 mb-3 bg-linear-bg-secondary/50 transition-all duration-200 ${snapshot.isDragging ? 'shadow-2xl shadow-black/50 ring-1 ring-linear-border scale-[1.02] rotate-1' : ''}`}
         >
           <div className="flex items-center gap-1.5 px-1 mb-1.5" {...provided.dragHandleProps}>
-            <GripVertical className="w-3 h-3 text-zinc-500/60 cursor-grab active:cursor-grabbing" />
-            <Loader2 className="w-3 h-3 animate-spin text-zinc-500" />
-            <span className="text-[11px] text-zinc-500 font-medium uppercase tracking-wider">
+            <GripVertical className="w-3 h-3 text-linear-text-tertiary/60 cursor-grab active:cursor-grabbing" />
+            <Loader2 className="w-3 h-3 animate-spin text-linear-text-tertiary" />
+            <span className="text-[11px] text-linear-text-tertiary font-medium uppercase tracking-wider">
               {activeBatch.mode === 'queue' ? 'Queue' : 'Parallel'} Issues
             </span>
           </div>
@@ -51,7 +51,7 @@ export function InProgressBatchGroup({
               <div key={`batch-connector-${task.id}`}>
                 {i > 0 && (
                   <div className="flex justify-center">
-                    <div className="w-px h-2 bg-white/[0.12]" />
+                    <div className="w-px h-2 bg-linear-border" />
                   </div>
                 )}
                 <TaskCard
