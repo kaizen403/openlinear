@@ -25,7 +25,29 @@ export async function fetchGitHubRepos(options: {
   if (options.sort) params.set('sort', options.sort);
   if (options.filter) params.set('filter', options.filter);
   if (options.q?.trim()) params.set('q', options.q.trim());
-  return apiFetch<GitHubReposResponse>(`/api/repos/github?${params.toString()}`);
+
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), 20_000);
+  const t0 = performance.now();
+  try {
+    const result = await apiFetch<GitHubReposResponse>(
+      `/api/repos/github?${params.toString()}`,
+      { signal: controller.signal },
+    );
+    console.log(
+      `[fetchGitHubRepos] ${params.toString()} -> ${result.repos.length} repos (total=${result.totalCount}, hasMore=${result.hasMore}) in ${Math.round(performance.now() - t0)}ms`,
+    );
+    return result;
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      console.error(`[fetchGitHubRepos] timeout after 20s: ${params.toString()}`);
+      throw new Error('GitHub took too long to respond. Try a narrower search or fewer filters.');
+    }
+    console.error(`[fetchGitHubRepos] error after ${Math.round(performance.now() - t0)}ms:`, err);
+    throw err;
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
 }
 
 export async function importRepo(repo: GitHubRepo): Promise<Repository> {

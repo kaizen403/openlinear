@@ -136,7 +136,7 @@ router.get('/github', requireAuth, async (req: AuthRequest, res: Response, next:
       );
     }
 
-    const repos = await getGitHubRepos(accessToken, {
+    const queryOptions = {
       userId: req.userId!,
       username: user.username,
       page: readBoundedInt(req.query.page, 1, 1, 1000),
@@ -144,7 +144,13 @@ router.get('/github', requireAuth, async (req: AuthRequest, res: Response, next:
       sort: readRepoSort(req.query.sort),
       filter: readRepoFilter(req.query.filter),
       q: readQueryString(req.query.q)?.trim() || undefined,
-    });
+    };
+    const t0 = Date.now();
+    const repos = await getGitHubRepos(accessToken, queryOptions);
+    const elapsed = Date.now() - t0;
+    console.log(
+      `[repos/github] user=${user.username} page=${queryOptions.page} perPage=${queryOptions.perPage} filter=${queryOptions.filter} sort=${queryOptions.sort} q=${queryOptions.q ?? ''} returned=${repos.repos.length} hasMore=${repos.hasMore} total=${repos.totalCount} in ${elapsed}ms`,
+    );
     res.json(repos);
   } catch (err) {
     next(err);

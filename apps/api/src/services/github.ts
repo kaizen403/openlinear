@@ -353,11 +353,11 @@ async function searchGitHubRepoScope(
   scope: { type: 'user' | 'org'; login: string },
   requestedEnd: number,
 ): Promise<{ repos: GitHubRepo[]; totalCount: number }> {
-  const repos: GitHubRepo[] = [];
-  let totalCount = 0;
-  const pagesNeeded = Math.max(1, Math.ceil(requestedEnd / 100));
+  const MAX_SEARCH_PAGES = 3;
+  const pagesNeeded = Math.min(MAX_SEARCH_PAGES, Math.max(1, Math.ceil(requestedEnd / 100)));
 
-  for (let page = 1; page <= pagesNeeded; page++) {
+  const pagePromises = Array.from({ length: pagesNeeded }, (_, i) => {
+    const page = i + 1;
     const params = new URLSearchParams({
       q: buildRepoSearchQuery(options, scope),
       page: String(page),
@@ -372,18 +372,22 @@ async function searchGitHubRepoScope(
       params.set('order', 'desc');
     }
 
-    const response = await fetch(`https://api.github.com/search/repositories?${params.toString()}`, {
+    return fetch(`https://api.github.com/search/repositories?${params.toString()}`, {
       headers: getGitHubHeaders(accessToken),
+    }).then(async (response) => {
+      if (!response.ok) {
+        throw new Error(getGitHubErrorMessage(response, 'Failed to search repositories'));
+      }
+      return (await response.json()) as { items: GitHubRepo[]; total_count: number };
     });
+  });
 
-    if (!response.ok) {
-      throw new Error(getGitHubErrorMessage(response, 'Failed to search repositories'));
-    }
-
-    const data = (await response.json()) as { items: GitHubRepo[]; total_count: number };
+  const pageResults = await Promise.all(pagePromises);
+  const repos: GitHubRepo[] = [];
+  let totalCount = 0;
+  for (const data of pageResults) {
     totalCount = data.total_count;
     repos.push(...data.items);
-
     if (data.items.length < 100) break;
   }
 
