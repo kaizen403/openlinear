@@ -137,6 +137,7 @@ button,
 [data-tauri-drag-region] {
   -webkit-user-select: none;
   user-select: none;
+  -webkit-tap-highlight-color: transparent;
 }
 
 input,
