@@ -19,6 +19,7 @@ interface ColumnProps {
   innerRef?: (element: HTMLElement | null) => void
   droppableProps?: DroppableProvidedProps
   isDraggingOver?: boolean
+  isAnyDragging?: boolean
 }
 
 export function Column({
@@ -34,6 +35,7 @@ export function Column({
   innerRef,
   droppableProps,
   isDraggingOver,
+  isAnyDragging,
 }: ColumnProps) {
   return (
     <div className="flex flex-col h-full border-r border-linear-border last:border-r-0 w-[90vw] sm:w-[72vw] flex-none md:w-full md:flex-auto snap-start bg-gradient-to-b from-linear-bg-secondary to-transparent">
@@ -83,7 +85,8 @@ export function Column({
         ref={innerRef}
         {...droppableProps}
         className={cn(
-          "flex-1 p-2.5 sm:p-3 overflow-y-auto",
+          "flex-1 p-2.5 sm:p-3",
+          isAnyDragging ? "overflow-y-visible" : "overflow-y-auto",
           "space-y-3",
           isDraggingOver && "bg-linear-bg-secondary border border-dashed border-linear-border rounded-sm backdrop-blur-sm"
         )}

@@ -1,11 +1,12 @@
 import { getApiUrl, getSidecarApiUrl, getAuthHeader, getAuthToken } from './client';
 
 /**
- * Server error envelope shape — backend returns `{ error, code?, details? }` on non-2xx.
+ * Server error envelope shape — backend returns `{ error, code?, message?, details? }` on non-2xx.
  */
 interface ServerErrorEnvelope {
   error?: string;
   code?: string;
+  message?: string;
   details?: unknown;
 }
 
@@ -129,14 +130,14 @@ export async function apiFetch<T = unknown>(
   if (response.status === 401 && !allowUnauthenticated) {
     fireAuthExpired(tokenUsedForRequest);
     const envelope = await readErrorEnvelope(response);
-    throw new AuthExpiredError(envelope.error || 'Session expired');
+    throw new AuthExpiredError(envelope.message || envelope.error || 'Session expired');
   }
 
   if (!response.ok) {
     const envelope = await readErrorEnvelope(response);
     throw new ApiError(
       response.status,
-      envelope.error || `Request failed with status ${response.status}`,
+      envelope.message || envelope.error || `Request failed with status ${response.status}`,
       envelope.code,
       envelope.details,
     );
@@ -202,14 +203,14 @@ export async function apiFetchRaw(
   if (response.status === 401 && !allowUnauthenticated) {
     fireAuthExpired(tokenUsedForRequest);
     const envelope = await readErrorEnvelope(response.clone());
-    throw new AuthExpiredError(envelope.error || 'Session expired');
+    throw new AuthExpiredError(envelope.message || envelope.error || 'Session expired');
   }
 
   if (!response.ok) {
     const envelope = await readErrorEnvelope(response.clone());
     throw new ApiError(
       response.status,
-      envelope.error || `Request failed with status ${response.status}`,
+      envelope.message || envelope.error || `Request failed with status ${response.status}`,
       envelope.code,
       envelope.details,
     );

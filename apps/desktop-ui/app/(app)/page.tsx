@@ -53,10 +53,11 @@ function HomeContent() {
 
   const [isTaskFormOpen, setIsTaskFormOpen] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
-  const { isAuthenticated, isLoading, activeRepository } = useAuth()
+  const { isAuthenticated, isLoading, activeRepository, user } = useAuth()
   const router = useRouter()
   const [projects, setProjects] = useState<Project[]>([])
   const [teams, setTeams] = useState<Team[]>([])
+  const [isProjectsLoading, setIsProjectsLoading] = useState(true)
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState("")
@@ -64,8 +65,13 @@ function HomeContent() {
 
   useEffect(() => {
     if (!isAuthenticated) return
-    fetchProjects().then(setProjects).catch(() => setProjects([]))
-    fetchTeams().then(setTeams).catch(() => setTeams([]))
+    setIsProjectsLoading(true)
+    Promise.allSettled([fetchProjects(), fetchTeams()])
+      .then(([projectsResult, teamsResult]) => {
+        setProjects(projectsResult.status === "fulfilled" ? projectsResult.value : [])
+        setTeams(teamsResult.status === "fulfilled" ? teamsResult.value : [])
+      })
+      .finally(() => setIsProjectsLoading(false))
   }, [isAuthenticated])
 
   useEffect(() => {
@@ -99,7 +105,7 @@ function HomeContent() {
           ? activeRepository.name
           : "Dashboard"
 
-  if (isLoading || !isAuthenticated) {
+  if (isLoading || !isAuthenticated || isProjectsLoading) {
     return <HomePageSkeleton />
   }
 

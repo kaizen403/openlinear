@@ -1,7 +1,7 @@
 "use client"
 
-import { useEffect } from "react"
-import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd"
+import { useEffect, useState, useCallback } from "react"
+import { DragDropContext, Droppable, Draggable, DropResult } from "@hello-pangea/dnd"
 import { Column } from "./column"
 import { TaskCard } from "./task-card"
 import { BatchControls } from "./batch-controls"
@@ -196,6 +196,17 @@ export function KanbanBoard(props: KanbanBoardProps) {
     handleProviderSetupComplete,
   } = useKanbanBoard(props)
 
+  const [isDragging, setIsDragging] = useState(false)
+
+  const handleDragStart = useCallback(() => {
+    setIsDragging(true)
+  }, [])
+
+  const handleDragEndWithState = useCallback((result: DropResult) => {
+    setIsDragging(false)
+    handleDragEnd(result)
+  }, [handleDragEnd])
+
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null
@@ -274,8 +285,8 @@ export function KanbanBoard(props: KanbanBoardProps) {
   }
 
   return (
-    <DragDropContext onDragEnd={handleDragEnd}>
-      <div className="flex-1 overflow-hidden relative bg-linear-bg flex flex-col">
+    <DragDropContext onDragStart={handleDragStart} onDragEnd={handleDragEndWithState}>
+      <div className={`flex-1 relative bg-linear-bg flex flex-col ${isDragging ? 'overflow-visible' : 'overflow-hidden'}`}>
         {activeBatch && (
           <BatchProgress
             batchId={activeBatch.id}
@@ -317,6 +328,7 @@ export function KanbanBoard(props: KanbanBoardProps) {
                     innerRef={provided.innerRef}
                     droppableProps={provided.droppableProps}
                     isDraggingOver={snapshot.isDraggingOver}
+                    isAnyDragging={isDragging}
                   >
                     {columnTasks.length === 0 && !snapshot.isDraggingOver ? (
                       <EmptyState

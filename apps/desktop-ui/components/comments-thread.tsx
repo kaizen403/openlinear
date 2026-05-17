@@ -54,6 +54,15 @@ function initialsOf(name: string): string {
   return (parts[0]![0]! + parts[1]![0]!).toUpperCase()
 }
 
+function friendlyError(err: unknown, fallback: string): string {
+  const raw = err instanceof Error ? err.message : String(err ?? "")
+  const normalized = raw.trim().toLowerCase().replace(/\s+/g, "_")
+  if (!raw || normalized === "validation_error" || normalized === "validation_failed") {
+    return fallback
+  }
+  return raw
+}
+
 export function CommentsThread({ taskId }: CommentsThreadProps) {
   const { user } = useAuth()
   const [comments, setComments] = useState<Comment[]>([])
@@ -92,7 +101,7 @@ export function CommentsThread({ taskId }: CommentsThreadProps) {
         }
       } catch (err) {
         if (!cancelled) {
-          setLoadError(err instanceof Error ? err.message : "Failed to load comments")
+          setLoadError(friendlyError(err, "Failed to load comments"))
         }
       } finally {
         if (!cancelled) setLoading(false)
@@ -220,7 +229,7 @@ export function CommentsThread({ taskId }: CommentsThreadProps) {
       setBody("")
       setMention(MENTION_CLOSED)
     } catch (err) {
-      setLoadError(err instanceof Error ? err.message : "Failed to post comment")
+      setLoadError(friendlyError(err, "Failed to post comment"))
     } finally {
       setSubmitting(false)
     }
@@ -244,7 +253,7 @@ export function CommentsThread({ taskId }: CommentsThreadProps) {
       setComments((prev) => prev.map((c) => (c.id === id ? updated : c)))
       cancelEdit()
     } catch (err) {
-      setLoadError(err instanceof Error ? err.message : "Failed to update comment")
+      setLoadError(friendlyError(err, "Failed to update comment"))
     }
   }
 
@@ -255,7 +264,7 @@ export function CommentsThread({ taskId }: CommentsThreadProps) {
       await deleteComment(id)
     } catch (err) {
       setComments(prev)
-      setLoadError(err instanceof Error ? err.message : "Failed to delete comment")
+      setLoadError(friendlyError(err, "Failed to delete comment"))
     }
   }
 

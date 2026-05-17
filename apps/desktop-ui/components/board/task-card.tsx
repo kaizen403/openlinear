@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
+import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { Loader2, GitBranch, Code, GitPullRequest, Check, X, ExternalLink, Play, ArrowRight, Archive, Clock, CalendarDays } from "lucide-react"
 import { cn, openExternal } from "@/lib/utils"
@@ -220,6 +221,14 @@ export function TaskCard({ task, onExecute, onCancel, onDelete, onMoveToInProgre
         
         <div className="flex items-center justify-between mt-1">
           <div className="flex items-center gap-2 min-w-0">
+            {(task.assignee || task.creator) && (
+              <Avatar className="h-4 w-4 rounded-full shrink-0" title={(task.assignee || task.creator)!.username}>
+                <AvatarImage src={(task.assignee || task.creator)!.avatarUrl || undefined} alt={(task.assignee || task.creator)!.username} />
+                <AvatarFallback className="text-[8px] h-4 w-4 bg-linear-bg-tertiary text-linear-text-tertiary border border-linear-border">
+                  {(task.assignee || task.creator)!.username.charAt(0).toUpperCase()}
+                </AvatarFallback>
+              </Avatar>
+            )}
             <span className="text-[11px] text-linear-text-tertiary font-mono opacity-60">
               {task.identifier || (task.number ? `#${task.number}` : task.id.slice(0, 6))}
             </span>
