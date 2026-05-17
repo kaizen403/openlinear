@@ -27,7 +27,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["dmg", "app", "appimage", "deb"],
+    "targets": ["dmg", "app", "appimage"],
     "icon": ["icons/icon.png"],
     "externalBin": ["binaries/openlinear-sidecar", "binaries/opencode"],
     "macOS": {

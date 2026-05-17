@@ -16,9 +16,71 @@ warn() { echo -e "${YELLOW}[build]${NC} $1"; }
 err()  { echo -e "${RED}[build]${NC} $1"; }
 
 SKIP_TEST=0
-if [ "${1:-}" = "--skip-test" ]; then
-    SKIP_TEST=1
-fi
+TARGET_CHOICE="${DESKTOP_BUILD_TARGET:-}"
+
+for arg in "$@"; do
+    case "$arg" in
+        --skip-test) SKIP_TEST=1 ;;
+        --target=*) TARGET_CHOICE="${arg#--target=}" ;;
+        --appimage) TARGET_CHOICE="appimage" ;;
+        --macos|--dmg) TARGET_CHOICE="macos" ;;
+    esac
+done
+
+HOST_OS="$(uname -s)"
+
+prompt_target() {
+    if [ -n "$TARGET_CHOICE" ]; then
+        return
+    fi
+    if [ ! -t 0 ]; then
+        case "$HOST_OS" in
+            Linux)  TARGET_CHOICE="appimage" ;;
+            Darwin) TARGET_CHOICE="macos" ;;
+        esac
+        warn "Non-interactive shell; defaulting target to '$TARGET_CHOICE'."
+        return
+    fi
+    echo ""
+    echo "Select build target:"
+    echo "  1) Linux AppImage"
+    echo "  2) macOS app (.dmg / .app)"
+    echo ""
+    read -r -p "Choice [1-2]: " choice
+    case "$choice" in
+        1) TARGET_CHOICE="appimage" ;;
+        2) TARGET_CHOICE="macos" ;;
+        *) err "Invalid choice."; exit 1 ;;
+    esac
+}
+
+prompt_target
+
+case "$TARGET_CHOICE" in
+    appimage)
+        if [ "$HOST_OS" != "Linux" ]; then
+            err "AppImage can only be built on Linux. Detected host: $HOST_OS"
+            exit 1
+        fi
+        BUNDLE_TARGETS="appimage"
+        ;;
+    macos)
+        if [ "$HOST_OS" != "Darwin" ]; then
+            err "macOS apps can only be built on macOS. Detected host: $HOST_OS"
+            err "Tauri does not support cross-compiling to macOS from $HOST_OS."
+            err "Use a Mac (or CI with a macOS runner) to build .dmg / .app."
+            exit 1
+        fi
+        BUNDLE_TARGETS="dmg,app"
+        ;;
+    *)
+        err "Unknown target: $TARGET_CHOICE (expected 'appimage' or 'macos')"
+        exit 1
+        ;;
+esac
+
+ok "Build target: $TARGET_CHOICE  (tauri --bundles $BUNDLE_TARGETS)"
+export DESKTOP_BUILD_BUNDLES="$BUNDLE_TARGETS"
 
 log "Checking prerequisites..."
 
@@ -159,7 +221,11 @@ fi
 ok "Sidecar binaries ready."
 
 log "Building Tauri desktop app (this may take several minutes)..."
-pnpm build:desktop
+if [ "$TARGET_CHOICE" = "appimage" ]; then
+    "$ROOT_DIR/scripts/build-appimage-workaround.sh"
+else
+    pnpm --filter @openlinear/desktop tauri build --bundles "$DESKTOP_BUILD_BUNDLES"
+fi
 
 BUNDLE_DIR="apps/desktop/src-tauri/target/release/bundle"
 if [ ! -d "$BUNDLE_DIR" ]; then
@@ -168,7 +234,7 @@ if [ ! -d "$BUNDLE_DIR" ]; then
 fi
 
 log "Build artifacts:"
-find "$BUNDLE_DIR" -type f \( -name "*.AppImage" -o -name "*.deb" -o -name "*.dmg" -o -name "*.app" -o -name "openlinear" \) | while read -r f; do
+find "$BUNDLE_DIR" -type f \( -name "*.AppImage" -o -name "*.dmg" -o -name "*.app" -o -name "openlinear" \) | while read -r f; do
     size=$(du -h "$f" | cut -f1)
     echo "  - $(basename "$f") ($size)"
 done
@@ -181,31 +247,11 @@ fi
 EXECUTABLE=""
 RAW_BINARY="apps/desktop/src-tauri/target/release/openlinear-desktop"
 APPIMAGE_CANDIDATE="$(find "$BUNDLE_DIR/appimage" -maxdepth 1 -type f -name "*.AppImage" 2>/dev/null | head -1 || true)"
-DEB_CANDIDATE="$(find "$BUNDLE_DIR/deb" -maxdepth 1 -type f -name "*.deb" 2>/dev/null | head -1 || true)"
 
 if [ -n "$APPIMAGE_CANDIDATE" ]; then
     EXECUTABLE="$APPIMAGE_CANDIDATE"
 elif [ -x "$RAW_BINARY" ]; then
-    if [ -n "$DEB_CANDIDATE" ]; then
-        warn "Built .deb package found; smoke-testing raw binary to avoid sudo package installation."
-        warn "Set DESKTOP_BUILD_INSTALL_DEB=1 to install and smoke-test the .deb package."
-    fi
     EXECUTABLE="$RAW_BINARY"
-elif [ -n "$DEB_CANDIDATE" ] && [ "${DESKTOP_BUILD_INSTALL_DEB:-0}" = "1" ]; then
-    if ! command -v dpkg &>/dev/null; then
-        err "DESKTOP_BUILD_INSTALL_DEB=1 requires dpkg, but dpkg was not found."
-        exit 1
-    fi
-    log "Found .deb package. Installing for test..."
-    if ! sudo dpkg -i "$DEB_CANDIDATE"; then
-        if command -v apt-get &>/dev/null; then
-            sudo apt-get install -f -y
-        else
-            err "dpkg install failed and apt-get is not available to repair dependencies."
-            exit 1
-        fi
-    fi
-    EXECUTABLE="/usr/bin/openlinear"
 fi
 
 if [ -n "$EXECUTABLE" ] && [ -f "$EXECUTABLE" ]; then
@@ -241,11 +287,13 @@ fi
 
 echo ""
 ok "Build complete! Desktop app packages:"
-find "$BUNDLE_DIR" -type f \( -name "*.AppImage" -o -name "*.deb" -o -name "*.dmg" \) | while read -r f; do
+find "$BUNDLE_DIR" -type f \( -name "*.AppImage" -o -name "*.dmg" \) | while read -r f; do
     echo "  -> $f"
 done
 echo ""
 echo "Install:"
-echo "  Linux (AppImage):  $BUNDLE_DIR/appimage/*.AppImage"
-echo "  Linux (.deb):      sudo dpkg -i $BUNDLE_DIR/deb/*.deb"
-echo "  macOS (.dmg):      open $BUNDLE_DIR/dmg/openlinear_*.dmg"
+if [ "$TARGET_CHOICE" = "appimage" ]; then
+    echo "  Linux (AppImage):  chmod +x $BUNDLE_DIR/appimage/*.AppImage && $BUNDLE_DIR/appimage/*.AppImage"
+else
+    echo "  macOS (.dmg):      open $BUNDLE_DIR/dmg/OpenLinear_*.dmg"
+fi
