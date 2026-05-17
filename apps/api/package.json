@@ -8,6 +8,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./app": "./src/app.ts",
+    "./errors": "./src/errors.ts",
     "./sse": "./src/sse.ts",
     "./logger": "./src/logger.ts",
     "./middleware": "./src/middleware/auth.ts",

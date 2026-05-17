@@ -273,8 +273,21 @@ export function createApp(): Application {
     res.on('error', cleanup);
   });
 
-  // 7. Global error middleware — MUST be last
-  // 7. Global error middleware — MUST be last
+  app.use(buildErrorHandler());
+
+  return app;
+}
+
+/**
+ * Build the shared JSON error envelope handler.
+ *
+ * Exported so the sidecar can re-mount it AFTER appending its own routers
+ * (executionRouter, batchesRouter, opencodeRouter). Without re-mounting,
+ * `next(error)` calls from sidecar routes would fall through to Express's
+ * default HTML 404 page, breaking the `{ error, code, message, details }`
+ * contract the desktop UI relies on.
+ */
+export function buildErrorHandler(): ErrorRequestHandler {
   const errorHandler: ErrorRequestHandler = (
     err: unknown,
     req: Request,
@@ -376,7 +389,5 @@ export function createApp(): Application {
       requestId,
     });
   };
-  app.use(errorHandler);
-
-  return app;
+  return errorHandler;
 }
