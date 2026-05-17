@@ -29,6 +29,23 @@ export interface ActiveBatch {
   prUrl: string | null
 }
 
+/**
+ * A task is "actively executing" when the sidecar is reporting live progress
+ * in an active phase. Being in the In Progress column alone does NOT mean
+ * the task is running — In Progress is a Kanban state, not a runtime state.
+ */
+export function isTaskActivelyExecuting(
+  task: Pick<Task, 'status'> | null | undefined,
+  progress: ExecutionProgress | undefined,
+  pendingExecuteIds?: Set<string> | null,
+  taskId?: string | null,
+): boolean {
+  if (!task) return false
+  if (taskId && pendingExecuteIds?.has(taskId)) return true
+  if (!progress) return false
+  return ['cloning', 'executing', 'committing', 'creating_pr'].includes(progress.status)
+}
+
 export interface KanbanBoardProps {
   projectId?: string | null
   teamId?: string | null
@@ -58,6 +75,8 @@ export interface UseKanbanBoardReturn {
   batchTaskIds: string[]
   completedBatchTaskIds: string[]
   selectedTask: Task | null
+  startingExecuteIds: Set<string>
+  isSelectedTaskExecuting: boolean
   getTasksByStatus: (status: Task['status']) => Task[]
   handleAddTask: (status: Task['status']) => void
   handleDragEnd: (result: DropResult) => void
@@ -71,6 +90,7 @@ export interface UseKanbanBoardReturn {
   handleBatchMoveToInProgress: () => Promise<void>
   handleBatchExecute: (mode: 'parallel' | 'queue') => Promise<void>
   handleCancelBatch: (batchId: string) => Promise<void>
+  handleApproveNextBatchTask: (batchId: string) => Promise<void>
   toggleTaskSelect: (taskId: string, modifiers?: { shift?: boolean; meta?: boolean }) => void
   toggleColumnSelection: (columnId: string) => void
   toggleColumnSelectAll: (status: Task['status']) => void
@@ -106,11 +126,30 @@ export function useKanbanBoard({ projectId, teamId, projects = [], searchQuery =
   const [completedBatch, setCompletedBatch] = useState<{ taskIds: string[]; prUrl: string | null; mode: string } | null>(null)
   const [showProviderSetup, setShowProviderSetup] = useState(false)
   const [pendingExecuteTaskId, setPendingExecuteTaskId] = useState<string | null>(null)
+  // Tracks tasks whose Execute POST is in flight so the UI can show "starting…"
+  // and the second click on Execute is ignored. Cleared on success or failure.
+  const [startingExecuteIds, setStartingExecuteIds] = useState<Set<string>>(new Set())
   const lastSelectedIdRef = useRef<string | null>(null)
   const { isAuthenticated, activeRepository, refreshActiveRepository } = useAuth()
 
   const batchTaskIds = activeBatch?.tasks.map(t => t.taskId) ?? []
   const completedBatchTaskIds = completedBatch?.taskIds ?? []
+
+  const addStartingExecute = useCallback((taskId: string) => {
+    setStartingExecuteIds(prev => {
+      const next = new Set(prev)
+      next.add(taskId)
+      return next
+    })
+  }, [])
+  const removeStartingExecute = useCallback((taskId: string) => {
+    setStartingExecuteIds(prev => {
+      if (!prev.has(taskId)) return prev
+      const next = new Set(prev)
+      next.delete(taskId)
+      return next
+    })
+  }, [])
 
   const clearColumnSelection = useCallback((status: Task['status']) => {
     setSelectedTaskIds(prev => {
@@ -221,20 +260,40 @@ export function useKanbanBoard({ projectId, teamId, projects = [], searchQuery =
   }, [batchTaskIds.length, completedBatchTaskIds.length, clearColumnSelection])
 
   const handleBatchExecute = async (mode: 'parallel' | 'queue') => {
-    const nonDoneTaskIds = Array.from(selectedTaskIds).filter(
-      id => tasks.find(t => t.id === id)?.status !== 'done'
+    // Only In Progress tasks may be executed in a batch. Mixed selections
+    // (Todo + In Progress) used to send Todo task ids to /api/batches too,
+    // which is wrong: Todo tasks must be moved to In Progress first.
+    const inProgressTaskIds = Array.from(selectedTaskIds).filter(
+      id => tasks.find(t => t.id === id)?.status === 'in_progress'
     )
-    if (nonDoneTaskIds.length === 0) return
+    if (inProgressTaskIds.length === 0) {
+      toast.error('Select at least one In Progress task to execute as a batch')
+      return
+    }
 
     const previousSelection = selectedTaskIds
     const previousTasks = tasks
     clearSelection()
 
     try {
-      await apiFetch('/api/batches', {
+      const created = await apiFetch<{
+        id: string
+        status: string
+        mode: string
+        tasks: Array<{ taskId: string; title: string; status: ActiveBatch['tasks'][number]['status'] }>
+      }>('/api/batches', {
         method: 'POST',
         sidecar: true,
-        body: JSON.stringify({ taskIds: nonDoneTaskIds, mode }),
+        body: JSON.stringify({ taskIds: inProgressTaskIds, mode }),
+      })
+      // Seed activeBatch immediately from the POST response so the UI shows
+      // the batch panel even before the first SSE batch:* event arrives.
+      setActiveBatch({
+        id: created.id,
+        status: created.status || 'running',
+        mode: created.mode || mode,
+        tasks: created.tasks.map(t => ({ taskId: t.taskId, title: t.title, status: t.status })),
+        prUrl: null,
       })
     } catch (err) {
       setTasks(previousTasks)
@@ -257,6 +316,50 @@ export function useKanbanBoard({ projectId, teamId, projects = [], searchQuery =
       toast.error(msg)
     }
   }
+
+  const handleApproveNextBatchTask = useCallback(async (batchId: string) => {
+    try {
+      await apiFetch(`/api/batches/${batchId}/approve`, {
+        method: 'POST',
+        sidecar: true,
+      })
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to approve next task'
+      console.error('Error approving next batch task:', err)
+      toast.error(msg)
+    }
+  }, [])
+
+  const reconcileActiveBatches = useCallback(async () => {
+    try {
+      const batches = await apiFetch<Array<{ id: string; status: string; mode: string }>>(
+        '/api/batches',
+        { sidecar: true },
+      )
+      const running = batches.find(b => b.status === 'running' || b.status === 'pending' || b.status === 'merging')
+      if (running) {
+        const detail = await apiFetch<{
+          id: string
+          status: string
+          mode: string
+          prUrl: string | null
+          tasks: Array<{ taskId: string; title: string; status: ActiveBatch['tasks'][number]['status'] }>
+        }>(`/api/batches/${running.id}`, { sidecar: true })
+        setActiveBatch({
+          id: detail.id,
+          status: detail.status,
+          mode: detail.mode,
+          tasks: detail.tasks.map(t => ({ taskId: t.taskId, title: t.title, status: t.status })),
+          prUrl: detail.prUrl ?? null,
+        })
+      }
+    } catch (err) {
+      // Sidecar may not be running (CRUD-only mode); reconciliation is best-effort.
+      if (!(err instanceof OpenCodeUnavailableError) && !(err instanceof NetworkError)) {
+        console.debug('Active batch reconciliation skipped:', err)
+      }
+    }
+  }, [])
 
   useEffect(() => {
     const handleVisibility = () => {
@@ -459,6 +562,9 @@ export function useKanbanBoard({ projectId, teamId, projects = [], searchQuery =
         if (isAuthenticated) {
           refreshActiveRepository()
         }
+        // On (re)connect, fetch active batches so we don't show a stale empty
+        // BatchProgress panel after the sidecar restarts or the SSE drops.
+        void reconcileActiveBatches()
         break
 
       case 'batch:created':
@@ -762,28 +868,50 @@ export function useKanbanBoard({ projectId, teamId, projects = [], searchQuery =
       return
     }
 
-    try {
-      const status = await getSetupStatus();
-      if (!status.ready) {
-        setPendingExecuteTaskId(taskId);
-        setShowProviderSetup(true);
-        return;
-      }
-    } catch (err) {
-      if (!(err instanceof OpenCodeUnavailableError)) {
-        console.warn('Could not check provider setup, proceeding anyway:', err)
-      }
+    // Block duplicate clicks while the POST is in flight or live progress is
+    // already in an active phase.
+    if (startingExecuteIds.has(taskId)) return
+    const live = executionProgress[taskId]
+    if (live && ['cloning', 'executing', 'committing', 'creating_pr'].includes(live.status)) {
+      return
     }
 
+    addStartingExecute(taskId)
+
     try {
-      await apiFetch(`/api/tasks/${taskId}/execute`, {
-        method: 'POST',
-        sidecar: true,
-      })
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Failed to execute task'
-      console.error('Error executing task:', err)
-      toast.error(msg)
+      try {
+        const status = await getSetupStatus();
+        if (!status.ready) {
+          setPendingExecuteTaskId(taskId);
+          setShowProviderSetup(true);
+          return;
+        }
+      } catch (err) {
+        if (err instanceof OpenCodeUnavailableError) {
+          // Setup-status check failed because the sidecar isn't reachable
+          // (404 from CRUD-only API, or 5xx from unhealthy sidecar). Do NOT
+          // proceed — POST /execute would just 404 again with a worse message.
+          toast.error(
+            'Execution service is not running. Start the sidecar (pnpm dev) or switch off CRUD-only mode.',
+          )
+          console.error('Setup status check failed (sidecar unavailable):', err)
+          return
+        }
+        console.warn('Could not check provider setup, proceeding anyway:', err)
+      }
+
+      try {
+        await apiFetch(`/api/tasks/${taskId}/execute`, {
+          method: 'POST',
+          sidecar: true,
+        })
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Failed to execute task'
+        console.error('Error executing task:', err)
+        toast.error(msg)
+      }
+    } finally {
+      removeStartingExecute(taskId)
     }
   }
 
@@ -792,6 +920,7 @@ export function useKanbanBoard({ projectId, teamId, projects = [], searchQuery =
     if (pendingExecuteTaskId) {
       const taskId = pendingExecuteTaskId;
       setPendingExecuteTaskId(null);
+      addStartingExecute(taskId)
       try {
         await apiFetch(`/api/tasks/${taskId}/execute`, {
           method: 'POST',
@@ -801,9 +930,11 @@ export function useKanbanBoard({ projectId, teamId, projects = [], searchQuery =
         const msg = err instanceof Error ? err.message : 'Failed to execute task'
         console.error('Error executing task:', err);
         toast.error(msg)
+      } finally {
+        removeStartingExecute(taskId)
       }
     }
-  }, [pendingExecuteTaskId]);
+  }, [pendingExecuteTaskId, addStartingExecute, removeStartingExecute]);
 
   const handleCancel = async (taskId: string) => {
     try {
@@ -869,6 +1000,13 @@ export function useKanbanBoard({ projectId, teamId, projects = [], searchQuery =
 
   const selectedTask = selectedTaskId ? tasks.find((t) => t.id === selectedTaskId) || null : null
 
+  const isSelectedTaskExecuting = isTaskActivelyExecuting(
+    selectedTask,
+    selectedTaskId ? executionProgress[selectedTaskId] : undefined,
+    startingExecuteIds,
+    selectedTaskId,
+  )
+
   const deferredSearchQuery = useDeferredValue(searchQuery)
   const filteredTasks = useMemo(() => {
     const q = deferredSearchQuery.trim().toLowerCase()
@@ -914,6 +1052,8 @@ export function useKanbanBoard({ projectId, teamId, projects = [], searchQuery =
     batchTaskIds,
     completedBatchTaskIds,
     selectedTask,
+    startingExecuteIds,
+    isSelectedTaskExecuting,
     getTasksByStatus,
     handleAddTask,
     handleDragEnd,
@@ -927,6 +1067,7 @@ export function useKanbanBoard({ projectId, teamId, projects = [], searchQuery =
     handleBatchMoveToInProgress,
     handleBatchExecute,
     handleCancelBatch,
+    handleApproveNextBatchTask,
     toggleTaskSelect,
     toggleColumnSelection,
     toggleColumnSelectAll,
