@@ -8,6 +8,7 @@ import type { OpencodeClient } from '@opencode-ai/sdk';
 import { getOrCreateBuffer, appendTextDelta, appendReasoningDelta, flushDeltaBuffer, cleanupDeltaBuffer, markThinking } from './delta-buffer';
 import { getGitIdentityEnv } from './git-identity';
 import { execFileAsync } from './execution/exec';
+import { getExecutionSettings } from './execution-settings';
 
 const activeBatches = new Map<string, BatchState>();
 const sessionToBatch = new Map<string, { batchId: string; taskId: string }>();

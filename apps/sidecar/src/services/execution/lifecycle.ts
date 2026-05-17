@@ -1,6 +1,7 @@
 import { prisma, decryptToken } from '@openlinear/db';
 import { getClientForUser } from '../opencode';
 import { getOrCreateBuffer } from '../delta-buffer';
+import { getExecutionSettings } from '../execution-settings';
 
 import { cloneRepository, createBranch } from './git';
 import { subscribeToSessionEvents } from './events';
@@ -26,8 +27,8 @@ export async function executeTask({ taskId, userId }: ExecuteTaskParams): Promis
     return { success: false, error: 'Task is already running' };
   }
 
-  const settings = await prisma.settings.findFirst({ where: { id: 'default' } });
-  const parallelLimit = settings?.parallelLimit ?? 3;
+  const settings = await getExecutionSettings(userId);
+  const parallelLimit = settings.parallelLimit;
 
   if (activeExecutions.size >= parallelLimit) {
     return { success: false, error: `Parallel limit reached (${parallelLimit} tasks max)` };
