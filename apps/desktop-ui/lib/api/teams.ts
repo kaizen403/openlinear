@@ -27,6 +27,7 @@ export async function updateTeam(
   id: string,
   data: Partial<{
     name: string;
+    key: string;
     description: string | null;
     color: string;
     icon: string | null;

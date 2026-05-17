@@ -29,9 +29,11 @@ import { Input } from "@/components/ui/input"
 import {
   createProject,
   createTask,
+  ApiError,
   createTeam,
   fetchGitHubRepos,
   importRepo,
+  updateTeam,
   type GitHubRepo,
   type GitHubRepoFilter,
   type GitHubRepoSort,
@@ -86,7 +88,6 @@ interface RepoDraft {
 interface StoredDraft {
   currentStep: number
   repoDraft: RepoDraft
-  inviteEmails: string
   firstTaskTitle: string
 }
 
@@ -108,7 +109,6 @@ function loadStoredDraft(): StoredDraft | null {
     return {
       currentStep: typeof parsed.currentStep === "number" ? parsed.currentStep : 0,
       repoDraft: { ...EMPTY_REPO_DRAFT, ...parsed.repoDraft },
-      inviteEmails: typeof parsed.inviteEmails === "string" ? parsed.inviteEmails : "",
       firstTaskTitle: typeof parsed.firstTaskTitle === "string" ? parsed.firstTaskTitle : "",
     }
   } catch {
@@ -392,7 +392,7 @@ function GitHubRepoTab({
   const scrollParentRef = useRef<HTMLDivElement>(null)
   const requestIdRef = useRef(0)
 
-  const hasGitHub = Boolean(user?.githubId)
+  const hasGitHub = Boolean(user?.githubLinked ?? user?.githubId)
 
   const rowVirtualizer = useVirtualizer({
     count: repos.length,
@@ -430,9 +430,11 @@ function GitHubRepoTab({
         if (replace) scrollParentRef.current?.scrollTo({ top: 0 })
       } catch (err) {
         if (requestId !== requestIdRef.current) return
-        const message = err instanceof Error && err.message
-          ? err.message
-          : "Failed to load repositories"
+        const message = err instanceof ApiError && err.code === "GITHUB_NOT_LINKED"
+          ? "GitHub account not fully linked. Sign in with GitHub again to reconnect."
+          : err instanceof Error && err.message
+            ? err.message
+            : "Failed to load repositories"
         setError(message)
       } finally {
         if (requestId !== requestIdRef.current) return
@@ -964,6 +966,40 @@ function TeamStep({
   }, [canCreate, key, name, onTeamReady])
 
   if (team) {
+    const [editName, setEditName] = useState(team.name)
+    const [editKey, setEditKey] = useState(team.key)
+    const [isEditing, setIsEditing] = useState(false)
+    const [isSaving, setIsSaving] = useState(false)
+
+    const canSave = editName.trim().length > 0 && /^[A-Z][A-Z0-9]*$/.test(editKey.trim())
+
+    const handleSave = useCallback(async () => {
+      if (!canSave) return
+      setIsSaving(true)
+      try {
+        const updates: { name?: string; key?: string } = {}
+        if (editName.trim() !== team.name) updates.name = editName.trim()
+        if (editKey.trim().toUpperCase() !== team.key) updates.key = editKey.trim().toUpperCase()
+
+        if (Object.keys(updates).length > 0) {
+          const updated = await updateTeam(team.id, updates)
+          toast.success("Team updated")
+          onTeamReady(updated)
+        }
+        setIsEditing(false)
+      } catch {
+        toast.error("Failed to update team. Please try again.")
+      } finally {
+        setIsSaving(false)
+      }
+    }, [canSave, editKey, editName, onTeamReady, team])
+
+    const handleCancel = useCallback(() => {
+      setEditName(team.name)
+      setEditKey(team.key)
+      setIsEditing(false)
+    }, [team])
+
     return (
       <div className="space-y-5">
         <div className="text-center space-y-2">
@@ -972,14 +1008,56 @@ function TeamStep({
           </div>
           <h2 className="text-xl font-semibold text-linear-text">Team Ready</h2>
           <p className="text-sm text-linear-text-secondary">
-            Your project will be created inside <span className="text-linear-text">{team.name}</span>.
+            Your project will be created inside{" "}
+            <span className="text-linear-text">{team.name}</span>.
           </p>
         </div>
 
-        <div className="rounded-sm border border-linear-border bg-linear-bg-tertiary px-4 py-3">
-          <div className="text-[10px] uppercase tracking-[0.16em] text-linear-text-tertiary">Team</div>
-          <div className="text-sm font-medium text-linear-text truncate">{team.name}</div>
-          <div className="text-xs text-linear-text-tertiary mt-0.5">Key: {team.key}</div>
+        <div className="rounded-sm border border-linear-border bg-linear-bg-tertiary px-4 py-3 space-y-3">
+          {isEditing ? (
+            <div className="space-y-3">
+              <div className="space-y-1.5">
+                <label htmlFor="onboarding-team-name-edit" className="text-xs font-medium text-linear-text-secondary">
+                  Team name
+                </label>
+                <Input
+                  id="onboarding-team-name-edit"
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  placeholder="e.g., Platform"
+                  className="bg-linear-bg-secondary border-linear-border text-linear-text placeholder:text-linear-text-tertiary focus:border-linear-border-hover h-10"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label htmlFor="onboarding-team-key-edit" className="text-xs font-medium text-linear-text-secondary">
+                  Team key
+                </label>
+                <Input
+                  id="onboarding-team-key-edit"
+                  value={editKey}
+                  onChange={(e) => setEditKey(e.target.value.toUpperCase())}
+                  placeholder="e.g., PLAT"
+                  className="bg-linear-bg-secondary border-linear-border text-linear-text placeholder:text-linear-text-tertiary focus:border-linear-border-hover h-10"
+                />
+                <p className="text-xs text-linear-text-tertiary">Uppercase letters/numbers, starts with a letter.</p>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-[10px] uppercase tracking-[0.16em] text-linear-text-tertiary">Team</div>
+                <div className="text-sm font-medium text-linear-text truncate">{team.name}</div>
+                <div className="text-xs text-linear-text-tertiary mt-0.5">Key: {team.key}</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsEditing(true)}
+                className="text-xs text-linear-accent hover:text-linear-accent-hover transition-colors"
+              >
+                Edit
+              </button>
+            </div>
+          )}
         </div>
 
         <div className="flex gap-2">
@@ -990,14 +1068,42 @@ function TeamStep({
           >
             Back
           </button>
-          <button
-            type="button"
-            onClick={() => onTeamReady(team)}
-            className="flex-1 bg-linear-accent hover:bg-linear-accent-hover text-white rounded-sm h-10 px-6 text-sm font-medium transition-colors inline-flex items-center justify-center gap-2"
-          >
-            Continue
-            <ArrowRight className="w-4 h-4" />
-          </button>
+          {isEditing ? (
+            <>
+              <button
+                type="button"
+                onClick={handleCancel}
+                disabled={isSaving}
+                className="border border-linear-border hover:bg-linear-bg-tertiary disabled:opacity-50 disabled:cursor-not-allowed text-linear-text rounded-sm h-10 px-4 text-sm font-medium transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSave}
+                disabled={isSaving || !canSave}
+                className="flex-1 bg-linear-accent hover:bg-linear-accent-hover disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-sm h-10 px-6 text-sm font-medium transition-colors inline-flex items-center justify-center gap-2"
+              >
+                {isSaving ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  "Save"
+                )}
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              onClick={() => onTeamReady(team)}
+              className="flex-1 bg-linear-accent hover:bg-linear-accent-hover text-white rounded-sm h-10 px-6 text-sm font-medium transition-colors inline-flex items-center justify-center gap-2"
+            >
+              Continue
+              <ArrowRight className="w-4 h-4" />
+            </button>
+          )}
         </div>
       </div>
     )
@@ -1075,14 +1181,10 @@ function TeamStep({
 
 function InviteStep({
   team,
-  inviteEmails,
-  onInviteEmailsChange,
   onBack,
   onContinue,
 }: {
   team: Team | null
-  inviteEmails: string
-  onInviteEmailsChange: (value: string) => void
   onBack: () => void
   onContinue: () => void
 }) {
@@ -1091,9 +1193,6 @@ function InviteStep({
   const inviteLink = typeof window !== "undefined" && inviteCode
     ? `${window.location.origin}/teams?invite=${inviteCode}`
     : inviteCode
-  const mailtoHref = inviteEmails.trim()
-    ? `mailto:${encodeURIComponent(inviteEmails.trim())}?subject=${encodeURIComponent("Join my OpenLinear team")}&body=${encodeURIComponent(`Use this invite code to join ${team?.name || "my team"}: ${inviteCode}`)}`
-    : undefined
 
   const handleCopy = useCallback(async () => {
     if (!inviteLink) return
@@ -1135,22 +1234,6 @@ function InviteStep({
         </button>
       </div>
 
-      <div className="space-y-1.5">
-        <label htmlFor="onboarding-invite-emails" className="text-xs font-medium text-linear-text-secondary">
-          Email invites
-        </label>
-        <Input
-          id="onboarding-invite-emails"
-          value={inviteEmails}
-          onChange={(e) => onInviteEmailsChange(e.target.value)}
-          placeholder="alice@example.com, bob@example.com"
-          className="bg-linear-bg-tertiary border-linear-border text-linear-text placeholder:text-linear-text-tertiary focus:border-linear-border-hover h-10"
-        />
-        <p className="text-xs text-linear-text-tertiary">
-          Separate multiple emails with commas. This opens your email client; no invite is sent automatically.
-        </p>
-      </div>
-
       <div className="flex gap-2">
         <button
           type="button"
@@ -1159,15 +1242,6 @@ function InviteStep({
         >
           Back
         </button>
-        {mailtoHref ? (
-          <a
-            href={mailtoHref}
-            className="border border-linear-border hover:bg-linear-bg-tertiary text-linear-text rounded-sm h-10 px-4 text-sm font-medium transition-colors inline-flex items-center justify-center gap-2"
-          >
-            <Mail className="w-4 h-4" />
-            Draft emails
-          </a>
-        ) : null}
         <button
           type="button"
           onClick={onContinue}
@@ -1274,47 +1348,47 @@ function FirstTaskStep({
 }
 
 function StepIndicator({ currentStep }: { currentStep: number }) {
-  const reduceMotion = useReducedMotion()
-
   return (
-    <div className="mb-6 overflow-x-auto pb-1">
-      <div className="flex min-w-max items-center gap-2">
+    <div className="mb-10">
+      <div className="flex items-center">
         {STEP_LABELS.map((label, index) => {
           const isActive = index === currentStep
           const isCompleted = index < currentStep
 
           return (
-            <div key={label} className="flex items-center">
-              <motion.div
-                initial={false}
-                animate={{
-                  opacity: isActive || isCompleted ? 1 : 0.6,
-                  scale: isActive ? 1.02 : 1,
-                }}
-                transition={reduceMotion ? { duration: 0 } : undefined}
-                className={`flex items-center gap-2 rounded-sm border px-2.5 py-1.5 text-xs ${
-                  isActive
-                    ? "border-linear-accent/50 bg-linear-accent/10 text-linear-text"
-                    : isCompleted
-                      ? "border-linear-border bg-linear-bg-tertiary text-linear-text-secondary"
-                      : "border-linear-border text-linear-text-tertiary"
-                }`}
-              >
-                <span
-                  className={`w-4 h-4 rounded-full border flex items-center justify-center text-[10px] ${
-                    isCompleted
-                      ? "border-linear-accent bg-linear-accent text-white"
-                      : "border-linear-border"
+            <>
+              <div className="flex flex-col items-center shrink-0">
+                <div
+                  className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-semibold transition-colors duration-300 ${
+                    isCompleted || isActive
+                      ? "bg-linear-accent text-white"
+                      : "bg-linear-bg border-2 border-linear-border text-linear-text-tertiary"
                   }`}
                 >
-                  {isCompleted ? <Check className="w-3 h-3" /> : index + 1}
+                  {isCompleted ? <Check className="w-5 h-5" /> : <span>{index + 1}</span>}
+                </div>
+                <span
+                  className={`mt-3 text-xs text-center whitespace-nowrap ${
+                    isActive
+                      ? "text-linear-text font-medium"
+                      : isCompleted
+                        ? "text-linear-text-secondary"
+                        : "text-linear-text-tertiary"
+                  }`}
+                >
+                  {label}
                 </span>
-                <span>{label}</span>
-              </motion.div>
+              </div>
               {index < STEP_LABELS.length - 1 && (
-                <div className={`w-5 h-px mx-1 ${isCompleted ? "bg-linear-accent/60" : "bg-linear-border"}`} />
+                <div className="flex-1 h-[2px] mx-3 mb-6 transition-colors duration-500">
+                  <div
+                    className={`h-full rounded-full transition-colors duration-500 ${
+                      index < currentStep ? "bg-linear-accent" : "bg-linear-border"
+                    }`}
+                  />
+                </div>
               )}
-            </div>
+            </>
           )
         })}
       </div>
@@ -1325,7 +1399,6 @@ function StepIndicator({ currentStep }: { currentStep: number }) {
 export function OnboardingWizard({ teams, onComplete }: OnboardingWizardProps) {
   const [currentStep, setCurrentStep] = useState(0)
   const [repoDraft, setRepoDraft] = useState<RepoDraft>(EMPTY_REPO_DRAFT)
-  const [inviteEmails, setInviteEmails] = useState("")
   const [firstTaskTitle, setFirstTaskTitle] = useState("")
   const [createdTeam, setCreatedTeam] = useState<Team | null>(null)
   const [isCreatingWorkspace, setIsCreatingWorkspace] = useState(false)
@@ -1341,7 +1414,6 @@ export function OnboardingWizard({ teams, onComplete }: OnboardingWizardProps) {
     if (storedDraft) {
       setCurrentStep(storedDraft.currentStep)
       setRepoDraft(storedDraft.repoDraft)
-      setInviteEmails(storedDraft.inviteEmails)
       setFirstTaskTitle(storedDraft.firstTaskTitle)
     }
     didLoadStoredDraftRef.current = true
@@ -1349,8 +1421,8 @@ export function OnboardingWizard({ teams, onComplete }: OnboardingWizardProps) {
 
   useEffect(() => {
     if (!didLoadStoredDraftRef.current) return
-    saveStoredDraft({ currentStep, repoDraft, inviteEmails, firstTaskTitle })
-  }, [currentStep, firstTaskTitle, inviteEmails, repoDraft])
+    saveStoredDraft({ currentStep, repoDraft, firstTaskTitle })
+  }, [currentStep, firstTaskTitle, repoDraft])
 
   useEffect(() => {
     if (currentStep > 1 && !hasRepoSelection(repoDraft)) {
@@ -1482,8 +1554,6 @@ export function OnboardingWizard({ teams, onComplete }: OnboardingWizardProps) {
     <InviteStep
       key="invite"
       team={team}
-      inviteEmails={inviteEmails}
-      onInviteEmailsChange={setInviteEmails}
       onBack={() => goToStep(3)}
       onContinue={() => goToStep(5)}
     />,
