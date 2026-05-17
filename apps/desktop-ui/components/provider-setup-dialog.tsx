@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback, useRef } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { useRouter } from "next/navigation"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
@@ -18,9 +18,6 @@ interface ProviderSetupDialogProps {
   onSetupComplete?: () => void
 }
 
-const MAX_POLL_ATTEMPTS = 6
-const POLL_INTERVAL_MS = 2000
-
 export function ProviderSetupDialog({ open, onOpenChange, onSetupComplete }: ProviderSetupDialogProps) {
   const router = useRouter()
   const [loading, setLoading] = useState(true)
@@ -28,7 +25,6 @@ export function ProviderSetupDialog({ open, onOpenChange, onSetupComplete }: Pro
   const [loadError, setLoadError] = useState<string | null>(null)
   const [selectedProvider, setSelectedProvider] = useState<string | null>(null)
   const [currentModelName, setCurrentModelName] = useState<string | null>(null)
-  const pollRef = useRef(false)
 
   const applyProviderData = useCallback((status: SetupStatus) => {
     const sorted = [...status.providers].sort((a, b) => {
@@ -43,29 +39,16 @@ export function ProviderSetupDialog({ open, onOpenChange, onSetupComplete }: Pro
     }
   }, [])
 
-  const loadWithPolling = useCallback(async () => {
+  const loadProviderStatus = useCallback(async () => {
     setLoading(true)
     setLoadError(null)
-    pollRef.current = true
 
     try {
-      for (let attempt = 0; attempt < MAX_POLL_ATTEMPTS; attempt++) {
-        if (!pollRef.current) return
-
-        const status = await getSetupStatus()
-
-        if (status.providers.length > 0) {
-          applyProviderData(status)
-          setLoading(false)
-          return
-        }
-
-        if (attempt < MAX_POLL_ATTEMPTS - 1) {
-          await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS))
-        }
-      }
-
-      const status = await getSetupStatus()
+      const [status, modelConfig] = await Promise.all([
+        getSetupStatus(),
+        getModelConfig().catch(() => ({ model: null })),
+      ])
+      setCurrentModelName(modelConfig.model ?? status.currentModel ?? null)
       applyProviderData(status)
     } catch (err) {
       setLoadError(err instanceof Error ? err.message : "Failed to load provider status")
@@ -76,7 +59,6 @@ export function ProviderSetupDialog({ open, onOpenChange, onSetupComplete }: Pro
 
   useEffect(() => {
     if (!open) {
-      pollRef.current = false
       return
     }
 
@@ -84,23 +66,13 @@ export function ProviderSetupDialog({ open, onOpenChange, onSetupComplete }: Pro
     setLoadError(null)
     setSelectedProvider(null)
 
-    getModelConfig()
-      .then((cfg) => {
-        if (cfg.model) setCurrentModelName(cfg.model)
-      })
-      .catch(() => {})
-
-    loadWithPolling()
-
-    return () => {
-      pollRef.current = false
-    }
-  }, [open, loadWithPolling])
+    loadProviderStatus()
+  }, [open, loadProviderStatus])
 
   const handleRetry = () => {
     setLoadError(null)
     setLoading(true)
-    loadWithPolling()
+    loadProviderStatus()
   }
 
   const handleUse = () => {
@@ -145,7 +117,7 @@ export function ProviderSetupDialog({ open, onOpenChange, onSetupComplete }: Pro
                   Loading providers...
                 </p>
                 <p className="text-sm text-linear-text-tertiary mt-1">
-                  Detecting available providers
+                  Reading your OpenCode config
                 </p>
               </div>
             </div>

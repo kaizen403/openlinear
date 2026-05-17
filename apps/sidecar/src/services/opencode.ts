@@ -5,7 +5,9 @@ import { createOpencodeClient } from '@opencode-ai/sdk';
 import type { OpencodeClient } from '@opencode-ai/sdk';
 import { broadcastToAll } from '@openlinear/api/sse';
 
-const OPENCODE_PORT = parseInt(process.env.OPENCODE_PORT || '4096', 10);
+// OpenCode treats port 0 as "try 4096, then fall back to any free port".
+// Using it by default avoids crashing when a user's own opencode server is already running.
+const OPENCODE_PORT = parseInt(process.env.OPENCODE_PORT || '0', 10);
 const OPENCODE_HOST = process.env.OPENCODE_HOST || '127.0.0.1';
 const OPENCODE_TIMEOUT = parseInt(process.env.OPENCODE_TIMEOUT || '10000', 10);
 const KILL_GRACE_MS = parseInt(process.env.OPENCODE_KILL_GRACE_MS || '3000', 10);
@@ -88,7 +90,7 @@ function spawnOpencodeServer(
 ): Promise<ServerHandle> {
   const args = ['serve', `--hostname=${hostname}`, `--port=${port}`];
   const proc = spawn(bin, args, {
-    env: { ...process.env, OPENCODE_CONFIG_CONTENT: '{}' },
+    env: { ...process.env },
   });
 
   return new Promise((resolve, reject) => {
@@ -143,6 +145,28 @@ function spawnOpencodeServer(
       if (!resolved) reject(err);
     });
   });
+}
+
+function canRetryWithDynamicPort(err: unknown, port: number): boolean {
+  if (port === 0) return false;
+  const message = err instanceof Error ? err.message : String(err);
+  return (
+    message.includes(`Failed to start server on port ${port}`) ||
+    message.includes('EADDRINUSE')
+  );
+}
+
+async function startOpencodeServer(bin: string): Promise<ServerHandle> {
+  try {
+    return await spawnOpencodeServer(bin, OPENCODE_HOST, OPENCODE_PORT, OPENCODE_TIMEOUT);
+  } catch (err) {
+    if (!canRetryWithDynamicPort(err, OPENCODE_PORT)) throw err;
+
+    console.warn(
+      `[OpenCode] Port ${OPENCODE_PORT} is unavailable. Retrying with dynamic port fallback.`,
+    );
+    return spawnOpencodeServer(bin, OPENCODE_HOST, 0, OPENCODE_TIMEOUT);
+  }
 }
 
 function attachExitWatcher(handle: ServerHandle) {
@@ -224,7 +248,7 @@ export async function initOpenCode(opts: { restart?: boolean } = {}): Promise<vo
   console.log(`[OpenCode] Using binary: ${bin}`);
 
   try {
-    const handle = await spawnOpencodeServer(bin, OPENCODE_HOST, OPENCODE_PORT, OPENCODE_TIMEOUT);
+    const handle = await startOpencodeServer(bin);
     serverHandle = handle;
     attachExitWatcher(handle);
     if (!opts.restart) {

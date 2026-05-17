@@ -4,15 +4,26 @@ export interface ProviderInfo {
   id: string;
   name: string;
   authenticated: boolean;
+  source?: string;
+  env?: string[];
+  modelCount?: number;
+  defaultModel?: string | null;
+  selectedModel?: string | null;
+  baseUrl?: string | null;
+  npm?: string | null;
+  authMethods?: ProviderAuthMethod[];
 }
 
 export interface SetupStatus {
   providers: ProviderInfo[];
   ready: boolean;
+  currentModel?: string | null;
+  smallModel?: string | null;
 }
 
 export interface ProviderAuthMethod {
   type: 'oauth' | 'api';
+  label?: string;
 }
 
 export type ProviderAuthMethods = Record<string, ProviderAuthMethod[]>;
@@ -46,10 +57,14 @@ export async function getSetupStatus(): Promise<SetupStatus> {
   return opencodeFetch<SetupStatus>('/api/opencode/setup-status', {}, 'Failed to get setup status');
 }
 
-export async function setProviderApiKey(providerId: string, apiKey: string): Promise<void> {
+export async function setProviderApiKey(
+  providerId: string,
+  apiKey: string,
+  options?: { baseUrl?: string; enterpriseUrl?: string },
+): Promise<void> {
   await opencodeFetch<void>(
     '/api/opencode/auth',
-    { method: 'POST', body: JSON.stringify({ providerId, apiKey }) },
+    { method: 'POST', body: JSON.stringify({ providerId, apiKey, ...options }) },
     'Failed to set API key',
   );
 }
@@ -65,8 +80,8 @@ export async function getProviderAuthMethods(): Promise<ProviderAuthMethods> {
 export async function oauthAuthorize(
   providerId: string,
   method?: number,
-): Promise<{ url: string }> {
-  return opencodeFetch<{ url: string }>(
+): Promise<{ url: string; method?: 'auto' | 'code'; instructions?: string }> {
+  return opencodeFetch<{ url: string; method?: 'auto' | 'code'; instructions?: string }>(
     '/api/opencode/auth/oauth/authorize',
     { method: 'POST', body: JSON.stringify({ providerId, method: method ?? 0 }) },
     'Failed to start OAuth',
@@ -87,6 +102,8 @@ export interface ModelInfo {
 export interface ProviderModels {
   id: string;
   name: string;
+  defaultModel?: string | null;
+  selectedModel?: string | null;
   models: ModelInfo[];
 }
 

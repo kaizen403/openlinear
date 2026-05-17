@@ -289,14 +289,14 @@ export function CommentsThread({ taskId }: CommentsThreadProps) {
           <div className="flex items-center gap-2 text-sm text-linear-text-tertiary">
             <Loader2 className="w-3.5 h-3.5 animate-spin" /> Loading comments…
           </div>
-        ) : comments.length === 0 ? (
+        ) : comments.length === 0 && !loadError ? (
           <p className="text-sm text-linear-text-tertiary">No comments yet. Be the first to leave one.</p>
-        ) : (
+        ) : comments.length > 0 ? (
           comments.map((c) => {
             const isOwn = !!user && c.userId === user.id
             const isEditing = editingId === c.id
             return (
-              <div key={c.id} className="flex gap-3">
+              <div key={c.id} className="group flex gap-3">
                 <Avatar className="h-8 w-8 rounded-full flex-shrink-0">
                   {c.user.avatarUrl && <AvatarImage src={c.user.avatarUrl} alt={c.user.username} className="object-cover" />}
                   <AvatarFallback className="text-[10px] bg-linear-bg-secondary text-linear-text-secondary border border-linear-border">
@@ -313,7 +313,7 @@ export function CommentsThread({ taskId }: CommentsThreadProps) {
                       <span className="text-[10px] text-linear-text-tertiary">(edited)</span>
                     )}
                     {isOwn && !isEditing && (
-                      <div className="ml-auto flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <div className="ml-auto flex items-center gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
                         <button
                           onClick={() => startEdit(c)}
                           className="p-1 rounded text-linear-text-tertiary hover:text-linear-text hover:bg-linear-bg-secondary"
@@ -367,7 +367,7 @@ export function CommentsThread({ taskId }: CommentsThreadProps) {
               </div>
             )
           })
-        )}
+        ) : null}
       </div>
 
       <div className="relative">

@@ -42,6 +42,11 @@ export interface ExecutionState {
   filesChanged: number;
   toolsExecuted: number;
   promptSent: boolean;
+  backgroundTaskRunning: boolean;
+  backgroundTaskFailure: string | null;
+  backgroundTaskIds: string[];
+  backgroundTaskResultBuffer: string;
+  completedToolKeys: Set<string>;
   cancelled: boolean;
   // T11: SDK `message.updated` reports per-message TOTALS (not deltas). Keep
   // the latest snapshot per assistant messageId; sum at finalize time.

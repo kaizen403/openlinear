@@ -176,6 +176,11 @@ export async function executeTask({ taskId, userId }: ExecuteTaskParams): Promis
       filesChanged: 0,
       toolsExecuted: 0,
       promptSent: false,
+      backgroundTaskRunning: false,
+      backgroundTaskFailure: null,
+      backgroundTaskIds: [],
+      backgroundTaskResultBuffer: '',
+      completedToolKeys: new Set(),
       cancelled: false,
       agentRunId,
       cost: { input: 0, output: 0, total: 0 },
@@ -217,6 +222,14 @@ export async function executeTask({ taskId, userId }: ExecuteTaskParams): Promis
       const labelNames = taskWithProject.labels.map((tl: TaskLabelRelation) => tl.label.name).join(', ');
       prompt += `\n\nLabels: ${labelNames}`;
     }
+    prompt += [
+      '',
+      '',
+      'Execution contract:',
+      '- Make the requested code changes directly in this repository before finishing.',
+      '- If you use a background subtask, wait for its result and apply any required changes before completing.',
+      '- Do not mark the task complete unless the repository contains the requested changes or you can explain why no code change is valid.',
+    ].join('\n');
 
     subscribeToSessionEvents(taskId, client, sessionId);
 

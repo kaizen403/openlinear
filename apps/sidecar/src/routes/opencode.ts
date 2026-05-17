@@ -7,7 +7,17 @@ import {
 
 const router: Router = Router();
 
-type ProviderAuthEntry = { type?: string };
+type ProviderAuthEntry = { type?: string; label?: string };
+type ProviderListPayload = {
+  all?: Array<Record<string, any>>;
+  connected?: string[];
+  default?: Record<string, string>;
+};
+type ConfigPayload = Record<string, any> & {
+  model?: string | null;
+  small_model?: string | null;
+  provider?: Record<string, any>;
+};
 
 function resolveOauthMethodIndex(
   methods: ProviderAuthEntry[] | undefined,
@@ -32,56 +42,106 @@ function resolveOauthMethodIndex(
   return typeof requestedMethod === 'number' ? requestedMethod : 0;
 }
 
+function normalizeAuthMethods(methods: ProviderAuthEntry[] | undefined): Array<{ type: string; label: string }> {
+  return (methods ?? []).map((method) => ({
+    type: method.type || 'api',
+    label: method.label || (method.type === 'oauth' ? 'OAuth' : 'API key'),
+  }));
+}
+
+function getModelId(modelKey: string, model: Record<string, any>): string {
+  return typeof model.id === 'string' && model.id.length > 0 ? model.id : modelKey;
+}
+
+function normalizeModel(providerId: string, modelKey: string, model: Record<string, any>) {
+  return {
+    id: getModelId(modelKey, model),
+    provider: model.provider || model.providerID || providerId,
+    name: model.name || getModelId(modelKey, model),
+    status: model.status || 'active',
+    reasoning: Boolean(model.reasoning ?? model.capabilities?.reasoning),
+    toolCall: Boolean(model.tool_call ?? model.capabilities?.toolcall),
+    limit: model.limit,
+    cost: {
+      input: model.cost?.input ?? 0,
+      output: model.cost?.output ?? 0,
+    },
+  };
+}
+
+function providerModelEntries(provider: Record<string, any>): Array<[string, Record<string, any>]> {
+  return Object.entries(provider.models || {}) as Array<[string, Record<string, any>]>;
+}
+
+function providerSort(currentModel: string | null) {
+  return (a: Record<string, any>, b: Record<string, any>) => {
+    const aCurrent = currentModel?.startsWith(`${a.id}/`) ? 1 : 0;
+    const bCurrent = currentModel?.startsWith(`${b.id}/`) ? 1 : 0;
+    if (aCurrent !== bCurrent) return bCurrent - aCurrent;
+    if (a.authenticated !== b.authenticated) return a.authenticated ? -1 : 1;
+    if (a.modelCount !== b.modelCount) return b.modelCount - a.modelCount;
+    return String(a.name || a.id).localeCompare(String(b.name || b.id));
+  };
+}
+
+function summarizeProviders(
+  providerList: ProviderListPayload,
+  authMethods: Record<string, ProviderAuthEntry[]>,
+  config: ConfigPayload,
+) {
+  const connectedSet = new Set(providerList.connected ?? []);
+  const currentModel = typeof config.model === 'string' ? config.model : null;
+
+  return (providerList.all ?? [])
+    .map((provider) => {
+      const modelCount = providerModelEntries(provider).length;
+      const selectedModel = currentModel?.startsWith(`${provider.id}/`)
+        ? currentModel.slice(String(provider.id).length + 1)
+        : null;
+
+      return {
+        id: provider.id,
+        name: provider.name || provider.id,
+        authenticated: connectedSet.has(provider.id),
+        source: provider.source || (connectedSet.has(provider.id) ? 'auth' : 'registry'),
+        env: Array.isArray(provider.env) ? provider.env : [],
+        modelCount,
+        defaultModel: providerList.default?.[provider.id] ?? null,
+        selectedModel,
+        authMethods: normalizeAuthMethods(authMethods[provider.id]),
+        baseUrl: typeof provider.options?.baseURL === 'string' ? provider.options.baseURL : null,
+        npm: provider.npm || provider.api?.npm || null,
+      };
+    })
+    .sort(providerSort(currentModel));
+}
+
 router.get('/status', (_req, res: Response) => {
   res.json(getOpenCodeStatus());
 });
 
 router.get('/setup-status', requireAuth, async (req: AuthRequest, res: Response) => {
   try {
-    let providers: Array<{ id: string; name: string; authenticated: boolean }> = [];
-    let ready = false;
+    const client = await getClientForUser(req.userId!);
+    const [providerList, auth, config] = await Promise.all([
+      client.provider.list(),
+      client.provider.auth().catch(() => ({ data: {} as Record<string, ProviderAuthEntry[]> })),
+      client.config.get().catch(() => ({ data: {} as ConfigPayload })),
+    ]);
 
-    try {
-      const client = await getClientForUser(req.userId!);
-      const providerList = await client.provider.list();
-
-      if (providerList.data?.all) {
-        const connectedSet = new Set(providerList.data.connected ?? []);
-
-        const popularProviderIds = new Set([
-          'anthropic',
-          'openai',
-          'google',
-          'github-copilot',
-          'groq',
-          'deepseek',
-          'mistral',
-          'xai',
-          'openrouter',
-          'amazon-bedrock',
-          'opencode',
-        ]);
-
-        providers = providerList.data.all
-          .filter((provider) => popularProviderIds.has(provider.id))
-          .map((provider) => ({
-            id: provider.id,
-            name: provider.name || provider.id,
-            authenticated: connectedSet.has(provider.id),
-          }));
-      }
-
-      ready = providers.some(p => p.authenticated);
-    } catch {
-      // OpenCode server not responding — return empty
-    }
+    const payload = providerList.data as ProviderListPayload;
+    const currentConfig = (config.data ?? {}) as ConfigPayload;
+    const providers = summarizeProviders(payload, auth.data ?? {}, currentConfig);
+    const ready = providers.some(p => p.authenticated);
 
     res.json({
       providers,
       ready,
+      currentModel: currentConfig.model ?? null,
+      smallModel: currentConfig.small_model ?? null,
     });
   } catch (err) {
-    res.status(500).json({ error: err instanceof Error ? err.message : 'Failed to get setup status' });
+    res.status(503).json({ error: err instanceof Error ? err.message : 'Failed to get setup status' });
   }
 });
 
@@ -107,7 +167,7 @@ router.get('/providers/auth', requireAuth, async (req: AuthRequest, res: Respons
 
 router.post('/auth', requireAuth, async (req: AuthRequest, res: Response) => {
   try {
-    const { providerId, apiKey } = req.body;
+    const { providerId, apiKey, baseUrl, enterpriseUrl } = req.body;
     if (!providerId || !apiKey) {
       res.status(400).json({ error: 'providerId and apiKey are required' });
       return;
@@ -118,6 +178,39 @@ router.post('/auth', requireAuth, async (req: AuthRequest, res: Response) => {
       path: { id: providerId },
       body: { type: 'api', key: apiKey },
     });
+
+    const trimmedBaseUrl = typeof baseUrl === 'string' ? baseUrl.trim() : '';
+    const trimmedEnterpriseUrl = typeof enterpriseUrl === 'string' ? enterpriseUrl.trim() : '';
+    if (trimmedBaseUrl || trimmedEnterpriseUrl) {
+      const configResult = await client.config.get();
+      const config = (configResult.data ?? {}) as ConfigPayload;
+      const existingProviders = { ...(config.provider ?? {}) };
+      const existingProvider = { ...(existingProviders[providerId] ?? {}) };
+      const existingOptions = { ...(existingProvider.options ?? {}) };
+
+      if (trimmedBaseUrl) {
+        existingOptions.baseURL = trimmedBaseUrl;
+      }
+      if (trimmedEnterpriseUrl) {
+        existingOptions.enterpriseUrl = trimmedEnterpriseUrl;
+      }
+
+      existingProviders[providerId] = {
+        ...existingProvider,
+        options: existingOptions,
+      };
+
+      const nextConfig: Record<string, any> = {
+        ...config,
+        provider: existingProviders,
+      };
+      if (nextConfig.model === null) delete nextConfig.model;
+      if (nextConfig.small_model === null) delete nextConfig.small_model;
+
+      await client.config.update({
+        body: nextConfig,
+      });
+    }
 
     res.json({ success: true, providerId });
   } catch (err) {
@@ -177,60 +270,57 @@ router.post('/auth/oauth/callback', requireAuth, async (req: AuthRequest, res: R
 router.get('/models', requireAuth, async (req: AuthRequest, res: Response) => {
   try {
     const client = await getClientForUser(req.userId!);
-    const providerList = await client.provider.list();
+    const [providerList, config] = await Promise.all([
+      client.provider.list(),
+      client.config.get().catch(() => ({ data: {} as ConfigPayload })),
+    ]);
 
-    if (!providerList.data?.all) {
+    const payload = providerList.data as ProviderListPayload;
+    if (!payload?.all) {
       res.json({ providers: [] });
       return;
     }
 
-    const connectedSet = new Set(providerList.data.connected ?? []);
-    connectedSet.add('opencode');
+    const currentConfig = (config.data ?? {}) as ConfigPayload;
+    const currentModel = typeof currentConfig.model === 'string' ? currentConfig.model : null;
+    const connectedSet = new Set(payload.connected ?? []);
 
-    const allProviders: typeof providerList.data.all = [...providerList.data.all];
-    if (!allProviders.some(p => p.id === 'opencode')) {
-      allProviders.push({
-        id: 'opencode',
-        name: 'OpenCode',
-        env: [],
-        models: {},
-      });
-    }
-
-    const providers = allProviders
-      .filter((provider) => connectedSet.has(provider.id))
+    const providers = (payload.all as Array<Record<string, any>>)
+      .map((provider): Record<string, any> => ({
+        ...provider,
+        authenticated: connectedSet.has(provider.id),
+        modelCount: providerModelEntries(provider).length,
+      }))
+      .filter((provider) => (
+        provider.authenticated ||
+        currentModel?.startsWith(`${provider.id}/`) ||
+        provider.source === 'config' ||
+        provider.source === 'custom'
+      ))
+      .sort(providerSort(currentModel))
       .map((provider) => {
-        let modelsList = Object.values(provider.models || {}).map((model: any) => ({
-          id: model.id,
-          provider: model.provider,
-          name: model.name || model.id,
-          status: model.status,
-          reasoning: model.reasoning ?? false,
-          toolCall: model.tool_call ?? false,
-          limit: model.limit,
-          cost: {
-            input: model.cost?.input ?? 0,
-            output: model.cost?.output ?? 0,
-          },
-        }));
+        const defaultModel = payload.default?.[provider.id] ?? null;
+        const selectedModel = currentModel?.startsWith(`${provider.id}/`)
+          ? currentModel.slice(String(provider.id).length + 1)
+          : null;
 
-        if (provider.id === 'opencode') {
-          const freeModels = [
-            { id: 'minimix', provider: 'opencode', name: 'Minimix (Free)', status: 'available', reasoning: false, toolCall: true, limit: { context: 128000, output: 4096 }, cost: { input: 0, output: 0 } },
-            { id: 'glm5', provider: 'opencode', name: 'GLM5 (Free)', status: 'available', reasoning: false, toolCall: true, limit: { context: 128000, output: 4096 }, cost: { input: 0, output: 0 } },
-            { id: 'kimik2.5', provider: 'opencode', name: 'KimiK2.5 (Free)', status: 'available', reasoning: true, toolCall: true, limit: { context: 128000, output: 4096 }, cost: { input: 0, output: 0 } }
-          ];
-          
-          freeModels.forEach(fm => {
-            if (!modelsList.some(m => m.id === fm.id)) {
-              modelsList.push(fm);
-            }
+        const modelsList = providerModelEntries(provider)
+          .map(([modelKey, model]) => normalizeModel(provider.id, modelKey, model))
+          .sort((a, b) => {
+            const aSelected = a.id === selectedModel ? 1 : 0;
+            const bSelected = b.id === selectedModel ? 1 : 0;
+            if (aSelected !== bSelected) return bSelected - aSelected;
+            const aDefault = a.id === defaultModel ? 1 : 0;
+            const bDefault = b.id === defaultModel ? 1 : 0;
+            if (aDefault !== bDefault) return bDefault - aDefault;
+            return a.name.localeCompare(b.name);
           });
-        }
 
         return {
           id: provider.id,
           name: provider.name || provider.id,
+          defaultModel,
+          selectedModel,
           models: modelsList,
         };
       });

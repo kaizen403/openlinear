@@ -162,6 +162,7 @@ export function useKanbanBoard({ projectId, teamId, projects = [], searchQuery =
   }, [tasks])
 
   const toggleColumnSelection = useCallback((columnId: string) => {
+    setSelectedTaskId(null)
     setSelectingColumns(prev => {
       const next = new Set(prev)
       if (next.has(columnId)) {
@@ -179,6 +180,7 @@ export function useKanbanBoard({ projectId, teamId, projects = [], searchQuery =
 
   const toggleTaskSelect = useCallback((taskId: string, modifiers?: { shift?: boolean; meta?: boolean }) => {
     if (batchTaskIds.includes(taskId)) return
+    setSelectedTaskId(null)
 
     if (modifiers?.shift && lastSelectedIdRef.current) {
       const orderedIds: string[] = []
@@ -214,6 +216,7 @@ export function useKanbanBoard({ projectId, teamId, projects = [], searchQuery =
   }, [batchTaskIds, tasks])
 
   const toggleColumnSelectAll = useCallback((status: Task['status']) => {
+    setSelectedTaskId(null)
     const columnTasks = tasks.filter(task => task.status === status)
     const columnTaskIds = columnTasks.map(task => task.id)
     const allSelected = columnTaskIds.every(id => selectedTaskIds.has(id))
@@ -269,6 +272,24 @@ export function useKanbanBoard({ projectId, teamId, projects = [], searchQuery =
     if (inProgressTaskIds.length === 0) {
       toast.error('Select at least one In Progress task to execute as a batch')
       return
+    }
+
+    try {
+      const status = await getSetupStatus()
+      if (!status.ready) {
+        setShowProviderSetup(true)
+        toast.error('Configure an AI provider before starting batch execution')
+        return
+      }
+    } catch (err) {
+      if (err instanceof OpenCodeUnavailableError) {
+        toast.error(
+          'Execution service is not running. Start the sidecar (pnpm dev) or switch off CRUD-only mode.',
+        )
+        console.error('Setup status check failed (sidecar unavailable):', err)
+        return
+      }
+      console.warn('Could not check provider setup before batch execution, proceeding anyway:', err)
     }
 
     const previousSelection = selectedTaskIds
@@ -950,6 +971,7 @@ export function useKanbanBoard({ projectId, teamId, projects = [], searchQuery =
   }
 
   const handleTaskClick = async (taskId: string) => {
+    clearSelection()
     setSelectedTaskId(taskId)
 
     if (!taskLogs[taskId]) {
@@ -1027,6 +1049,7 @@ export function useKanbanBoard({ projectId, teamId, projects = [], searchQuery =
       .filter(t => !batchTaskIds.includes(t.id))
       .map(t => t.id)
     if (ids.length === 0) return
+    setSelectedTaskId(null)
     setSelectedTaskIds(new Set(ids))
   }, [filteredTasks, batchTaskIds])
 

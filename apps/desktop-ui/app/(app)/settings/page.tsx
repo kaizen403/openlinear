@@ -26,6 +26,7 @@ import {
   Pencil,
   User as UserIcon,
   Github,
+  Search,
 } from "lucide-react"
 import { Slider } from "@/components/ui/slider"
 import { Button } from "@/components/ui/button"
@@ -87,6 +88,14 @@ const NAV_ITEMS: {
 const OAUTH_CALLBACK_STORAGE_KEY = "opencode-oauth-callback"
 const OAUTH_PENDING_STORAGE_KEY = "opencode-oauth-pending"
 
+type ProviderInputState = {
+  key: string
+  baseUrl: string
+  enterpriseUrl: string
+  saving: boolean
+  saved: boolean
+}
+
 function SettingsContent() {
   const searchParams = useSearchParams()
   const initialSection = (searchParams.get("section") as SettingsSection) || "profile"
@@ -140,18 +149,20 @@ function SettingsContent() {
 
   const [providersLoading, setProvidersLoading] = useState(false)
   const [providerSetupStatus, setProviderSetupStatus] = useState<SetupStatus | null>(null)
-  const [providerInputs, setProviderInputs] = useState<Record<string, { key: string; saving: boolean; saved: boolean }>>({})
+  const [providerInputs, setProviderInputs] = useState<Record<string, ProviderInputState>>({})
   const [providerError, setProviderError] = useState<string | null>(null)
   const [providerAuthMethodsMap, setProviderAuthMethodsMap] = useState<ProviderAuthMethods>({})
   const [oauthLoadingProvider, setOauthLoadingProvider] = useState<string | null>(null)
   const [oauthWaitingProvider, setOauthWaitingProvider] = useState<string | null>(null)
   const [oauthCallbackInputs, setOauthCallbackInputs] = useState<Record<string, string>>({})
+  const [oauthInstructionsByProvider, setOauthInstructionsByProvider] = useState<Record<string, string>>({})
   const [oauthMethodByProvider, setOauthMethodByProvider] = useState<Record<string, number | undefined>>({})
   const [oauthCompletingProvider, setOauthCompletingProvider] = useState<string | null>(null)
   const [providerModelsList, setProviderModelsList] = useState<ProviderModels[]>([])
   const [currentModel, setCurrentModel] = useState<string | null>(null)
   const [modelSaving, setModelSaving] = useState(false)
   const [providerEditModes, setProviderEditModes] = useState<Record<string, boolean>>({})
+  const [providerSearch, setProviderSearch] = useState("")
 
   const ACCENT_PRESETS = [
     { name: "Blue", accent: "#3b82f6", hover: "#2563eb" },
@@ -245,15 +256,29 @@ function SettingsContent() {
         getModelConfig().catch(() => ({ model: null, small_model: null })),
       ])
       setProviderSetupStatus(status)
-      setProviderAuthMethodsMap(authMethods)
-      setProviderModelsList(modelsData.providers)
-      setCurrentModel(modelConfig.model)
-
-      const inputs: Record<string, { key: string; saving: boolean; saved: boolean }> = {}
+      const mergedAuthMethods: ProviderAuthMethods = { ...authMethods }
       status.providers.forEach((provider) => {
-        inputs[provider.id] = { key: "", saving: false, saved: false }
+        if (provider.authMethods && provider.authMethods.length > 0) {
+          mergedAuthMethods[provider.id] = provider.authMethods
+        }
       })
-      setProviderInputs(inputs)
+      setProviderAuthMethodsMap(mergedAuthMethods)
+      setProviderModelsList(modelsData.providers)
+      setCurrentModel(modelConfig.model ?? status.currentModel ?? null)
+
+      setProviderInputs((prev) => {
+        const inputs: Record<string, ProviderInputState> = {}
+        status.providers.forEach((provider) => {
+          inputs[provider.id] = {
+            key: "",
+            baseUrl: prev[provider.id]?.baseUrl ?? provider.baseUrl ?? "",
+            enterpriseUrl: prev[provider.id]?.enterpriseUrl ?? "",
+            saving: false,
+            saved: false,
+          }
+        })
+        return inputs
+      })
       setProviderEditModes((prev) => {
         const next: Record<string, boolean> = {}
         status.providers.forEach((provider) => {
@@ -335,7 +360,10 @@ function SettingsContent() {
     }))
 
     try {
-      await setProviderApiKey(providerId, input.key)
+      await setProviderApiKey(providerId, input.key, {
+        baseUrl: input.baseUrl.trim() || undefined,
+        enterpriseUrl: input.enterpriseUrl.trim() || undefined,
+      })
 
       setProviderSetupStatus((prev) => {
         if (!prev) return prev
@@ -350,7 +378,12 @@ function SettingsContent() {
 
       setProviderInputs((prev) => ({
         ...prev,
-        [providerId]: { key: "", saving: false, saved: true },
+        [providerId]: {
+          ...(prev[providerId] ?? { baseUrl: "", enterpriseUrl: "" }),
+          key: "",
+          saving: false,
+          saved: true,
+        },
       }))
 
       toast.success("API key saved successfully")
@@ -364,7 +397,7 @@ function SettingsContent() {
           ...prev,
           [providerId]: prev[providerId]
             ? { ...prev[providerId], saved: false }
-            : { key: "", saving: false, saved: false },
+            : { key: "", baseUrl: "", enterpriseUrl: "", saving: false, saved: false },
         }))
       }, 3000)
     } catch (err) {
@@ -373,7 +406,11 @@ function SettingsContent() {
 
       setProviderInputs((prev) => ({
         ...prev,
-        [providerId]: { ...prev[providerId], saving: false, saved: false },
+        [providerId]: {
+          ...(prev[providerId] ?? { key: "", baseUrl: "", enterpriseUrl: "" }),
+          saving: false,
+          saved: false,
+        },
       }))
     }
   }
@@ -436,13 +473,18 @@ function SettingsContent() {
       delete next[providerId]
       return next
     })
+    setOauthInstructionsByProvider((prev) => {
+      const next = { ...prev }
+      delete next[providerId]
+      return next
+    })
     localStorage.removeItem(OAUTH_PENDING_STORAGE_KEY)
   }, [])
 
   const handleOAuthLogin = async (providerId: string, methodIndex?: number) => {
     setOauthLoadingProvider(providerId)
     try {
-      const { url } = await oauthAuthorize(providerId, methodIndex)
+      const { url, instructions } = await oauthAuthorize(providerId, methodIndex)
       if (url) {
         localStorage.removeItem(OAUTH_CALLBACK_STORAGE_KEY)
         localStorage.setItem(
@@ -457,7 +499,11 @@ function SettingsContent() {
         setOauthWaitingProvider(providerId)
         setOauthMethodByProvider((prev) => ({ ...prev, [providerId]: methodIndex }))
         setOauthCallbackInputs((prev) => ({ ...prev, [providerId]: "" }))
-        toast.info("After login, copy the callback URL (or code) and paste it below")
+        setOauthInstructionsByProvider((prev) => ({
+          ...prev,
+          [providerId]: instructions || "Complete the browser sign-in. If OpenCode returns a code flow, paste the callback URL or code below.",
+        }))
+        toast.info(instructions || "Complete the browser sign-in, then paste the callback URL or code if needed")
       } else {
         toast.error("No OAuth URL returned")
       }
@@ -515,6 +561,11 @@ function SettingsContent() {
       setOauthWaitingProvider(null)
       clearOAuthPendingState(providerId)
       localStorage.removeItem(OAUTH_CALLBACK_STORAGE_KEY)
+      setOauthInstructionsByProvider((prev) => {
+        const next = { ...prev }
+        delete next[providerId]
+        return next
+      })
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to complete OAuth"
       toast.error(message)
@@ -1398,18 +1449,37 @@ function SettingsContent() {
   )
 
   const renderAIProviders = () => {
+    const currentProviderId = currentModel?.split("/")[0] ?? null
+    const providerQuery = providerSearch.trim().toLowerCase()
     const providersSorted = providerSetupStatus
-      ? [...providerSetupStatus.providers].sort((a, b) =>
-          a.name.localeCompare(b.name)
-        )
+      ? [...providerSetupStatus.providers]
+          .filter((provider) => {
+            if (!providerQuery) return true
+            return (
+              provider.name.toLowerCase().includes(providerQuery) ||
+              provider.id.toLowerCase().includes(providerQuery) ||
+              provider.selectedModel?.toLowerCase().includes(providerQuery) ||
+              provider.defaultModel?.toLowerCase().includes(providerQuery)
+            )
+          })
+          .sort((a, b) => {
+            const aCurrent = currentProviderId === a.id ? 1 : 0
+            const bCurrent = currentProviderId === b.id ? 1 : 0
+            if (aCurrent !== bCurrent) return bCurrent - aCurrent
+            if (a.authenticated !== b.authenticated) return a.authenticated ? -1 : 1
+            return (b.modelCount ?? 0) - (a.modelCount ?? 0) || a.name.localeCompare(b.name)
+          })
       : []
     const connectedProviders = providersSorted.filter((provider) => provider.authenticated)
     const unconfiguredProviders = providersSorted.filter((provider) => !provider.authenticated)
+    const totalProviders = providerSetupStatus?.providers.length ?? 0
+    const totalConnected = providerSetupStatus?.providers.filter((provider) => provider.authenticated).length ?? 0
+    const totalModels = providerModelsList.reduce((sum, provider) => sum + provider.models.length, 0)
 
     const maskProviderApiKey = () => "****************"
 
     const renderProviderCard = (provider: SetupStatus["providers"][number]) => {
-      const authMethods = providerAuthMethodsMap[provider.id] || []
+      const authMethods = provider.authMethods || providerAuthMethodsMap[provider.id] || []
       const hasOAuth = authMethods.some((method) => method.type === "oauth")
       const hasApiKey = authMethods.some((method) => method.type === "api")
       const noAuthMethodsReported = authMethods.length === 0
@@ -1420,13 +1490,18 @@ function SettingsContent() {
         providerModelsList.find((providerModels) => providerModels.id === provider.id)
           ?.models || []
       const selectedForProvider =
-        currentModel?.startsWith(`${provider.id}/`) ? currentModel : ""
+        currentModel?.startsWith(`${provider.id}/`)
+          ? currentModel
+          : provider.selectedModel
+            ? `${provider.id}/${provider.selectedModel}`
+            : ""
       const selectedModelId = selectedForProvider
         ? selectedForProvider.slice(provider.id.length + 1)
-        : ""
+        : provider.selectedModel || ""
       const selectedModelName =
         models.find((model) => model.id === selectedModelId)?.name ||
         selectedModelId ||
+        provider.defaultModel ||
         "Not selected"
 
       const isEditingConnected = provider.authenticated && providerEditModes[provider.id]
@@ -1443,6 +1518,7 @@ function SettingsContent() {
         setProviderInputs((prev) => ({
           ...prev,
           [provider.id]: {
+            ...(prev[provider.id] ?? { baseUrl: "", enterpriseUrl: "" }),
             key: "",
             saving: false,
             saved: false,
@@ -1463,7 +1539,13 @@ function SettingsContent() {
                 </div>
                 <div>
                   <p className="text-sm font-medium text-linear-text">{provider.name}</p>
-                  <p className="text-xs text-linear-text-tertiary">{provider.id}</p>
+                  <div className="flex flex-wrap items-center gap-1.5 text-xs text-linear-text-tertiary">
+                    <span>{provider.id}</span>
+                    {provider.source && <span>source: {provider.source}</span>}
+                    {typeof provider.modelCount === "number" && (
+                      <span>{provider.modelCount} model{provider.modelCount === 1 ? "" : "s"}</span>
+                    )}
+                  </div>
                 </div>
               </div>
               {provider.authenticated ? (
@@ -1495,6 +1577,22 @@ function SettingsContent() {
                       {selectedModelName}
                     </p>
                   </div>
+                  {provider.defaultModel && provider.defaultModel !== selectedModelId && (
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-xs text-linear-text-tertiary">Provider default</p>
+                      <p className="text-xs text-linear-text-secondary truncate">
+                        {provider.defaultModel}
+                      </p>
+                    </div>
+                  )}
+                  {provider.baseUrl && (
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-xs text-linear-text-tertiary">Base URL</p>
+                      <p className="text-xs text-linear-text-secondary truncate">
+                        {provider.baseUrl}
+                      </p>
+                    </div>
+                  )}
                 </div>
 
                 <div className="flex justify-end">
@@ -1522,7 +1620,8 @@ function SettingsContent() {
                     {oauthWaitingProvider === provider.id ? (
                       <div className="space-y-2">
                         <p className="text-xs text-linear-text-tertiary">
-                          Waiting for OAuth callback... If auto-detection fails, paste the full callback URL (or just the code) below:
+                          {oauthInstructionsByProvider[provider.id] ||
+                            "Waiting for OAuth callback. If auto-detection fails, paste the full callback URL or code below."}
                         </p>
                         <Input
                           type="text"
@@ -1603,50 +1702,88 @@ function SettingsContent() {
                 )}
 
                 {showApiKey && (
-                  <div className="flex flex-col sm:flex-row gap-2">
-                    <Input
-                      type="password"
-                      placeholder={
-                        provider.authenticated
-                          ? "Enter new API key"
-                          : "Enter API key"
-                      }
-                      value={providerInputs[provider.id]?.key || ""}
-                      onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                        setProviderInputs((prev) => ({
-                          ...prev,
-                          [provider.id]: {
-                            ...prev[provider.id],
-                            key: e.target.value,
-                            saved: false,
-                          },
-                        }))
-                      }
-                      disabled={providerInputs[provider.id]?.saving}
-                      className="flex-1 bg-linear-bg border-linear-border text-linear-text placeholder:text-linear-text-tertiary focus-visible:ring-linear-accent h-9"
-                    />
-                    <Button
-                      type="button"
-                      size="sm"
-                      onClick={() => handleSaveProviderKey(provider.id)}
-                      disabled={
-                        providerInputs[provider.id]?.saved ||
-                        !providerInputs[provider.id]?.key.trim() ||
-                        providerInputs[provider.id]?.saving
-                      }
-                      className="h-9 px-4 bg-linear-accent hover:bg-linear-accent-hover text-white disabled:opacity-50"
-                    >
-                      {providerInputs[provider.id]?.saving ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                      ) : providerInputs[provider.id]?.saved ? (
-                        <>
-                          <Check className="w-4 h-4 mr-1" />
-                          Saved
-                        </>
-                      ) : (
-                        "Save"
-                      )}
-                    </Button>
+                  <div className="space-y-2">
+                    <div className="flex flex-col sm:flex-row gap-2">
+                      <Input
+                        type="password"
+                        placeholder={
+                          provider.authenticated
+                            ? "Enter new API key"
+                            : "Enter API key"
+                        }
+                        value={providerInputs[provider.id]?.key || ""}
+                        onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                          setProviderInputs((prev) => ({
+                            ...prev,
+                            [provider.id]: {
+                              ...(prev[provider.id] ?? { baseUrl: "", enterpriseUrl: "", saving: false, saved: false }),
+                              key: e.target.value,
+                              saved: false,
+                            },
+                          }))
+                        }
+                        disabled={providerInputs[provider.id]?.saving}
+                        className="flex-1 bg-linear-bg border-linear-border text-linear-text placeholder:text-linear-text-tertiary focus-visible:ring-linear-accent h-9"
+                      />
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={() => handleSaveProviderKey(provider.id)}
+                        disabled={
+                          providerInputs[provider.id]?.saved ||
+                          !providerInputs[provider.id]?.key.trim() ||
+                          providerInputs[provider.id]?.saving
+                        }
+                        className="h-9 px-4 bg-linear-accent hover:bg-linear-accent-hover text-white disabled:opacity-50"
+                      >
+                        {providerInputs[provider.id]?.saving ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : providerInputs[provider.id]?.saved ? (
+                          <>
+                            <Check className="w-4 h-4 mr-1" />
+                            Saved
+                          </>
+                        ) : (
+                          "Save"
+                        )}
+                      </Button>
+                    </div>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      <Input
+                        type="url"
+                        placeholder="Base URL (optional)"
+                        value={providerInputs[provider.id]?.baseUrl || ""}
+                        onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                          setProviderInputs((prev) => ({
+                            ...prev,
+                            [provider.id]: {
+                              ...(prev[provider.id] ?? { key: "", enterpriseUrl: "", saving: false, saved: false }),
+                              baseUrl: e.target.value,
+                              saved: false,
+                            },
+                          }))
+                        }
+                        disabled={providerInputs[provider.id]?.saving}
+                        className="bg-linear-bg border-linear-border text-linear-text placeholder:text-linear-text-tertiary focus-visible:ring-linear-accent h-9"
+                      />
+                      <Input
+                        type="url"
+                        placeholder="Enterprise URL (optional)"
+                        value={providerInputs[provider.id]?.enterpriseUrl || ""}
+                        onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                          setProviderInputs((prev) => ({
+                            ...prev,
+                            [provider.id]: {
+                              ...(prev[provider.id] ?? { key: "", baseUrl: "", saving: false, saved: false }),
+                              enterpriseUrl: e.target.value,
+                              saved: false,
+                            },
+                          }))
+                        }
+                        disabled={providerInputs[provider.id]?.saving}
+                        className="bg-linear-bg border-linear-border text-linear-text placeholder:text-linear-text-tertiary focus-visible:ring-linear-accent h-9"
+                      />
+                    </div>
                   </div>
                 )}
 
@@ -1701,12 +1838,46 @@ function SettingsContent() {
 
     return (
       <div className="space-y-6">
-        <div>
-          <h2 className="text-lg font-semibold text-linear-text">AI Providers</h2>
-          <p className="text-sm text-linear-text-tertiary mt-1">
-            Configure your LLM provider API keys for AI task execution.
-          </p>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h2 className="text-lg font-semibold text-linear-text">AI Providers</h2>
+            <p className="text-sm text-linear-text-tertiary mt-1">
+              Uses your local OpenCode config, auth, connected providers, and selected model.
+            </p>
+          </div>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={fetchProviderStatus}
+            disabled={providersLoading}
+            className="border-linear-border text-linear-text hover:bg-linear-bg-tertiary gap-2"
+          >
+            {providersLoading ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <RefreshCw className="w-3.5 h-3.5" />
+            )}
+            Refresh
+          </Button>
         </div>
+
+        {providerSetupStatus && (
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div className="border border-linear-border bg-linear-bg-secondary px-3 py-2 rounded-sm">
+              <p className="text-[11px] uppercase tracking-wide text-linear-text-tertiary">Current model</p>
+              <p className="text-sm text-linear-text truncate mt-1">{currentModel || "Not selected"}</p>
+            </div>
+            <div className="border border-linear-border bg-linear-bg-secondary px-3 py-2 rounded-sm">
+              <p className="text-[11px] uppercase tracking-wide text-linear-text-tertiary">Connected</p>
+              <p className="text-sm text-linear-text mt-1">{totalConnected} of {totalProviders} providers</p>
+            </div>
+            <div className="border border-linear-border bg-linear-bg-secondary px-3 py-2 rounded-sm">
+              <p className="text-[11px] uppercase tracking-wide text-linear-text-tertiary">Available models</p>
+              <p className="text-sm text-linear-text mt-1">{totalModels}</p>
+            </div>
+          </div>
+        )}
 
         {providersLoading ? (
           <Card className="bg-linear-bg-secondary border-linear-border">
@@ -1767,15 +1938,43 @@ function SettingsContent() {
                   <p className="text-sm font-medium text-linear-text">
                     No providers found
                   </p>
-                  <p className="text-xs text-linear-text-tertiary">
-                    The AI environment is running but no providers were detected.
+                  <p className="text-xs text-linear-text-tertiary max-w-sm">
+                    OpenCode returned zero providers. Restart the sidecar after this update so it loads your local OpenCode config instead of an empty config.
                   </p>
                 </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={fetchProviderStatus}
+                  className="border-linear-border text-linear-text hover:bg-linear-bg-tertiary"
+                >
+                  <RefreshCw className="w-3.5 h-3.5 mr-2" />
+                  Retry
+                </Button>
               </div>
             </CardContent>
           </Card>
         ) : (
           <div className="space-y-5">
+            <div className="relative">
+              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-linear-text-tertiary" />
+              <Input
+                value={providerSearch}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setProviderSearch(e.target.value)}
+                placeholder="Search providers or models"
+                className="pl-9 bg-linear-bg-secondary border-linear-border text-linear-text placeholder:text-linear-text-tertiary focus-visible:ring-linear-accent"
+              />
+            </div>
+
+            {providersSorted.length === 0 && providerSearch.trim() ? (
+              <Card className="bg-linear-bg-secondary border-linear-border">
+                <CardContent className="py-8 text-center">
+                  <p className="text-sm text-linear-text-secondary">No providers match "{providerSearch.trim()}".</p>
+                </CardContent>
+              </Card>
+            ) : null}
+
             {connectedProviders.length > 0 && (
               <div className="space-y-3">
                 <div className="flex items-center gap-3 px-1">

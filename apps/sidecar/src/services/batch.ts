@@ -8,6 +8,7 @@ import type { OpencodeClient } from '@opencode-ai/sdk';
 import { getOrCreateBuffer, appendTextDelta, appendReasoningDelta, flushDeltaBuffer, cleanupDeltaBuffer, markThinking } from './delta-buffer';
 import { getGitIdentityEnv } from './git-identity';
 import { execFileAsync } from './execution/exec';
+import { hasCommittableChanges, stageCommittableChanges } from './execution/git';
 import { getExecutionSettings } from './execution-settings';
 
 const activeBatches = new Map<string, BatchState>();
@@ -15,6 +16,10 @@ const sessionToBatch = new Map<string, { batchId: string; taskId: string }>();
 const completingBatchTasks = new Set<string>();
 const finalizingBatches = new Set<string>();
 const BATCH_EVENT_TIMEOUT_MS = 30_000;
+const BATCH_BACKGROUND_TASK_TIMEOUT_MS = 10 * 60 * 1000;
+const BATCH_BACKGROUND_BUFFER_LIMIT = 4_000;
+const BATCH_EVENT_TIMEOUT_REASON = 'Event stream timed out';
+const BATCH_BACKGROUND_TASK_TIMEOUT_REASON = 'Background subtask timed out';
 
 /**
  * T14 — On sidecar restart, `activeBatches` is empty (in-memory only). Any
@@ -34,6 +39,35 @@ interface BatchLogEntry {
   details?: string;
 }
 const batchTaskLogs = new Map<string, BatchLogEntry[]>();
+
+function extractBackgroundTaskId(output: string): string | null {
+  return output.match(/(?:task_id|Background Task ID):\s*([A-Za-z0-9_-]+)/i)?.[1] ?? null;
+}
+
+function isBackgroundTaskLaunch(toolName: string, output: string): boolean {
+  if (toolName !== 'task') return false;
+  const lower = output.toLowerCase();
+  return lower.includes('background task started')
+    || lower.includes('background task launched')
+    || (lower.includes('state: running') && lower.includes('task_status'));
+}
+
+function isBackgroundTaskCancellation(toolName: string, output: string): boolean {
+  const lower = `${toolName}\n${output}`.toLowerCase();
+  return toolName === 'background_cancel'
+    || lower.includes('task cancelled successfully')
+    || lower.includes('task canceled successfully')
+    || lower.includes('background task cancelled')
+    || lower.includes('background task canceled');
+}
+
+function isBackgroundTaskCompletion(output: string): boolean {
+  return /Background task completed:/i.test(output) || /\bTask Completed\b/i.test(output);
+}
+
+function isBackgroundTaskFailure(output: string): boolean {
+  return /Background task failed:/i.test(output) || /\bTask Failed\b/i.test(output);
+}
 
 function broadcastBatchEvent(type: BatchEventType, batchId: string, data: Record<string, unknown> = {}): void {
   const batch = activeBatches.get(batchId);
@@ -262,6 +296,14 @@ async function startTask(batch: BatchState, taskIndex: number): Promise<void> {
     if (taskRecord?.description) {
       prompt += `\n\n${taskRecord.description}`;
     }
+    prompt += [
+      '',
+      '',
+      'Execution contract:',
+      '- Make the requested code changes directly in this worktree before finishing.',
+      '- If you use a background subtask, wait for its result and apply any required changes before completing.',
+      '- Do not mark the task complete unless the worktree contains the requested changes or you can explain why no code change is valid.',
+    ].join('\n');
 
     client.session.prompt({
       path: { id: sessionId },
@@ -316,6 +358,9 @@ function subscribeToTaskEvents(
   let promptSent = false;
   let timedOut = false;
   let timeoutId: NodeJS.Timeout | null = null;
+  let backgroundTaskRunning = false;
+  let backgroundTaskFailure: string | null = null;
+  let backgroundTaskResultBuffer = '';
 
   const clearEventTimeout = () => {
     if (timeoutId) {
@@ -323,18 +368,69 @@ function subscribeToTaskEvents(
       timeoutId = null;
     }
   };
-  const resetEventTimeout = () => {
+  const resetEventTimeout = (
+    timeoutMs = BATCH_EVENT_TIMEOUT_MS,
+    timeoutReason = BATCH_EVENT_TIMEOUT_REASON,
+  ) => {
     clearEventTimeout();
+    const waitingForBackgroundTask =
+      backgroundTaskRunning
+      && timeoutMs === BATCH_EVENT_TIMEOUT_MS
+      && timeoutReason === BATCH_EVENT_TIMEOUT_REASON;
+    const effectiveTimeoutMs = waitingForBackgroundTask ? BATCH_BACKGROUND_TASK_TIMEOUT_MS : timeoutMs;
+    const effectiveTimeoutReason = waitingForBackgroundTask ? BATCH_BACKGROUND_TASK_TIMEOUT_REASON : timeoutReason;
+
     timeoutId = setTimeout(() => {
       timedOut = true;
       flushDeltaBuffer(taskId);
       cleanupDeltaBuffer(taskId);
-      emitBatchLog(taskId, 'error', 'Execution timed out waiting for agent events');
-      void handleTaskComplete(batchId, taskId, false, 'Event stream timed out').catch((error: unknown) => {
+      emitBatchLog(taskId, 'error', 'Execution timed out waiting for agent events', effectiveTimeoutReason);
+      void handleTaskComplete(batchId, taskId, false, effectiveTimeoutReason).catch((error: unknown) => {
         console.error(`[Batch] Failed to complete timed out task ${taskId.slice(0, 8)}:`, error);
       });
-    }, BATCH_EVENT_TIMEOUT_MS);
+    }, effectiveTimeoutMs);
     timeoutId.unref();
+  };
+
+  const clearBackgroundTaskWait = (
+    status: 'completed' | 'cancelled' | 'failed',
+    details?: string,
+  ) => {
+    if (!backgroundTaskRunning) return;
+
+    backgroundTaskRunning = false;
+    backgroundTaskFailure = status === 'failed' ? (details || 'Background subtask failed') : null;
+
+    if (status === 'failed') {
+      emitBatchLog(taskId, 'error', 'Background subtask failed', backgroundTaskFailure ?? undefined);
+      return;
+    }
+
+    emitBatchLog(
+      taskId,
+      'info',
+      status === 'cancelled'
+        ? 'Background subtask cancelled; continuing execution'
+        : 'Background subtask completed; waiting for final agent response',
+      details,
+    );
+    resetEventTimeout();
+  };
+
+  const observeBackgroundTaskText = (text: string) => {
+    if (!text) return;
+    backgroundTaskResultBuffer = (backgroundTaskResultBuffer + text).slice(-BATCH_BACKGROUND_BUFFER_LIMIT);
+    if (isBackgroundTaskCancellation('text', backgroundTaskResultBuffer)) {
+      clearBackgroundTaskWait('cancelled', backgroundTaskResultBuffer.slice(-1_000));
+      return;
+    }
+    if (isBackgroundTaskFailure(backgroundTaskResultBuffer)) {
+      clearBackgroundTaskWait('failed', backgroundTaskResultBuffer.slice(-1_000));
+      return;
+    }
+    if (isBackgroundTaskCompletion(backgroundTaskResultBuffer)) {
+      clearBackgroundTaskWait('completed', backgroundTaskResultBuffer.slice(-1_000));
+    }
   };
 
   getOrCreateBuffer(taskId, (msg) => emitBatchLog(taskId, 'agent', msg));
@@ -355,6 +451,18 @@ function subscribeToTaskEvents(
         // Terminal events
         if (type === 'session.completed' || type === 'session.idle') {
           if (!promptSent) continue;
+          if (backgroundTaskFailure) {
+            clearEventTimeout();
+            flushDeltaBuffer(taskId);
+            cleanupDeltaBuffer(taskId);
+            await handleTaskComplete(batchId, taskId, false, `Background subtask failed: ${backgroundTaskFailure}`);
+            break;
+          }
+          if (backgroundTaskRunning) {
+            emitBatchLog(taskId, 'info', 'Agent is waiting on a background subtask');
+            resetEventTimeout(BATCH_BACKGROUND_TASK_TIMEOUT_MS, BATCH_BACKGROUND_TASK_TIMEOUT_REASON);
+            continue;
+          }
           clearEventTimeout();
           flushDeltaBuffer(taskId);
           cleanupDeltaBuffer(taskId);
@@ -394,6 +502,7 @@ function subscribeToTaskEvents(
 
           if (part?.type === 'text' && delta) {
             appendTextDelta(taskId, delta);
+            observeBackgroundTaskText(delta);
           } else if (part?.type === 'tool') {
             flushDeltaBuffer(taskId);
             const toolName = part.tool || 'unknown tool';
@@ -401,7 +510,26 @@ function subscribeToTaskEvents(
             if (state?.status === 'running') {
               emitBatchLog(taskId, 'tool', `Running: ${state.title || toolName}`);
             } else if (state?.status === 'completed') {
-              emitBatchLog(taskId, 'success', `Completed: ${toolName}`, state.output?.slice(0, 100));
+              const rawOutput = state.output || '';
+              if (isBackgroundTaskLaunch(toolName, rawOutput)) {
+                backgroundTaskRunning = true;
+                backgroundTaskFailure = null;
+                backgroundTaskResultBuffer = rawOutput.slice(-BATCH_BACKGROUND_BUFFER_LIMIT);
+                const backgroundTaskId = extractBackgroundTaskId(rawOutput);
+                resetEventTimeout(BATCH_BACKGROUND_TASK_TIMEOUT_MS, BATCH_BACKGROUND_TASK_TIMEOUT_REASON);
+                emitBatchLog(
+                  taskId,
+                  'info',
+                  'Background subtask launched; waiting for it to finish',
+                  backgroundTaskId ? `Task ID: ${backgroundTaskId}` : rawOutput.slice(0, 100),
+                );
+              } else if (isBackgroundTaskCancellation(toolName, rawOutput)) {
+                clearBackgroundTaskWait('cancelled', rawOutput.slice(-1_000));
+                emitBatchLog(taskId, 'success', `Completed: ${toolName}`, rawOutput.slice(0, 100));
+              } else {
+                observeBackgroundTaskText(rawOutput);
+                emitBatchLog(taskId, 'success', `Completed: ${toolName}`, rawOutput.slice(0, 100));
+              }
             } else if (state?.status === 'error') {
               emitBatchLog(taskId, 'error', `Failed: ${toolName}`, state.output);
             }
@@ -427,6 +555,11 @@ function subscribeToTaskEvents(
           const tool = props.tool as string | undefined;
           const output = props.output as string | undefined;
           if (tool) {
+            if (isBackgroundTaskCancellation(tool, output || '')) {
+              clearBackgroundTaskWait('cancelled', output?.slice(-1_000));
+            } else {
+              observeBackgroundTaskText(output || '');
+            }
             emitBatchLog(taskId, 'success', `Finished: ${tool}`, output?.slice(0, 100));
           }
           continue;
@@ -501,25 +634,42 @@ async function handleTaskComplete(
   task.completedAt = new Date();
 
   try {
-    if (success) {
+    let completionSucceeded = success;
+    let completionError = error;
+
+    if (completionSucceeded) {
       // Commit changes from worktree
       if (task.worktreePath) {
         try {
           const env = { ...process.env, ...getGitIdentityEnv() };
-          const { stdout: status } = await execFileAsync('git', ['-C', task.worktreePath, 'status', '--porcelain']);
-          if (status.trim()) {
-            await execFileAsync('git', ['-C', task.worktreePath, 'add', '-A']);
-            const commitMsg = `feat: ${task.title.toLowerCase().replace(/[^a-z0-9\s]/g, '').slice(0, 50)}`;
-            await execFileAsync('git', ['-C', task.worktreePath, 'commit', '-m', commitMsg], { env });
-            console.log(`[Batch] Committed changes for task ${task.taskId.slice(0, 8)}`);
+          if (await hasCommittableChanges(task.worktreePath)) {
+            const staged = await stageCommittableChanges(task.worktreePath);
+            if (!staged) {
+              completionSucceeded = false;
+              completionError = 'Agent finished without committable code changes';
+              console.log(`[Batch] No committable changes for task ${task.taskId.slice(0, 8)}`);
+            } else {
+              const commitMsg = `feat: ${task.title.toLowerCase().replace(/[^a-z0-9\s]/g, '').slice(0, 50)}`;
+              await execFileAsync('git', ['-C', task.worktreePath, 'commit', '-m', commitMsg], { env });
+              console.log(`[Batch] Committed changes for task ${task.taskId.slice(0, 8)}`);
+            }
           } else {
+            completionSucceeded = false;
+            completionError = 'Agent finished without making code changes';
             console.log(`[Batch] No changes for task ${task.taskId.slice(0, 8)}`);
           }
         } catch (commitErr) {
+          completionSucceeded = false;
+          completionError = commitErr instanceof Error ? commitErr.message : 'Failed to commit task changes';
           console.error(`[Batch] Failed to commit for task ${task.taskId.slice(0, 8)}:`, commitErr);
         }
+      } else {
+        completionSucceeded = false;
+        completionError = 'Task completed without a worktree';
       }
+    }
 
+    if (completionSucceeded) {
       task.status = 'completed';
       broadcastBatchEvent('batch:task:completed', batchId, { taskId });
       emitBatchLog(taskId, 'success', 'Batch task completed');
@@ -531,7 +681,7 @@ async function handleTaskComplete(
       });
     } else {
       task.status = 'failed';
-      task.error = error || 'Unknown error';
+      task.error = completionError || 'Unknown error';
       broadcastBatchEvent('batch:task:failed', batchId, { taskId, error: task.error });
       emitBatchLog(taskId, 'error', `Batch task failed: ${task.error}`);
 
@@ -558,7 +708,7 @@ async function handleTaskComplete(
       sessionToBatch.delete(task.sessionId);
     }
 
-    if (!success && batch.settings.stopOnFailure) {
+    if (!completionSucceeded && batch.settings.stopOnFailure) {
       await cancelBatch(batchId);
       return;
     }

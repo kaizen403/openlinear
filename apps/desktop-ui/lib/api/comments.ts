@@ -31,8 +31,36 @@ export interface TaskWithTeam {
   title: string;
 }
 
+const COMMENTS_PAGE_SIZE = 100;
+
 export async function fetchComments(taskId: string): Promise<CommentListResponse> {
-  return apiFetch<CommentListResponse>(`/api/tasks/${taskId}/comments?pageSize=200`);
+  const firstPage = await fetchCommentsPage(taskId, 1);
+  if (firstPage.comments.length >= firstPage.total) return firstPage;
+
+  const allComments = [...firstPage.comments];
+  let page = firstPage.page + 1;
+
+  while (allComments.length < firstPage.total) {
+    const nextPage = await fetchCommentsPage(taskId, page);
+    if (nextPage.comments.length === 0) break;
+    allComments.push(...nextPage.comments);
+    page += 1;
+  }
+
+  return {
+    ...firstPage,
+    comments: allComments,
+    page: 1,
+    pageSize: COMMENTS_PAGE_SIZE,
+  };
+}
+
+function fetchCommentsPage(taskId: string, page: number): Promise<CommentListResponse> {
+  const params = new URLSearchParams({
+    page: String(page),
+    pageSize: String(COMMENTS_PAGE_SIZE),
+  });
+  return apiFetch<CommentListResponse>(`/api/tasks/${taskId}/comments?${params.toString()}`);
 }
 
 export async function createComment(taskId: string, body: string): Promise<Comment> {

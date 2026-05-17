@@ -10,6 +10,8 @@ export type CommitPushResult =
   | { status: 'pushed' }
   | { status: 'failed'; reason: string };
 
+const RUNTIME_ARTIFACT_PATHS = ['.sisyphus'];
+
 function getExecErrorReason(error: unknown): string {
   if (error && typeof error === 'object') {
     const err = error as { stderr?: string; message?: string };
@@ -18,6 +20,57 @@ function getExecErrorReason(error: unknown): string {
     if (err.message) return err.message;
   }
   return 'Unknown git error';
+}
+
+function extractPorcelainPath(line: string): string {
+  const raw = line.slice(3).trim();
+  const renameTarget = raw.split(' -> ').pop();
+  return (renameTarget || raw).replace(/\\/g, '/');
+}
+
+function isRuntimeArtifactPath(path: string): boolean {
+  return RUNTIME_ARTIFACT_PATHS.some((artifactPath) => (
+    path === artifactPath || path.startsWith(`${artifactPath}/`)
+  ));
+}
+
+export async function hasCommittableChanges(repoPath: string): Promise<boolean> {
+  const { stdout } = await execFileAsync('git', [
+    '-C',
+    repoPath,
+    'status',
+    '--porcelain',
+    '--untracked-files=all',
+  ]);
+
+  return stdout
+    .split('\n')
+    .filter(Boolean)
+    .some((line) => !isRuntimeArtifactPath(extractPorcelainPath(line)));
+}
+
+export async function stageCommittableChanges(repoPath: string): Promise<boolean> {
+  await execFileAsync('git', [
+    '-C',
+    repoPath,
+    'add',
+    '-A',
+    '--',
+    '.',
+    ':(exclude).sisyphus',
+    ':(exclude).sisyphus/**',
+  ]);
+  await execFileAsync('git', ['-C', repoPath, 'reset', '-q', '--', '.sisyphus']).catch(() => undefined);
+
+  const { stdout } = await execFileAsync('git', [
+    '-C',
+    repoPath,
+    'diff',
+    '--cached',
+    '--name-only',
+  ]);
+
+  return stdout.trim().length > 0;
 }
 
 export async function cloneRepository(
@@ -71,15 +124,17 @@ export async function commitAndPush(
     const env = { ...process.env, ...getGitIdentityEnv() };
 
     console.log(`[Execution] Checking for changes in ${repoPath}`);
-    const { stdout: status } = await execFileAsync('git', ['-C', repoPath, 'status', '--porcelain']);
-
-    if (!status.trim()) {
+    if (!(await hasCommittableChanges(repoPath))) {
       console.log(`[Execution] No changes to commit`);
       return { status: 'no_changes' };
     }
 
     console.log(`[Execution] Changes detected, staging files...`);
-    await execFileAsync('git', ['-C', repoPath, 'add', '-A']);
+    const staged = await stageCommittableChanges(repoPath);
+    if (!staged) {
+      console.log(`[Execution] No committable changes after excluding runtime artifacts`);
+      return { status: 'no_changes' };
+    }
 
     const commitMessage = `feat: ${taskTitle.toLowerCase().replace(/[^a-z0-9\s]/g, '').slice(0, 50)}`;
     console.log(`[Execution] Committing: ${commitMessage}`);
