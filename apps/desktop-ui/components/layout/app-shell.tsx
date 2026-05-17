@@ -10,6 +10,13 @@ const DEFAULT_WIDTH = 256
 const STORAGE_KEY_OPEN = "openlinear-sidebar-open"
 const STORAGE_KEY_WIDTH = "openlinear-sidebar-width"
 
+function readStoredBoolean(key: string, fallback: boolean): boolean {
+    if (typeof window === "undefined") return fallback
+    const stored = localStorage.getItem(key)
+    if (stored === null) return fallback
+    return stored === "true"
+}
+
 function readStoredNumber(key: string, fallback: number): number {
     if (typeof window === "undefined") return fallback
     const stored = localStorage.getItem(key)

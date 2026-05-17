@@ -13,7 +13,6 @@ import {
   Check,
   Pencil,
   Settings,
-  AlertTriangle,
   FolderKanban,
   ListTodo,
 } from "lucide-react"
@@ -78,7 +77,7 @@ const taskStatusColorKeys: Record<string, StatusKey> = {
   todo: "todo",
 }
 
-const getBadgeColorClasses = (colors: ColorTriad) => cn(colors.bg, colors.text, colors.border)
+const getBadgeColorClasses = (colors: ColorTriad) => cn(colors.text, "bg-transparent border-linear-border")
 
 interface Task {
   id: string
@@ -366,7 +365,7 @@ function TeamDetailPageContent() {
         </div>
 
         <div className="flex-1 overflow-auto">
-          <div className="max-w-3xl mx-auto p-6 space-y-8">
+          <div className="p-6 sm:p-8 space-y-8">
             <section>
               <h2 className="text-lg font-medium text-linear-text mb-4 flex items-center gap-2">
                 <Settings className="w-5 h-5 text-linear-text-secondary" />
@@ -540,10 +539,10 @@ function TeamDetailPageContent() {
                         <th className="text-left py-2 px-4 text-xs font-medium text-linear-text-tertiary uppercase tracking-wider">
                           Title
                         </th>
-                        <th className="text-left py-2 px-4 text-xs font-medium text-linear-text-tertiary uppercase tracking-wider w-[100px]">
+                        <th className="text-left py-2 px-4 text-xs font-medium text-linear-text-tertiary uppercase tracking-wider w-[120px]">
                           Status
                         </th>
-                        <th className="text-left py-2 px-4 text-xs font-medium text-linear-text-tertiary uppercase tracking-wider w-[100px]">
+                        <th className="text-left py-2 px-4 text-xs font-medium text-linear-text-tertiary uppercase tracking-wider w-[120px]">
                           Priority
                         </th>
                       </tr>
@@ -564,12 +563,12 @@ function TeamDetailPageContent() {
                             </div>
                           </td>
                           <td className="py-3 px-4">
-                            <Badge variant="outline" className={cn(getStatusColor(task.status), "text-xs capitalize")}>
+                            <Badge variant="outline" className={cn(getStatusColor(task.status), "text-xs capitalize whitespace-nowrap")}>
                               {task.status.replace('_', ' ')}
                             </Badge>
                           </td>
                           <td className="py-3 px-4">
-                            <Badge variant="outline" className={cn(getPriorityColor(task.priority), "text-xs capitalize")}>
+                            <Badge variant="outline" className={cn(getPriorityColor(task.priority), "text-xs capitalize whitespace-nowrap")}>
                               {task.priority}
                             </Badge>
                           </td>
@@ -640,10 +639,10 @@ function TeamDetailPageContent() {
                           <td className="py-3 px-4">
                             <button
                               onClick={() => handleDeleteProject(project.id, project.name)}
-                              className="p-1.5 rounded-sm hover:bg-destructive/10 transition-colors"
+                              className="p-1.5 rounded-sm text-linear-text-tertiary hover:text-destructive hover:bg-destructive/10 transition-colors"
                               title="Delete project"
                             >
-                              <Trash2 className="w-4 h-4 text-destructive" />
+                              <Trash2 className="w-4 h-4" />
                             </button>
                           </td>
                         </tr>
@@ -661,11 +660,10 @@ function TeamDetailPageContent() {
             </section>
 
             <section>
-              <h2 className="text-lg font-medium text-destructive mb-4 flex items-center gap-2">
-                <AlertTriangle className="w-5 h-5" />
-                Danger Zone
+              <h2 className="text-lg font-medium text-linear-text mb-4 flex items-center gap-2">
+                Delete Team
               </h2>
-              <div className="p-4 rounded-sm bg-destructive/5 border border-destructive/20">
+              <div className="p-4 rounded-sm bg-linear-bg-secondary border border-linear-border">
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                   <div>
                     <h3 className="text-sm font-medium text-linear-text">Delete this team</h3>
@@ -692,7 +690,7 @@ function TeamDetailPageContent() {
         <DialogContent className="bg-linear-bg-secondary border-linear-border">
           <DialogHeader>
             <DialogTitle className="text-linear-text flex items-center gap-2">
-              <AlertTriangle className="w-5 h-5 text-destructive" />
+              <Trash2 className="w-5 h-5 text-destructive" />
               Delete Team
             </DialogTitle>
             <DialogDescription className="text-linear-text-secondary">
