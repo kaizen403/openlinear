@@ -5,6 +5,7 @@ import { useVirtualizer } from "@tanstack/react-virtual"
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion"
 import {
   ArrowRight,
+  ArrowLeft,
   CalendarClock,
   Check,
   Copy,
@@ -71,6 +72,7 @@ const SORT_OPTIONS: Array<{ value: GitHubRepoSort; label: string }> = [
 interface OnboardingWizardProps {
   teams: Team[]
   onComplete: (result: { teamId: string; projectId: string }) => void
+  onCancel?: () => void
 }
 
 type RepoSource = "github" | "link" | "ssh" | "demo"
@@ -1396,7 +1398,7 @@ function StepIndicator({ currentStep }: { currentStep: number }) {
   )
 }
 
-export function OnboardingWizard({ teams, onComplete }: OnboardingWizardProps) {
+export function OnboardingWizard({ teams, onComplete, onCancel }: OnboardingWizardProps) {
   const [currentStep, setCurrentStep] = useState(0)
   const [repoDraft, setRepoDraft] = useState<RepoDraft>(EMPTY_REPO_DRAFT)
   const [firstTaskTitle, setFirstTaskTitle] = useState("")
@@ -1575,6 +1577,18 @@ export function OnboardingWizard({ teams, onComplete }: OnboardingWizardProps) {
   return (
     <div className="w-full max-w-3xl mx-auto">
       <StepIndicator currentStep={currentStep} />
+      {onCancel && (
+        <div className="mb-4 flex justify-end">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="inline-flex items-center gap-1.5 text-xs text-linear-text-secondary hover:text-linear-text transition-colors"
+          >
+            <ArrowLeft className="w-3.5 h-3.5" />
+            Back to projects
+          </button>
+        </div>
+      )}
 
       {shouldAnimateStep ? (
         <AnimatePresence mode="wait">

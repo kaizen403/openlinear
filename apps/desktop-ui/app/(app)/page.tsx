@@ -62,6 +62,7 @@ function HomeContent() {
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState("")
   const [isMobileSearchOpen, setIsMobileSearchOpen] = useState(false)
+  const [showNewProject, setShowNewProject] = useState(false)
 
   useEffect(() => {
     if (!isAuthenticated) return
@@ -147,6 +148,24 @@ function HomeContent() {
           </div>
           <div className="flex-1 h-full" data-tauri-drag-region />
         </header>
+        {showNewProject ? (
+          <div className="flex-1 flex items-center justify-center p-6">
+            <OnboardingWizard
+              teams={teams}
+              onCancel={() => setShowNewProject(false)}
+              onComplete={({ projectId }) => {
+                fetchProjects().then((updated) => {
+                  setProjects(updated)
+                  setSelectedProjectId(projectId)
+                  setShowNewProject(false)
+                }).catch(() => {
+                  setSelectedProjectId(projectId)
+                  setShowNewProject(false)
+                })
+              }}
+            />
+          </div>
+        ) : (
         <div className="flex-1 flex items-center justify-center p-6">
           <div className="w-full max-w-md">
             <div className="text-center mb-8">
@@ -203,9 +222,21 @@ function HomeContent() {
                   <ArrowRight className="w-4 h-4 text-linear-text-tertiary opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
                 </button>
               ))}
+
+              <button
+                type="button"
+                onClick={() => setShowNewProject(true)}
+                className="group flex items-center justify-center gap-2 w-full px-4 py-3 rounded-sm border border-dashed border-linear-border hover:border-linear-border-hover hover:bg-linear-bg-tertiary transition-colors"
+              >
+                <Plus className="w-4 h-4 text-linear-text-tertiary group-hover:text-linear-text transition-colors" />
+                <span className="text-sm text-linear-text-tertiary group-hover:text-linear-text transition-colors">Add new project</span>
+              </button>
             </div>
+
+            <p className="text-xs text-linear-text-tertiary text-center mt-4">You can add more projects anytime</p>
           </div>
         </div>
+        )}
       </>
     )
   }
