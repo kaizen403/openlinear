@@ -1,14 +1,23 @@
 "use client"
 
-import { useState, useEffect } from "react"
-import { Cpu, Loader2 } from "lucide-react"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { useState, useEffect, useCallback } from "react"
+import { Cpu, Loader2, Check, ChevronDown, Sparkles } from "lucide-react"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  SelectSeparator,
+} from "@/components/ui/select"
 import { getModels, getModelConfig, setModel, type ProviderModels } from "@/lib/api/opencode"
+import { cn } from "@/lib/utils"
 
 export function ModelSelector() {
   const [modelsList, setModelsList] = useState<ProviderModels[]>([])
   const [currentModel, setCurrentModel] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [isOpen, setIsOpen] = useState(false)
 
   useEffect(() => {
     const load = async () => {
@@ -28,24 +37,28 @@ export function ModelSelector() {
     load()
   }, [])
 
-  const handleSelect = async (val: string) => {
+  const handleSelect = useCallback(async (val: string) => {
     setCurrentModel(val)
+    setIsOpen(false)
     try {
       await setModel(val)
     } catch (err) {
       console.error("Failed to set model:", err)
     }
-  }
+  }, [])
+
+  const allModels = modelsList.flatMap(p => p.models.map(m => ({ ...m, provider: p.id, providerName: p.name })))
+  const selectedModelObj = allModels.find(m => `${m.provider}/${m.id}` === currentModel)
 
   if (isLoading) {
     return (
-      <div className="flex items-center gap-1.5 px-2 py-1 min-w-[132px] sm:min-w-0 flex-1 snap-start">
-        <Cpu className="w-3 h-3 flex-shrink-0 text-linear-text-tertiary" />
+      <div className="flex items-center gap-2 px-3 py-1.5 min-w-[140px] sm:min-w-0 flex-1 snap-start">
+        <Cpu className="w-3.5 h-3.5 flex-shrink-0 text-linear-text-tertiary" />
         <div className="min-w-0 flex-1">
-          <div className="text-[9px] uppercase tracking-[0.14em] text-linear-text-tertiary leading-tight">
+          <div className="text-[9px] uppercase tracking-[0.14em] text-linear-text-tertiary leading-tight font-medium">
             Model
           </div>
-          <div className="text-[12px] font-medium truncate leading-tight text-linear-text-tertiary flex items-center gap-1">
+          <div className="text-[12px] font-medium truncate leading-tight text-linear-text-tertiary flex items-center gap-1.5">
             <Loader2 className="w-3 h-3 animate-spin" /> Loading...
           </div>
         </div>
@@ -53,40 +66,120 @@ export function ModelSelector() {
     )
   }
 
-  const allModels = modelsList.flatMap(p => p.models)
-  const selectedModelObj = allModels.find(m => `${m.provider}/${m.id}` === currentModel)
-
   return (
-    <div className="flex items-center gap-1.5 px-2 py-1 min-w-[132px] sm:min-w-0 flex-1 snap-start">
-      <Cpu className="w-3 h-3 flex-shrink-0 text-linear-text-secondary" />
+    <div className="flex items-center gap-2 px-3 py-1.5 min-w-[140px] sm:min-w-0 flex-1 snap-start">
+      <Cpu className="w-3.5 h-3.5 flex-shrink-0 text-linear-text-secondary" />
       <div className="min-w-0 flex-1">
-        <div className="text-[9px] uppercase tracking-[0.14em] text-linear-text-tertiary leading-tight">
+        <div className="text-[9px] uppercase tracking-[0.14em] text-linear-text-tertiary leading-tight font-medium">
           Model
         </div>
-        <Select value={currentModel || ""} onValueChange={handleSelect}>
-          <SelectTrigger className="h-4 p-0 border-0 bg-transparent hover:bg-transparent focus:ring-0 text-[12px] font-medium text-linear-text shadow-none w-full flex items-center justify-between [&>svg]:w-3 [&>svg]:h-3 [&>svg]:opacity-50">
+        <Select
+          value={currentModel || ""}
+          onValueChange={handleSelect}
+          open={isOpen}
+          onOpenChange={setIsOpen}
+        >
+          <SelectTrigger
+            className={cn(
+              "h-auto p-0 border-0 bg-transparent hover:bg-transparent focus:ring-0",
+              "text-[12px] font-medium text-linear-text shadow-none w-full",
+              "flex items-center justify-between gap-1",
+              "[&>svg]:w-3 [&>svg]:h-3 [&>svg]:opacity-60 [&>svg]:transition-opacity",
+              "cursor-pointer select-none",
+              isOpen && "[&>svg]:opacity-100 [&>svg]:rotate-180"
+            )}
+          >
             <SelectValue placeholder="Select Model">
-              <span className="truncate block leading-tight">{selectedModelObj ? selectedModelObj.name : "Not set"}</span>
+              <span className="truncate block leading-tight">
+                {selectedModelObj ? selectedModelObj.name : "Not set"}
+              </span>
             </SelectValue>
           </SelectTrigger>
-          <SelectContent className="bg-linear-bg-secondary border-linear-border min-w-[200px] max-h-[300px]">
-            {modelsList.map(provider => (
-              <div key={provider.id}>
-                <div className="px-2 py-1.5 text-xs font-semibold text-linear-text-tertiary uppercase tracking-wider bg-linear-bg">
-                  {provider.name}
-                </div>
-                {provider.models.map(m => (
-                  <SelectItem key={`${provider.id}/${m.id}`} value={`${provider.id}/${m.id}`} className="text-sm cursor-pointer hover:bg-linear-bg-tertiary">
-                    <div className="flex items-center gap-2">
-                      <span>{m.name}</span>
-                      {m.reasoning && (
-                        <span className="text-[10px] px-1 py-0.5 rounded bg-purple-500/10 text-purple-400">reasoning</span>
-                      )}
-                    </div>
-                  </SelectItem>
-                ))}
+
+          <SelectContent
+            className={cn(
+              "bg-[#1a1a1a] border-[#2a2a2a] min-w-[280px] max-h-[400px]",
+              "shadow-elevation rounded-lg p-0 overflow-hidden",
+              "data-[state=open]:animate-in data-[state=closed]:animate-out",
+              "data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
+              "data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
+              "data-[side=bottom]:slide-in-from-top-2",
+              "transition-all duration-200 ease-out"
+            )}
+            position="popper"
+            sideOffset={4}
+          >
+            <div className="px-3 py-2 border-b border-[#2a2a2a]">
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-3.5 h-3.5 text-purple-400" />
+                <span className="text-[10px] uppercase tracking-[0.16em] text-linear-text-tertiary font-semibold">
+                  AI Models
+                </span>
               </div>
-            ))}
+            </div>
+
+            <div className="py-1">
+              {modelsList.map((provider, providerIndex) => (
+                <div key={provider.id}>
+                  {providerIndex > 0 && (
+                    <SelectSeparator className="bg-[#2a2a2a] my-1" />
+                  )}
+
+                  <div className="px-3 py-1.5">
+                    <span className="text-[10px] uppercase tracking-[0.12em] text-linear-text-tertiary font-semibold">
+                      {provider.name}
+                    </span>
+                  </div>
+
+                  {provider.models.map((model) => {
+                    const modelValue = `${provider.id}/${model.id}`
+                    const isSelected = modelValue === currentModel
+
+                    return (
+                      <SelectItem
+                        key={modelValue}
+                        value={modelValue}
+                        className={cn(
+                          "relative flex items-center gap-2 px-3 py-2 mx-1 rounded-md",
+                          "text-[13px] text-linear-text cursor-pointer",
+                          "transition-colors duration-150 ease-out",
+                          "focus:bg-[#252525] focus:text-linear-text",
+                          "data-[highlighted]:bg-[#252525] data-[highlighted]:text-linear-text",
+                          "hover:bg-[#252525]",
+                          "outline-none select-none"
+                        )}
+                      >
+                        <div className={cn(
+                          "flex items-center justify-center w-4 h-4 flex-shrink-0",
+                          "transition-opacity duration-150",
+                          isSelected ? "opacity-100" : "opacity-0"
+                        )}>
+                          <Check className="w-3.5 h-3.5 text-linear-accent" strokeWidth={2.5} />
+                        </div>
+
+                        <span className="flex-1 truncate font-medium">
+                          {model.name}
+                        </span>
+
+                        {model.reasoning && (
+                          <span className={cn(
+                            "inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium",
+                            "bg-purple-500/15 text-purple-400 border border-purple-500/20",
+                            "flex-shrink-0 tracking-wide"
+                          )}>
+                            reasoning
+                          </span>
+                        )}
+                      </SelectItem>
+                    )
+                  })}
+                </div>
+              ))}
+            </div>
+
+            <div className="px-3 py-2 border-t border-[#2a2a2a] flex justify-center">
+              <ChevronDown className="w-3.5 h-3.5 text-linear-text-tertiary opacity-60" />
+            </div>
           </SelectContent>
         </Select>
       </div>
