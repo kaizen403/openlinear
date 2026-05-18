@@ -352,7 +352,8 @@ export function Sidebar({ open, onClose, width }: SidebarProps) {
                             />
                         </div>
                     )}
-                  <img src="/brand/logomark.svg" alt="OpenLinear" className="h-[16px]" />
+                  <img src="/brand/logo.png" alt="OpenLinear" className="h-[20px]" />
+                  <span className="text-sm font-semibold text-linear-text">OpenLinear</span>
                 </div>
                 <div className="flex items-center gap-1">
                     <button

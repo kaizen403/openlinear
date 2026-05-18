@@ -1,7 +1,6 @@
 "use client"
 
 import { useState, useEffect, useRef, useCallback, ReactNode, Suspense } from "react"
-import { PanelLeft } from "lucide-react"
 import { Sidebar } from "./sidebar"
 
 const MIN_WIDTH = 200
@@ -40,7 +39,7 @@ export function AppShell({ children }: AppShellProps) {
 
     /* Hydration-safe: read localStorage only after mount */
     useEffect(() => {
-        setSidebarOpen(readStoredBoolean(STORAGE_KEY_OPEN, true))
+        setSidebarOpen(true)
         setSidebarWidth(readStoredNumber(STORAGE_KEY_WIDTH, DEFAULT_WIDTH))
         setMounted(true)
     }, [])
@@ -48,21 +47,20 @@ export function AppShell({ children }: AppShellProps) {
     /* Track mobile breakpoint */
     useEffect(() => {
         const mq = window.matchMedia("(max-width: 1024px)")
-        const handler = (e: MediaQueryListEvent | MediaQueryList) => {
+        setIsMobile(mq.matches)
+        const handler = (e: MediaQueryListEvent) => {
             setIsMobile(e.matches)
             if (e.matches) {
                 setSidebarOpen(false)
+            } else {
+                setSidebarOpen(true)
             }
         }
-        handler(mq)
         mq.addEventListener("change", handler)
         return () => mq.removeEventListener("change", handler)
     }, [])
 
-    /* Persist sidebar state to localStorage */
-    useEffect(() => {
-        localStorage.setItem(STORAGE_KEY_OPEN, String(sidebarOpen))
-    }, [sidebarOpen])
+    /* Persist sidebar state to localStorage (width only, open state always defaults to true) */
 
     useEffect(() => {
         localStorage.setItem(STORAGE_KEY_WIDTH, String(sidebarWidth))
@@ -127,7 +125,7 @@ export function AppShell({ children }: AppShellProps) {
                 }
                 style={isMobile ? undefined : {
                     width: sidebarOpen ? `${effectiveWidth}px` : '0px',
-                    transition: (!mounted || dragging) ? 'none' : 'width 300ms cubic-bezier(0.4, 0, 0.2, 1)',
+                    transition: !mounted ? 'none' : 'width 300ms cubic-bezier(0.4, 0, 0.2, 1)',
                 }}
             >
                 <Suspense>
@@ -153,10 +151,6 @@ export function AppShell({ children }: AppShellProps) {
 
             <div
                 className="flex-1 flex flex-col min-w-0 overflow-hidden"
-                style={{
-                    paddingLeft: !isMobile && !sidebarOpen ? 48 : 0,
-                    transition: dragging ? 'none' : 'padding-left 300ms cubic-bezier(0.4, 0, 0.2, 1)',
-                }}
             >
                 {children}
             </div>
@@ -165,7 +159,7 @@ export function AppShell({ children }: AppShellProps) {
             <button
                 type="button"
                 onClick={() => setSidebarOpen(true)}
-                className="fixed top-3 left-3 z-50 w-8 h-8 rounded-sm flex items-center justify-center bg-linear-bg-secondary/95 border border-linear-border text-linear-text-tertiary hover:text-linear-text hover:bg-linear-bg-tertiary shadow-lg backdrop-blur"
+                className="fixed top-3 left-3 z-50 w-8 h-8 rounded-sm flex items-center justify-center bg-linear-bg-secondary/95 border border-linear-border hover:bg-linear-bg-tertiary shadow-lg backdrop-blur"
                 style={{
                     opacity: sidebarOpen ? 0 : 1,
                     pointerEvents: sidebarOpen ? 'none' : 'auto',
@@ -173,7 +167,7 @@ export function AppShell({ children }: AppShellProps) {
                 }}
                 aria-label="Open sidebar"
             >
-                <PanelLeft className="w-4 h-4" />
+                <img src="/brand/logo.png" alt="OpenLinear" className="h-4 w-4 object-contain" />
             </button>
         </div>
     )
