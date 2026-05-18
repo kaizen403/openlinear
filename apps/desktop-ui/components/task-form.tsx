@@ -31,6 +31,7 @@ import {
 } from "@/components/ui/select"
 import { LabelPicker } from "@/components/label-picker"
 import { DatePicker } from "@/components/ui/date-picker"
+import { TaskFormModelSelector } from "@/components/task-form-model-selector"
 import { Project } from "@/lib/api"
 
 const getFormSchema = (hasProjects: boolean) => z.object({
@@ -40,6 +41,7 @@ const getFormSchema = (hasProjects: boolean) => z.object({
   labelIds: z.array(z.string()),
   projectId: hasProjects ? z.string().min(1, "Project is required") : z.string().optional(),
   dueDate: z.string().optional(),
+  model: z.string().nullable().optional(),
 })
 
 type FormValues = z.infer<ReturnType<typeof getFormSchema>>
@@ -84,6 +86,7 @@ export function TaskFormDialog({
       labelIds: [],
       projectId: defaultProjectId || (hasProjects ? "" : undefined),
       dueDate: "",
+      model: null,
     },
   })
 
@@ -107,6 +110,7 @@ export function TaskFormDialog({
           labelIds: values.labelIds.length > 0 ? values.labelIds : undefined,
           projectId: values.projectId || undefined,
           dueDate: values.dueDate ? new Date(values.dueDate).toISOString() : undefined,
+          model: values.model || undefined,
         }),
       })
 
@@ -309,6 +313,22 @@ export function TaskFormDialog({
                     <FormControl>
                       <DatePicker
                         value={field.value || ""}
+                        onChange={field.onChange}
+                      />
+                    </FormControl>
+                    <FormMessage className="text-red-400 text-xs" />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="model"
+                render={({ field }) => (
+                  <FormItem className="space-y-0">
+                    <FormControl>
+                      <TaskFormModelSelector
+                        value={field.value ?? null}
                         onChange={field.onChange}
                       />
                     </FormControl>

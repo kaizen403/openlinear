@@ -130,19 +130,22 @@ export async function executeTask({ taskId, userId }: ExecuteTaskParams): Promis
 
     let modelOverride: { providerID: string; modelID: string } | undefined;
     let modelLabel = 'unknown';
-    try {
-      const config = await client.config.get();
-      const modelStr = config.data?.model;
-      if (modelStr && modelStr.includes('/')) {
-        const slashIdx = modelStr.indexOf('/');
-        modelOverride = {
-          providerID: modelStr.slice(0, slashIdx),
-          modelID: modelStr.slice(slashIdx + 1),
-        };
-        modelLabel = modelStr;
+    let modelStr: string | null | undefined = taskWithProject.model;
+    if (!modelStr) {
+      try {
+        const config = await client.config.get();
+        modelStr = config.data?.model;
+      } catch (err) {
+        console.debug(`[Execution] Could not read model config for task ${taskId.slice(0, 8)}:`, err);
       }
-    } catch (err) {
-      console.debug(`[Execution] Could not read model config for task ${taskId.slice(0, 8)}:`, err);
+    }
+    if (modelStr && modelStr.includes('/')) {
+      const slashIdx = modelStr.indexOf('/');
+      modelOverride = {
+        providerID: modelStr.slice(0, slashIdx),
+        modelID: modelStr.slice(slashIdx + 1),
+      };
+      modelLabel = modelStr;
     }
 
     const agentRunId = await createAgentRun({

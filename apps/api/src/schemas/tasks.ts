@@ -13,6 +13,7 @@ export const createTaskBodySchema = z
     teamId: z.string().uuid().optional(),
     projectId: z.string().uuid().optional(),
     dueDate: z.string().datetime().nullable().optional(),
+    model: z.string().min(1).nullable().optional(),
   })
   .refine((data) => Boolean(data.teamId) || Boolean(data.projectId), {
     message: 'Task must belong to a team or a project',
@@ -29,6 +30,7 @@ export const updateTaskBodySchema = z.object({
   projectId: z.string().uuid().nullable().optional(),
   dueDate: z.string().datetime().nullable().optional(),
   assigneeId: z.string().uuid().nullable().optional(),
+  model: z.string().min(1).nullable().optional(),
 });
 
 // "me" or a UUID — UUID is checked against caller's team membership in the route.

@@ -109,6 +109,7 @@ model Task {
   number             Int? // team-scoped issue number
   identifier         String? // e.g. "ENG-1"
   dueDate            DateTime?
+  model              String? // Per-task AI model override (format: "provider/model"). Null = use global default.
 
   // Assignment + authorship + hierarchy
   assigneeId String?

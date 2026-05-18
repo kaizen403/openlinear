@@ -221,7 +221,7 @@ router.post(
   validateBody(createTaskBodySchema),
   async (req: AuthRequest & ValidatedRequest<CreateTaskBody>, res: Response, next: NextFunction) => {
     try {
-      const { title, description, priority, status, labelIds, teamId, projectId, dueDate } =
+      const { title, description, priority, status, labelIds, teamId, projectId, dueDate, model } =
         req.validBody!;
 
       let resolvedTeamId = teamId;
@@ -258,6 +258,7 @@ router.post(
             number,
             identifier,
             dueDate: dueDate ? new Date(dueDate) : undefined,
+            model: model ?? undefined,
             creatorId: req.userId!,
             labels: {
               create: labelIds.map((labelId) => ({ labelId })),
