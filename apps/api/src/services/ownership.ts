@@ -1,5 +1,11 @@
 import { prisma } from '@openlinear/db';
 import { getUserTeamIds } from './team-scope';
+import {
+  ProjectAccessSource,
+  ProjectPermissionLevel,
+  permissionAllows,
+  resolveProjectAccess,
+} from './workspaces';
 
 export type OwnershipResourceType =
   | 'task'
@@ -7,7 +13,8 @@ export type OwnershipResourceType =
   | 'team'
   | 'comment'
   | 'label'
-  | 'user';
+  | 'user'
+  | 'workspace';
 
 export type OwnershipReason =
   | 'not_found'
@@ -52,12 +59,14 @@ export interface OwnedTask {
 
 /**
  * Tasks with no `teamId` are legacy/personal tasks accessible to any
- * authenticated user (backward compat). Tasks with a `teamId` require team
- * membership. Returns the task so callers don't refetch.
+ * authenticated user (backward compat). Project-scoped tasks use the new
+ * project/workspace ACL when present; otherwise team membership remains the
+ * fallback. Returns the task so callers don't refetch.
  */
-export async function assertTaskOwned(
+export async function assertTaskAccess(
   taskId: string,
   userId: string,
+  requiredPermission: ProjectPermissionLevel = 'view',
 ): Promise<OwnedTask> {
   const task = await prisma.task.findUnique({
     where: { id: taskId },
@@ -74,7 +83,9 @@ export async function assertTaskOwned(
     throw new OwnershipError('task', taskId, 'not_found');
   }
 
-  if (task.teamId) {
+  if (task.projectId) {
+    await assertProjectAccess(task.projectId, userId, requiredPermission);
+  } else if (task.teamId) {
     const teamIds = await getUserTeamIds(userId);
     if (!teamIds.includes(task.teamId)) {
       throw new OwnershipError('task', taskId, 'forbidden');
@@ -84,40 +95,43 @@ export async function assertTaskOwned(
   return task;
 }
 
+export async function assertTaskOwned(
+  taskId: string,
+  userId: string,
+): Promise<OwnedTask> {
+  return assertTaskAccess(taskId, userId, 'full');
+}
+
 export interface OwnedProject {
   id: string;
   teamIds: string[];
+  workspaceId: string | null;
+  permission: ProjectPermissionLevel;
+  source: ProjectAccessSource;
+}
+
+export async function assertProjectAccess(
+  projectId: string,
+  userId: string,
+  requiredPermission: ProjectPermissionLevel = 'view',
+): Promise<OwnedProject> {
+  const access = await resolveProjectAccess(projectId, userId);
+  if ('reason' in access) {
+    throw new OwnershipError('project', projectId, access.reason);
+  }
+
+  if (!permissionAllows(access.permission, requiredPermission)) {
+    throw new OwnershipError('project', projectId, 'forbidden');
+  }
+
+  return access;
 }
 
 export async function assertProjectOwned(
   projectId: string,
   userId: string,
 ): Promise<OwnedProject> {
-  const project = await prisma.project.findUnique({
-    where: { id: projectId },
-    select: {
-      id: true,
-      projectTeams: { select: { teamId: true } },
-    },
-  });
-
-  if (!project) {
-    throw new OwnershipError('project', projectId, 'not_found');
-  }
-
-  const projectTeamIds = project.projectTeams.map((pt) => pt.teamId);
-
-  if (projectTeamIds.length === 0) {
-    throw new OwnershipError('project', projectId, 'forbidden');
-  }
-
-  const userTeamIds = await getUserTeamIds(userId);
-  const overlap = projectTeamIds.some((tid) => userTeamIds.includes(tid));
-  if (!overlap) {
-    throw new OwnershipError('project', projectId, 'forbidden');
-  }
-
-  return { id: project.id, teamIds: projectTeamIds };
+  return assertProjectAccess(projectId, userId, 'full');
 }
 
 export type TeamRole = 'owner' | 'admin' | 'member';

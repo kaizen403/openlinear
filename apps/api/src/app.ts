@@ -17,6 +17,7 @@ import authRouter from './routes/auth';
 import reposRouter from './routes/repos';
 import teamsRouter from './routes/teams';
 import projectsRouter from './routes/projects';
+import workspacesRouter from './routes/workspaces';
 import inboxRouter from './routes/inbox';
 import searchRouter from './routes/search';
 import commentsRouter from './routes/comments';
@@ -157,6 +158,7 @@ export function createApp(): Application {
   app.use('/api/settings', settingsRouter);
   app.use('/api/teams', teamsRouter);
   app.use('/api/projects', projectsRouter);
+  app.use('/api/workspaces', workspacesRouter);
   app.use('/api/inbox', inboxRouter);
   app.use('/api', commentsRouter);
   app.use('/api/notifications', notificationsRouter);
