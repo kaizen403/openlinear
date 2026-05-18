@@ -4,6 +4,7 @@ import { Draggable } from "@hello-pangea/dnd"
 import { Loader2, GripVertical } from "lucide-react"
 import { TaskCard } from "./task-card"
 import { ActiveBatch } from "./use-kanban-board"
+import { formatBatchMode } from "./batch-mode"
 import { ExecutionProgress, Task } from "@/types/task"
 
 interface InProgressBatchGroupProps {
@@ -43,7 +44,7 @@ export function InProgressBatchGroup({
             <GripVertical className="w-3 h-3 text-linear-text-tertiary/60 cursor-grab active:cursor-grabbing" />
             <Loader2 className="w-3 h-3 animate-spin text-linear-text-tertiary" />
             <span className="text-[11px] text-linear-text-tertiary font-medium uppercase tracking-wider">
-              {activeBatch.mode === 'queue' ? 'Queue' : 'Parallel'} Issues
+              {formatBatchMode(activeBatch.mode)} Issues
             </span>
           </div>
           <div className="space-y-0">

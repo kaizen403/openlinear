@@ -4,6 +4,7 @@ import type { ReactNode } from "react"
 import { Draggable } from "@hello-pangea/dnd"
 import { Check, ExternalLink, GitPullRequest, GripVertical } from "lucide-react"
 import { TaskCard } from "./task-card"
+import { formatBatchMode } from "./batch-mode"
 import { openExternal } from "@/lib/utils"
 import { ExecutionProgress, Task } from "@/types/task"
 
@@ -74,7 +75,7 @@ export function DoneColumnContent({
                       <GripVertical className="w-3 h-3 text-purple-400/60 cursor-grab active:cursor-grabbing flex-shrink-0" />
                       <Check className="w-3 h-3 text-purple-400 flex-shrink-0" />
                       <span className="text-[11px] text-purple-400/80 font-medium uppercase tracking-wider truncate">
-                        {groupMode === 'queue' ? 'Queue' : 'Parallel'} Issues
+                        {formatBatchMode(groupMode)} Issues
                       </span>
                     </div>
                     {groupPrUrl && (
