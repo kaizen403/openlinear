@@ -7,6 +7,15 @@ const branchNameSchema = z
   .regex(/^[A-Za-z0-9._/-]+$/);
 
 export const createProjectBodySchema = z.object({
+  workspaceId: z.string().min(1).optional(),
+  key: z
+    .string()
+    .trim()
+    .min(2)
+    .max(12)
+    .regex(/^[A-Za-z][A-Za-z0-9]*$/)
+    .transform((value) => value.toUpperCase())
+    .optional(),
   name: z.string().min(1).max(100),
   description: z.string().max(1000).optional(),
   status: z
@@ -28,6 +37,16 @@ export const createProjectBodySchema = z.object({
 });
 
 export const updateProjectBodySchema = z.object({
+  workspaceId: z.string().min(1).nullable().optional(),
+  key: z
+    .string()
+    .trim()
+    .min(2)
+    .max(12)
+    .regex(/^[A-Za-z][A-Za-z0-9]*$/)
+    .transform((value) => value.toUpperCase())
+    .nullable()
+    .optional(),
   name: z.string().min(1).max(100).optional(),
   description: z.string().max(1000).nullable().optional(),
   status: z
@@ -48,8 +67,15 @@ export const updateProjectBodySchema = z.object({
 
 export const listProjectsQuerySchema = z.object({
   teamId: z.string().uuid().optional(),
+  workspaceId: z.string().min(1).optional(),
+});
+
+export const projectAccessBodySchema = z.object({
+  userId: z.string().min(1),
+  permission: z.enum(['full', 'view', 'deny']).default('full'),
 });
 
 export type CreateProjectBody = z.infer<typeof createProjectBodySchema>;
 export type UpdateProjectBody = z.infer<typeof updateProjectBodySchema>;
 export type ListProjectsQuery = z.infer<typeof listProjectsQuerySchema>;
+export type ProjectAccessBody = z.infer<typeof projectAccessBodySchema>;

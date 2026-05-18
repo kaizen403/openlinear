@@ -16,12 +16,15 @@ describe('Projects API', () => {
   let authToken: string;
 
   beforeAll(async () => {
+    await prisma.projectAccess.deleteMany({});
     await prisma.projectTeam.deleteMany({});
     await prisma.task.updateMany({
       where: { projectId: { not: null } },
       data: { projectId: null },
     });
     await prisma.project.deleteMany({});
+    await prisma.workspaceMember.deleteMany({});
+    await prisma.workspace.deleteMany({});
     await prisma.repository.deleteMany({ where: { githubRepoId: { in: [909001] } } });
     await prisma.teamMember.deleteMany({});
     await prisma.team.deleteMany({});
@@ -42,12 +45,15 @@ describe('Projects API', () => {
   }, 30000);
 
   afterAll(async () => {
+    await prisma.projectAccess.deleteMany({});
     await prisma.projectTeam.deleteMany({});
     await prisma.task.updateMany({
       where: { projectId: { not: null } },
       data: { projectId: null },
     });
     await prisma.project.deleteMany({});
+    await prisma.workspaceMember.deleteMany({});
+    await prisma.workspace.deleteMany({});
     await prisma.repository.deleteMany({ where: { userId: testUserId } });
     await prisma.teamMember.deleteMany({});
     await prisma.team.deleteMany({});
@@ -101,6 +107,8 @@ describe('Projects API', () => {
       expect(res.body.name).toBe('New Project');
       expect(res.body.status).toBe('planned');
       expect(res.body.teams).toEqual([]);
+      expect(res.body.workspaceId).toEqual(expect.any(String));
+      expect(res.body.key).toBe('NEWP');
       expect(res.body).toHaveProperty('id');
     });
 
@@ -118,6 +126,54 @@ describe('Projects API', () => {
       expect(res.status).toBe(201);
       expect(res.body.teams).toHaveLength(1);
       expect(res.body.teams[0].id).toBe(team.id);
+      expect(res.body.workspace).toBeDefined();
+    });
+
+    it('creates project access for the creator', async () => {
+      const res = await request(app)
+        .post('/api/projects')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ name: 'ACL Project' });
+
+      expect(res.status).toBe(201);
+
+      const access = await prisma.projectAccess.findUnique({
+        where: { projectId_userId: { projectId: res.body.id, userId: testUserId } },
+      });
+      expect(access?.permission).toBe('full');
+    });
+
+    it('does not create projects in an implicit viewer workspace', async () => {
+      const viewer = await prisma.user.upsert({
+        where: { githubId: '888892' },
+        update: {},
+        create: {
+          githubId: '888892',
+          username: 'implicitviewer',
+          email: 'implicitviewer@example.com',
+        },
+      });
+      const viewerToken = generateToken(viewer.id, viewer.username);
+      const workspace = await prisma.workspace.create({
+        data: { name: 'Implicit Viewer Workspace', slug: 'implicit-viewer-workspace' },
+      });
+      await prisma.workspaceMember.create({
+        data: { workspaceId: workspace.id, userId: viewer.id, role: 'viewer' },
+      });
+
+      const res = await request(app)
+        .post('/api/projects')
+        .set('Authorization', `Bearer ${viewerToken}`)
+        .send({ name: 'Viewer Created Project' });
+
+      expect(res.status).toBe(403);
+      expect(res.body.resourceType).toBe('workspace');
+      expect(res.body.requiredRoles).toEqual(['owner', 'admin', 'member']);
+      await expect(
+        prisma.project.findFirst({
+          where: { name: 'Viewer Created Project', workspaceId: workspace.id },
+        }),
+      ).resolves.toBeNull();
     });
 
     it('creates project from an imported repository and updates the selected branch', async () => {
@@ -209,6 +265,88 @@ describe('Projects API', () => {
     });
   });
 
+  describe('Project access endpoints', () => {
+    it('lists and updates project access for workspace members', async () => {
+      const workspace = await prisma.workspace.create({
+        data: { name: 'Access Workspace', slug: 'access-workspace' },
+      });
+      await prisma.workspaceMember.create({
+        data: { workspaceId: workspace.id, userId: testUserId, role: 'owner' },
+      });
+      const secondUser = await prisma.user.upsert({
+        where: { githubId: '888889' },
+        update: {},
+        create: {
+          githubId: '888889',
+          username: 'projectviewer',
+          email: 'projectviewer@example.com',
+        },
+      });
+      await prisma.workspaceMember.create({
+        data: { workspaceId: workspace.id, userId: secondUser.id, role: 'viewer' },
+      });
+
+      const project = await prisma.project.create({
+        data: { name: 'ACL Target', workspaceId: workspace.id, key: 'ACLT' },
+      });
+      await prisma.projectAccess.create({
+        data: { projectId: project.id, userId: testUserId, permission: 'full' },
+      });
+
+      const update = await request(app)
+        .post(`/api/projects/${project.id}/access`)
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ userId: secondUser.id, permission: 'view' });
+
+      expect(update.status).toBe(201);
+      expect(update.body.permission).toBe('view');
+
+      const list = await request(app)
+        .get(`/api/projects/${project.id}/access`)
+        .set('Authorization', `Bearer ${authToken}`);
+
+      expect(list.status).toBe(200);
+      expect(list.body.some((row: { userId: string }) => row.userId === secondUser.id)).toBe(true);
+    });
+
+    it('does not honor stale project access after workspace membership is removed', async () => {
+      const workspace = await prisma.workspace.create({
+        data: { name: 'Stale Grant Workspace', slug: 'stale-grant-workspace' },
+      });
+      await prisma.workspaceMember.create({
+        data: { workspaceId: workspace.id, userId: testUserId, role: 'owner' },
+      });
+      const removedUser = await prisma.user.upsert({
+        where: { githubId: '888894' },
+        update: {},
+        create: {
+          githubId: '888894',
+          username: 'removedworkspacemember',
+          email: 'removedworkspacemember@example.com',
+        },
+      });
+      const removedUserToken = generateToken(removedUser.id, removedUser.username);
+      await prisma.workspaceMember.create({
+        data: { workspaceId: workspace.id, userId: removedUser.id, role: 'member' },
+      });
+      const project = await prisma.project.create({
+        data: { name: 'Stale Grant Project', workspaceId: workspace.id, key: 'SGP' },
+      });
+      await prisma.projectAccess.create({
+        data: { projectId: project.id, userId: removedUser.id, permission: 'view' },
+      });
+      await prisma.workspaceMember.delete({
+        where: { workspaceId_userId: { workspaceId: workspace.id, userId: removedUser.id } },
+      });
+
+      const res = await request(app)
+        .get(`/api/projects/${project.id}`)
+        .set('Authorization', `Bearer ${removedUserToken}`);
+
+      expect(res.status).toBe(403);
+    });
+  });
+
   describe('PATCH /api/projects/:id', () => {
     it('updates project fields', async () => {
       const team = await prisma.team.create({ data: { name: 'PatchTeam', key: 'PCH' } });
@@ -225,6 +363,27 @@ describe('Projects API', () => {
       expect(res.status).toBe(200);
       expect(res.body.name).toBe('New Name');
       expect(res.body.status).toBe('in_progress');
+    });
+
+    it('preserves project key when renaming without an explicit key change', async () => {
+      const workspace = await prisma.workspace.create({
+        data: { name: 'Stable Key Workspace', slug: 'stable-key-workspace' },
+      });
+      await prisma.workspaceMember.create({
+        data: { workspaceId: workspace.id, userId: testUserId, role: 'owner' },
+      });
+      const project = await prisma.project.create({
+        data: { name: 'Stable Key Project', workspaceId: workspace.id, key: 'KEEP' },
+      });
+
+      const res = await request(app)
+        .patch(`/api/projects/${project.id}`)
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ name: 'Renamed Stable Key Project' });
+
+      expect(res.status).toBe(200);
+      expect(res.body.name).toBe('Renamed Stable Key Project');
+      expect(res.body.key).toBe('KEEP');
     });
 
     it('replaces team associations when teamIds provided', async () => {
@@ -248,6 +407,61 @@ describe('Projects API', () => {
       expect(res.status).toBe(200);
       expect(res.body.teams).toHaveLength(1);
       expect(res.body.teams[0].id).toBe(teamB.id);
+    });
+
+    it('clears explicit project access when moving to another workspace', async () => {
+      const oldWorkspace = await prisma.workspace.create({
+        data: { name: 'Move Source Workspace', slug: 'move-source-workspace' },
+      });
+      const newWorkspace = await prisma.workspace.create({
+        data: { name: 'Move Target Workspace', slug: 'move-target-workspace' },
+      });
+      await prisma.workspaceMember.create({
+        data: { workspaceId: oldWorkspace.id, userId: testUserId, role: 'owner' },
+      });
+      await prisma.workspaceMember.create({
+        data: { workspaceId: newWorkspace.id, userId: testUserId, role: 'owner' },
+      });
+
+      const oldMember = await prisma.user.upsert({
+        where: { githubId: '888893' },
+        update: {},
+        create: {
+          githubId: '888893',
+          username: 'oldworkspacemember',
+          email: 'oldworkspacemember@example.com',
+        },
+      });
+      const oldMemberToken = generateToken(oldMember.id, oldMember.username);
+      await prisma.workspaceMember.create({
+        data: { workspaceId: oldWorkspace.id, userId: oldMember.id, role: 'member' },
+      });
+
+      const project = await prisma.project.create({
+        data: { name: 'Moved ACL Project', workspaceId: oldWorkspace.id, key: 'MAP' },
+      });
+      await prisma.projectAccess.createMany({
+        data: [
+          { projectId: project.id, userId: testUserId, permission: 'full' },
+          { projectId: project.id, userId: oldMember.id, permission: 'view' },
+        ],
+      });
+
+      const res = await request(app)
+        .patch(`/api/projects/${project.id}`)
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ workspaceId: newWorkspace.id });
+
+      expect(res.status).toBe(200);
+      expect(res.body.workspaceId).toBe(newWorkspace.id);
+      await expect(
+        prisma.projectAccess.findMany({ where: { projectId: project.id } }),
+      ).resolves.toEqual([]);
+
+      const staleAccess = await request(app)
+        .get(`/api/projects/${project.id}`)
+        .set('Authorization', `Bearer ${oldMemberToken}`);
+      expect(staleAccess.status).toBe(403);
     });
 
     it('returns 404 for non-existent project', async () => {

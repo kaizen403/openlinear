@@ -5,16 +5,19 @@ import { requireAuth, optionalAuth, AuthRequest } from '../middleware/auth';
 import { validateBody, validateQuery, ValidatedRequest } from '../middleware/validate';
 import { addRepositoryByUrl, addRepositoryFromCloneUrl } from '../services/github';
 import { getUserTeamIds } from '../services/team-scope';
-import { assertProjectOwned, assertTeamRole } from '../services/ownership';
+import { assertProjectAccess, assertTeamRole, OwnershipError } from '../services/ownership';
 import { HttpError } from '../errors';
 import { logActivity } from '../services/activity';
+import { buildProjectAccessWhere, ensureDefaultWorkspaceForUser, generateProjectKey } from '../services/workspaces';
 import {
   createProjectBodySchema,
   updateProjectBodySchema,
   listProjectsQuerySchema,
+  projectAccessBodySchema,
   CreateProjectBody,
   UpdateProjectBody,
   ListProjectsQuery,
+  ProjectAccessBody,
 } from '../schemas/projects';
 
 const router: Router = Router();
@@ -44,10 +47,44 @@ const projectInclude = {
   repository: {
     select: { id: true, name: true, fullName: true, cloneUrl: true, defaultBranch: true },
   },
+  workspace: {
+    select: { id: true, name: true, slug: true, plan: true },
+  },
   _count: {
     select: { tasks: true },
   },
 } as const;
+
+async function assertWorkspaceCanWrite(workspaceId: string, userId: string): Promise<void> {
+  const membership = await prisma.workspaceMember.findUnique({
+    where: { workspaceId_userId: { workspaceId, userId } },
+    select: { role: true },
+  });
+
+  if (!membership) {
+    throw new OwnershipError('workspace', workspaceId, 'not_found');
+  }
+  if (membership.role === 'viewer') {
+    throw new OwnershipError('workspace', workspaceId, 'role_required', ['owner', 'admin', 'member']);
+  }
+}
+
+async function buildAccessibleProjectsWhere(
+  userId: string,
+  filters: { teamId?: string; workspaceId?: string },
+): Promise<Record<string, unknown>> {
+  const teamIds = await getUserTeamIds(userId);
+  const and: Record<string, unknown>[] = [buildProjectAccessWhere(userId, teamIds)];
+
+  if (filters.teamId) {
+    and.push({ projectTeams: { some: { teamId: filters.teamId } } });
+  }
+  if (filters.workspaceId) {
+    and.push({ workspaceId: filters.workspaceId });
+  }
+
+  return { AND: and };
+}
 
 router.get(
   '/',
@@ -55,19 +92,13 @@ router.get(
   validateQuery(listProjectsQuerySchema),
   async (req: AuthRequest & ValidatedRequest<unknown, ListProjectsQuery>, res: Response, next: NextFunction) => {
     try {
-      const teamId = req.validQuery?.teamId;
-
-      let where: Record<string, unknown> = {};
-      if (teamId) {
-        where = { projectTeams: { some: { teamId } } };
-      } else if (req.userId) {
-        const teamIds = await getUserTeamIds(req.userId);
-        where = { projectTeams: { some: { teamId: { in: teamIds } } } };
-      } else {
+      const { teamId, workspaceId } = req.validQuery ?? {};
+      if (!req.userId) {
         res.json([]);
         return;
       }
 
+      const where = await buildAccessibleProjectsWhere(req.userId, { teamId, workspaceId });
       const projects = await prisma.project.findMany({
         where,
         include: projectInclude,
@@ -88,6 +119,8 @@ router.post(
   async (req: AuthRequest & ValidatedRequest<CreateProjectBody>, res: Response, next: NextFunction) => {
     try {
       const {
+        workspaceId,
+        key,
         teamIds,
         startDate,
         targetDate,
@@ -107,6 +140,17 @@ router.post(
           await assertTeamRole(tid, req.userId!, ['owner', 'admin', 'member']);
         }
       }
+
+      let resolvedWorkspaceId = workspaceId;
+      if (!resolvedWorkspaceId) {
+        const workspace = await ensureDefaultWorkspaceForUser(req.userId!);
+        if (!workspace) {
+          throw new OwnershipError('user', req.userId!, 'not_found');
+        }
+        resolvedWorkspaceId = workspace.id;
+      }
+      await assertWorkspaceCanWrite(resolvedWorkspaceId, req.userId!);
+      const resolvedKey = key ?? await generateProjectKey(resolvedWorkspaceId, projectData.name);
 
       let resolvedRepositoryId: string | undefined;
       let resolvedRepoUrl = repoUrl || undefined;
@@ -164,6 +208,8 @@ router.post(
 
       const project = await prisma.project.create({
         data: {
+          workspaceId: resolvedWorkspaceId,
+          key: resolvedKey,
           name: projectData.name,
           description: projectData.description,
           status: projectData.status,
@@ -184,6 +230,12 @@ router.post(
         include: projectInclude,
       });
 
+      await prisma.projectAccess.upsert({
+        where: { projectId_userId: { projectId: project.id, userId: req.userId! } },
+        update: { permission: 'full' },
+        create: { projectId: project.id, userId: req.userId!, permission: 'full' },
+      });
+
       const result = transformProject(project);
       if (teamIds?.length) {
         for (const tid of teamIds) {
@@ -199,6 +251,99 @@ router.post(
   },
 );
 
+router.get('/:id/access', requireAuth, async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const id = req.params.id as string;
+    await assertProjectAccess(id, req.userId!, 'full');
+
+    const access = await prisma.projectAccess.findMany({
+      where: { projectId: id },
+      include: {
+        user: { select: { id: true, username: true, email: true, avatarUrl: true } },
+      },
+      orderBy: { grantedAt: 'asc' },
+    });
+
+    res.json(access);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post(
+  '/:id/access',
+  requireAuth,
+  validateBody(projectAccessBodySchema),
+  async (req: AuthRequest & ValidatedRequest<ProjectAccessBody>, res: Response, next: NextFunction) => {
+    try {
+      const id = req.params.id as string;
+      const { userId, permission } = req.validBody!;
+      await assertProjectAccess(id, req.userId!, 'full');
+
+      const project = await prisma.project.findUnique({
+        where: { id },
+        select: { workspaceId: true },
+      });
+      if (!project) {
+        throw new OwnershipError('project', id, 'not_found');
+      }
+
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { id: true },
+      });
+      if (!user) {
+        throw new OwnershipError('user', userId, 'not_found');
+      }
+
+      if (project.workspaceId) {
+        const member = await prisma.workspaceMember.findUnique({
+          where: { workspaceId_userId: { workspaceId: project.workspaceId, userId } },
+          select: { id: true },
+        });
+        if (!member) {
+          throw new HttpError(
+            400,
+            'USER_NOT_WORKSPACE_MEMBER',
+            'Project access can only be granted to workspace members',
+          );
+        }
+      }
+
+      const access = await prisma.projectAccess.upsert({
+        where: { projectId_userId: { projectId: id, userId } },
+        update: { permission },
+        create: { projectId: id, userId, permission },
+        include: {
+          user: { select: { id: true, username: true, email: true, avatarUrl: true } },
+        },
+      });
+
+      res.status(201).json(access);
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+router.delete('/:id/access/:userId', requireAuth, async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const id = req.params.id as string;
+    const userId = req.params.userId as string;
+    await assertProjectAccess(id, req.userId!, 'full');
+
+    await prisma.projectAccess.upsert({
+      where: { projectId_userId: { projectId: id, userId } },
+      update: { permission: 'deny' },
+      create: { projectId: id, userId, permission: 'deny' },
+    });
+
+    res.status(204).send();
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.get('/:id', optionalAuth, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const id = req.params.id as string;
@@ -208,7 +353,7 @@ router.get('/:id', optionalAuth, async (req: AuthRequest, res: Response, next: N
       return;
     }
 
-    await assertProjectOwned(id, req.userId);
+    await assertProjectAccess(id, req.userId, 'view');
 
     const project = await prisma.project.findUnique({
       where: { id },
@@ -233,12 +378,58 @@ router.patch(
   async (req: AuthRequest & ValidatedRequest<UpdateProjectBody>, res: Response, next: NextFunction) => {
     try {
       const id = req.params.id as string;
-      const owned = await assertProjectOwned(id, req.userId!);
-      for (const tid of owned.teamIds) {
-        await assertTeamRole(tid, req.userId!, ['owner', 'admin', 'member']);
+      const owned = await assertProjectAccess(id, req.userId!, 'full');
+      if (owned.source === 'legacy_team') {
+        for (const tid of owned.teamIds) {
+          await assertTeamRole(tid, req.userId!, ['owner', 'admin', 'member']);
+        }
       }
 
-      const { teamIds, startDate, targetDate, repoUrl, localPath, ...updateData } = req.validBody!;
+      const existingProject = await prisma.project.findUnique({
+        where: { id },
+        select: { name: true, workspaceId: true, key: true },
+      });
+      if (!existingProject) {
+        throw new OwnershipError('project', id, 'not_found');
+      }
+
+      const { teamIds, startDate, targetDate, repoUrl, localPath, workspaceId, key, ...updateData } = req.validBody!;
+
+      if (teamIds !== undefined) {
+        for (const tid of teamIds) {
+          await assertTeamRole(tid, req.userId!, ['owner', 'admin', 'member']);
+        }
+      }
+
+      let nextWorkspaceId = existingProject.workspaceId;
+      if (workspaceId !== undefined) {
+        if (workspaceId) {
+          await assertWorkspaceCanWrite(workspaceId, req.userId!);
+          nextWorkspaceId = workspaceId;
+        } else {
+          nextWorkspaceId = null;
+        }
+      }
+      const workspaceChanged = workspaceId !== undefined && nextWorkspaceId !== existingProject.workspaceId;
+
+      let nextKey: string | null | undefined;
+      if (key !== undefined) {
+        nextKey = key;
+      } else if (workspaceChanged && existingProject.key) {
+        const keyConflict = await prisma.project.findFirst({
+          where: {
+            workspaceId: nextWorkspaceId,
+            key: existingProject.key,
+            NOT: { id },
+          },
+          select: { id: true },
+        });
+        if (keyConflict) {
+          nextKey = await generateProjectKey(nextWorkspaceId, updateData.name ?? existingProject.name, id);
+        }
+      } else if (workspaceChanged && !existingProject.key) {
+        nextKey = await generateProjectKey(nextWorkspaceId, updateData.name ?? existingProject.name, id);
+      }
 
       if (localPath !== undefined && !isDesktopClient(req)) {
         throw new HttpError(403, 'DESKTOP_REQUIRED', 'localPath can only be updated from the desktop app');
@@ -279,11 +470,16 @@ router.patch(
             });
           }
         }
+        if (workspaceChanged) {
+          await tx.projectAccess.deleteMany({ where: { projectId: id } });
+        }
         return tx.project.update({
           where: { id },
           data: {
             ...updateData,
             ...dateFields,
+            ...(workspaceId !== undefined ? { workspaceId: nextWorkspaceId } : {}),
+            ...(nextKey !== undefined ? { key: nextKey } : {}),
             ...(repoUrl !== undefined ? { repoUrl } : {}),
             ...(localPath !== undefined ? { localPath } : {}),
             ...(repositoryId !== undefined ? { repositoryId } : {}),
@@ -326,9 +522,11 @@ router.delete('/:id', requireAuth, async (req: AuthRequest, res: Response, next:
   try {
     const id = req.params.id as string;
 
-    const owned = await assertProjectOwned(id, req.userId!);
-    for (const tid of owned.teamIds) {
-      await assertTeamRole(tid, req.userId!, ['owner', 'admin']);
+    const owned = await assertProjectAccess(id, req.userId!, 'full');
+    if (owned.source === 'legacy_team') {
+      for (const tid of owned.teamIds) {
+        await assertTeamRole(tid, req.userId!, ['owner', 'admin']);
+      }
     }
 
     await prisma.$transaction(async (tx) => {
