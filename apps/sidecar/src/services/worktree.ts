@@ -35,6 +35,62 @@ export async function ensureMainRepo(
   }
 }
 
+async function removeStaleWorktreeForBranch(
+  mainRepoPath: string,
+  branchName: string
+): Promise<void> {
+  try {
+    const { stdout: worktreeList } = await execFileAsync('git', [
+      '-C',
+      mainRepoPath,
+      'worktree',
+      'list',
+      '--porcelain',
+    ]);
+    const lines = worktreeList.split('\n');
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i].startsWith('worktree ')) {
+        const wtPath = lines[i].slice('worktree '.length);
+        for (let j = i + 1; j < lines.length && lines[j] !== ''; j++) {
+          if (lines[j] === `branch refs/heads/${branchName}`) {
+            let safeWtPath: string;
+            try {
+              safeWtPath = assertPathInsideReposDir(wtPath, 'stale worktree path');
+            } catch (error) {
+              console.error(`[Worktree] Refusing to remove stale worktree outside repo storage: ${wtPath}`, error);
+              continue;
+            }
+            console.log(`[Worktree] Removing stale worktree at ${safeWtPath} for branch ${branchName}`);
+            await execFileAsync('git', [
+              '-C',
+              mainRepoPath,
+              'worktree',
+              'remove',
+              safeWtPath,
+              '--force',
+            ]).catch(() => {
+              if (existsSync(safeWtPath)) rmSync(safeWtPath, { recursive: true, force: true });
+            });
+            break;
+          }
+        }
+      }
+    }
+  } catch {
+  }
+}
+
+async function deleteBranchIfExists(
+  mainRepoPath: string,
+  branchName: string
+): Promise<void> {
+  try {
+    await execFileAsync('git', ['-C', mainRepoPath, 'branch', '-D', branchName]);
+    console.log(`[Worktree] Deleted stale branch ${branchName}`);
+  } catch {
+  }
+}
+
 export async function createWorktree(
   projectId: string,
   batchId: string,
@@ -55,51 +111,8 @@ export async function createWorktree(
     console.log(`[Worktree] Fetching latest before creating worktree for task ${taskId}`);
     await execFileAsync('git', ['-C', mainRepoPath, 'fetch', 'origin']);
 
-    try {
-      const { stdout: worktreeList } = await execFileAsync('git', [
-        '-C',
-        mainRepoPath,
-        'worktree',
-        'list',
-        '--porcelain',
-      ]);
-      const lines = worktreeList.split('\n');
-      for (let i = 0; i < lines.length; i++) {
-        if (lines[i].startsWith('worktree ')) {
-          const wtPath = lines[i].slice('worktree '.length);
-          for (let j = i + 1; j < lines.length && lines[j] !== ''; j++) {
-            if (lines[j] === `branch refs/heads/${branchName}`) {
-              let safeWtPath: string;
-              try {
-                safeWtPath = assertPathInsideReposDir(wtPath, 'stale worktree path');
-              } catch (error) {
-                console.error(`[Worktree] Refusing to remove stale worktree outside repo storage: ${wtPath}`, error);
-                continue;
-              }
-              console.log(`[Worktree] Removing stale worktree at ${safeWtPath} for branch ${branchName}`);
-              await execFileAsync('git', [
-                '-C',
-                mainRepoPath,
-                'worktree',
-                'remove',
-                safeWtPath,
-                '--force',
-              ]).catch(() => {
-                if (existsSync(safeWtPath)) rmSync(safeWtPath, { recursive: true, force: true });
-              });
-              break;
-            }
-          }
-        }
-      }
-    } catch {
-    }
-
-    try {
-      await execFileAsync('git', ['-C', mainRepoPath, 'branch', '-D', branchName]);
-      console.log(`[Worktree] Deleted stale branch ${branchName}`);
-    } catch {
-    }
+    await removeStaleWorktreeForBranch(mainRepoPath, branchName);
+    await deleteBranchIfExists(mainRepoPath, branchName);
 
     console.log(`[Worktree] Creating worktree for task ${taskId} on branch ${branchName}`);
     await execFileAsync('git', [
@@ -117,6 +130,62 @@ export async function createWorktree(
     return worktreePath;
   } catch (error) {
     console.error(`[Worktree] Failed to create worktree for task ${taskId}:`, error);
+    if (existsSync(worktreePath)) {
+      try {
+        await execFileAsync('git', [
+          '-C',
+          mainRepoPath,
+          'worktree',
+          'remove',
+          worktreePath,
+          '--force',
+        ]);
+      } catch {
+        rmSync(worktreePath, { recursive: true, force: true });
+      }
+    }
+    throw error;
+  }
+}
+
+export async function createBatchWorktree(
+  projectId: string,
+  batchId: string,
+  branchName: string,
+  defaultBranch: string
+): Promise<string> {
+  const mainRepoPath = buildReposPath(projectId, '.main');
+  const batchDir = buildReposPath(projectId, `batch-${batchId}`);
+  const worktreePath = buildReposPath(projectId, `batch-${batchId}`, 'combined');
+
+  try {
+    if (!existsSync(batchDir)) {
+      mkdirSync(batchDir, { recursive: true });
+      console.log(`[Worktree] Created batch directory: ${batchDir}`);
+    }
+
+    console.log(`[Worktree] Fetching latest before creating combined worktree for batch ${batchId}`);
+    await execFileAsync('git', ['-C', mainRepoPath, 'fetch', 'origin']);
+
+    await removeStaleWorktreeForBranch(mainRepoPath, branchName);
+    await deleteBranchIfExists(mainRepoPath, branchName);
+
+    console.log(`[Worktree] Creating combined worktree for batch ${batchId} on branch ${branchName}`);
+    await execFileAsync('git', [
+      '-C',
+      mainRepoPath,
+      'worktree',
+      'add',
+      worktreePath,
+      '-b',
+      branchName,
+      defaultBranch,
+    ]);
+    console.log(`[Worktree] Combined worktree created at ${worktreePath}`);
+
+    return worktreePath;
+  } catch (error) {
+    console.error(`[Worktree] Failed to create combined worktree for batch ${batchId}:`, error);
     if (existsSync(worktreePath)) {
       try {
         await execFileAsync('git', [
