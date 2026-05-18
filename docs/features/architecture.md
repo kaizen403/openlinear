@@ -84,7 +84,7 @@ The cloud API (`apps/api`) is an Express server deployed at openlinear.tech. It 
 **Local Sidecar routes (`apps/sidecar`):**
 - `/api/tasks/:id/execute` -- trigger task execution
 - `/api/tasks/:id/cancel` -- cancel running execution
-- `/api/batches` -- batch execution (parallel and queue modes)
+- `/api/batches` -- batch execution (parallel, queue, and combined modes)
 - `/api/opencode` -- OpenCode management, provider auth, status
 - `/api/brainstorm` -- AI task generation
 - `/api/transcribe` -- audio transcription
@@ -105,7 +105,7 @@ Server-Sent Events (SSE) at `GET /api/events`. Each connected client gets a uniq
 
 **Single task execution:** shallow clone (`git clone --depth 1`) into a fresh directory per task.
 
-**Batch execution:** bare clone as the main repo, git worktrees for each task. Worktrees are created from the default branch. After completion, task branches are merged into a batch branch via temporary worktrees with `--no-ff` merges.
+**Batch execution:** bare clone as the main repo, git worktrees for each task or one combined worktree. Parallel and Queue task branches are merged into a batch branch via temporary worktrees with `--no-ff` merges. Combined mode commits directly on the batch branch from one shared session.
 
 ## Host-Based Execution
 

@@ -449,7 +449,7 @@ function SectionBatchExecution() {
     <section>
       <SectionHeading id="batch-execution">Batch Execution</SectionHeading>
       <Paragraph>
-        Batch execution lets you run multiple tasks at once and merge all changes into a single pull request.
+        Batch execution lets you run multiple tasks at once, in sequence, or combined into one agent session, then open a single pull request.
       </Paragraph>
 
       <SubHeading>Creating a Batch</SubHeading>
@@ -475,10 +475,16 @@ function SectionBatchExecution() {
         the next task starts automatically or waits for user confirmation.
       </Paragraph>
 
+      <SubHeading>Combined Mode</SubHeading>
+      <Paragraph>
+        In combined mode, selected tasks run in one OpenCode session with one combined prompt. All selected tasks move to
+        Done together only when the combined session succeeds.
+      </Paragraph>
+
       <SubHeading>Git Worktrees</SubHeading>
       <Paragraph>
-        Each task in a batch executes in its own git worktree, providing complete file-system isolation. This allows
-        parallel tasks to modify the same files without conflicts during execution.
+        Parallel and queue tasks execute in their own git worktrees, providing complete file-system isolation. Combined
+        batches use one shared worktree for the whole selected set.
       </Paragraph>
 
       <SubHeading>Merge Phase</SubHeading>
@@ -1084,7 +1090,7 @@ function SectionArchitecture() {
           "TaskPriority: urgent, high, medium, low",
           "ExecutionStatus: cloning, executing, committing, creating_pr, done, error, cancelled",
           "BatchStatus: pending, running, merging, completed, failed, cancelled",
-          "BatchMode: parallel, queue",
+          "BatchMode: parallel, queue, combined",
         ]}
       />
 
@@ -1110,7 +1116,7 @@ function SectionArchitecture() {
       <BulletList
         items={[
           "Single execution \u2014 creates a branch from the default branch, makes changes, pushes",
-          "Batch execution \u2014 each task gets its own worktree, changes are merged into a batch branch, single PR",
+          "Batch execution \u2014 parallel and queue use per-task worktrees; combined uses one shared worktree and batch branch",
         ]}
       />
 

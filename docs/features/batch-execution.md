@@ -1,6 +1,6 @@
 # Batch Execution
 
-Run multiple tasks together, either simultaneously or one at a time.
+Run multiple tasks together: simultaneously, one at a time, or combined into one agent session.
 
 ## Creating a Batch
 
@@ -29,13 +29,19 @@ Runs tasks strictly one at a time. Two sub-modes:
 - **Auto-approve** (`queueAutoApprove: true`): the next task starts immediately when the current one finishes.
 - **Manual approval** (`queueAutoApprove: false`): waits for the user to approve the next task via `POST /api/batches/:id/approve`.
 
+### Combined
+
+Runs all selected tasks in one OpenCode session with one combined prompt. Combined mode uses one worktree and one branch for the whole selected set, then marks all selected tasks Done together when the session completes with committable changes. If the combined session fails, no selected task is marked Done.
+
 ## Git Isolation with Worktrees
 
 Unlike single-task execution (which uses a full shallow clone), batch execution uses git worktrees for efficiency:
 
 1. A bare clone is created (or fetched) as the main repo at `{REPOS_DIR}/{projectId}/.main`
-2. Each task gets its own worktree at `{REPOS_DIR}/{projectId}/batch-{batchId}/task-{taskId}`
-3. Each worktree has its own branch: `openlinear/{taskId}`
+2. Parallel and Queue tasks each get their own worktree at `{REPOS_DIR}/{projectId}/batch-{batchId}/task-{taskId}`
+3. Combined mode gets one worktree at `{REPOS_DIR}/{projectId}/batch-{batchId}/combined`
+4. Parallel and Queue tasks use per-task branches: `openlinear/{taskId}`
+5. Combined mode uses the batch branch directly: `openlinear/batch-{batchId}`
 
 This means multiple tasks can work in the same repo simultaneously without conflicts during execution.
 
@@ -43,10 +49,11 @@ This means multiple tasks can work in the same repo simultaneously without confl
 
 When all tasks complete, the batch enters the merge phase:
 
-1. Create a batch branch: `openlinear/batch-{batchId}` from the default branch
-2. For each completed task, merge its branch into the batch branch
-3. Push the batch branch
-4. Create a single PR containing all merged changes
+1. For Parallel and Queue, create a batch branch: `openlinear/batch-{batchId}` from the default branch
+2. For each completed Parallel or Queue task, merge its branch into the batch branch
+3. For Combined, use the already-committed batch branch directly
+4. Push the batch branch
+5. Create a single PR containing all completed changes
 
 ### Conflict Handling
 

@@ -76,7 +76,7 @@ So instead of only *tracking* "Fix the login button" or "Add API pagination," yo
 
 4. **Execute (batch)**
    - Select several tasks (e.g. with checkboxes).
-   - Choose **Parallel** (run up to N at once) or **Queue** (one by one).
+   - Choose **Parallel** (run up to N at once), **Queue** (one by one), or **Combined** (one session with one combined prompt).
    - The app runs them; each task may use its own branch/worktree; results can be merged into a single PR.
 
 5. **Control**

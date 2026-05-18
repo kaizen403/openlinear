@@ -162,7 +162,7 @@ Update settings. Body can include any combination of: `parallelLimit`, `maxBatch
 ## Batches
 
 ### `POST /api/batches`
-Create and start a batch. Body: `{ "taskIds": ["uuid-1", ...], "mode": "parallel" | "queue" }`
+Create and start a batch. Body: `{ "taskIds": ["uuid-1", ...], "mode": "parallel" | "queue" | "combined" }`
 
 ### `GET /api/batches`
 List active batches.

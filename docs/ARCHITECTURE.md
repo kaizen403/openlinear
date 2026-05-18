@@ -64,7 +64,7 @@ OpenCode uses a local SDK server that communicates directly with the host filesy
 
 ## Task Execution
 
-OpenLinear supports two execution modes: **parallel** and **queue**. Both modes use git worktrees to isolate each task in its own branch and working directory, and merge results into a single batched PR.
+OpenLinear supports three batch execution modes: **parallel**, **queue**, and **combined**. Parallel and Queue use git worktrees to isolate each task in its own branch and working directory, then merge results into a single batched PR. Combined uses one worktree, one branch, and one agent session for all selected tasks.
 
 ### Single Task Execution
 
@@ -117,7 +117,7 @@ Sidecar: executeTask({ taskId, userId })
 
 ### Batch Execution
 
-Batch execution runs multiple tasks, each in its own git worktree (not a full clone), and merges results into a single PR.
+Batch execution runs multiple tasks through git worktrees (not full clones) and produces a single PR.
 
 #### Parallel Mode
 
@@ -147,6 +147,13 @@ Run tasks one at a time, sequentially. Optionally require user approval before s
 - Individual tasks can be cancelled without stopping the whole queue
 - Same merge + PR flow as parallel mode
 
+#### Combined Mode
+
+- Runs all selected tasks in one OpenCode session with one combined prompt
+- Uses one worktree at `batch-{batchId}/combined`
+- Commits directly on `openlinear/batch-{batchId}`
+- Marks all selected tasks Done together only when the combined session succeeds
+
 #### Batch Flow
 
 ```
@@ -161,6 +168,7 @@ POST /api/batches to sidecar { taskIds, mode }
 
 2. PER-TASK EXECUTION
    ├── createWorktree() → git worktree add .../batch-{batchId}/task-{taskId}
+   ├── combined mode uses createBatchWorktree() → .../batch-{batchId}/combined
    ├── getClientForUser(userId, worktreePath) → connects to OpenCode sidecar
    ├── client.session.create({ directory: worktreePath })
    ├── Subscribe to events + send prompt
@@ -183,7 +191,7 @@ POST /api/batches to sidecar { taskIds, mode }
 | Aspect | Single Task | Batch |
 |--------|-------------|-------|
 | Git strategy | Full clone per task | Bare clone + worktrees |
-| Branch | `openlinear/{taskId}` | Per-task branches merged into `openlinear/batch-{batchId}` |
+| Branch | `openlinear/{taskId}` | Per-task branches merged into `openlinear/batch-{batchId}`; combined commits directly on the batch branch |
 | PR | One PR per task | One PR for entire batch |
 | Concurrency | Respects parallelLimit | Same limit, with queue option |
 | Conflicts | N/A | Handled during merge (skip or fail) |
