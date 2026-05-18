@@ -17,9 +17,14 @@ describe('Tasks API', () => {
   let testTeamId: string;
 
   beforeAll(async () => {
+    await prisma.projectAccess.deleteMany({});
     await prisma.taskLabel.deleteMany({});
     await prisma.task.updateMany({ where: { teamId: { not: null } }, data: { teamId: null, projectId: null } });
     await prisma.task.deleteMany({});
+    await prisma.projectTeam.deleteMany({});
+    await prisma.project.deleteMany({});
+    await prisma.workspaceMember.deleteMany({});
+    await prisma.workspace.deleteMany({});
     await prisma.teamMember.deleteMany({});
     await prisma.team.deleteMany({});
 
@@ -47,9 +52,14 @@ describe('Tasks API', () => {
   }, 30000);
 
   afterAll(async () => {
+    await prisma.projectAccess.deleteMany({});
     await prisma.taskLabel.deleteMany({});
     await prisma.task.updateMany({ where: { teamId: { not: null } }, data: { teamId: null, projectId: null } });
     await prisma.task.deleteMany({});
+    await prisma.projectTeam.deleteMany({});
+    await prisma.project.deleteMany({});
+    await prisma.workspaceMember.deleteMany({});
+    await prisma.workspace.deleteMany({});
     await prisma.teamMember.deleteMany({});
     await prisma.team.deleteMany({});
   }, 30000);
@@ -106,6 +116,98 @@ describe('Tasks API', () => {
 
       expect(res.status).toBe(403);
       expect(res.body.code).toBe('OWNERSHIP_REQUIRED');
+    });
+
+    it('excludes tasks from projects with explicit deny access', async () => {
+      const workspace = await prisma.workspace.create({
+        data: { name: 'Task Deny Workspace', slug: 'task-deny-workspace' },
+      });
+      await prisma.workspaceMember.create({
+        data: { workspaceId: workspace.id, userId: testUserId, role: 'owner' },
+      });
+      const project = await prisma.project.create({
+        data: {
+          name: 'Denied Task Project',
+          workspaceId: workspace.id,
+          key: 'DTP',
+          projectTeams: { create: [{ teamId: testTeamId }] },
+        },
+      });
+      await prisma.projectAccess.create({
+        data: { projectId: project.id, userId: testUserId, permission: 'deny' },
+      });
+      await prisma.task.create({
+        data: {
+          title: 'Hidden Denied Project Task',
+          priority: 'medium',
+          teamId: testTeamId,
+          projectId: project.id,
+        },
+      });
+
+      const list = await request(app)
+        .get('/api/tasks')
+        .set('Authorization', `Bearer ${authToken}`);
+      expect(list.status).toBe(200);
+      expect(
+        list.body.items.some((task: { title: string }) => task.title === 'Hidden Denied Project Task'),
+      ).toBe(false);
+
+      const filtered = await request(app)
+        .get(`/api/tasks?projectId=${project.id}`)
+        .set('Authorization', `Bearer ${authToken}`);
+      expect(filtered.status).toBe(403);
+    });
+
+    it('includes project-accessible tasks for workspace users who are not team members', async () => {
+      const workspaceOnlyUser = await prisma.user.upsert({
+        where: { githubId: '777778' },
+        update: {},
+        create: {
+          githubId: '777778',
+          username: 'workspaceonlytaskuser',
+          email: 'workspaceonlytaskuser@example.com',
+        },
+      });
+      const workspaceOnlyToken = generateToken(workspaceOnlyUser.id, workspaceOnlyUser.username);
+      const workspace = await prisma.workspace.create({
+        data: { name: 'Workspace Task List', slug: 'workspace-task-list' },
+      });
+      await prisma.workspaceMember.create({
+        data: { workspaceId: workspace.id, userId: workspaceOnlyUser.id, role: 'viewer' },
+      });
+      const project = await prisma.project.create({
+        data: {
+          name: 'Workspace Visible Project',
+          workspaceId: workspace.id,
+          key: 'WVP',
+          projectTeams: { create: [{ teamId: testTeamId }] },
+        },
+      });
+      await prisma.task.createMany({
+        data: [
+          {
+            title: 'Workspace Visible Team Task',
+            priority: 'medium',
+            teamId: testTeamId,
+            projectId: project.id,
+          },
+          {
+            title: 'Workspace Visible Project Task',
+            priority: 'medium',
+            projectId: project.id,
+          },
+        ],
+      });
+
+      const res = await request(app)
+        .get('/api/tasks')
+        .set('Authorization', `Bearer ${workspaceOnlyToken}`);
+
+      expect(res.status).toBe(200);
+      const titles = res.body.items.map((task: { title: string }) => task.title);
+      expect(titles).toContain('Workspace Visible Team Task');
+      expect(titles).toContain('Workspace Visible Project Task');
     });
   });
 
@@ -355,6 +457,54 @@ describe('Tasks API', () => {
 
       const aRemaining = await prisma.task.count({ where: { archived: true, teamId: testTeamId } });
       expect(aRemaining).toBe(0);
+    });
+  });
+
+  describe('DELETE /api/tasks/archived', () => {
+    it('does not bulk-delete archived project tasks for read-only project users', async () => {
+      const viewer = await prisma.user.upsert({
+        where: { githubId: '777779' },
+        update: {},
+        create: {
+          githubId: '777779',
+          username: 'archiveviewer',
+          email: 'archiveviewer@example.com',
+        },
+      });
+      const viewerToken = generateToken(viewer.id, viewer.username);
+      await prisma.teamMember.create({
+        data: { teamId: testTeamId, userId: viewer.id, role: 'member' },
+      });
+      const workspace = await prisma.workspace.create({
+        data: { name: 'Archive Viewer Workspace', slug: 'archive-viewer-workspace' },
+      });
+      await prisma.workspaceMember.create({
+        data: { workspaceId: workspace.id, userId: viewer.id, role: 'viewer' },
+      });
+      const project = await prisma.project.create({
+        data: {
+          name: 'Archive Viewer Project',
+          workspaceId: workspace.id,
+          key: 'AVP',
+          projectTeams: { create: [{ teamId: testTeamId }] },
+        },
+      });
+      const task = await prisma.task.create({
+        data: {
+          title: 'Read Only Archived Project Task',
+          priority: 'medium',
+          archived: true,
+          teamId: testTeamId,
+          projectId: project.id,
+        },
+      });
+
+      const res = await request(app)
+        .delete('/api/tasks/archived')
+        .set('Authorization', `Bearer ${viewerToken}`);
+
+      expect(res.status).toBe(204);
+      await expect(prisma.task.findUnique({ where: { id: task.id } })).resolves.toBeDefined();
     });
   });
 });

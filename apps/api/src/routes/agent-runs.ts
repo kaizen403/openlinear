@@ -2,7 +2,7 @@ import { Router, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { prisma } from '@openlinear/db';
 import { requireAuth, AuthRequest } from '../middleware/auth';
-import { assertTaskOwned } from '../services/ownership';
+import { assertTaskAccess } from '../services/ownership';
 import { getUserTeamIds } from '../services/team-scope';
 import { paginated, paginationSkipTake } from '../schemas/pagination';
 
@@ -35,7 +35,7 @@ router.get(
       const where: { taskId?: string; userId?: string; task?: { teamId: { in: string[] } } } = {};
 
       if (taskId) {
-        await assertTaskOwned(taskId, req.userId!);
+        await assertTaskAccess(taskId, req.userId!, 'view');
         where.taskId = taskId;
       } else if (userId) {
         const resolvedUserId = userId === 'me' ? req.userId! : userId;

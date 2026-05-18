@@ -3,8 +3,8 @@ import { prisma } from '@openlinear/db';
 import { z } from 'zod';
 import { requireAuth, AuthRequest } from '../middleware/auth';
 import {
-  assertTaskOwned,
-  assertProjectOwned,
+  assertTaskAccess,
+  assertProjectAccess,
   assertTeamRole,
 } from '../services/ownership';
 import { paginated, paginationSkipTake } from '../schemas/pagination';
@@ -32,8 +32,8 @@ router.get('/', requireAuth, async (req: AuthRequest, res: Response, next: NextF
     }
     const { taskId, projectId, teamId, page, pageSize } = parsed.data;
 
-    if (taskId) await assertTaskOwned(taskId, req.userId!);
-    if (projectId) await assertProjectOwned(projectId, req.userId!);
+    if (taskId) await assertTaskAccess(taskId, req.userId!, 'view');
+    if (projectId) await assertProjectAccess(projectId, req.userId!, 'view');
     if (teamId) await assertTeamRole(teamId, req.userId!, ['owner', 'admin', 'member']);
 
     const where = {

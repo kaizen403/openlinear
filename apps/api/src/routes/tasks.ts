@@ -1,15 +1,18 @@
 import { Router, Response, NextFunction } from 'express';
-import { prisma } from '@openlinear/db';
+import { Prisma, prisma } from '@openlinear/db';
 import { broadcastToTask, broadcastToTeam, broadcastToUser } from '../sse';
 import { requireAuth, AuthRequest } from '../middleware/auth';
 import { validateBody, validateQuery, ValidatedRequest } from '../middleware/validate';
 import { getUserTeamIds } from '../services/team-scope';
 import {
   assertTaskOwned,
+  assertTaskAccess,
+  assertProjectAccess,
   assertProjectOwned,
   assertTeamRole,
   OwnershipError,
 } from '../services/ownership';
+import { buildProjectAccessWhere, buildProjectFullAccessWhere } from '../services/workspaces';
 import { ValidationError } from '../errors';
 import { logActivity } from '../services/activity';
 import { createNotification } from './notifications';
@@ -94,6 +97,24 @@ const taskInclude = {
 
 const router: Router = Router();
 
+function buildTaskProjectAccessWhere(userId: string, teamIds: string[]): Prisma.TaskWhereInput {
+  return {
+    OR: [
+      { projectId: null, teamId: { in: teamIds } },
+      { project: { is: buildProjectAccessWhere(userId, teamIds) } },
+    ],
+  };
+}
+
+function buildTaskProjectFullAccessWhere(userId: string, teamIds: string[]): Prisma.TaskWhereInput {
+  return {
+    OR: [
+      { projectId: null, teamId: { in: teamIds } },
+      { project: { is: buildProjectFullAccessWhere(userId, teamIds) } },
+    ],
+  };
+}
+
 router.get(
   '/archived',
   requireAuth,
@@ -102,7 +123,12 @@ router.get(
     try {
       const { page, pageSize } = req.validQuery!;
       const teamIds = await getUserTeamIds(req.userId!);
-      const where = { archived: true, teamId: { in: teamIds } };
+      const where: Prisma.TaskWhereInput = {
+        AND: [
+          { archived: true },
+          buildTaskProjectAccessWhere(req.userId!, teamIds),
+        ],
+      };
       const [tasks, total] = await prisma.$transaction(
         async (tx) => {
           const items = await tx.task.findMany({
@@ -126,8 +152,14 @@ router.get(
 router.delete('/archived', requireAuth, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const teamIds = await getUserTeamIds(req.userId!);
+    const where: Prisma.TaskWhereInput = {
+      AND: [
+        { archived: true },
+        buildTaskProjectFullAccessWhere(req.userId!, teamIds),
+      ],
+    };
     await prisma.task.deleteMany({
-      where: { archived: true, teamId: { in: teamIds } },
+      where,
     });
     res.status(204).send();
   } catch (error) {
@@ -158,17 +190,21 @@ router.get(
       const { teamId, projectId, assignee, creator, page, pageSize } = req.validQuery!;
 
       const userTeamIds = await getUserTeamIds(req.userId!);
-      const where: Record<string, unknown> = { archived: false };
+      const filters: Prisma.TaskWhereInput[] = [
+        { archived: false },
+        buildTaskProjectAccessWhere(req.userId!, userTeamIds),
+      ];
 
       if (teamId) {
         if (!userTeamIds.includes(teamId)) {
           throw new OwnershipError('team', teamId, 'forbidden');
         }
-        where.teamId = teamId;
-      } else {
-        where.teamId = { in: userTeamIds };
+        filters.push({ teamId });
       }
-      if (projectId) where.projectId = projectId;
+      if (projectId) {
+        await assertProjectAccess(projectId, req.userId!, 'view');
+        filters.push({ projectId });
+      }
 
       const resolveUserFilter = async (value: string): Promise<string> => {
         if (value === 'me') return req.userId!;
@@ -187,12 +223,13 @@ router.get(
           resolveUserFilter(assignee),
           resolveUserFilter(creator),
         ]);
-        where.OR = [{ assigneeId }, { creatorId }];
+        filters.push({ OR: [{ assigneeId }, { creatorId }] });
       } else if (assignee) {
-        where.assigneeId = await resolveUserFilter(assignee);
+        filters.push({ assigneeId: await resolveUserFilter(assignee) });
       } else if (creator) {
-        where.creatorId = await resolveUserFilter(creator);
+        filters.push({ creatorId: await resolveUserFilter(creator) });
       }
+      const where: Prisma.TaskWhereInput = { AND: filters };
 
       const [tasks, total] = await prisma.$transaction(
         async (tx) => {
@@ -307,7 +344,7 @@ router.post(
 router.get('/:id', requireAuth, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const id = req.params.id as string;
-    await assertTaskOwned(id, req.userId!);
+    await assertTaskAccess(id, req.userId!, 'view');
 
     const task = await prisma.task.findUnique({
       where: { id },

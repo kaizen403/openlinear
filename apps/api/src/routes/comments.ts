@@ -5,6 +5,7 @@ import { requireAuth, AuthRequest } from '../middleware/auth';
 import { validateBody, validateQuery, ValidatedRequest } from '../middleware/validate';
 import {
   assertTaskOwned,
+  assertTaskAccess,
   assertCommentOwned,
   assertTeamRole,
   OwnershipError,
@@ -44,7 +45,7 @@ router.get(
       const taskId = req.params.taskId as string;
       const { page, pageSize } = req.validQuery!;
 
-      await assertTaskOwned(taskId, req.userId!);
+      await assertTaskAccess(taskId, req.userId!, 'view');
 
       const [comments, total] = await Promise.all([
         prisma.comment.findMany({
