@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState, useCallback } from "react"
+import { useEffect, useState, useCallback, useRef } from "react"
 import { DragDropContext, Droppable, Draggable, DropResult } from "@hello-pangea/dnd"
 import { Column } from "./column"
 import { TaskCard } from "./task-card"
@@ -198,14 +198,21 @@ export function KanbanBoard(props: KanbanBoardProps) {
     handleProviderSetupComplete,
   } = useKanbanBoard(props)
 
+  const boardRef = useRef<HTMLDivElement>(null)
   const [isDragging, setIsDragging] = useState(false)
 
   const handleDragStart = useCallback(() => {
     setIsDragging(true)
+    if (boardRef.current) {
+      boardRef.current.style.overflow = 'visible'
+    }
   }, [])
 
   const handleDragEndWithState = useCallback((result: DropResult) => {
     setIsDragging(false)
+    if (boardRef.current) {
+      boardRef.current.style.overflow = 'hidden'
+    }
     handleDragEnd(result)
   }, [handleDragEnd])
 
@@ -288,7 +295,7 @@ export function KanbanBoard(props: KanbanBoardProps) {
 
   return (
     <DragDropContext onDragStart={handleDragStart} onDragEnd={handleDragEndWithState}>
-      <div className={`flex-1 relative bg-linear-bg flex flex-col ${isDragging ? 'overflow-visible' : 'overflow-hidden'}`}>
+      <div ref={boardRef} className="flex-1 relative bg-linear-bg flex flex-col overflow-hidden">
         {activeBatch && (
           <BatchProgress
             batchId={activeBatch.id}

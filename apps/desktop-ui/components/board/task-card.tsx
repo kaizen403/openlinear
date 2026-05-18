@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, memo } from "react"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
@@ -49,23 +49,20 @@ const progressConfig = {
   error: { icon: X, label: 'Error', color: STATUS_COLORS.error.text },
 }
 
-export function TaskCard({ task, onExecute, onCancel, onDelete, onMoveToInProgress, onTaskClick, executionProgress, selected, onToggleSelect, selectionMode, isBatchTask, isCompletedBatchTask, isDragging }: TaskCardProps) {
-  const [liveElapsedMs, setLiveElapsedMs] = useState<number>(0)
-  const [cancelling, setCancelling] = useState(false)
-
+/** Isolated live timer — only this tiny sub-tree re-renders every second */
+const LiveDuration = memo(function LiveDuration({ startedAt }: { startedAt: string }) {
+  const [ms, setMs] = useState(() => Date.now() - new Date(startedAt).getTime())
   useEffect(() => {
-    if (task.status === 'in_progress' && task.executionStartedAt && !task.executionPausedAt) {
-      const updateElapsed = () => {
-        const started = new Date(task.executionStartedAt!).getTime()
-        const elapsed = Date.now() - started
-        setLiveElapsedMs(elapsed)
-      }
+    const interval = setInterval(() => {
+      setMs(Date.now() - new Date(startedAt).getTime())
+    }, 1000)
+    return () => clearInterval(interval)
+  }, [startedAt])
+  return <>{formatDuration(ms)}</>
+})
 
-      updateElapsed()
-      const interval = setInterval(updateElapsed, 1000)
-      return () => clearInterval(interval)
-    }
-  }, [task.status, task.executionStartedAt, task.executionPausedAt])
+function TaskCardComponent({ task, onExecute, onCancel, onDelete, onMoveToInProgress, onTaskClick, executionProgress, selected, onToggleSelect, selectionMode, isBatchTask, isCompletedBatchTask, isDragging }: TaskCardProps) {
+  const [cancelling, setCancelling] = useState(false)
 
   useEffect(() => {
     if (task.status !== 'in_progress') {
@@ -105,10 +102,6 @@ export function TaskCard({ task, onExecute, onCancel, onDelete, onMoveToInProgre
       onToggleSelect(task.id, { shift: e.shiftKey, meta: e.metaKey || e.ctrlKey })
       return
     }
-    // When the card is rendered in selection mode (column-level or any task
-    // already selected), a plain click toggles selection too. Without this,
-    // users have to hit the tiny checkbox to add a card to the selection
-    // even though the board is clearly in selection mode.
     if (selectionMode && !isBatchTask && onToggleSelect) {
       e.preventDefault()
       e.stopPropagation()
@@ -257,16 +250,17 @@ export function TaskCard({ task, onExecute, onCancel, onDelete, onMoveToInProgre
                 </span>
               )
             })()}
-            {(task.status === 'in_progress' || task.status === 'done' || task.status === 'cancelled') && (
-              (task.status === 'in_progress' && task.executionStartedAt && !task.executionPausedAt && liveElapsedMs >= 1000) ||
-              ((task.status === 'in_progress' && task.executionPausedAt && (task.executionElapsedMs ?? 0) > 0)) ||
+            {((task.status === 'in_progress' && task.executionStartedAt && !task.executionPausedAt) ||
+              (task.status === 'in_progress' && task.executionPausedAt && (task.executionElapsedMs ?? 0) > 0) ||
               ((task.status === 'done' || task.status === 'cancelled') && (task.executionElapsedMs ?? 0) > 0)
             ) && (
               <span className="text-[11px] text-linear-text-tertiary flex items-center gap-1 whitespace-nowrap tabular-nums">
                 <Clock className="w-3 h-3 flex-shrink-0" />
-                {task.status === 'in_progress' && task.executionStartedAt && !task.executionPausedAt
-                  ? formatDuration(liveElapsedMs)
-                  : formatDuration(task.executionElapsedMs)}
+                {task.status === 'in_progress' && task.executionStartedAt && !task.executionPausedAt ? (
+                  <LiveDuration startedAt={task.executionStartedAt} />
+                ) : (
+                  formatDuration(task.executionElapsedMs)
+                )}
               </span>
             )}
           </div>
@@ -342,3 +336,16 @@ export function TaskCard({ task, onExecute, onCancel, onDelete, onMoveToInProgre
     </div>
   )
 }
+
+/** Memoized wrapper — ignores function props because parent callbacks aren't stable references */
+export const TaskCard = memo(TaskCardComponent, (prev, next) => {
+  return (
+    prev.task === next.task &&
+    prev.executionProgress === next.executionProgress &&
+    prev.selected === next.selected &&
+    prev.selectionMode === next.selectionMode &&
+    prev.isDragging === next.isDragging &&
+    prev.isBatchTask === next.isBatchTask &&
+    prev.isCompletedBatchTask === next.isCompletedBatchTask
+  )
+})

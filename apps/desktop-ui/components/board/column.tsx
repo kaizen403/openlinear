@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useRef, useEffect } from "react"
+import { useState, useRef, useEffect, memo } from "react"
 import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
 import { Plus, Loader2 } from "lucide-react"
@@ -22,7 +22,7 @@ interface ColumnProps {
   isAnyDragging?: boolean
 }
 
-export function Column({
+function ColumnComponent({
   id,
   title,
   taskCount,
@@ -145,8 +145,10 @@ function InlineAddTask({ columnTitle, onCreate }: InlineAddTaskProps) {
         <Plus className="w-3.5 h-3.5 opacity-60 group-hover:opacity-100" />
         <span>Add task</span>
       </button>
-    )
-  }
+  )
+}
+
+export const Column = memo(ColumnComponent)
 
   return (
     <div className="rounded-sm border border-linear-border bg-linear-bg-secondary backdrop-blur-sm focus-within:border-linear-accent/50 focus-within:bg-linear-bg-tertiary transition-colors">
