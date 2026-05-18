@@ -15,6 +15,10 @@ function generateInviteCode(key: string): string {
   return `${key}-${random}`;
 }
 
+function defaultWorkspaceIdForUser(userId: string): string {
+  return `workspace-${crypto.createHash("md5").update(userId).digest("hex")}`;
+}
+
 const SEED_TASKS = [
   {
     id: "seed-task-001",
@@ -88,6 +92,32 @@ async function main() {
   });
   console.log(`[seed] Upserted user "${user.username}"`);
 
+  const workspace = await prisma.workspace.upsert({
+    where: { id: defaultWorkspaceIdForUser(user.id) },
+    update: {
+      name: `${user.username}'s Workspace`,
+      slug: `${user.username}-workspace`,
+    },
+    create: {
+      id: defaultWorkspaceIdForUser(user.id),
+      name: `${user.username}'s Workspace`,
+      slug: `${user.username}-workspace`,
+    },
+  });
+  console.log(`[seed] Upserted workspace "${workspace.name}"`);
+
+  await prisma.workspaceMember.upsert({
+    where: { workspaceId_userId: { workspaceId: workspace.id, userId: user.id } },
+    update: { role: "owner", joinedAt: new Date() },
+    create: {
+      workspaceId: workspace.id,
+      userId: user.id,
+      role: "owner",
+      joinedAt: new Date(),
+    },
+  });
+  console.log(`[seed] Upserted WorkspaceMember demo -> ${workspace.slug}`);
+
   // 3. Create team "Default" with key "DEF"
   const team = await prisma.team.upsert({
     where: { id: "seed-team-default" },
@@ -139,15 +169,27 @@ async function main() {
   // 6. Create project "OpenLinear"
   const project = await prisma.project.upsert({
     where: { id: "seed-project-openlinear" },
-    update: {},
+    update: {
+      workspaceId: workspace.id,
+      key: "OL",
+    },
     create: {
       id: "seed-project-openlinear",
+      workspaceId: workspace.id,
+      key: "OL",
       name: "OpenLinear",
       leadId: user.id,
       ...(activeRepo ? { repositoryId: activeRepo.id, repoUrl: `https://github.com/${activeRepo.fullName}` } : {}),
     },
   });
   console.log(`[seed] Upserted project "${project.name}"`);
+
+  await prisma.projectAccess.upsert({
+    where: { projectId_userId: { projectId: project.id, userId: user.id } },
+    update: { permission: "full" },
+    create: { projectId: project.id, userId: user.id, permission: "full" },
+  });
+  console.log(`[seed] Upserted ProjectAccess demo -> OpenLinear`);
 
   // 7. Link project to team
   await prisma.projectTeam.upsert({

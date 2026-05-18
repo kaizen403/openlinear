@@ -38,6 +38,23 @@ enum ProjectStatus {
   @@map("project_statuses")
 }
 
+enum WorkspaceRole {
+  owner
+  admin
+  member
+  viewer
+
+  @@map("workspace_roles")
+}
+
+enum ProjectPermission {
+  full
+  view
+  deny
+
+  @@map("project_permissions")
+}
+
 enum AgentRunStatus {
   pending
   running
@@ -120,9 +137,9 @@ model Task {
   parent     Task?   @relation("Subtasks", fields: [parentId], references: [id], onDelete: SetNull)
   subtasks   Task[]  @relation("Subtasks")
 
-  comments     Comment[]
-  agentRuns    AgentRun[]
-  activityLogs ActivityLog[]
+  comments      Comment[]
+  agentRuns     AgentRun[]
+  activityLogs  ActivityLog[]
   notifications Notification[]
 
   @@unique([teamId, number])
@@ -174,26 +191,28 @@ model Settings {
 }
 
 model User {
-  id              String       @id @default(uuid())
-  githubId        String?      @unique
-  username        String       @unique
-  email           String?      @unique
-  avatarUrl       String?
-  accessToken     String?
-  createdAt       DateTime     @default(now())
-  updatedAt       DateTime     @updatedAt
-  repositories    Repository[]
-  teamMemberships TeamMember[]
-  ledProjects     Project[]    @relation("projectLead")
+  id                   String            @id @default(uuid())
+  githubId             String?           @unique
+  username             String            @unique
+  email                String?           @unique
+  avatarUrl            String?
+  accessToken          String?
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
+  repositories         Repository[]
+  teamMemberships      TeamMember[]
+  ledProjects          Project[]         @relation("projectLead")
+  workspaceMemberships WorkspaceMember[]
+  projectAccess        ProjectAccess[]
 
-  assignedTasks    Task[]         @relation("assignedTasks")
-  createdTasks     Task[]         @relation("createdTasks")
-  comments         Comment[]
-  agentRuns        AgentRun[]
-  notifications    Notification[] @relation("notificationRecipient")
-  notifyActions    Notification[] @relation("notificationActor")
-  activityLogs     ActivityLog[]
-  settings         Settings?
+  assignedTasks Task[]         @relation("assignedTasks")
+  createdTasks  Task[]         @relation("createdTasks")
+  comments      Comment[]
+  agentRuns     AgentRun[]
+  notifications Notification[] @relation("notificationRecipient")
+  notifyActions Notification[] @relation("notificationActor")
+  activityLogs  ActivityLog[]
+  settings      Settings?
 
   @@map("users")
 }
@@ -214,6 +233,34 @@ model Repository {
 
   @@unique([userId, githubRepoId])
   @@map("repositories")
+}
+
+model Workspace {
+  id        String            @id @default(uuid())
+  name      String
+  slug      String            @unique
+  plan      String            @default("free")
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+  members   WorkspaceMember[]
+  projects  Project[]
+
+  @@map("workspaces")
+}
+
+model WorkspaceMember {
+  id          String        @id @default(uuid())
+  workspaceId String
+  userId      String
+  role        WorkspaceRole @default(member)
+  invitedAt   DateTime      @default(now())
+  joinedAt    DateTime?
+  workspace   Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, userId])
+  @@index([userId])
+  @@map("workspace_members")
 }
 
 model Team {
@@ -252,27 +299,47 @@ model TeamMember {
 }
 
 model Project {
-  id           String        @id @default(uuid())
+  id           String          @id @default(uuid())
+  workspaceId  String?
+  workspace    Workspace?      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  key          String?
   name         String
   description  String?
-  status       ProjectStatus @default(planned)
-  color        String        @default("#6366f1")
+  status       ProjectStatus   @default(planned)
+  color        String          @default("#6366f1")
   icon         String?
   startDate    DateTime?
   targetDate   DateTime?
   leadId       String?
-  lead         User?         @relation("projectLead", fields: [leadId], references: [id], onDelete: SetNull)
+  lead         User?           @relation("projectLead", fields: [leadId], references: [id], onDelete: SetNull)
   repositoryId String?
-  repository   Repository?   @relation(fields: [repositoryId], references: [id], onDelete: SetNull)
+  repository   Repository?     @relation(fields: [repositoryId], references: [id], onDelete: SetNull)
   localPath    String? // Absolute path to local folder (alternative to repo)
   repoUrl      String? // Original URL used to connect (for display)
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
   projectTeams ProjectTeam[]
   tasks        Task[]
+  access       ProjectAccess[]
   activityLogs ActivityLog[]
 
+  @@unique([workspaceId, key])
+  @@index([workspaceId])
   @@map("linear_projects")
+}
+
+model ProjectAccess {
+  id         String            @id @default(uuid())
+  projectId  String
+  userId     String
+  permission ProjectPermission @default(full)
+  grantedAt  DateTime          @default(now())
+  project    Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user       User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, userId])
+  @@index([userId])
+  @@map("project_access")
 }
 
 model ProjectTeam {
@@ -286,15 +353,15 @@ model ProjectTeam {
 }
 
 model Comment {
-  id        String   @id @default(uuid())
-  taskId    String
-  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  body      String
-  mentions  String[] @default([])
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id            String         @id @default(uuid())
+  taskId        String
+  task          Task           @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  userId        String
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  body          String
+  mentions      String[]       @default([])
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
   notifications Notification[]
 
   @@index([taskId, createdAt])
@@ -302,21 +369,21 @@ model Comment {
 }
 
 model AgentRun {
-  id            String         @id @default(uuid())
-  taskId        String
-  task          Task           @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  userId        String?
-  user          User?          @relation(fields: [userId], references: [id], onDelete: SetNull)
-  agent         String
-  model         String
-  startedAt     DateTime       @default(now())
-  endedAt       DateTime?
-  costUsd       Decimal?       @db.Decimal(12, 6)
-  inputTokens   Int?
-  outputTokens  Int?
-  status        AgentRunStatus @default(pending)
-  prUrl         String?
-  errorMessage  String?
+  id           String         @id @default(uuid())
+  taskId       String
+  task         Task           @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  userId       String?
+  user         User?          @relation(fields: [userId], references: [id], onDelete: SetNull)
+  agent        String
+  model        String
+  startedAt    DateTime       @default(now())
+  endedAt      DateTime?
+  costUsd      Decimal?       @db.Decimal(12, 6)
+  inputTokens  Int?
+  outputTokens Int?
+  status       AgentRunStatus @default(pending)
+  prUrl        String?
+  errorMessage String?
 
   @@index([taskId, startedAt])
   @@index([userId, startedAt])
