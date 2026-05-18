@@ -145,10 +145,8 @@ function InlineAddTask({ columnTitle, onCreate }: InlineAddTaskProps) {
         <Plus className="w-3.5 h-3.5 opacity-60 group-hover:opacity-100" />
         <span>Add task</span>
       </button>
-  )
-}
-
-export const Column = memo(ColumnComponent)
+    )
+  }
 
   return (
     <div className="rounded-sm border border-linear-border bg-linear-bg-secondary backdrop-blur-sm focus-within:border-linear-accent/50 focus-within:bg-linear-bg-tertiary transition-colors">
@@ -181,3 +179,5 @@ export const Column = memo(ColumnComponent)
     </div>
   )
 }
+
+export const Column = memo(ColumnComponent)
