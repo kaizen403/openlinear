@@ -83,7 +83,7 @@ export function LabelPicker({ selectedIds, onChange, triggerClassName }: LabelPi
             role="combobox"
             aria-expanded={open}
             className={cn(
-              "w-full justify-between bg-linear-bg-tertiary border-linear-border hover:bg-linear-bg-tertiary hover:border-linear-border-hover",
+              "w-full justify-between bg-linear-bg-tertiary border-linear-border hover:bg-linear-bg-tertiary",
               triggerClassName
             )}
           >

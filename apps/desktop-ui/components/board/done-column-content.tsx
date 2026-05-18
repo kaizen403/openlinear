@@ -67,7 +67,7 @@ export function DoneColumnContent({
                 <div
                   ref={provided.innerRef}
                   {...provided.draggableProps}
-                  className={`border border-dashed border-purple-500/20 rounded-sm p-2 space-y-3 mb-3 hover:border-purple-500/40 transition-all duration-200 ${snapshot.isDragging ? 'shadow-2xl shadow-black/50 ring-1 ring-purple-500/20 scale-[1.02] rotate-1' : ''}`}
+                  className={`border border-dashed border-purple-500/20 rounded-sm p-2 space-y-3 mb-3 hover:border-purple-500/40 ${snapshot.isDragging ? 'shadow-2xl shadow-black/50 ring-1 ring-purple-500/20 scale-[1.02] rotate-1' : ''}`}
                 >
                   <div className="flex items-center justify-between gap-3 px-1" {...provided.dragHandleProps}>
                     <div className="flex items-center gap-1.5 min-w-0">
