@@ -9,6 +9,7 @@ import type { Repository } from "@/lib/api"
 import { Task, ExecutionProgress, ExecutionLogEntry } from "@/types/task"
 import { apiFetch, ApiError, NetworkError } from "@/lib/api/fetch"
 import { getSetupStatus, OpenCodeUnavailableError } from "@/lib/api/opencode"
+import type { BatchMode } from "./batch-mode"
 
 export const COLUMNS = [
   { id: 'todo', title: 'All Issues', status: 'todo' as const },
@@ -20,7 +21,7 @@ export const COLUMNS = [
 export interface ActiveBatch {
   id: string
   status: string
-  mode: string
+  mode: BatchMode
   tasks: Array<{
     taskId: string
     title: string
@@ -68,7 +69,7 @@ export interface UseKanbanBoardReturn {
   selectingColumns: Set<string>
   activeBatch: ActiveBatch | null
   setActiveBatch: (batch: ActiveBatch | null) => void
-  completedBatch: { taskIds: string[]; prUrl: string | null; mode: string } | null
+  completedBatch: { taskIds: string[]; prUrl: string | null; mode: BatchMode } | null
   canExecute: boolean
   activeRepository: Repository | null
   selectedProject: Project | undefined
@@ -88,7 +89,7 @@ export interface UseKanbanBoardReturn {
   handleUpdateTask: (taskId: string, data: { title?: string; description?: string | null }) => Promise<void>
   handleMoveToInProgress: (taskId: string) => Promise<void>
   handleBatchMoveToInProgress: () => Promise<void>
-  handleBatchExecute: (mode: 'parallel' | 'queue') => Promise<void>
+  handleBatchExecute: (mode: BatchMode) => Promise<void>
   handleCancelBatch: (batchId: string) => Promise<void>
   handleApproveNextBatchTask: (batchId: string) => Promise<void>
   toggleTaskSelect: (taskId: string, modifiers?: { shift?: boolean; meta?: boolean }) => void
@@ -123,7 +124,7 @@ export function useKanbanBoard({ projectId, teamId, projects = [], searchQuery =
   const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set())
   const [selectingColumns, setSelectingColumns] = useState<Set<string>>(new Set())
   const [activeBatch, setActiveBatch] = useState<ActiveBatch | null>(null)
-  const [completedBatch, setCompletedBatch] = useState<{ taskIds: string[]; prUrl: string | null; mode: string } | null>(null)
+  const [completedBatch, setCompletedBatch] = useState<{ taskIds: string[]; prUrl: string | null; mode: BatchMode } | null>(null)
   const [showProviderSetup, setShowProviderSetup] = useState(false)
   const [pendingExecuteTaskId, setPendingExecuteTaskId] = useState<string | null>(null)
   // Tracks tasks whose Execute POST is in flight so the UI can show "starting…"
@@ -262,7 +263,7 @@ export function useKanbanBoard({ projectId, teamId, projects = [], searchQuery =
     })
   }, [batchTaskIds.length, completedBatchTaskIds.length, clearColumnSelection])
 
-  const handleBatchExecute = async (mode: 'parallel' | 'queue') => {
+  const handleBatchExecute = async (mode: BatchMode) => {
     // Only In Progress tasks may be executed in a batch. Mixed selections
     // (Todo + In Progress) used to send Todo task ids to /api/batches too,
     // which is wrong: Todo tasks must be moved to In Progress first.
@@ -300,7 +301,7 @@ export function useKanbanBoard({ projectId, teamId, projects = [], searchQuery =
       const created = await apiFetch<{
         id: string
         status: string
-        mode: string
+        mode: BatchMode
         tasks: Array<{ taskId: string; title: string; status: ActiveBatch['tasks'][number]['status'] }>
       }>('/api/batches', {
         method: 'POST',
@@ -353,7 +354,7 @@ export function useKanbanBoard({ projectId, teamId, projects = [], searchQuery =
 
   const reconcileActiveBatches = useCallback(async () => {
     try {
-      const batches = await apiFetch<Array<{ id: string; status: string; mode: string }>>(
+      const batches = await apiFetch<Array<{ id: string; status: string; mode: BatchMode }>>(
         '/api/batches',
         { sidecar: true },
       )
@@ -362,7 +363,7 @@ export function useKanbanBoard({ projectId, teamId, projects = [], searchQuery =
         const detail = await apiFetch<{
           id: string
           status: string
-          mode: string
+          mode: BatchMode
           prUrl: string | null
           tasks: Array<{ taskId: string; title: string; status: ActiveBatch['tasks'][number]['status'] }>
         }>(`/api/batches/${running.id}`, { sidecar: true })
@@ -594,7 +595,7 @@ export function useKanbanBoard({ projectId, teamId, projects = [], searchQuery =
           setActiveBatch({
             id: data.batchId as string,
             status: data.status as string || 'running',
-            mode: data.mode as string || 'parallel',
+            mode: (data.mode as BatchMode | undefined) || 'parallel',
             tasks: (data.tasks as ActiveBatch['tasks']) || [],
             prUrl: null,
           })

@@ -18,6 +18,7 @@ import { useKanbanBoard, COLUMNS, KanbanBoardProps, isTaskActivelyExecuting } fr
 import { InProgressBatchGroup } from "./in-progress-batch-group"
 import { DoneColumnContent } from "./done-column-content"
 import { ModelSelector } from "./model-selector"
+import { formatBatchMode } from "./batch-mode"
 import { useRouter } from "next/navigation"
 
 interface ProjectConfigPanelProps {
@@ -76,7 +77,7 @@ function ProjectConfigPanel({ selectedProject, activeRepository, tasks, selected
     {
       icon: Play,
       label: 'Workflow',
-      value: activeBatch ? `${activeBatch.mode} mode` : 'Idle',
+      value: activeBatch ? `${formatBatchMode(activeBatch.mode)} mode` : 'Idle',
       status: activeBatch ? 'active' : 'neutral',
     },
     {
@@ -449,6 +450,7 @@ export function KanbanBoard(props: KanbanBoardProps) {
               executeDisabledReason={executeDisabledReason}
               onExecuteParallel={() => handleBatchExecute('parallel')}
               onExecuteQueue={() => handleBatchExecute('queue')}
+              onExecuteCombined={() => handleBatchExecute('combined')}
               onMoveToInProgress={handleBatchMoveToInProgress}
               onChangeStatus={handleBulkChangeStatus}
               onArchive={handleBulkDelete}
