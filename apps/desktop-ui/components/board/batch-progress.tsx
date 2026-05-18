@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button"
 import { X, Loader2, ChevronDown, ChevronUp, Check, AlertCircle, SkipForward, Ban, Clock, ExternalLink, GitPullRequest, ArrowRight } from "lucide-react"
 import { cn, openExternal } from "@/lib/utils"
 import { BATCH_STATUS_COLORS } from "@/lib/design-tokens"
+import { formatBatchMode } from "./batch-mode"
 
 interface BatchProgressTask {
   taskId: string
@@ -72,7 +73,7 @@ export function BatchProgress({ batchId, status, mode, tasks, prUrl, onCancel, o
               />
             )}
             <span className="text-sm text-linear-text">
-              {mode === 'queue' ? 'Queue' : 'Parallel'} Issues: {completed}/{total} complete
+              {formatBatchMode(mode)} Issues: {completed}/{total} complete
               {failed > 0 && <span className={cn("ml-1", BATCH_STATUS_COLORS.failed.text)}>({failed} failed)</span>}
             </span>
             {expanded ? (

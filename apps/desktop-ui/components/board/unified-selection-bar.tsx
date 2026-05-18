@@ -7,7 +7,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { Play, ListOrdered, ArrowRight, X, Archive, ChevronDown, MoveRight } from "lucide-react"
+import { Play, ListOrdered, ArrowRight, X, Archive, ChevronDown, MoveRight, Layers } from "lucide-react"
 import { Task } from "@/types/task"
 
 export interface SelectionBuckets {
@@ -24,6 +24,7 @@ interface UnifiedSelectionBarProps {
   executeDisabledReason?: string | null
   onExecuteParallel: () => void
   onExecuteQueue: () => void
+  onExecuteCombined: () => void
   onMoveToInProgress: () => void
   onChangeStatus: (status: Task['status']) => void
   onArchive: () => void
@@ -44,6 +45,7 @@ export function UnifiedSelectionBar({
   executeDisabledReason,
   onExecuteParallel,
   onExecuteQueue,
+  onExecuteCombined,
   onMoveToInProgress,
   onChangeStatus,
   onArchive,
@@ -59,6 +61,10 @@ export function UnifiedSelectionBar({
     : !canExecute
       ? (executeDisabledReason || 'Connect a repository before executing')
       : undefined
+  const combinedDisabled = executeDisabled || buckets.in_progress.length < 2
+  const combinedTitle = buckets.in_progress.length < 2
+    ? 'Select at least two In Progress tasks to execute together'
+    : executeTitle
 
   const summary = (() => {
     const parts: string[] = []
@@ -122,6 +128,20 @@ export function UnifiedSelectionBar({
         <span className="sm:hidden">Queue</span>
         <span className="hidden sm:inline">
           {hasInProgress ? `Queue (${buckets.in_progress.length})` : 'Execute Queue'}
+        </span>
+      </Button>
+      <Button
+        size="sm"
+        onClick={onExecuteCombined}
+        disabled={combinedDisabled}
+        title={combinedTitle}
+        variant="outline"
+        className="border-linear-border text-linear-text hover:bg-linear-bg-tertiary gap-1.5 disabled:opacity-50"
+      >
+        <Layers className="w-3.5 h-3.5" />
+        <span className="sm:hidden">Combined</span>
+        <span className="hidden sm:inline">
+          {hasInProgress ? `Combined (${buckets.in_progress.length})` : 'Execute Combined'}
         </span>
       </Button>
 
