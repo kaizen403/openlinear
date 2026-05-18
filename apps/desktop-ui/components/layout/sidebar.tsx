@@ -8,12 +8,13 @@ import {
     Home, Inbox, Layers, Settings,
     PanelLeftClose, LogOut, Archive, Brain, BarChart3,
     ChevronRight, ChevronDown, CircleDot, Hexagon, MoreHorizontal, Pencil, Trash2, Plus,
-    ChevronsUpDown,
+    ChevronsUpDown, Building2,
     User as UserIcon, Sun, Moon, Monitor
 } from "lucide-react"
 import { ProjectSelector } from "@/components/auth/project-selector"
 import { useAuth } from "@/hooks/use-auth"
 import { useProject } from "@/hooks/use-project"
+import { useWorkspace } from "@/hooks/use-workspace"
 import { cn } from "@/lib/utils"
 import { BRAND_COLORS } from "@/lib/design-tokens"
 import { deleteTeam, apiFetch, type Team } from "@/lib/api"
@@ -163,6 +164,58 @@ function TeamSection({ team, pathname, searchParams, onDelete }: { team: Team; p
     )
 }
 
+function WorkspaceSwitcher() {
+    const { activeWorkspace, workspaces, setActiveWorkspace, isLoading } = useWorkspace()
+    const [isOpen, setIsOpen] = useState(false)
+
+    if (isLoading || workspaces.length === 0) return null
+
+    const initial = activeWorkspace?.name?.charAt(0).toUpperCase() ?? "W"
+
+    return (
+        <div className="px-3 pt-3 pb-2">
+            <Popover open={isOpen} onOpenChange={setIsOpen}>
+                <PopoverTrigger asChild>
+                    <button className="flex items-center gap-2 w-full px-2 py-1.5 rounded-sm text-sm hover:bg-linear-bg-tertiary transition-colors">
+                        <div className="w-5 h-5 rounded-sm bg-linear-bg-tertiary flex items-center justify-center text-[11px] font-semibold text-linear-text flex-shrink-0">
+                            {initial}
+                        </div>
+                        <span className="flex-1 text-left truncate text-linear-text font-medium">
+                            {activeWorkspace?.name || "Select workspace"}
+                        </span>
+                        <ChevronsUpDown className="w-3.5 h-3.5 text-linear-text-tertiary flex-shrink-0" />
+                    </button>
+                </PopoverTrigger>
+                <PopoverContent align="start" className="w-60 p-1" sideOffset={4}>
+                    <div className="px-2 py-1.5 text-[11px] font-medium text-linear-text-tertiary uppercase tracking-wide">
+                        Workspaces
+                    </div>
+                    {workspaces.map((workspace) => (
+                        <button
+                            key={workspace.id}
+                            onClick={() => { setActiveWorkspace(workspace); setIsOpen(false) }}
+                            className={cn(
+                                "flex items-center gap-2 w-full px-2 py-1.5 rounded-sm text-sm transition-colors text-left",
+                                workspace.id === activeWorkspace?.id
+                                    ? "bg-linear-bg-tertiary text-linear-text"
+                                    : "text-linear-text-secondary hover:bg-linear-bg-tertiary"
+                            )}
+                        >
+                            <div className="w-5 h-5 rounded-sm bg-linear-bg-tertiary flex items-center justify-center text-[11px] font-semibold text-linear-text flex-shrink-0">
+                                {workspace.name.charAt(0).toUpperCase()}
+                            </div>
+                            <span className="flex-1 truncate">{workspace.name}</span>
+                            {workspace.role === 'owner' && (
+                                <span className="text-[10px] text-linear-text-tertiary uppercase tracking-wide">Owner</span>
+                            )}
+                        </button>
+                    ))}
+                </PopoverContent>
+            </Popover>
+        </div>
+    )
+}
+
 function ProjectDropdown() {
     const { activeProject, projects, setActiveProject, isLoading } = useProject()
     const [isOpen, setIsOpen] = useState(false)
@@ -170,7 +223,7 @@ function ProjectDropdown() {
     if (isLoading || projects.length === 0) return null
 
     return (
-        <div className="px-3 py-2 border-b border-linear-border">
+        <div className="px-3 pb-2 border-b border-linear-border">
             <Popover open={isOpen} onOpenChange={setIsOpen}>
                 <PopoverTrigger asChild>
                     <button className="flex items-center gap-2 w-full px-2 py-1.5 rounded-sm text-sm hover:bg-linear-bg-tertiary transition-colors">
@@ -182,6 +235,9 @@ function ProjectDropdown() {
                     </button>
                 </PopoverTrigger>
                 <PopoverContent align="start" className="w-56 p-1" sideOffset={4}>
+                    <div className="px-2 py-1.5 text-[11px] font-medium text-linear-text-tertiary uppercase tracking-wide">
+                        Projects
+                    </div>
                     {projects.map((project) => (
                         <button
                             key={project.id}
@@ -366,6 +422,7 @@ export function Sidebar({ open, onClose, width }: SidebarProps) {
                 </div>
             </div>
 
+            <WorkspaceSwitcher />
             <ProjectDropdown />
 
             <nav className="flex-1 overflow-y-auto py-2 min-w-0">

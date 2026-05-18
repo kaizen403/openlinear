@@ -4,6 +4,7 @@ import { ThemeProvider } from "next-themes"
 import { AuthProvider } from "@/hooks/use-auth"
 import { SSEProvider } from "@/providers/sse-provider"
 import { TeamsProvider } from "@/providers/teams-provider"
+import { WorkspaceProvider } from "@/hooks/use-workspace"
 import { ProjectProvider } from "@/hooks/use-project"
 import { ThemedToaster } from "@/components/themed-toaster"
 import { ThemeMeta } from "@/components/theme-meta"
@@ -76,10 +77,12 @@ export default function RootLayout({
           <AuthProvider>
             <SSEProvider>
               <TeamsProvider>
-                <ProjectProvider>
-                  {children}
-                  <GlobalQuickCapture />
-                </ProjectProvider>
+                <WorkspaceProvider>
+                  <ProjectProvider>
+                    {children}
+                    <GlobalQuickCapture />
+                  </ProjectProvider>
+                </WorkspaceProvider>
               </TeamsProvider>
             </SSEProvider>
             <GodModeOverlay />

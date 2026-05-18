@@ -1,3 +1,34 @@
+export type WorkspaceRole = 'owner' | 'admin' | 'member' | 'viewer';
+
+export interface Workspace {
+  id: string;
+  name: string;
+  slug: string;
+  description: string | null;
+  avatarUrl: string | null;
+  createdAt: string;
+  updatedAt: string;
+  role: WorkspaceRole;
+  invitedAt: string;
+  joinedAt: string | null;
+  _count?: { members: number; projects: number };
+}
+
+export interface WorkspaceMember {
+  id: string;
+  workspaceId: string;
+  userId: string;
+  role: WorkspaceRole;
+  invitedAt: string;
+  joinedAt: string | null;
+  user?: {
+    id: string;
+    username: string;
+    email: string | null;
+    avatarUrl: string | null;
+  };
+}
+
 export interface User {
   id: string;
   githubId: string | null;
@@ -92,6 +123,8 @@ export interface TeamMember {
 
 export interface Project {
   id: string
+  workspaceId: string | null
+  key: string | null
   name: string
   description: string | null
   status: 'planned' | 'in_progress' | 'paused' | 'completed' | 'cancelled'

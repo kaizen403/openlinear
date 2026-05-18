@@ -1,15 +1,17 @@
 import { apiFetch } from './fetch';
 import type { Project } from './types';
 
-export async function fetchProjects(teamId?: string): Promise<Project[]> {
+export async function fetchProjects(filters?: { teamId?: string; workspaceId?: string }): Promise<Project[]> {
   const params = new URLSearchParams();
-  if (teamId) params.set('teamId', teamId);
+  if (filters?.teamId) params.set('teamId', filters.teamId);
+  if (filters?.workspaceId) params.set('workspaceId', filters.workspaceId);
   const qs = params.toString();
   return apiFetch<Project[]>(`/api/projects${qs ? `?${qs}` : ''}`);
 }
 
 export async function createProject(data: {
   name: string;
+  workspaceId?: string;
   description?: string;
   status?: string;
   color?: string;

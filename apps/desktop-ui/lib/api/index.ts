@@ -6,6 +6,9 @@ export type {
   GitHubReposResponse,
   GitHubRepoSort,
   PublicRepository,
+  Workspace,
+  WorkspaceMember,
+  WorkspaceRole,
   Team,
   TeamMember,
   Project,
@@ -32,6 +35,8 @@ export { fetchUserRepositories, fetchGitHubRepos, importRepo, activateRepository
 export { fetchTeams, fetchTeam, createTeam, updateTeam, deleteTeam, addTeamMember, removeTeamMember, joinTeam } from './teams';
 
 export { fetchProjects, createProject, updateProject, deleteProject } from './projects';
+
+export { fetchWorkspaces, fetchWorkspace, fetchWorkspaceMembers } from './workspaces';
 
 export { fetchMyIssues, createTask, executeTaskPublic, refreshTaskPr, fetchInboxTasks, fetchInboxCount, markInboxRead, markAllInboxRead } from './tasks';
 

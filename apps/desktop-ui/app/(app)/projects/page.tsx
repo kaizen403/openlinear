@@ -292,7 +292,7 @@ function ProjectsContent() {
 
   const loadProjects = useCallback(async () => {
     try {
-      const data = await fetchProjects(filterTeamId)
+      const data = await fetchProjects({ teamId: filterTeamId })
       setProjects(data)
     } catch (error) {
       const { toastMessage } = mapErrorToForm(

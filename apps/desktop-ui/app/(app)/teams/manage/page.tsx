@@ -154,7 +154,7 @@ function TeamDetailPageContent() {
     if (!teamId) return
     try {
       setIsLoadingProjects(true)
-      const data = await fetchProjects(teamId)
+      const data = await fetchProjects({ teamId })
       setProjects(data)
     } catch (error) {
       console.error("Failed to fetch projects:", error)
