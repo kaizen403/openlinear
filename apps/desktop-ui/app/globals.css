@@ -150,18 +150,6 @@ code,
   user-select: text;
 }
 
-/* ── Focus outlines ──────────────────────────────────── */
-:focus-visible {
-  outline: 1px solid #6a6a6a;
-  outline-offset: -1px;
-}
-
-input:focus-visible,
-textarea:focus-visible,
-select:focus-visible {
-  outline: 1px solid #6a6a6a;
-  outline-offset: 0px;
-}
 
 /* ── Reduced motion ──────────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {
