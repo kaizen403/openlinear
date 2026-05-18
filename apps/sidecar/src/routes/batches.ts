@@ -16,7 +16,7 @@ import type { BatchState, BatchTask, BatchStatusResponse } from '../types/batch'
 
 const CreateBatchSchema = z.object({
   taskIds: z.array(z.string()).min(1).max(20),
-  mode: z.enum(['parallel', 'queue']),
+  mode: z.enum(['parallel', 'queue', 'combined']),
 });
 
 const router: Router = Router();

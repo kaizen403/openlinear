@@ -1,5 +1,5 @@
 // Execution modes
-export type BatchMode = 'parallel' | 'queue';
+export type BatchMode = 'parallel' | 'queue' | 'combined';
 
 // Overall batch lifecycle status
 export type BatchStatus = 'pending' | 'running' | 'merging' | 'completed' | 'failed' | 'cancelled';
