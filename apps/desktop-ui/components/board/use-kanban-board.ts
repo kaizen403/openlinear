@@ -9,6 +9,13 @@ import type { Repository } from "@/lib/api"
 import { Task, ExecutionProgress, ExecutionLogEntry } from "@/types/task"
 import { apiFetch, ApiError, NetworkError } from "@/lib/api/fetch"
 import { getSetupStatus, OpenCodeUnavailableError } from "@/lib/api/opencode"
+import {
+  appendExecutionLog,
+  getExecutionProgress,
+  hasExecutionLogs,
+  replaceExecutionLogs,
+  setExecutionProgress,
+} from "@/lib/execution-state-store"
 import type { BatchMode } from "./batch-mode"
 
 export const COLUMNS = [
@@ -58,12 +65,10 @@ export interface UseKanbanBoardReturn {
   tasks: Task[]
   loading: boolean
   error: string | null
-  executionProgress: Record<string, ExecutionProgress>
   isTaskFormOpen: boolean
   setIsTaskFormOpen: (open: boolean) => void
   defaultStatus: Task['status']
   selectedTaskId: string | null
-  taskLogs: Record<string, ExecutionLogEntry[]>
   selectedTaskIds: Set<string>
   selectionActive: boolean
   selectingColumns: Set<string>
@@ -116,11 +121,9 @@ export function useKanbanBoard({ projectId, teamId, projects = [], searchQuery =
   const [tasks, setTasks] = useState<Task[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [executionProgress, setExecutionProgress] = useState<Record<string, ExecutionProgress>>({})
   const [isTaskFormOpen, setIsTaskFormOpen] = useState(false)
   const [defaultStatus, setDefaultStatus] = useState<Task['status']>('todo')
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
-  const [taskLogs, setTaskLogs] = useState<Record<string, ExecutionLogEntry[]>>({})
   const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set())
   const [selectingColumns, setSelectingColumns] = useState<Set<string>>(new Set())
   const [activeBatch, setActiveBatch] = useState<ActiveBatch | null>(null)
@@ -561,20 +564,14 @@ export function useKanbanBoard({ projectId, teamId, projects = [], searchQuery =
       case 'execution:progress':
         const progressData = data as unknown as ExecutionProgress
         if (progressData.taskId) {
-          setExecutionProgress((prev) => ({
-            ...prev,
-            [progressData.taskId]: progressData,
-          }))
+          setExecutionProgress(progressData)
         }
         break
 
       case 'execution:log':
         const logData = data as unknown as { taskId: string; entry: ExecutionLogEntry }
         if (logData.taskId && logData.entry) {
-          setTaskLogs((prev) => ({
-            ...prev,
-            [logData.taskId]: [...(prev[logData.taskId] || []), logData.entry],
-          }))
+          appendExecutionLog(logData.taskId, logData.entry)
         }
         break
 
@@ -893,7 +890,7 @@ export function useKanbanBoard({ projectId, teamId, projects = [], searchQuery =
     // Block duplicate clicks while the POST is in flight or live progress is
     // already in an active phase.
     if (startingExecuteIds.has(taskId)) return
-    const live = executionProgress[taskId]
+    const live = getExecutionProgress(taskId)
     if (live && ['cloning', 'executing', 'committing', 'creating_pr'].includes(live.status)) {
       return
     }
@@ -975,13 +972,13 @@ export function useKanbanBoard({ projectId, teamId, projects = [], searchQuery =
     clearSelection()
     setSelectedTaskId(taskId)
 
-    if (!taskLogs[taskId]) {
+    if (!hasExecutionLogs(taskId)) {
       try {
         const data = await apiFetch<{ logs?: ExecutionLogEntry[] }>(
           `/api/tasks/${taskId}/logs`,
           { sidecar: true },
         )
-        setTaskLogs((prev) => ({ ...prev, [taskId]: data.logs || [] }))
+        replaceExecutionLogs(taskId, data.logs || [])
       } catch (err) {
         console.error('Error fetching task logs:', err)
       }
@@ -1025,7 +1022,7 @@ export function useKanbanBoard({ projectId, teamId, projects = [], searchQuery =
 
   const isSelectedTaskExecuting = isTaskActivelyExecuting(
     selectedTask,
-    selectedTaskId ? executionProgress[selectedTaskId] : undefined,
+    selectedTaskId ? getExecutionProgress(selectedTaskId) : undefined,
     startingExecuteIds,
     selectedTaskId,
   )
@@ -1058,12 +1055,10 @@ export function useKanbanBoard({ projectId, teamId, projects = [], searchQuery =
     tasks,
     loading,
     error,
-    executionProgress,
     isTaskFormOpen,
     setIsTaskFormOpen,
     defaultStatus,
     selectedTaskId,
-    taskLogs,
     selectedTaskIds,
     selectionActive,
     selectingColumns,

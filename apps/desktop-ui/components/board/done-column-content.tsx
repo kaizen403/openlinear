@@ -6,12 +6,11 @@ import { Check, ExternalLink, GitPullRequest, GripVertical } from "lucide-react"
 import { TaskCard } from "./task-card"
 import { formatBatchMode } from "./batch-mode"
 import { openExternal } from "@/lib/utils"
-import { ExecutionProgress, Task } from "@/types/task"
+import { Task } from "@/types/task"
 
 interface DoneColumnContentProps {
   columnTasks: Task[]
   completedBatch: { taskIds: string[]; prUrl: string | null; mode: string } | null
-  executionProgress: Record<string, ExecutionProgress>
   selectedTaskIds: Set<string>
   onDelete: (taskId: string) => Promise<void>
   onTaskClick: (taskId: string) => Promise<void>
@@ -22,7 +21,6 @@ interface DoneColumnContentProps {
 export function DoneColumnContent({
   columnTasks,
   completedBatch,
-  executionProgress,
   selectedTaskIds,
   onDelete,
   onTaskClick,
@@ -98,7 +96,6 @@ export function DoneColumnContent({
                       onCancel={undefined}
                       onDelete={onDelete}
                       onTaskClick={onTaskClick}
-                      executionProgress={executionProgress[task.id]}
                       selected={selectedTaskIds.has(task.id)}
                       onToggleSelect={onToggleSelect}
                       selectionMode={false}

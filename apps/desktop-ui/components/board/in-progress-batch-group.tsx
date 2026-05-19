@@ -5,13 +5,12 @@ import { Loader2, GripVertical } from "lucide-react"
 import { TaskCard } from "./task-card"
 import { ActiveBatch } from "./use-kanban-board"
 import { formatBatchMode } from "./batch-mode"
-import { ExecutionProgress, Task } from "@/types/task"
+import { Task } from "@/types/task"
 
 interface InProgressBatchGroupProps {
   batch: Task[]
   activeBatch: ActiveBatch
   canExecute: boolean
-  executionProgress: Record<string, ExecutionProgress>
   selectedTaskIds: Set<string>
   onExecute?: (taskId: string) => Promise<void>
   onCancel: (taskId: string) => Promise<void>
@@ -24,7 +23,6 @@ export function InProgressBatchGroup({
   batch,
   activeBatch,
   canExecute,
-  executionProgress,
   selectedTaskIds,
   onExecute,
   onCancel,
@@ -62,7 +60,6 @@ export function InProgressBatchGroup({
                   onCancel={onCancel}
                   onDelete={onDelete}
                   onTaskClick={onTaskClick}
-                  executionProgress={executionProgress[task.id]}
                   selected={selectedTaskIds.has(task.id)}
                   onToggleSelect={onToggleSelect}
                   selectionMode={false}

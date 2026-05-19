@@ -8,6 +8,7 @@ import { Loader2, GitBranch, Code, GitPullRequest, Check, X, ExternalLink, Play,
 import { cn, openExternal } from "@/lib/utils"
 import { Task, ExecutionProgress, formatDuration } from "@/types/task"
 import { STATUS_COLORS } from "@/lib/design-tokens"
+import { useExecutionProgress } from "@/lib/execution-state-store"
 
 interface TaskCardProps {
   task: Task
@@ -63,6 +64,8 @@ const LiveDuration = memo(function LiveDuration({ startedAt }: { startedAt: stri
 
 function TaskCardComponent({ task, onExecute, onCancel, onDelete, onMoveToInProgress, onTaskClick, executionProgress, selected, onToggleSelect, selectionMode, isBatchTask, isCompletedBatchTask, isDragging }: TaskCardProps) {
   const [cancelling, setCancelling] = useState(false)
+  const liveProgress = useExecutionProgress(task.id)
+  const currentProgress = executionProgress ?? liveProgress
 
   useEffect(() => {
     if (task.status !== 'in_progress') {
@@ -113,9 +116,9 @@ function TaskCardComponent({ task, onExecute, onCancel, onDelete, onMoveToInProg
     }
   }
 
-  const showProgress = executionProgress && executionProgress.taskId === task.id
-  const isActiveProgress = showProgress && ['cloning', 'executing', 'committing', 'creating_pr'].includes(executionProgress.status)
-  const prLink = !isActiveProgress ? (executionProgress?.prUrl || task.prUrl) : null
+  const cardProgress = currentProgress?.taskId === task.id ? currentProgress : undefined
+  const isActiveProgress = cardProgress ? ['cloning', 'executing', 'committing', 'creating_pr'].includes(cardProgress.status) : false
+  const prLink = !isActiveProgress ? (cardProgress?.prUrl || task.prUrl) : null
 
   return (
     <div>
@@ -188,19 +191,19 @@ function TaskCardComponent({ task, onExecute, onCancel, onDelete, onMoveToInProg
           </div>
         )}
 
-        {showProgress && (
+        {cardProgress && (
           <div className="mb-3 p-2 bg-linear-bg-tertiary rounded-sm">
             <div className="flex items-center gap-2">
               {isActiveProgress ? (
-                <Loader2 className={cn('w-3 h-3 animate-spin', progressConfig[executionProgress.status].color)} />
+                <Loader2 className={cn('w-3 h-3 animate-spin', progressConfig[cardProgress.status].color)} />
               ) : (
                 (() => {
-                  const Icon = progressConfig[executionProgress.status].icon
-                  return <Icon className={cn('w-3 h-3', progressConfig[executionProgress.status].color)} />
+                  const Icon = progressConfig[cardProgress.status].icon
+                  return <Icon className={cn('w-3 h-3', progressConfig[cardProgress.status].color)} />
                 })()
               )}
               <span className="text-xs text-linear-text-secondary">
-                {executionProgress.message || progressConfig[executionProgress.status].label}
+                {cardProgress.message || progressConfig[cardProgress.status].label}
               </span>
             </div>
             {prLink && (
@@ -215,7 +218,7 @@ function TaskCardComponent({ task, onExecute, onCancel, onDelete, onMoveToInProg
           </div>
         )}
 
-        {!showProgress && task.status === 'done' && task.prUrl && !isCompletedBatchTask && (
+        {!cardProgress && task.status === 'done' && task.prUrl && !isCompletedBatchTask && (
           <button
             className="flex items-center gap-1 mb-2 text-xs text-linear-accent hover:underline"
             onClick={(e) => { e.stopPropagation(); openExternal(task.prUrl!) }}

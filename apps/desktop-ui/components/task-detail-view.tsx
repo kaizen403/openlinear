@@ -1,6 +1,7 @@
 "use client"
 
-import { useState, useEffect, useRef, type MouseEvent } from "react"
+import { useState, useEffect, useMemo, useRef } from "react"
+import { useVirtualizer } from "@tanstack/react-virtual"
 import { X, ArrowLeft, Bot, Wrench, CheckCircle, AlertCircle, Info, Clock, AlertTriangle, Flag, Tag, Folder, Square, Archive, GitMerge, ExternalLink, Play, Check, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetTitle, SheetDescription } from "@/components/ui/sheet"
@@ -8,11 +9,11 @@ import { MarkdownView } from "@/components/markdown-view"
 import { CommentsThread } from "@/components/comments-thread"
 import { cn, openExternal } from "@/lib/utils"
 import { Task, ExecutionProgress, ExecutionLogEntry, formatDuration } from "@/types/task"
-import { BRAND_COLORS, STATUS_COLORS, PRIORITY_COLORS } from "@/lib/design-tokens"
+import { STATUS_COLORS, PRIORITY_COLORS } from "@/lib/design-tokens"
+import { useExecutionLogs, useExecutionProgress } from "@/lib/execution-state-store"
 
 interface TaskDetailViewProps {
   task: Task | null
-  logs: ExecutionLogEntry[]
   progress?: ExecutionProgress
   open: boolean
   onClose: () => void
@@ -72,10 +73,30 @@ function formatDate(timestamp: string): string {
   })
 }
 
-export function TaskDetailView({ task, logs, progress, open, onClose, onDelete, onCancel, onExecute, onUpdate, isExecuting, project }: TaskDetailViewProps) {
+export function TaskDetailView({ task, progress, open, onClose, onDelete, onCancel, onExecute, onUpdate, isExecuting, project }: TaskDetailViewProps) {
   const logsContainerRef = useRef<HTMLDivElement>(null)
   const titleInputRef = useRef<HTMLInputElement>(null)
   const descriptionRef = useRef<HTMLTextAreaElement>(null)
+  const logs = useExecutionLogs(task?.id)
+  const liveProgress = useExecutionProgress(task?.id)
+  const currentProgress = progress ?? liveProgress
+  const detailIsExecuting = !!isExecuting || (
+    currentProgress ? ['cloning', 'executing', 'committing', 'creating_pr'].includes(currentProgress.status) : false
+  )
+  const reversedLogs = useMemo(() => [...logs].reverse(), [logs])
+  const latestAgentMessage = useMemo(() => {
+    for (let i = logs.length - 1; i >= 0; i--) {
+      const log = logs[i]
+      if (log.type === 'agent' && log.message.trim()) return log.message
+    }
+    return null
+  }, [logs])
+  const logVirtualizer = useVirtualizer({
+    count: reversedLogs.length,
+    getScrollElement: () => logsContainerRef.current,
+    estimateSize: () => 88,
+    overscan: 8,
+  })
   const [editingTitle, setEditingTitle] = useState(false)
   const [editingDescription, setEditingDescription] = useState(false)
   const [titleDraft, setTitleDraft] = useState("")
@@ -92,8 +113,8 @@ export function TaskDetailView({ task, logs, progress, open, onClose, onDelete, 
   }, [logs, open])
 
   useEffect(() => {
-    if (!isExecuting) setCancelling(false)
-  }, [isExecuting])
+    if (!detailIsExecuting) setCancelling(false)
+  }, [detailIsExecuting])
 
   useEffect(() => {
     if (editingTitle && titleInputRef.current) {
@@ -192,7 +213,7 @@ export function TaskDetailView({ task, logs, progress, open, onClose, onDelete, 
             </span>
           </div>
           <div className="flex items-center gap-1 sm:gap-2">
-            {isExecuting ? (
+            {detailIsExecuting ? (
               onCancel && (
                 <Button
                   variant="ghost"
@@ -297,9 +318,9 @@ export function TaskDetailView({ task, logs, progress, open, onClose, onDelete, 
                         Total time: {formatDuration(task.executionElapsedMs)}
                       </span>
                     </div>
-                    {(task.prUrl || progress?.prUrl) && (
+                    {(task.prUrl || currentProgress?.prUrl) && (
                       <button
-                        onClick={() => openExternal((task.prUrl || progress?.prUrl)!)}
+                        onClick={() => openExternal((task.prUrl || currentProgress?.prUrl)!)}
                         className="mt-3 inline-flex items-center gap-2 px-3 py-1.5 rounded-sm text-xs font-medium text-white bg-[#8b5cf6] hover:bg-[#7c3aed] transition-colors"
                       >
                         <GitMerge className="w-3.5 h-3.5" />
@@ -312,20 +333,15 @@ export function TaskDetailView({ task, logs, progress, open, onClose, onDelete, 
                         <p className="text-sm text-linear-text-secondary">{task.outcome}</p>
                       </div>
                     )}
-                    {(() => {
-                      const agentLogs = logs.filter(l => l.type === 'agent' && l.message.trim())
-                      const lastAgentMessage = agentLogs.length > 0 ? agentLogs[agentLogs.length - 1].message : null
-                      if (!lastAgentMessage) return null
-                      return (
-                        <div className="mt-3 pt-3 border-t border-linear-border">
-                          <div className="flex items-center gap-1.5 mb-1.5">
-                            <Bot className="w-3.5 h-3.5 text-linear-accent" />
-                            <span className="text-xs font-medium text-linear-text-tertiary uppercase tracking-wide">Conclusion</span>
-                          </div>
-                          <p className="text-sm text-linear-text-secondary leading-relaxed whitespace-pre-wrap">{lastAgentMessage}</p>
+                    {latestAgentMessage && (
+                      <div className="mt-3 pt-3 border-t border-linear-border">
+                        <div className="flex items-center gap-1.5 mb-1.5">
+                          <Bot className="w-3.5 h-3.5 text-linear-accent" />
+                          <span className="text-xs font-medium text-linear-text-tertiary uppercase tracking-wide">Conclusion</span>
                         </div>
-                      )
-                    })()}
+                        <p className="text-sm text-linear-text-secondary leading-relaxed whitespace-pre-wrap">{latestAgentMessage}</p>
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -383,7 +399,7 @@ export function TaskDetailView({ task, logs, progress, open, onClose, onDelete, 
 
                   <div
                     ref={logsContainerRef}
-                    className="max-h-[300px] sm:max-h-[400px] overflow-y-auto space-y-3 pr-2"
+                    className="max-h-[300px] sm:max-h-[400px] overflow-y-auto pr-2"
                   >
                     {logs.length === 0 ? (
                       <div className="flex flex-col items-center justify-center py-12 text-linear-text-tertiary">
@@ -392,52 +408,62 @@ export function TaskDetailView({ task, logs, progress, open, onClose, onDelete, 
                         <p className="text-xs mt-1">Execution logs will appear here when a task is run</p>
                       </div>
                     ) : (
-                      [...logs].reverse().map((log, index) => {
-                        const Icon = logIcons[log.type]
-                        const isLast = index === logs.length - 1
-                        
-                        return (
-                          <div
-                            key={`${log.timestamp}-${index}`}
-                            className="flex gap-3 relative"
-                          >
-                            <div className="flex flex-col items-center flex-shrink-0 w-6">
-                              <div className={cn(
-                                "w-6 h-6 rounded-full flex items-center justify-center border border-linear-border bg-linear-bg-secondary",
-                                log.type === 'error' && "border-red-500/30 bg-red-500/10",
-                                log.type === 'success' && "border-green-500/30 bg-green-500/10"
-                              )}>
-                                <Icon className={cn("w-3 h-3", logColors[log.type])} />
+                      <div
+                        className="relative w-full"
+                        style={{ height: `${logVirtualizer.getTotalSize()}px` }}
+                      >
+                        {logVirtualizer.getVirtualItems().map((virtualRow) => {
+                          const log = reversedLogs[virtualRow.index]
+                          if (!log) return null
+                          const Icon = logIcons[log.type]
+                          const isLast = virtualRow.index === reversedLogs.length - 1
+
+                          return (
+                            <div
+                              key={`${log.timestamp}-${logs.length - virtualRow.index}`}
+                              data-index={virtualRow.index}
+                              ref={logVirtualizer.measureElement}
+                              className="absolute left-0 top-0 flex w-full gap-3"
+                              style={{ transform: `translateY(${virtualRow.start}px)` }}
+                            >
+                              <div className="flex flex-col items-center flex-shrink-0 w-6">
+                                <div className={cn(
+                                  "w-6 h-6 rounded-full flex items-center justify-center border border-linear-border bg-linear-bg-secondary",
+                                  log.type === 'error' && "border-red-500/30 bg-red-500/10",
+                                  log.type === 'success' && "border-green-500/30 bg-green-500/10"
+                                )}>
+                                  <Icon className={cn("w-3 h-3", logColors[log.type])} />
+                                </div>
+                                {!isLast && (
+                                  <div className="w-px flex-1 min-h-[24px] bg-linear-border mt-1" />
+                                )}
                               </div>
-                              {!isLast && (
-                                <div className="w-px flex-1 min-h-[24px] bg-linear-border mt-1" />
-                              )}
-                            </div>
-                            
-                            <div className={cn("flex-1 pb-4", isLast && "pb-0")}>
-                              <div className="flex items-center gap-2 mb-0.5">
-                                <span className="text-xs text-linear-text-tertiary font-mono">
-                                  {formatTime(log.timestamp)}
-                                </span>
-                                <span className="text-xs text-linear-text-tertiary">
-                                  {formatDate(log.timestamp)}
-                                </span>
-                              </div>
-                              <p className={cn(
-                                "text-sm",
-                                log.type === 'error' ? 'text-red-400' : 'text-linear-text-secondary'
-                              )}>
-                                {log.message}
-                              </p>
-                              {log.details && (
-                                <p className="text-xs text-linear-text-tertiary mt-1 font-mono">
-                                  {log.details}
+
+                              <div className={cn("flex-1 pb-4", isLast && "pb-0")}>
+                                <div className="flex items-center gap-2 mb-0.5">
+                                  <span className="text-xs text-linear-text-tertiary font-mono">
+                                    {formatTime(log.timestamp)}
+                                  </span>
+                                  <span className="text-xs text-linear-text-tertiary">
+                                    {formatDate(log.timestamp)}
+                                  </span>
+                                </div>
+                                <p className={cn(
+                                  "text-sm",
+                                  log.type === 'error' ? 'text-red-400' : 'text-linear-text-secondary'
+                                )}>
+                                  {log.message}
                                 </p>
-                              )}
+                                {log.details && (
+                                  <p className="text-xs text-linear-text-tertiary mt-1 font-mono">
+                                    {log.details}
+                                  </p>
+                                )}
+                              </div>
                             </div>
-                          </div>
-                        )
-                      })
+                          )
+                        })}
+                      </div>
                     )}
                   </div>
                 </div>
@@ -512,7 +538,7 @@ export function TaskDetailView({ task, logs, progress, open, onClose, onDelete, 
                   </div>
                 </div>
 
-                {progress && (
+                {currentProgress && (
                   <div className="pt-4 border-t border-linear-border">
                     <h3 className="text-xs font-medium text-linear-text-tertiary uppercase tracking-wider mb-3">
                       Execution
@@ -521,18 +547,18 @@ export function TaskDetailView({ task, logs, progress, open, onClose, onDelete, 
                       <div className="flex items-center gap-2">
                         <div className={cn(
                           "w-2 h-2 rounded-full",
-                          progress.status === 'error' ? 'bg-red-500' : 
-                          progress.status === 'done' ? 'bg-green-500' : 
+                          currentProgress.status === 'error' ? 'bg-red-500' :
+                          currentProgress.status === 'done' ? 'bg-green-500' :
                           'bg-linear-accent animate-pulse'
                         )} />
-                        <span className="text-sm text-linear-text">{progress.message}</span>
+                        <span className="text-sm text-linear-text">{currentProgress.message}</span>
                       </div>
-                      {progress.prUrl && (
+                      {currentProgress.prUrl && (
                         <button
-                          onClick={() => openExternal(progress.prUrl!)}
+                          onClick={() => openExternal(currentProgress.prUrl!)}
                           className="inline-flex items-center gap-1 text-xs text-linear-accent hover:underline mt-2"
                         >
-                          {progress.isCompareLink ? 'Create Pull Request →' : 'View Pull Request →'}
+                          {currentProgress.isCompareLink ? 'Create Pull Request →' : 'View Pull Request →'}
                         </button>
                       )}
                     </div>

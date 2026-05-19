@@ -151,12 +151,10 @@ export function KanbanBoard(props: KanbanBoardProps) {
     tasks,
     loading,
     error,
-    executionProgress,
     isTaskFormOpen,
     setIsTaskFormOpen,
     defaultStatus,
     selectedTaskId,
-    taskLogs,
     selectedTaskIds,
     selectionActive,
     selectingColumns,
@@ -260,7 +258,6 @@ export function KanbanBoard(props: KanbanBoardProps) {
             onCancel={task.status === 'in_progress' ? handleCancel : undefined}
             onDelete={handleDelete}
             onTaskClick={handleTaskClick}
-            executionProgress={executionProgress[task.id]}
             selected={selectedTaskIds.has(task.id)}
             onToggleSelect={toggleTaskSelect}
             selectionMode={selectionActive || selectingColumns.has(task.status)}
@@ -368,7 +365,6 @@ export function KanbanBoard(props: KanbanBoardProps) {
                                 batch={batch}
                                 activeBatch={activeBatch}
                                 canExecute={canExecute}
-                                executionProgress={executionProgress}
                                 selectedTaskIds={selectedTaskIds}
                                 onExecute={handleExecute}
                                 onCancel={handleCancel}
@@ -387,7 +383,6 @@ export function KanbanBoard(props: KanbanBoardProps) {
                           <DoneColumnContent
                             columnTasks={columnTasks}
                             completedBatch={completedBatch}
-                            executionProgress={executionProgress}
                             selectedTaskIds={selectedTaskIds}
                             onDelete={handleDelete}
                             onTaskClick={handleTaskClick}
@@ -418,8 +413,6 @@ export function KanbanBoard(props: KanbanBoardProps) {
 
         <TaskDetailView
           task={selectedTask}
-          logs={selectedTaskId ? (taskLogs[selectedTaskId] || []) : []}
-          progress={selectedTaskId ? executionProgress[selectedTaskId] : undefined}
           open={!!selectedTaskId}
           onClose={handleDrawerClose}
           onDelete={handleDelete}
