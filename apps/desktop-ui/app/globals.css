@@ -27,6 +27,7 @@
   ascent-override: 95%;
   descent-override: 22%;
   line-gap-override: 0%;
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
 @font-face {
   font-family: 'Anthropic Sans';
@@ -38,6 +39,7 @@
   ascent-override: 95%;
   descent-override: 22%;
   line-gap-override: 0%;
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
 @font-face {
   font-family: 'Anthropic Sans';
@@ -49,6 +51,7 @@
   ascent-override: 95%;
   descent-override: 22%;
   line-gap-override: 0%;
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
 @font-face {
   font-family: 'Anthropic Sans';
@@ -60,15 +63,19 @@
   ascent-override: 95%;
   descent-override: 22%;
   line-gap-override: 0%;
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
 
 :root {
-  /* Fallback chain ordered for Linux first (where this app runs as Tauri):
-   * Inter (if installed via gnome/kde theming) → Cantarell (GNOME default)
-   * → Ubuntu (Ubuntu) → DejaVu Sans (universal Linux fallback) →
-   * Segoe UI / -apple-system / system-ui for cross-platform. */
-  --font-sans: 'Anthropic Sans', 'Inter', 'Cantarell', 'Ubuntu',
-               'DejaVu Sans', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  /* Fallback chain — DO NOT use bare 'Inter' or 'system-ui' here.
+   * Many user fontconfig setups (notably common Arch dotfiles) have a
+   * strong-binding alias that rewrites Inter / system-ui / sans-serif to
+   * a different face (Geist, JetBrains Mono, etc.), which leaks through
+   * webkit and replaces fallback glyphs mid-word with mismatched metrics.
+   * We jump straight to faces that those configs leave alone, plus the
+   * generic `sans-serif` keyword last (which lets fontconfig pick one
+   * Cairo-rendered face for everything not covered by Anthropic Sans). */
+  --font-sans: 'Anthropic Sans', 'Cantarell', 'DejaVu Sans', sans-serif;
   --font-ui: var(--font-sans);
 
   --font-mono: ui-monospace, 'JetBrains Mono', 'Fira Code', 'SFMono-Regular',
