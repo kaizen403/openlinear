@@ -56,6 +56,9 @@ log "Syncing database schema..."
 pnpm --filter @openlinear/db db:generate
 pnpm --filter @openlinear/db db:push
 
+log "Clearing stale Next.js build cache (.next, out) so CSS/font changes always take effect..."
+rm -rf "$ROOT_DIR/apps/desktop-ui/.next" "$ROOT_DIR/apps/desktop-ui/out"
+
 log "Building Next.js frontend for production (static export -> out/)..."
 BUILD_FOR_TAURI=1 pnpm --filter @openlinear/desktop-ui build
 

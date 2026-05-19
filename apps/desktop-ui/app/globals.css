@@ -1,17 +1,39 @@
-/* Anthropic Sans — variable font (weight 300-800) */
+/* Anthropic Sans — variable font (weight 300-800)
+ *
+ * Notes:
+ * - `font-display: block` with a short block period prevents the FOUT/swap
+ *   reflow that hits hard on Linux where fallback (Cantarell/DejaVu) has
+ *   very different metrics from Anthropic Sans. The font is bundled locally
+ *   so it always loads in well under the 3s block timeout.
+ * - `size-adjust` + `ascent/descent/line-gap` overrides keep fallback
+ *   metrics close to the real face so any brief fallback paint doesn't
+ *   shift the layout.
+ * - `unicode-range` is intentionally omitted; we want the whole face.
+ */
 @font-face {
   font-family: 'Anthropic Sans';
-  src: url('/fonts/AnthropicSans.woff2') format('woff2');
+  src: url('/fonts/AnthropicSans.woff2') format('woff2-variations'),
+       url('/fonts/AnthropicSans.woff2') format('woff2');
   font-weight: 300 800;
   font-style: normal;
-  font-display: swap;
+  font-display: block;
+  size-adjust: 100%;
+  ascent-override: 95%;
+  descent-override: 22%;
+  line-gap-override: 0%;
 }
 
 :root {
-  --font-sans: 'Anthropic Sans', system-ui, -apple-system, sans-serif;
-  --font-ui: 'Anthropic Sans', system-ui, -apple-system, sans-serif;
+  /* Fallback chain ordered for Linux first (where this app runs as Tauri):
+   * Inter (if installed via gnome/kde theming) → Cantarell (GNOME default)
+   * → Ubuntu (Ubuntu) → DejaVu Sans (universal Linux fallback) →
+   * Segoe UI / -apple-system / system-ui for cross-platform. */
+  --font-sans: 'Anthropic Sans', 'Inter', 'Cantarell', 'Ubuntu',
+               'DejaVu Sans', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --font-ui: var(--font-sans);
 
-  --font-mono: ui-monospace, "SFMono-Regular", "Menlo", "Monaco", "Consolas", monospace;
+  --font-mono: ui-monospace, 'JetBrains Mono', 'Fira Code', 'SFMono-Regular',
+               'Menlo', 'Monaco', 'DejaVu Sans Mono', 'Consolas', monospace;
 }
 
 @tailwind base;
@@ -63,10 +85,33 @@
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    font-variant-ligatures: none;
-    font-feature-settings: "liga" 0, "clig" 0, "calt" 0;
+    /* IMPORTANT: do NOT disable `calt` (contextual alternates).
+     * Anthropic Sans uses `calt` for proper letter pairing/spacing;
+     * disabling it produces the uneven tracking and random gaps that
+     * are very visible on Linux (FreeType honors the CSS literally,
+     * unlike macOS Core Text which compensates).
+     * We only disable the standard/discretionary ligatures that can
+     * mangle code identifiers in UI strings. */
+    font-feature-settings: "liga" 0, "dlig" 0;
+    font-variant-ligatures: no-common-ligatures no-discretionary-ligatures contextual;
     font-kerning: normal;
-    text-rendering: optimizeLegibility;
+    /* Anthropic Sans Web Text is a variable font with TWO axes: wght and
+     * opsz (optical size, range 16-48). On Linux Chromium (Tauri webview),
+     * automatic optical sizing is broken: per-glyph opsz interpolation
+     * produces uneven tracking, mid-word weight jumps, and layout shifts
+     * after load. Pin opsz to 16 (the "Text" master the font was designed
+     * for, matching our 10-24px UI text) and explicitly disable auto
+     * optical sizing so the browser stops interpolating. */
+    font-optical-sizing: none;
+    font-variation-settings: "opsz" 16;
+    /* `optimizeLegibility` triggers FreeType's slow path on Linux and
+     * interacts badly with variable fonts → mid-word weight jumps.
+     * Default `auto` gives correct kerning without the artifacts. */
+    text-rendering: auto;
+    /* Prevent synthetic bold/italic when a weight is briefly missing —
+     * this is the cause of "letters at different sizes/weights mid-word"
+     * during font load on Linux. */
+    font-synthesis: none;
     overscroll-behavior: none;
   }
 
