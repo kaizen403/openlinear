@@ -1,20 +1,59 @@
-/* Anthropic Sans — variable font (weight 300-800)
+/* Anthropic Sans — STATIC per-weight masters, instanced at opsz=16 (Text).
  *
- * Notes:
- * - `font-display: block` with a short block period prevents the FOUT/swap
- *   reflow that hits hard on Linux where fallback (Cantarell/DejaVu) has
- *   very different metrics from Anthropic Sans. The font is bundled locally
- *   so it always loads in well under the 3s block timeout.
- * - `size-adjust` + `ascent/descent/line-gap` overrides keep fallback
- *   metrics close to the real face so any brief fallback paint doesn't
- *   shift the layout.
- * - `unicode-range` is intentionally omitted; we want the whole face.
+ * Why static instead of variable: WebKitGTK (the Tauri webview on Linux)
+ * has unreliable variable-font support — `format('woff2-variations')` is
+ * inconsistently honored across versions and `font-variation-settings`
+ * for opsz interpolates per-glyph, producing uneven tracking and
+ * mid-word weight/size jumps on Arch + FreeType. Shipping four real
+ * masters eliminates every variable-axis code path in the renderer.
+ *
+ * Total size is ~91KB (vs. 115KB for the variable file). Files were
+ * generated with fontTools `instantiateVariableFont` pinning
+ * wght=400/500/600/700 and opsz=16. See scripts/build-static-fonts.sh.
+ *
+ * `font-display: block` (with a short block period) avoids the FOUT/swap
+ * reflow on Linux where fallback (Cantarell/DejaVu) metrics diverge from
+ * Anthropic Sans. Locally bundled, so the block timeout is never hit.
+ * `size-adjust` + `ascent/descent` overrides keep fallback metrics close
+ * to the real face so brief fallback paint doesn't shift layout.
  */
 @font-face {
   font-family: 'Anthropic Sans';
-  src: url('/fonts/AnthropicSans.woff2') format('woff2-variations'),
-       url('/fonts/AnthropicSans.woff2') format('woff2');
-  font-weight: 300 800;
+  src: url('/fonts/AnthropicSans-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: block;
+  size-adjust: 100%;
+  ascent-override: 95%;
+  descent-override: 22%;
+  line-gap-override: 0%;
+}
+@font-face {
+  font-family: 'Anthropic Sans';
+  src: url('/fonts/AnthropicSans-Medium.woff2') format('woff2');
+  font-weight: 500;
+  font-style: normal;
+  font-display: block;
+  size-adjust: 100%;
+  ascent-override: 95%;
+  descent-override: 22%;
+  line-gap-override: 0%;
+}
+@font-face {
+  font-family: 'Anthropic Sans';
+  src: url('/fonts/AnthropicSans-SemiBold.woff2') format('woff2');
+  font-weight: 600;
+  font-style: normal;
+  font-display: block;
+  size-adjust: 100%;
+  ascent-override: 95%;
+  descent-override: 22%;
+  line-gap-override: 0%;
+}
+@font-face {
+  font-family: 'Anthropic Sans';
+  src: url('/fonts/AnthropicSans-Bold.woff2') format('woff2');
+  font-weight: 700;
   font-style: normal;
   font-display: block;
   size-adjust: 100%;
@@ -85,32 +124,15 @@
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    /* IMPORTANT: do NOT disable `calt` (contextual alternates).
-     * Anthropic Sans uses `calt` for proper letter pairing/spacing;
-     * disabling it produces the uneven tracking and random gaps that
-     * are very visible on Linux (FreeType honors the CSS literally,
-     * unlike macOS Core Text which compensates).
-     * We only disable the standard/discretionary ligatures that can
-     * mangle code identifiers in UI strings. */
+    /* Disable standard/discretionary ligatures (they mangle code-like
+     * identifiers in UI strings) but keep contextual alternates on so
+     * letter pairing stays correct. */
     font-feature-settings: "liga" 0, "dlig" 0;
     font-variant-ligatures: no-common-ligatures no-discretionary-ligatures contextual;
     font-kerning: normal;
-    /* Anthropic Sans Web Text is a variable font with TWO axes: wght and
-     * opsz (optical size, range 16-48). On Linux Chromium (Tauri webview),
-     * automatic optical sizing is broken: per-glyph opsz interpolation
-     * produces uneven tracking, mid-word weight jumps, and layout shifts
-     * after load. Pin opsz to 16 (the "Text" master the font was designed
-     * for, matching our 10-24px UI text) and explicitly disable auto
-     * optical sizing so the browser stops interpolating. */
-    font-optical-sizing: none;
-    font-variation-settings: "opsz" 16;
-    /* `optimizeLegibility` triggers FreeType's slow path on Linux and
-     * interacts badly with variable fonts → mid-word weight jumps.
-     * Default `auto` gives correct kerning without the artifacts. */
     text-rendering: auto;
-    /* Prevent synthetic bold/italic when a weight is briefly missing —
-     * this is the cause of "letters at different sizes/weights mid-word"
-     * during font load on Linux. */
+    /* Prevent synthetic bold/italic if a weight is briefly missing during
+     * font load — this would otherwise show as mid-word weight jumps. */
     font-synthesis: none;
     overscroll-behavior: none;
   }
