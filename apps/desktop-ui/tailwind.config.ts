@@ -20,9 +20,9 @@ const config: Config = {
     },
     extend: {
       fontFamily: {
-        sans: ["var(--font-sans)", "system-ui", "sans-serif"],
-        ui: ["var(--font-ui)", "system-ui", "sans-serif"],
-        mono: ["var(--font-mono)", "monospace"],
+        sans: ["var(--font-sans)"],
+        ui: ["var(--font-ui)"],
+        mono: ["var(--font-mono)"],
       },
       colors: {
         // Linear-inspired dark theme colors
