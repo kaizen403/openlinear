@@ -1,6 +1,13 @@
-import { apiFetch, AuthExpiredError, NetworkError } from './fetch';
-import { getApiUrl, getSidecarApiUrl, resolveSidecarApiUrl } from './client';
+import { apiFetch, ApiError, AuthExpiredError, NetworkError } from './fetch';
+import {
+  getApiUrl,
+  getSidecarApiUrl,
+  resolveKnownSidecarApiUrl,
+} from './client';
 import type { User } from './types';
+
+const TOKEN_VERIFY_ATTEMPTS = 3;
+const TOKEN_VERIFY_RETRY_MS = 450;
 
 function isTauriRuntime(): boolean {
   return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
@@ -14,22 +21,105 @@ function removeTokenIfCurrent(token: string): void {
   } catch {}
 }
 
+function restoreToken(previousToken: string | null): void {
+  try {
+    if (previousToken) {
+      localStorage.setItem('token', previousToken);
+    } else {
+      localStorage.removeItem('token');
+    }
+  } catch {}
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function isRetryableTokenVerificationError(err: unknown): boolean {
+  return err instanceof NetworkError || (err instanceof ApiError && err.status >= 500);
+}
+
+async function getAuthApiUrl(): Promise<string> {
+  if (!isTauriRuntime()) return getApiUrl();
+  return resolveKnownSidecarApiUrl();
+}
+
 export async function fetchCurrentUser(): Promise<User | null> {
   if (typeof window === 'undefined') return null;
   const token = localStorage.getItem('token');
   if (!token) return null;
 
   try {
-    if (isTauriRuntime()) {
-      const sidecarReady = await resolveSidecarApiUrl().then(() => true).catch(() => false);
-      if (!sidecarReady) return null;
-    }
-    return await apiFetch<User>('/api/auth/me', { allowUnauthenticated: true });
+    const apiUrl = await getAuthApiUrl();
+    return await apiFetch<User>(`${apiUrl}/api/auth/me`, { allowUnauthenticated: true });
   } catch (err) {
     if (err instanceof AuthExpiredError || err instanceof NetworkError) return null;
+    if (err instanceof ApiError && err.status !== 401) return null;
     removeTokenIfCurrent(token);
     return null;
   }
+}
+
+export function extractCallbackToken(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+
+  const normalized = trimmed.replace(/&amp;/g, '&');
+  const callbackUrlMatch = /openlinear:\/\/callback\/?\?[^"'<>\s]+/i.exec(normalized);
+  const maybeUrl = callbackUrlMatch?.[0] ?? normalized;
+
+  try {
+    const url = new URL(maybeUrl);
+    if (url.protocol === 'openlinear:' && url.hostname === 'callback' && url.searchParams.has('error')) {
+      return '';
+    }
+    const token = url.searchParams.get('token')?.trim();
+    if (token) return token;
+    if (url.protocol === 'openlinear:' && url.hostname === 'callback') {
+      return '';
+    }
+  } catch {}
+
+  const tokenMatch = /(?:^|[?&])token=([^&\s"'<>]+)/i.exec(normalized);
+  if (tokenMatch?.[1]) {
+    try {
+      return decodeURIComponent(tokenMatch[1]).trim();
+    } catch {
+      return tokenMatch[1].trim();
+    }
+  }
+
+  const jwtMatch = /\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/.exec(normalized);
+  if (jwtMatch?.[0]) return jwtMatch[0].trim();
+
+  return normalized;
+}
+
+export async function verifyCallbackToken(token: string): Promise<User> {
+  if (typeof window === 'undefined') {
+    throw new NetworkError('Cannot verify callback token outside the browser');
+  }
+
+  const previousToken = localStorage.getItem('token');
+  localStorage.setItem('token', token);
+
+  let lastError: unknown;
+  for (let attempt = 0; attempt < TOKEN_VERIFY_ATTEMPTS; attempt += 1) {
+    try {
+      const apiUrl = await getAuthApiUrl();
+      return await apiFetch<User>(`${apiUrl}/api/auth/me`, { allowUnauthenticated: true });
+    } catch (err) {
+      lastError = err;
+      if (!isRetryableTokenVerificationError(err) || attempt === TOKEN_VERIFY_ATTEMPTS - 1) {
+        restoreToken(previousToken);
+        throw err;
+      }
+      await sleep(TOKEN_VERIFY_RETRY_MS);
+    }
+  }
+
+  restoreToken(previousToken);
+  throw lastError instanceof Error ? lastError : new Error('Token verification failed');
 }
 
 export function getLoginUrl(): string {
@@ -39,17 +129,44 @@ export function getLoginUrl(): string {
   return `${getApiUrl()}/api/auth/github`;
 }
 
+async function waitForDesktopAuthRoute(apiUrl: string): Promise<void> {
+  const deadline = Date.now() + 2_500;
+  while (Date.now() < deadline) {
+    try {
+      const response = await fetch(`${apiUrl}/api/auth/github?client=desktop`, {
+        method: 'GET',
+        redirect: 'manual',
+        cache: 'no-store',
+      });
+      if (response.status === 302 || response.type === 'opaqueredirect') return;
+    } catch {}
+    await sleep(125);
+  }
+}
+
+async function getDesktopLoginUrl(): Promise<string> {
+  const apiUrl = await resolveKnownSidecarApiUrl().catch((err) => {
+    console.warn('[Auth] Failed to resolve current sidecar port before GitHub login:', err);
+    return getSidecarApiUrl();
+  });
+  await waitForDesktopAuthRoute(apiUrl);
+  return `${apiUrl}/api/auth/github?client=desktop`;
+}
+
 export async function startLogin(): Promise<boolean> {
   if (isTauriRuntime()) {
-    try {
-      const url = `${await resolveSidecarApiUrl()}/api/auth/github?client=desktop`;
-      const { open } = await import('@tauri-apps/plugin-shell');
-      await open(url);
-      return true;
-    } catch (err) {
-      console.warn('[Auth] Failed to open desktop GitHub login:', err);
-      return false;
-    }
+    const url = await getDesktopLoginUrl();
+    void import('@tauri-apps/plugin-shell')
+      .then(({ open }) => open(url))
+      .catch((err) => {
+        console.warn('[Auth] Failed to open desktop GitHub login:', err);
+        try {
+          window.location.href = url;
+        } catch (fallbackErr) {
+          console.warn('[Auth] Failed to navigate to desktop GitHub login:', fallbackErr);
+        }
+      });
+    return true;
   }
   const url = getLoginUrl();
   window.location.href = url;

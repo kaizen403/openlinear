@@ -1,4 +1,4 @@
-const DEFAULT_API_URL = 'http://localhost:3001';
+const DEFAULT_API_URL = 'http://127.0.0.1:3001';
 const CLOUD_DEFAULT = 'https://openlinear.tech';
 const TAURI_SIDECAR_URL_KEY = 'openlinear:tauri-sidecar-url';
 const SIDECAR_READY_TIMEOUT_MS = 15_000;
@@ -130,7 +130,7 @@ export function getSidecarApiUrl(): string {
   return envApiUrl() ?? DEFAULT_API_URL;
 }
 
-export async function resolveSidecarApiUrl(): Promise<string> {
+export async function resolveKnownSidecarApiUrl(): Promise<string> {
   if (!isTauriRuntime()) return getSidecarApiUrl();
 
   await ensureSidecarListener();
@@ -140,6 +140,17 @@ export async function resolveSidecarApiUrl(): Promise<string> {
   if (port) {
     const url = `http://127.0.0.1:${port}`;
     persistSidecarUrl(url);
+    return url;
+  }
+
+  return getSidecarApiUrl();
+}
+
+export async function resolveSidecarApiUrl(): Promise<string> {
+  if (!isTauriRuntime()) return getSidecarApiUrl();
+
+  const url = await resolveKnownSidecarApiUrl();
+  if (url) {
     if (await waitForSidecarHealth(url)) return url;
     clearCachedSidecarUrl();
     throw new Error(`Sidecar API did not become ready at ${url}`);

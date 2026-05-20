@@ -17,7 +17,15 @@ export type {
 export { apiFetch, apiFetchRaw, ApiError, AuthExpiredError, NetworkError } from './fetch';
 export type { ApiFetchInit } from './fetch';
 
-export { fetchCurrentUser, getLoginUrl, startLogin, logout, updateEmail } from './auth';
+export {
+  extractCallbackToken,
+  fetchCurrentUser,
+  getLoginUrl,
+  startLogin,
+  logout,
+  updateEmail,
+  verifyCallbackToken,
+} from './auth';
 
 export { fetchUserRepositories, fetchGitHubRepos, importRepo, activateRepository, getActiveRepository, setActiveRepositoryBaseBranch, addRepoByUrl, getActivePublicRepository, activatePublicRepository } from './repos';
 
