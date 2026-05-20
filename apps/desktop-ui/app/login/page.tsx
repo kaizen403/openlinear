@@ -4,7 +4,7 @@ import { Github, KeyRound, Loader2 } from "lucide-react"
 import { useEffect, useState, type FormEvent, type MouseEvent } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
-import { fetchCurrentUser, startLogin } from "@/lib/api"
+import { ApiError, NetworkError, extractCallbackToken, startLogin, verifyCallbackToken } from "@/lib/api"
 import { useAuth } from "@/hooks/use-auth"
 import { BRAND_COLORS } from "@/lib/design-tokens"
 import { toast } from "sonner"
@@ -29,10 +29,12 @@ export default function LoginPage() {
       const started = await startLogin()
       if (!started) {
         toast.error("Could not open GitHub sign-in. Check that the desktop API is running and try again.")
-        setIsStartingLogin(false)
+        return
       }
+      setShowTokenFallback(true)
     } catch {
       toast.error("Could not open GitHub sign-in. Check that the desktop API is running and try again.")
+    } finally {
       setIsStartingLogin(false)
     }
   }
@@ -51,17 +53,16 @@ export default function LoginPage() {
 
     setIsCompletingTokenLogin(true)
     try {
-      localStorage.setItem("token", token)
-      const user = await fetchCurrentUser()
-      if (!user) {
-        throw new Error("invalid_token")
-      }
+      await verifyCallbackToken(token)
       await refreshUser()
       toast.success("Signed in with GitHub")
       router.replace("/")
-    } catch {
-      localStorage.removeItem("token")
-      toast.error("That callback token was not accepted. Try signing in again.")
+    } catch (err) {
+      if (err instanceof NetworkError || (err instanceof ApiError && err.status >= 500)) {
+        toast.error("Could not verify the callback token because the desktop API is not ready. Try again in a moment.")
+      } else {
+        toast.error("That callback token was not accepted. Try signing in again.")
+      }
     } finally {
       setIsCompletingTokenLogin(false)
     }
@@ -122,6 +123,9 @@ export default function LoginPage() {
 
             {showTokenFallback && (
               <form onSubmit={handleTokenLogin} className="mt-3 space-y-3">
+                <p className="text-xs text-linear-text-tertiary">
+                  If the browser callback does not return to the app, paste the token or app link from that page here.
+                </p>
                 <textarea
                   value={callbackToken}
                   onChange={(event) => setCallbackToken(event.target.value)}
@@ -153,25 +157,4 @@ export default function LoginPage() {
       </div>
     </div>
   )
-}
-
-function extractCallbackToken(value: string): string {
-  const trimmed = value.trim()
-  if (!trimmed) return ""
-
-  try {
-    const url = new URL(trimmed)
-    return url.searchParams.get("token")?.trim() || trimmed
-  } catch {}
-
-  const tokenMatch = /(?:^|[?&])token=([^&\s]+)/.exec(trimmed)
-  if (tokenMatch?.[1]) {
-    try {
-      return decodeURIComponent(tokenMatch[1]).trim()
-    } catch {
-      return tokenMatch[1].trim()
-    }
-  }
-
-  return trimmed
 }
