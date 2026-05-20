@@ -30,6 +30,11 @@ pub fn consume_pending_auth_callback(
 pub fn setup_deep_link_handler(app: &tauri::App) {
     app.manage(PendingAuthCallback::default());
 
+    #[cfg(target_os = "linux")]
+    if let Err(err) = app.deep_link().register_all() {
+        eprintln!("[DeepLink] Failed to register protocol handler: {}", err);
+    }
+
     let handle = app.handle().clone();
 
     app.deep_link().on_open_url(move |event| {

@@ -16,7 +16,7 @@ const STORE_KEY_FRONTEND_URL: &str = "frontend_url";
 const STORE_KEY_REPOS_DIR: &str = "repos_dir";
 
 const DEFAULT_DATABASE_URL: &str = "postgresql://openlinear:openlinear@localhost:5432/openlinear";
-const DEFAULT_FRONTEND_URL: &str = "http://localhost:3000";
+const DEFAULT_FRONTEND_URL: &str = "http://127.0.0.1:3000";
 
 #[derive(Clone, Serialize)]
 pub struct SidecarOutput {

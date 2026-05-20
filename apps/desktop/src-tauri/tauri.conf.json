@@ -5,7 +5,7 @@
   "identifier": "com.openlinear.app",
   "build": {
     "beforeDevCommand": "PORT=3000 pnpm --filter @openlinear/desktop-ui dev",
-    "devUrl": "http://localhost:3000",
+    "devUrl": "http://127.0.0.1:3000",
     "beforeBuildCommand": "pnpm --filter @openlinear/desktop-ui... build:tauri",
     "frontendDist": "../../desktop-ui/out"
   },

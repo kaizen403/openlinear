@@ -44,51 +44,6 @@ async function start() {
   const app = createSidecarApp();
   registerShutdownHandlers();
 
-  try {
-    await prisma.$connect();
-    await recoverInFlightExecutions();
-    await recoverActiveBatches();
-  } catch (err) {
-    logger.error({ err }, '[Sidecar] recovery sweep failed (continuing boot)');
-  }
-
-  // OpenCode runs in single-tenant mode (one shared subprocess for all users).
-  // See docs/limitations.md. Refuse to boot in obvious multi-user setups unless
-  // the operator has explicitly acknowledged the shared-state risk.
-  printOpenCodeSingleTenantBanner();
-  try {
-    const userCount = await prisma.user.count();
-    const allowShared = process.env.OPENLINEAR_ALLOW_SHARED_OPENCODE === '1';
-    if (userCount > 1 && !allowShared) {
-      logger.fatal(
-        { userCount },
-        '[Sidecar] Multi-user database detected but OpenCode runs in single-tenant mode. ' +
-          'All users would share OpenCode provider credentials and sessions. ' +
-          'Set OPENLINEAR_ALLOW_SHARED_OPENCODE=1 to acknowledge and proceed, ' +
-          'or run one sidecar instance per user. See docs/limitations.md.',
-      );
-      await prisma.$disconnect().catch(() => undefined);
-      process.exit(2);
-    }
-    if (userCount > 1 && allowShared) {
-      logger.warn(
-        { userCount },
-        '[Sidecar] Multi-user database with OPENLINEAR_ALLOW_SHARED_OPENCODE=1 — ' +
-          'users WILL share OpenCode auth state. See docs/limitations.md.',
-      );
-    }
-  } catch (err) {
-    logger.error({ err }, '[Sidecar] Failed to count users for single-tenant guard (continuing)');
-  }
-
-  try {
-    await initOpenCode();
-    logger.info('[Sidecar] OpenCode agent ready');
-  } catch (error) {
-    logger.error({ err: error }, '[Sidecar] Failed to initialize OpenCode');
-    logger.warn('[Sidecar] Continuing without OpenCode — task execution will fail until restart');
-  }
-
   const server = app.listen(PORT, BIND_HOST, () => {
     logger.info({ host: BIND_HOST, port: PORT }, '[Sidecar] server listening');
   });
@@ -149,6 +104,51 @@ async function start() {
     logger.fatal({ err }, '[Sidecar] uncaughtException');
     shutdown('SIGTERM');
   });
+
+  try {
+    await prisma.$connect();
+    await recoverInFlightExecutions();
+    await recoverActiveBatches();
+  } catch (err) {
+    logger.error({ err }, '[Sidecar] recovery sweep failed (continuing boot)');
+  }
+
+  // OpenCode runs in single-tenant mode (one shared subprocess for all users).
+  // See docs/limitations.md. Refuse to boot in obvious multi-user setups unless
+  // the operator has explicitly acknowledged the shared-state risk.
+  printOpenCodeSingleTenantBanner();
+  try {
+    const userCount = await prisma.user.count();
+    const allowShared = process.env.OPENLINEAR_ALLOW_SHARED_OPENCODE === '1';
+    if (userCount > 1 && !allowShared) {
+      logger.fatal(
+        { userCount },
+        '[Sidecar] Multi-user database detected but OpenCode runs in single-tenant mode. ' +
+          'All users would share OpenCode provider credentials and sessions. ' +
+          'Set OPENLINEAR_ALLOW_SHARED_OPENCODE=1 to acknowledge and proceed, ' +
+          'or run one sidecar instance per user. See docs/limitations.md.',
+      );
+      await prisma.$disconnect().catch(() => undefined);
+      process.exit(2);
+    }
+    if (userCount > 1 && allowShared) {
+      logger.warn(
+        { userCount },
+        '[Sidecar] Multi-user database with OPENLINEAR_ALLOW_SHARED_OPENCODE=1 — ' +
+          'users WILL share OpenCode auth state. See docs/limitations.md.',
+      );
+    }
+  } catch (err) {
+    logger.error({ err }, '[Sidecar] Failed to count users for single-tenant guard (continuing)');
+  }
+
+  try {
+    await initOpenCode();
+    logger.info('[Sidecar] OpenCode agent ready');
+  } catch (error) {
+    logger.error({ err: error }, '[Sidecar] Failed to initialize OpenCode');
+    logger.warn('[Sidecar] Continuing without OpenCode — task execution will fail until restart');
+  }
 }
 
 start().catch((err) => {
