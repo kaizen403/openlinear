@@ -151,6 +151,10 @@
     font-family: var(--font-ui);
   }
 
+  *:focus {
+    outline: none;
+  }
+
   code,
   pre,
   kbd,

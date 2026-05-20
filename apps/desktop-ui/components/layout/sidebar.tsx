@@ -72,7 +72,6 @@ function TeamSection({ team, pathname, searchParams, onDelete }: { team: Team; p
     const teamId = searchParams.get("teamId")
 
     const isIssuesActive = pathname === "/teams/issues" && searchParams.get("id") === team.id
-    const isProjectsActive = pathname === "/projects" && teamId === team.id
     const isManageActive = pathname === "/teams/manage" && searchParams.get("id") === team.id
 
     return (
@@ -143,13 +142,6 @@ function TeamSection({ team, pathname, searchParams, onDelete }: { team: Team; p
                     >
                         <CircleDot className="w-3.5 h-3.5 flex-shrink-0" />
                         <span>Issues</span>
-                    </Link>
-                    <Link
-                        href={`/projects?teamId=${team.id}`}
-                        className={subNavItemClass(isProjectsActive)}
-                    >
-                        <Hexagon className="w-3.5 h-3.5 flex-shrink-0" />
-                        <span>Projects</span>
                     </Link>
                     <Link
                         href={`/teams/manage?id=${team.id}`}
@@ -282,7 +274,7 @@ export function Sidebar({ open, onClose, width }: SidebarProps) {
     const { setTheme } = useTheme()
 
     const projectTeams = activeProject
-        ? teams.filter(t => t.projectTeams?.some(pt => pt.project.id === activeProject.id))
+        ? teams.filter(t => t.projectId === activeProject.id)
         : teams
     const [isTauri, setIsTauri] = useState(false)
     const [unreadCount, setUnreadCount] = useState<number>(0)

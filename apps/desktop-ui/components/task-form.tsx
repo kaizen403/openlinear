@@ -84,7 +84,7 @@ export function TaskFormDialog({
 
   const effectiveProjectId = defaultProjectId || activeProject?.id || null
   const projectTeams = effectiveProjectId
-    ? teams.filter(t => t.projectTeams?.some(pt => pt.project.id === effectiveProjectId))
+    ? teams.filter(t => t.projectId === effectiveProjectId)
     : teams
 
   const form = useForm<FormValues>({
