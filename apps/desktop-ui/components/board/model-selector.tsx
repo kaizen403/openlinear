@@ -90,7 +90,7 @@ export function ModelSelector() {
             )}
           >
             <SelectValue placeholder="Select Model">
-              <span className="truncate block leading-tight">
+              <span className="block leading-tight whitespace-nowrap">
                 {selectedModelObj ? selectedModelObj.name : "Not set"}
               </span>
             </SelectValue>
@@ -111,7 +111,7 @@ export function ModelSelector() {
           >
             <div className="px-3 py-2 border-b border-[#2a2a2a]">
               <div className="flex items-center gap-2">
-                <Sparkles className="w-3.5 h-3.5 text-purple-400" />
+                <Sparkles className="w-3.5 h-3.5 text-linear-accent" />
                 <span className="text-[10px] uppercase tracking-[0.16em] text-linear-text-tertiary font-semibold">
                   AI Models
                 </span>
@@ -164,7 +164,7 @@ export function ModelSelector() {
                         {model.reasoning && (
                           <span className={cn(
                             "inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium",
-                            "bg-purple-500/15 text-purple-400 border border-purple-500/20",
+                            "bg-linear-accent/15 text-linear-accent border border-linear-accent/20",
                             "flex-shrink-0 tracking-wide"
                           )}>
                             reasoning

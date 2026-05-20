@@ -57,9 +57,9 @@ export function TaskFormModelSelector({ value, onChange }: TaskFormModelSelector
       <SelectTrigger className="h-7 w-auto px-2.5 text-xs rounded-sm bg-transparent border-none hover:bg-linear-bg-tertiary text-linear-text-secondary gap-1.5 focus:ring-0 shadow-none">
         <div className="flex items-center gap-1.5">
           <Cpu className="w-3 h-3 text-linear-text-tertiary" />
-          <SelectValue>
-            <span className="truncate">{isLoading ? "Model" : selectedLabel}</span>
-          </SelectValue>
+            <SelectValue>
+              <span className="whitespace-nowrap">{isLoading ? "Model" : selectedLabel}</span>
+            </SelectValue>
         </div>
       </SelectTrigger>
       <SelectContent className="bg-linear-bg-secondary border-linear-border max-h-[360px]">

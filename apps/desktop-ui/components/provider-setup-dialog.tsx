@@ -231,7 +231,7 @@ function ProviderRow({ provider, selected, onSelect, activeModel }: ProviderRowP
         )}
       </div>
       {provider.authenticated ? (
-        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-green-500/10 text-green-400 border border-green-500/20 flex-shrink-0">
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-linear-accent/10 text-linear-accent border border-linear-accent/20 flex-shrink-0">
           <Check className="w-3 h-3" />
           Ready
         </span>
