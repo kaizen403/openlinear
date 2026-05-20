@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { requireAuth, AuthRequest } from '../middleware/auth';
 import { broadcastToUser } from '../sse';
 import { paginationQuerySchema, paginated, paginationSkipTake } from '../schemas/pagination';
+import { HttpError, ValidationError } from '../errors';
 
 const router: Router = Router();
 
@@ -18,8 +19,7 @@ router.get('/', requireAuth, async (req: AuthRequest, res: Response, next: NextF
   try {
     const parsed = listQuerySchema.safeParse(req.query);
     if (!parsed.success) {
-      res.status(400).json({ error: 'Validation failed', details: parsed.error.errors });
-      return;
+      throw ValidationError.fromZod(parsed.error);
     }
     const { page, pageSize, unreadOnly } = parsed.data;
 
@@ -64,8 +64,7 @@ router.patch(
         select: { id: true, userId: true, readAt: true },
       });
       if (!existing || existing.userId !== req.userId) {
-        res.status(404).json({ error: 'not_found' });
-        return;
+        throw new HttpError(404, 'NOT_FOUND', 'Notification not found');
       }
       const updated = await prisma.notification.update({
         where: { id },

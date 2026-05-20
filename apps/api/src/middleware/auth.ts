@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
+import { buildErrorEnvelope } from '../lib/http';
 
 function getJwtSecret(): string {
   const secret = process.env.JWT_SECRET;
@@ -47,13 +48,13 @@ export function requireAuth(req: AuthRequest, res: Response, next: NextFunction)
   const authHeader = req.headers.authorization;
 
   if (!authHeader?.startsWith('Bearer ')) {
-    res.status(401).json({ error: 'Unauthorized' });
+    res.status(401).json(buildErrorEnvelope('UNAUTHORIZED', 'Authentication required'));
     return;
   }
 
   const claims = decodeToken(authHeader.substring(7));
   if (!claims) {
-    res.status(401).json({ error: 'Invalid token' });
+    res.status(401).json(buildErrorEnvelope('UNAUTHORIZED', 'Invalid token'));
     return;
   }
 

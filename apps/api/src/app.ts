@@ -30,6 +30,7 @@ import { clients, SSEClient } from './sse';
 import { logger } from './logger';
 import { isOwnershipError } from './services/ownership';
 import { isValidationError, isHttpError } from './errors';
+import { buildErrorEnvelope } from './lib/http';
 import { Prisma, prisma } from '@openlinear/db';
 import { getUserTeamIds } from './services/team-scope';
 
@@ -82,11 +83,15 @@ function makeRateLimiter(windowMs: number, max: number, name: string): RateLimit
       return req.path === '/api/events' || req.path.startsWith('/api/events');
     },
     handler: (req, res) => {
-      res.status(429).json({
-        error: 'rate_limited',
-        scope: name,
-        retryAfterSeconds: Math.ceil(windowMs / 1000),
-      });
+      const retryAfterSeconds = Math.ceil(windowMs / 1000);
+      res.status(429).json(buildErrorEnvelope(
+        'RATE_LIMITED',
+        'Too many requests',
+        {
+          details: { scope: name, retryAfterSeconds },
+          extras: { scope: name, retryAfterSeconds },
+        },
+      ));
     },
   });
 }
@@ -213,7 +218,7 @@ export function createApp(): Application {
     const tokenRaw = req.query.token;
     const token = typeof tokenRaw === 'string' ? tokenRaw : '';
     if (!token) {
-      res.status(401).json({ error: 'unauthorized', code: 'SSE_TOKEN_REQUIRED' });
+      res.status(401).json(buildErrorEnvelope('SSE_TOKEN_REQUIRED', 'SSE token is required'));
       return;
     }
 
@@ -223,7 +228,7 @@ export function createApp(): Application {
         ? null
         : 'openlinear-dev-secret-change-in-production');
     if (!secret) {
-      res.status(500).json({ error: 'server_misconfigured' });
+      res.status(500).json(buildErrorEnvelope('SERVER_MISCONFIGURED', 'Server is misconfigured'));
       return;
     }
 
@@ -231,18 +236,24 @@ export function createApp(): Application {
     try {
       const claims = jwt.verify(token, secret) as { userId?: string };
       if (!claims?.userId) {
-        res.status(401).json({ error: 'invalid_token' });
+        res.status(401).json(buildErrorEnvelope('INVALID_TOKEN', 'Invalid token'));
         return;
       }
       userId = claims.userId;
     } catch {
-      res.status(401).json({ error: 'invalid_token' });
+      res.status(401).json(buildErrorEnvelope('INVALID_TOKEN', 'Invalid token'));
       return;
     }
 
     let teamIds: string[] = [];
+    let workspaceIds: string[] = [];
     try {
       teamIds = await getUserTeamIds(userId);
+      const workspaces = await prisma.workspaceMember.findMany({
+        where: { userId },
+        select: { workspaceId: true },
+      });
+      workspaceIds = workspaces.map((membership) => membership.workspaceId);
     } catch (err) {
       req.log?.warn({ err, userId }, '[SSE] failed to load team memberships');
     }
@@ -255,7 +266,7 @@ export function createApp(): Application {
     res.setHeader('X-Accel-Buffering', 'no');
     res.flushHeaders();
 
-    const client: SSEClient = { id: clientId, res, userId, teamIds };
+    const client: SSEClient = { id: clientId, res, userId, teamIds, workspaceIds };
     clients.set(clientId, client);
 
     req.log?.info(
@@ -334,68 +345,80 @@ export function buildErrorHandler(): ErrorRequestHandler {
 
     if (isOwnershipError(err)) {
       const status = err.reason === 'not_found' ? 404 : 403;
-      res.status(status).json({
-        error: status === 404 ? 'not_found' : 'forbidden',
-        code: err.code,
-        resourceType: err.resourceType,
-        resourceId: err.resourceId,
-        ...(err.requiredRoles ? { requiredRoles: err.requiredRoles } : {}),
-        requestId,
-      });
+      res.status(status).json(buildErrorEnvelope(
+        err.code,
+        status === 404 ? 'Resource not found' : 'Required role is missing',
+        {
+          requestId,
+          details: {
+            resourceType: err.resourceType,
+            resourceId: err.resourceId,
+            ...(err.requiredRoles ? { requiredRoles: err.requiredRoles } : {}),
+          },
+          extras: {
+            resourceType: err.resourceType,
+            resourceId: err.resourceId,
+            ...(err.requiredRoles ? { requiredRoles: err.requiredRoles } : {}),
+          },
+        },
+      ));
       return;
     }
 
     if (isValidationError(err)) {
-      res.status(err.statusCode).json({
-        error: 'validation_error',
-        code: err.code,
-        message: err.message || 'Validation failed',
-        ...(err.details !== undefined ? { details: err.details } : {}),
-        requestId,
-      });
+      res.status(err.statusCode).json(buildErrorEnvelope(
+        err.code,
+        err.message || 'Validation failed',
+        {
+          requestId,
+          ...(err.details !== undefined ? { details: err.details } : {}),
+        },
+      ));
       return;
     }
 
     if (isHttpError(err)) {
-      res.status(err.statusCode).json({
-        error: err.statusCode >= 500 ? 'internal_error' : 'request_failed',
-        code: err.code,
-        message: err.message,
-        ...(err.details !== undefined ? { details: err.details } : {}),
-        requestId,
-      });
+      res.status(err.statusCode).json(buildErrorEnvelope(
+        err.code,
+        err.message,
+        {
+          requestId,
+          ...(err.details !== undefined ? { details: err.details } : {}),
+        },
+      ));
       return;
     }
 
     if (err instanceof Prisma.PrismaClientKnownRequestError) {
       const prismaErr = err as Prisma.PrismaClientKnownRequestError;
       if (prismaErr.code === 'P2002') {
-        res.status(409).json({
-          error: 'conflict',
-          code: 'P2002',
-          message: 'Unique constraint violation',
-          ...(prismaErr.meta ? { details: prismaErr.meta } : {}),
-          requestId,
-        });
+        res.status(409).json(buildErrorEnvelope(
+          'P2002',
+          'Unique constraint violation',
+          {
+            requestId,
+            ...(prismaErr.meta ? { details: prismaErr.meta } : {}),
+          },
+        ));
         return;
       }
       if (prismaErr.code === 'P2025') {
-        res.status(404).json({
-          error: 'not_found',
-          code: 'P2025',
-          message: 'Record not found',
-          requestId,
-        });
+        res.status(404).json(buildErrorEnvelope(
+          'P2025',
+          'Record not found',
+          { requestId },
+        ));
         return;
       }
       if (prismaErr.code === 'P2003') {
-        res.status(409).json({
-          error: 'conflict',
-          code: 'P2003',
-          message: 'Foreign key constraint violation',
-          ...(prismaErr.meta ? { details: prismaErr.meta } : {}),
-          requestId,
-        });
+        res.status(409).json(buildErrorEnvelope(
+          'P2003',
+          'Foreign key constraint violation',
+          {
+            requestId,
+            ...(prismaErr.meta ? { details: prismaErr.meta } : {}),
+          },
+        ));
         return;
       }
     }
@@ -407,11 +430,11 @@ export function buildErrorHandler(): ErrorRequestHandler {
           ? ((err as { status: number }).status)
           : 500;
 
-    res.status(status).json({
-      error: status >= 500 ? 'internal_error' : 'request_failed',
-      code: status >= 500 ? 'INTERNAL_ERROR' : 'REQUEST_FAILED',
-      requestId,
-    });
+    res.status(status).json(buildErrorEnvelope(
+      status >= 500 ? 'INTERNAL_ERROR' : 'REQUEST_FAILED',
+      status >= 500 ? 'Internal server error' : 'Request failed',
+      { requestId },
+    ));
   };
   return errorHandler;
 }

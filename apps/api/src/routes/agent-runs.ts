@@ -5,6 +5,7 @@ import { requireAuth, AuthRequest } from '../middleware/auth';
 import { assertTaskAccess } from '../services/ownership';
 import { getUserTeamIds } from '../services/team-scope';
 import { paginated, paginationSkipTake } from '../schemas/pagination';
+import { HttpError, ValidationError } from '../errors';
 
 const router: Router = Router();
 
@@ -22,14 +23,12 @@ router.get(
     try {
       const parsed = listQuerySchema.safeParse(req.query);
       if (!parsed.success) {
-        res.status(400).json({ error: 'Validation failed', details: parsed.error.errors });
-        return;
+        throw ValidationError.fromZod(parsed.error);
       }
       const { taskId, userId, page, pageSize } = parsed.data;
 
       if (!taskId && !userId) {
-        res.status(400).json({ error: 'taskId or userId is required' });
-        return;
+        throw new HttpError(400, 'TASK_OR_USER_REQUIRED', 'taskId or userId is required');
       }
 
       const where: { taskId?: string; userId?: string; task?: { teamId: { in: string[] } } } = {};
@@ -40,8 +39,7 @@ router.get(
       } else if (userId) {
         const resolvedUserId = userId === 'me' ? req.userId! : userId;
         if (resolvedUserId !== req.userId!) {
-          res.status(403).json({ error: 'forbidden' });
-          return;
+          throw new HttpError(403, 'FORBIDDEN', 'Forbidden');
         }
         where.userId = resolvedUserId;
         const teamIds = await getUserTeamIds(req.userId!);

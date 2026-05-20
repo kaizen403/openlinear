@@ -7,6 +7,7 @@ export interface SSEClient {
   res: Response;
   userId: string;
   teamIds: string[];
+  workspaceIds: string[];
 }
 
 export const clients: Map<string, SSEClient> = new Map();
@@ -71,6 +72,46 @@ export function broadcastToTeam(teamId: string, event: string, data: unknown): v
       safeWrite(client, message);
     }
   });
+}
+
+/**
+ * Send to every SSE connection whose owning user is a member of `workspaceId`.
+ */
+export function broadcastToWorkspace(workspaceId: string, event: string, data: unknown): void {
+  const message = formatMessage(event, data);
+  clients.forEach((client) => {
+    if (client.workspaceIds.includes(workspaceId)) {
+      safeWrite(client, message);
+    }
+  });
+}
+
+export async function broadcastToProject(
+  projectId: string,
+  event: string,
+  data: unknown,
+): Promise<void> {
+  const project = await prisma.project.findUnique({
+    where: { id: projectId },
+    select: {
+      workspaceId: true,
+      projectTeams: { select: { teamId: true } },
+      access: {
+        where: { permission: { in: ['full', 'view'] } },
+        select: { userId: true },
+      },
+    },
+  });
+  if (!project) return;
+  if (project.workspaceId) {
+    broadcastToWorkspace(project.workspaceId, event, data);
+  }
+  for (const projectTeam of project.projectTeams) {
+    broadcastToTeam(projectTeam.teamId, event, data);
+  }
+  for (const access of project.access) {
+    broadcastToUser(access.userId, event, data);
+  }
 }
 
 /**

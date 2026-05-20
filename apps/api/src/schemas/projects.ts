@@ -75,7 +75,20 @@ export const projectAccessBodySchema = z.object({
   permission: z.enum(['full', 'view', 'deny']).default('full'),
 });
 
+export const bulkProjectAccessBodySchema = z.object({
+  grants: z
+    .array(
+      z.object({
+        userId: z.string().min(1),
+        permission: z.enum(['full', 'view', 'deny']).default('full'),
+      }),
+    )
+    .min(1)
+    .max(200),
+});
+
 export type CreateProjectBody = z.infer<typeof createProjectBodySchema>;
 export type UpdateProjectBody = z.infer<typeof updateProjectBodySchema>;
 export type ListProjectsQuery = z.infer<typeof listProjectsQuerySchema>;
 export type ProjectAccessBody = z.infer<typeof projectAccessBodySchema>;
+export type BulkProjectAccessBody = z.infer<typeof bulkProjectAccessBodySchema>;

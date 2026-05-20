@@ -11,6 +11,7 @@ import {
 } from '../services/github';
 import { requireAuth, AuthRequest } from '../middleware/auth';
 import { prisma } from '@openlinear/db';
+import { buildErrorEnvelope } from '../lib/http';
 
 const router: Router = Router();
 
@@ -320,7 +321,7 @@ router.get('/me', async (req: Request, res: Response) => {
   const authHeader = req.headers.authorization;
 
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    res.status(401).json({ error: 'Unauthorized' });
+    res.status(401).json(buildErrorEnvelope('UNAUTHORIZED', 'Authentication required'));
     return;
   }
 
@@ -331,7 +332,7 @@ router.get('/me', async (req: Request, res: Response) => {
     const user = await getUserById(decoded.userId);
 
     if (!user) {
-      res.status(401).json({ error: 'User not found' });
+      res.status(401).json(buildErrorEnvelope('USER_NOT_FOUND', 'User not found'));
       return;
     }
 
@@ -341,7 +342,7 @@ router.get('/me', async (req: Request, res: Response) => {
       githubLinked: Boolean(user.accessToken),
     });
   } catch {
-    res.status(401).json({ error: 'Invalid token' });
+    res.status(401).json(buildErrorEnvelope('UNAUTHORIZED', 'Invalid token'));
   }
 });
 
@@ -349,21 +350,21 @@ router.patch('/me', requireAuth, async (req: AuthRequest, res: Response) => {
   const { email } = req.body;
 
   if (!email || typeof email !== 'string') {
-    res.status(400).json({ error: 'Email is required' });
+    res.status(400).json(buildErrorEnvelope('EMAIL_REQUIRED', 'Email is required'));
     return;
   }
 
   const trimmed = email.trim().toLowerCase();
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   if (!emailRegex.test(trimmed)) {
-    res.status(400).json({ error: 'Invalid email format' });
+    res.status(400).json(buildErrorEnvelope('INVALID_EMAIL', 'Invalid email format'));
     return;
   }
 
   try {
     const existing = await prisma.user.findUnique({ where: { email: trimmed } });
     if (existing && existing.id !== req.userId) {
-      res.status(409).json({ error: 'Email already in use' });
+      res.status(409).json(buildErrorEnvelope('EMAIL_IN_USE', 'Email already in use'));
       return;
     }
 
@@ -375,7 +376,7 @@ router.patch('/me', requireAuth, async (req: AuthRequest, res: Response) => {
     const { accessToken: _, ...safeUser } = user;
     res.json(safeUser);
   } catch {
-    res.status(500).json({ error: 'Failed to update email' });
+    res.status(500).json(buildErrorEnvelope('EMAIL_UPDATE_FAILED', 'Failed to update email'));
   }
 });
 

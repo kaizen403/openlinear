@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
-import { Prisma, prisma } from '@openlinear/db';
+import { Prisma, prisma, type WorkspaceRole } from '@openlinear/db';
 import { getUserTeamIds } from './team-scope';
+import { OwnershipError } from './ownership';
 
 export type ProjectPermissionLevel = 'view' | 'full';
 export type ProjectAccessSource = 'project_access' | 'workspace' | 'legacy_team';
@@ -50,6 +51,27 @@ function projectKeyBase(name: string): string {
 
 export function defaultWorkspaceIdForUser(userId: string): string {
   return `workspace-${digest(userId)}`;
+}
+
+export async function assertWorkspaceRole(
+  workspaceId: string,
+  userId: string,
+  roles: ReadonlyArray<WorkspaceRole>,
+): Promise<{ workspaceId: string; userId: string; role: WorkspaceRole }> {
+  const membership = await prisma.workspaceMember.findUnique({
+    where: { workspaceId_userId: { workspaceId, userId } },
+    select: { role: true },
+  });
+
+  if (!membership) {
+    throw new OwnershipError('workspace', workspaceId, 'not_found');
+  }
+
+  if (!roles.includes(membership.role)) {
+    throw new OwnershipError('workspace', workspaceId, 'role_required', roles);
+  }
+
+  return { workspaceId, userId, role: membership.role };
 }
 
 export async function ensureDefaultWorkspaceForUser(userId: string) {

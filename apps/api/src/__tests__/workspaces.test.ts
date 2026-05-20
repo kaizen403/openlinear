@@ -74,8 +74,9 @@ describe('Workspaces API', () => {
       .set('Authorization', `Bearer ${authToken}`);
 
     expect(members.status).toBe(200);
-    expect(members.body).toHaveLength(1);
-    expect(members.body[0].userId).toBe(testUserId);
+    expect(members.body.data).toHaveLength(1);
+    expect(members.body.data[0].userId).toBe(testUserId);
+    expect(members.body.nextCursor).toBeNull();
   });
 
   it('hides workspaces from non-members', async () => {

@@ -224,7 +224,7 @@ describe('Tasks API', () => {
         .send({ title: 'No Team Task' });
 
       expect(res.status).toBe(400);
-      expect(res.body.error).toBe('validation_error');
+      expect(res.body.error.code).toBe('VALIDATION_ERROR');
     });
 
     it('creates a task with teamId and generates identifier', async () => {
@@ -287,7 +287,7 @@ describe('Tasks API', () => {
         .send({ title: '' });
 
       expect(res.status).toBe(400);
-      expect(res.body.error).toBe('validation_error');
+      expect(res.body.error.code).toBe('VALIDATION_ERROR');
     });
   });
 

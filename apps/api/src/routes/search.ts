@@ -4,6 +4,8 @@ import { prisma } from '@openlinear/db';
 import { requireAuth, AuthRequest } from '../middleware/auth';
 import { getUserTeamIds } from '../services/team-scope';
 import { SearchQuerySchema } from '../schemas/search';
+import { ValidationError } from '../errors';
+import { buildErrorEnvelope } from '../lib/http';
 
 const router: Router = Router();
 
@@ -23,11 +25,14 @@ const searchLimiter = rateLimit({
     return ipKeyGenerator(req.ip ?? '', 56);
   },
   handler: (_req, res) => {
-    res.status(429).json({
-      error: 'rate_limited',
-      scope: 'search',
-      retryAfterSeconds: 60,
-    });
+    res.status(429).json(buildErrorEnvelope(
+      'RATE_LIMITED',
+      'Too many requests',
+      {
+        details: { scope: 'search', retryAfterSeconds: 60 },
+        extras: { scope: 'search', retryAfterSeconds: 60 },
+      },
+    ));
   },
 });
 
@@ -59,11 +64,7 @@ router.get(
     try {
       const parsed = SearchQuerySchema.safeParse(req.query);
       if (!parsed.success) {
-        res.status(400).json({
-          error: 'Validation failed',
-          details: parsed.error.flatten(),
-        });
-        return;
+        throw ValidationError.fromZod(parsed.error);
       }
 
       const { q, types, limit } = parsed.data;

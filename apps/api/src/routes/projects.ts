@@ -1,19 +1,29 @@
 import { Router, Request, Response, NextFunction } from 'express';
-import { prisma } from '@openlinear/db';
-import { broadcastToTeam, broadcastToUser } from '../sse';
+import { Prisma, prisma } from '@openlinear/db';
+import { broadcastToProject, broadcastToTeam, broadcastToUser, broadcastToWorkspace } from '../sse';
 import { requireAuth, optionalAuth, AuthRequest } from '../middleware/auth';
 import { validateBody, validateQuery, ValidatedRequest } from '../middleware/validate';
 import { addRepositoryByUrl, addRepositoryFromCloneUrl } from '../services/github';
 import { getUserTeamIds } from '../services/team-scope';
 import { assertProjectAccess, assertTeamRole, OwnershipError } from '../services/ownership';
 import { HttpError } from '../errors';
+import { makeEtag } from '../lib/etag';
+import {
+  getIdempotencyRecord,
+  parseFields,
+  pickFields,
+  replayIdempotencyRecord,
+  storeIdempotencyRecord,
+} from '../lib/http';
 import { logActivity } from '../services/activity';
 import { buildProjectAccessWhere, ensureDefaultWorkspaceForUser, generateProjectKey } from '../services/workspaces';
 import {
+  bulkProjectAccessBodySchema,
   createProjectBodySchema,
   updateProjectBodySchema,
   listProjectsQuerySchema,
   projectAccessBodySchema,
+  BulkProjectAccessBody,
   CreateProjectBody,
   UpdateProjectBody,
   ListProjectsQuery,
@@ -27,18 +37,12 @@ function isDesktopClient(req: Request): boolean {
   return typeof header === 'string' && header.toLowerCase() === 'desktop';
 }
 
-function transformProject(project: { projectTeams: { team: unknown }[]; repository?: unknown; [key: string]: unknown }) {
-  return {
-    ...project,
-    teams: project.projectTeams.map((pt) => pt.team),
-    projectTeams: undefined,
-  };
-}
-
 function isSshRepoUrl(url: string): boolean {
   const trimmed = url.trim();
   return trimmed.startsWith('git@') || trimmed.startsWith('ssh://');
 }
+
+const userSelect = { id: true, username: true, email: true, avatarUrl: true } as const;
 
 const projectInclude = {
   projectTeams: {
@@ -53,7 +57,60 @@ const projectInclude = {
   _count: {
     select: { tasks: true },
   },
-} as const;
+} satisfies Prisma.ProjectInclude;
+
+const projectAccessInclude = {
+  user: { select: userSelect },
+} satisfies Prisma.ProjectAccessInclude;
+
+type ProjectWithInclude = Prisma.ProjectGetPayload<{ include: typeof projectInclude }>;
+type ProjectApiShape = Omit<ProjectWithInclude, 'projectTeams'> & {
+  teams: Array<ProjectWithInclude['projectTeams'][number]['team']>;
+};
+
+const projectListFields = [
+  'id',
+  'workspaceId',
+  'key',
+  'name',
+  'description',
+  'status',
+  'color',
+  'icon',
+  'startDate',
+  'targetDate',
+  'leadId',
+  'repositoryId',
+  'localPath',
+  'repoUrl',
+  'createdAt',
+  'updatedAt',
+  'teams',
+  'repository',
+  'workspace',
+  '_count',
+] as const;
+
+function transformProject(project: ProjectWithInclude): ProjectApiShape {
+  const { projectTeams, ...rest } = project;
+  return {
+    ...rest,
+    teams: projectTeams.map((pt) => pt.team),
+  };
+}
+
+function applyProjectFields(project: ProjectApiShape, fields: string[] | null): ProjectApiShape | Record<string, unknown> {
+  if (!fields) return project;
+  return pickFields(project as unknown as Record<string, unknown>, fields);
+}
+
+function matchesEtag(req: Request, etag: string): boolean {
+  return req
+    .header('if-none-match')
+    ?.split(',')
+    .map((value) => value.trim())
+    .includes(etag) ?? false;
+}
 
 async function assertWorkspaceCanWrite(workspaceId: string, userId: string): Promise<void> {
   const membership = await prisma.workspaceMember.findUnique({
@@ -72,9 +129,9 @@ async function assertWorkspaceCanWrite(workspaceId: string, userId: string): Pro
 async function buildAccessibleProjectsWhere(
   userId: string,
   filters: { teamId?: string; workspaceId?: string },
-): Promise<Record<string, unknown>> {
+): Promise<Prisma.ProjectWhereInput> {
   const teamIds = await getUserTeamIds(userId);
-  const and: Record<string, unknown>[] = [buildProjectAccessWhere(userId, teamIds)];
+  const and: Prisma.ProjectWhereInput[] = [buildProjectAccessWhere(userId, teamIds)];
 
   if (filters.teamId) {
     and.push({ projectTeams: { some: { teamId: filters.teamId } } });
@@ -93,6 +150,8 @@ router.get(
   async (req: AuthRequest & ValidatedRequest<unknown, ListProjectsQuery>, res: Response, next: NextFunction) => {
     try {
       const { teamId, workspaceId } = req.validQuery ?? {};
+      const fields = parseFields(req.query.fields, projectListFields);
+      res.setHeader('Cache-Control', 'private, max-age=0, must-revalidate');
       if (!req.userId) {
         res.json([]);
         return;
@@ -105,7 +164,7 @@ router.get(
         orderBy: { createdAt: 'desc' },
       });
 
-      res.json(projects.map(transformProject));
+      res.json(projects.map(transformProject).map((project) => applyProjectFields(project, fields)));
     } catch (error) {
       next(error);
     }
@@ -118,6 +177,12 @@ router.post(
   validateBody(createProjectBodySchema),
   async (req: AuthRequest & ValidatedRequest<CreateProjectBody>, res: Response, next: NextFunction) => {
     try {
+      const replay = getIdempotencyRecord(req, req.userId!, 'POST /api/projects');
+      if (replay) {
+        replayIdempotencyRecord(res, replay);
+        return;
+      }
+
       const {
         workspaceId,
         key,
@@ -237,13 +302,8 @@ router.post(
       });
 
       const result = transformProject(project);
-      if (teamIds?.length) {
-        for (const tid of teamIds) {
-          broadcastToTeam(tid, 'project:created', result);
-        }
-      } else {
-        broadcastToUser(req.userId!, 'project:created', result);
-      }
+      await broadcastToProject(project.id, 'project:created', result);
+      storeIdempotencyRecord(req, req.userId!, 'POST /api/projects', 201, result);
       res.status(201).json(result);
     } catch (error) {
       next(error);
@@ -258,9 +318,7 @@ router.get('/:id/access', requireAuth, async (req: AuthRequest, res: Response, n
 
     const access = await prisma.projectAccess.findMany({
       where: { projectId: id },
-      include: {
-        user: { select: { id: true, username: true, email: true, avatarUrl: true } },
-      },
+      include: projectAccessInclude,
       orderBy: { grantedAt: 'asc' },
     });
 
@@ -278,6 +336,12 @@ router.post(
     try {
       const id = req.params.id as string;
       const { userId, permission } = req.validBody!;
+      const replay = getIdempotencyRecord(req, req.userId!, `POST /api/projects/${id}/access`);
+      if (replay) {
+        replayIdempotencyRecord(res, replay);
+        return;
+      }
+
       await assertProjectAccess(id, req.userId!, 'full');
 
       const project = await prisma.project.findUnique({
@@ -310,16 +374,95 @@ router.post(
         }
       }
 
+      const existing = await prisma.projectAccess.findUnique({
+        where: { projectId_userId: { projectId: id, userId } },
+        select: { id: true },
+      });
       const access = await prisma.projectAccess.upsert({
         where: { projectId_userId: { projectId: id, userId } },
         update: { permission },
         create: { projectId: id, userId, permission },
-        include: {
-          user: { select: { id: true, username: true, email: true, avatarUrl: true } },
-        },
+        include: projectAccessInclude,
       });
 
-      res.status(201).json(access);
+      const status = existing ? 200 : 201;
+      await broadcastToProject(id, 'project:access-changed', { projectId: id, access });
+      storeIdempotencyRecord(req, req.userId!, `POST /api/projects/${id}/access`, status, access);
+      res.status(status).json(access);
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+router.post(
+  '/:id/access/bulk',
+  requireAuth,
+  validateBody(bulkProjectAccessBodySchema),
+  async (req: AuthRequest & ValidatedRequest<BulkProjectAccessBody>, res: Response, next: NextFunction) => {
+    try {
+      const id = req.params.id as string;
+      const replay = getIdempotencyRecord(req, req.userId!, `POST /api/projects/${id}/access/bulk`);
+      if (replay) {
+        replayIdempotencyRecord(res, replay);
+        return;
+      }
+
+      await assertProjectAccess(id, req.userId!, 'full');
+      const project = await prisma.project.findUnique({
+        where: { id },
+        select: { workspaceId: true },
+      });
+      if (!project) {
+        throw new OwnershipError('project', id, 'not_found');
+      }
+
+      const grantsByUser = new Map<string, BulkProjectAccessBody['grants'][number]>();
+      for (const grant of req.validBody!.grants) {
+        grantsByUser.set(grant.userId, grant);
+      }
+      const grants = Array.from(grantsByUser.values());
+      const userIds = grants.map((grant) => grant.userId);
+
+      const users = await prisma.user.findMany({
+        where: { id: { in: userIds } },
+        select: { id: true },
+      });
+      const foundUserIds = new Set(users.map((user) => user.id));
+      const skipped: Array<{ userId: string; reason: string }> = grants
+        .filter((grant) => !foundUserIds.has(grant.userId))
+        .map((grant) => ({ userId: grant.userId, reason: 'USER_NOT_FOUND' }));
+
+      let allowedUserIds = foundUserIds;
+      if (project.workspaceId) {
+        const memberships = await prisma.workspaceMember.findMany({
+          where: { workspaceId: project.workspaceId, userId: { in: Array.from(foundUserIds) } },
+          select: { userId: true },
+        });
+        allowedUserIds = new Set(memberships.map((member) => member.userId));
+        for (const userId of foundUserIds) {
+          if (!allowedUserIds.has(userId)) {
+            skipped.push({ userId, reason: 'USER_NOT_WORKSPACE_MEMBER' });
+          }
+        }
+      }
+
+      const grantable = grants.filter((grant) => allowedUserIds.has(grant.userId));
+      const granted = await prisma.$transaction(
+        grantable.map((grant) =>
+          prisma.projectAccess.upsert({
+            where: { projectId_userId: { projectId: id, userId: grant.userId } },
+            update: { permission: grant.permission },
+            create: { projectId: id, userId: grant.userId, permission: grant.permission },
+            include: projectAccessInclude,
+          }),
+        ),
+      );
+
+      const body = { granted, skipped };
+      await broadcastToProject(id, 'project:access-changed', { projectId: id, access: granted, skipped });
+      storeIdempotencyRecord(req, req.userId!, `POST /api/projects/${id}/access/bulk`, 200, body);
+      res.json(body);
     } catch (error) {
       next(error);
     }
@@ -338,6 +481,9 @@ router.delete('/:id/access/:userId', requireAuth, async (req: AuthRequest, res: 
       create: { projectId: id, userId, permission: 'deny' },
     });
 
+    const payload = { projectId: id, userId, permission: 'deny' };
+    await broadcastToProject(id, 'project:access-changed', payload);
+    broadcastToUser(userId, 'project:access-changed', payload);
     res.status(204).send();
   } catch (error) {
     next(error);
@@ -349,8 +495,7 @@ router.get('/:id', optionalAuth, async (req: AuthRequest, res: Response, next: N
     const id = req.params.id as string;
 
     if (!req.userId) {
-      res.status(401).json({ error: 'unauthorized', code: 'UNAUTHORIZED' });
-      return;
+      throw new HttpError(401, 'UNAUTHORIZED', 'Authentication required');
     }
 
     await assertProjectAccess(id, req.userId, 'view');
@@ -361,7 +506,14 @@ router.get('/:id', optionalAuth, async (req: AuthRequest, res: Response, next: N
     });
 
     if (!project) {
-      res.status(404).json({ error: 'not_found', code: 'NOT_FOUND', message: 'Project not found' });
+      throw new OwnershipError('project', id, 'not_found');
+    }
+
+    const etag = makeEtag([project.updatedAt, project._count.tasks, project.projectTeams.length]);
+    res.setHeader('ETag', etag);
+    res.setHeader('Cache-Control', 'private, max-age=0, must-revalidate');
+    if (matchesEtag(req, etag)) {
+      res.status(304).send();
       return;
     }
 
@@ -489,16 +641,8 @@ router.patch(
       }, { timeout: 15000, maxWait: 5000 });
 
       const result = transformProject(project);
-      const broadcastTeamIds = (project.projectTeams as Array<{ teamId: string }>).map(
-        (pt) => pt.teamId,
-      );
-      if (broadcastTeamIds.length > 0) {
-        for (const tid of broadcastTeamIds) {
-          broadcastToTeam(tid, 'project:updated', result);
-        }
-      } else {
-        broadcastToUser(req.userId!, 'project:updated', result);
-      }
+      const broadcastTeamIds = project.projectTeams.map((pt) => pt.teamId);
+      await broadcastToProject(id, 'project:updated', result);
 
       const activityTeamIds = broadcastTeamIds.length > 0 ? broadcastTeamIds : owned.teamIds;
       for (const tid of activityTeamIds) {
@@ -529,6 +673,18 @@ router.delete('/:id', requireAuth, async (req: AuthRequest, res: Response, next:
       }
     }
 
+    const recipients = await prisma.project.findUnique({
+      where: { id },
+      select: {
+        workspaceId: true,
+        projectTeams: { select: { teamId: true } },
+        access: {
+          where: { permission: { in: ['full', 'view'] } },
+          select: { userId: true },
+        },
+      },
+    });
+
     await prisma.$transaction(async (tx) => {
       await tx.task.updateMany({
         where: { projectId: id },
@@ -538,11 +694,17 @@ router.delete('/:id', requireAuth, async (req: AuthRequest, res: Response, next:
       await tx.project.delete({ where: { id } });
     }, { timeout: 15000, maxWait: 5000 });
 
-    if (owned.teamIds.length > 0) {
-      for (const tid of owned.teamIds) {
-        broadcastToTeam(tid, 'project:deleted', { id });
-      }
-    } else {
+    const payload = { id };
+    if (recipients?.workspaceId) {
+      broadcastToWorkspace(recipients.workspaceId, 'project:deleted', payload);
+    }
+    for (const projectTeam of recipients?.projectTeams ?? []) {
+      broadcastToTeam(projectTeam.teamId, 'project:deleted', payload);
+    }
+    for (const access of recipients?.access ?? []) {
+      broadcastToUser(access.userId, 'project:deleted', payload);
+    }
+    if (!recipients?.workspaceId && !recipients?.projectTeams.length && !recipients?.access.length) {
       broadcastToUser(req.userId!, 'project:deleted', { id });
     }
     res.status(204).send();

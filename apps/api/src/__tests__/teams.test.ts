@@ -70,7 +70,7 @@ describe('Teams API', () => {
         .send({ name: 'Bad Team', key: 'bad' });
 
       expect(res.status).toBe(400);
-      expect(res.body.error).toBe('validation_error');
+      expect(res.body.error.code).toBe('VALIDATION_ERROR');
     });
 
     it('returns 401 without auth', async () => {
@@ -223,8 +223,9 @@ describe('Teams API', () => {
         .set('Authorization', `Bearer ${authToken}`);
 
       expect(res.status).toBe(200);
-      expect(res.body).toHaveLength(1);
-      expect(res.body[0].userId).toBe(testUserId);
+      expect(res.body.data).toHaveLength(1);
+      expect(res.body.data[0].userId).toBe(testUserId);
+      expect(res.body.nextCursor).toBeNull();
     });
 
     it('returns 401 without auth', async () => {
@@ -276,7 +277,7 @@ describe('Teams API', () => {
         .send({ email: 'nobody@example.com' });
 
       expect(res.status).toBe(404);
-      expect(res.body.error).toBe('not_found');
+      expect(res.body.error.code).toBe('USER_NOT_FOUND');
     });
 
     it('returns 400 without email or userId', async () => {

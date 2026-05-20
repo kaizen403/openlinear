@@ -8,6 +8,7 @@ import {
   assertTeamRole,
 } from '../services/ownership';
 import { paginated, paginationSkipTake } from '../schemas/pagination';
+import { ValidationError } from '../errors';
 
 const router: Router = Router();
 
@@ -27,8 +28,7 @@ router.get('/', requireAuth, async (req: AuthRequest, res: Response, next: NextF
   try {
     const parsed = querySchema.safeParse(req.query);
     if (!parsed.success) {
-      res.status(400).json({ error: 'Validation failed', details: parsed.error.errors });
-      return;
+      throw ValidationError.fromZod(parsed.error);
     }
     const { taskId, projectId, teamId, page, pageSize } = parsed.data;
 

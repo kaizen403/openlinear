@@ -47,7 +47,12 @@ export const addMemberBodySchema = z
     message: 'Either email or userId is required',
   });
 
+export const updateTeamMemberBodySchema = z.object({
+  role: z.enum(['owner', 'admin', 'member']),
+});
+
 export type CreateTeamBody = z.infer<typeof createTeamBodySchema>;
 export type UpdateTeamBody = z.infer<typeof updateTeamBodySchema>;
 export type JoinTeamBody = z.infer<typeof joinTeamBodySchema>;
 export type AddMemberBody = z.infer<typeof addMemberBodySchema>;
+export type UpdateTeamMemberBody = z.infer<typeof updateTeamMemberBodySchema>;

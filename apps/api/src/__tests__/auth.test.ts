@@ -134,7 +134,10 @@ describe('Auth API', () => {
     it('returns 401 without authorization header', async () => {
       const res = await request(app).get('/api/auth/me');
       expect(res.status).toBe(401);
-      expect(res.body.error).toBe('Unauthorized');
+      expect(res.body.error).toMatchObject({
+        code: 'UNAUTHORIZED',
+        message: 'Authentication required',
+      });
     });
 
     it('returns 401 with invalid token', async () => {
@@ -142,7 +145,10 @@ describe('Auth API', () => {
         .get('/api/auth/me')
         .set('Authorization', 'Bearer invalid-token-here');
       expect(res.status).toBe(401);
-      expect(res.body.error).toBe('Invalid token');
+      expect(res.body.error).toMatchObject({
+        code: 'UNAUTHORIZED',
+        message: 'Invalid token',
+      });
     });
 
     it('returns 401 with malformed authorization header', async () => {
@@ -150,7 +156,10 @@ describe('Auth API', () => {
         .get('/api/auth/me')
         .set('Authorization', 'NotBearer some-token');
       expect(res.status).toBe(401);
-      expect(res.body.error).toBe('Unauthorized');
+      expect(res.body.error).toMatchObject({
+        code: 'UNAUTHORIZED',
+        message: 'Authentication required',
+      });
     });
   });
 

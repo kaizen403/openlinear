@@ -223,7 +223,7 @@ describe('Projects API', () => {
         .send({ name: 'Bad Status', status: 'invalid_status' });
 
       expect(res.status).toBe(400);
-      expect(res.body.error).toBe('validation_error');
+      expect(res.body.error.code).toBe('VALIDATION_ERROR');
     });
 
     it('returns 401 without auth', async () => {
