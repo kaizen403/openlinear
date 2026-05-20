@@ -1,5 +1,5 @@
 import { apiFetch } from './fetch';
-import type { Project } from './types';
+import type { Project, ProjectAccess, ProjectPermission } from './types';
 
 export async function fetchProjects(filters?: { teamId?: string; workspaceId?: string }): Promise<Project[]> {
   const params = new URLSearchParams();
@@ -55,4 +55,23 @@ export async function updateProject(
 
 export async function deleteProject(id: string): Promise<void> {
   await apiFetch<void>(`/api/projects/${id}`, { method: 'DELETE' });
+}
+
+export async function fetchProjectAccess(projectId: string): Promise<ProjectAccess[]> {
+  return apiFetch<ProjectAccess[]>(`/api/projects/${projectId}/access`);
+}
+
+export async function grantProjectAccess(
+  projectId: string,
+  userId: string,
+  permission: ProjectPermission,
+): Promise<ProjectAccess> {
+  return apiFetch<ProjectAccess>(`/api/projects/${projectId}/access`, {
+    method: 'POST',
+    body: JSON.stringify({ userId, permission }),
+  });
+}
+
+export async function revokeProjectAccess(projectId: string, userId: string): Promise<void> {
+  await apiFetch<void>(`/api/projects/${projectId}/access/${userId}`, { method: 'DELETE' });
 }

@@ -12,6 +12,8 @@ export type {
   Team,
   TeamMember,
   Project,
+  ProjectAccess,
+  ProjectPermission,
   InboxCount,
   InboxTask,
   MyIssueTask,
@@ -34,7 +36,7 @@ export { fetchUserRepositories, fetchGitHubRepos, importRepo, activateRepository
 
 export { fetchTeams, fetchTeam, createTeam, updateTeam, deleteTeam, addTeamMember, removeTeamMember, joinTeam } from './teams';
 
-export { fetchProjects, createProject, updateProject, deleteProject } from './projects';
+export { fetchProjects, createProject, updateProject, deleteProject, fetchProjectAccess, grantProjectAccess, revokeProjectAccess } from './projects';
 
 export { fetchWorkspaces, fetchWorkspace, fetchWorkspaceMembers, createWorkspace, updateWorkspace } from './workspaces';
 

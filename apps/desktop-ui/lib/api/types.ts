@@ -1,3 +1,19 @@
+export type ProjectPermission = 'full' | 'view' | 'deny';
+
+export interface ProjectAccess {
+  id: string;
+  projectId: string;
+  userId: string;
+  permission: ProjectPermission;
+  grantedAt: string;
+  user: {
+    id: string;
+    username: string;
+    email: string | null;
+    avatarUrl: string | null;
+  };
+}
+
 export type WorkspaceRole = 'owner' | 'admin' | 'member' | 'viewer';
 
 export interface Workspace {

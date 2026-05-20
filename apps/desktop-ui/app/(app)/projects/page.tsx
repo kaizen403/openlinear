@@ -18,6 +18,7 @@ import {
   GitBranch,
   Lock,
   FolderOpen,
+  Settings,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -1019,6 +1020,13 @@ function ProjectsContent() {
                             </button>
                             <button
                               type="button"
+                              onClick={() => router.push(`/projects/manage?id=${project.id}`)}
+                              className="opacity-0 group-hover:opacity-100 p-1.5 rounded-sm hover:bg-linear-bg-tertiary transition-all"
+                            >
+                              <Settings className="w-4 h-4 text-linear-text-secondary" />
+                            </button>
+                            <button
+                              type="button"
                               onClick={() => {
                                 setProjectToDelete(project)
                                 setIsDeleteDialogOpen(true)
@@ -1115,6 +1123,13 @@ function ProjectsContent() {
                         className="p-1.5 rounded-sm hover:bg-linear-bg-tertiary transition-all"
                       >
                         <Pencil className="w-4 h-4 text-linear-text-secondary" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => router.push(`/projects/manage?id=${project.id}`)}
+                        className="p-1.5 rounded-sm hover:bg-linear-bg-tertiary transition-all"
+                      >
+                        <Settings className="w-4 h-4 text-linear-text-secondary" />
                       </button>
                       <button
                         type="button"
