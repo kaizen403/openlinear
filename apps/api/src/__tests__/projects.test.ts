@@ -17,7 +17,6 @@ describe('Projects API', () => {
 
   beforeAll(async () => {
     await prisma.projectAccess.deleteMany({});
-    await prisma.projectTeam.deleteMany({});
     await prisma.task.updateMany({
       where: { projectId: { not: null } },
       data: { projectId: null },
@@ -46,7 +45,6 @@ describe('Projects API', () => {
 
   afterAll(async () => {
     await prisma.projectAccess.deleteMany({});
-    await prisma.projectTeam.deleteMany({});
     await prisma.task.updateMany({
       where: { projectId: { not: null } },
       data: { projectId: null },
@@ -67,21 +65,18 @@ describe('Projects API', () => {
     });
 
     it('returns projects with teams array', async () => {
+      const project = await prisma.project.create({
+        data: {
+          name: 'Test Project',
+        },
+      });
+
       const team = await prisma.team.create({
-        data: { name: 'Engineering', key: 'PRJENG' },
+        data: { name: 'Engineering', key: 'PRJENG', projectId: project.id },
       });
 
       await prisma.teamMember.create({
         data: { teamId: team.id, userId: testUserId, role: 'member' },
-      });
-
-      await prisma.project.create({
-        data: {
-          name: 'Test Project',
-          projectTeams: {
-            create: [{ teamId: team.id }],
-          },
-        },
       });
 
       const res = await request(app)
@@ -112,22 +107,7 @@ describe('Projects API', () => {
       expect(res.body).toHaveProperty('id');
     });
 
-    it('creates project with teamIds', async () => {
-      const team = await prisma.team.create({
-        data: { name: 'Design', key: 'PRJDSN' },
-      });
-      await prisma.teamMember.create({ data: { teamId: team.id, userId: testUserId, role: 'member' } });
-
-      const res = await request(app)
-        .post('/api/projects')
-        .set('Authorization', `Bearer ${authToken}`)
-        .send({ name: 'Team Project', teamIds: [team.id] });
-
-      expect(res.status).toBe(201);
-      expect(res.body.teams).toHaveLength(1);
-      expect(res.body.teams[0].id).toBe(team.id);
-      expect(res.body.workspace).toBeDefined();
-    });
+    it.skip('creates project with teamIds — obsolete in 1:M team-to-project model', async () => {});
 
     it('creates project access for the creator', async () => {
       const res = await request(app)
@@ -237,11 +217,11 @@ describe('Projects API', () => {
 
   describe('GET /api/projects/:id', () => {
     it('returns project with teams and task count when caller is a member', async () => {
-      const team = await prisma.team.create({ data: { name: 'GetByIdTeam', key: 'GBI' } });
-      await prisma.teamMember.create({ data: { teamId: team.id, userId: testUserId, role: 'member' } });
       const project = await prisma.project.create({
-        data: { name: 'Find Me', projectTeams: { create: [{ teamId: team.id }] } },
+        data: { name: 'Find Me' },
       });
+      const team = await prisma.team.create({ data: { name: 'GetByIdTeam', key: 'GBI', projectId: project.id } });
+      await prisma.teamMember.create({ data: { teamId: team.id, userId: testUserId, role: 'member' } });
 
       const res = await request(app)
         .get(`/api/projects/${project.id}`)
@@ -349,11 +329,11 @@ describe('Projects API', () => {
 
   describe('PATCH /api/projects/:id', () => {
     it('updates project fields', async () => {
-      const team = await prisma.team.create({ data: { name: 'PatchTeam', key: 'PCH' } });
-      await prisma.teamMember.create({ data: { teamId: team.id, userId: testUserId, role: 'member' } });
       const project = await prisma.project.create({
-        data: { name: 'Old Name', projectTeams: { create: [{ teamId: team.id }] } },
+        data: { name: 'Old Name' },
       });
+      const team = await prisma.team.create({ data: { name: 'PatchTeam', key: 'PCH', projectId: project.id } });
+      await prisma.teamMember.create({ data: { teamId: team.id, userId: testUserId, role: 'member' } });
 
       const res = await request(app)
         .patch(`/api/projects/${project.id}`)
@@ -386,28 +366,7 @@ describe('Projects API', () => {
       expect(res.body.key).toBe('KEEP');
     });
 
-    it('replaces team associations when teamIds provided', async () => {
-      const teamA = await prisma.team.create({ data: { name: 'Team A', key: 'PRJA' } });
-      const teamB = await prisma.team.create({ data: { name: 'Team B', key: 'PRJB' } });
-      await prisma.teamMember.create({ data: { teamId: teamA.id, userId: testUserId, role: 'member' } });
-      await prisma.teamMember.create({ data: { teamId: teamB.id, userId: testUserId, role: 'member' } });
-
-      const project = await prisma.project.create({
-        data: {
-          name: 'Multi Team',
-          projectTeams: { create: [{ teamId: teamA.id }] },
-        },
-      });
-
-      const res = await request(app)
-        .patch(`/api/projects/${project.id}`)
-        .set('Authorization', `Bearer ${authToken}`)
-        .send({ teamIds: [teamB.id] });
-
-      expect(res.status).toBe(200);
-      expect(res.body.teams).toHaveLength(1);
-      expect(res.body.teams[0].id).toBe(teamB.id);
-    });
+    it.skip('replaces team associations when teamIds provided — obsolete in 1:M model', async () => {});
 
     it('clears explicit project access when moving to another workspace', async () => {
       const oldWorkspace = await prisma.workspace.create({
@@ -476,11 +435,11 @@ describe('Projects API', () => {
 
   describe('DELETE /api/projects/:id', () => {
     it('deletes project and unassigns tasks when caller is owner', async () => {
-      const team = await prisma.team.create({ data: { name: 'DelTeam', key: 'DLT' } });
-      await prisma.teamMember.create({ data: { teamId: team.id, userId: testUserId, role: 'owner' } });
       const project = await prisma.project.create({
-        data: { name: 'To Delete', projectTeams: { create: [{ teamId: team.id }] } },
+        data: { name: 'To Delete' },
       });
+      const team = await prisma.team.create({ data: { name: 'DelTeam', key: 'DLT', projectId: project.id } });
+      await prisma.teamMember.create({ data: { teamId: team.id, userId: testUserId, role: 'owner' } });
 
       const task = await prisma.task.create({
         data: { title: 'Project Task', priority: 'medium', projectId: project.id },

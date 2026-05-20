@@ -14,11 +14,15 @@ describe('Teams API', () => {
   const app = createApp();
   let testUserId: string;
   let authToken: string;
+  let testProjectId: string;
 
   beforeAll(async () => {
     await prisma.teamMember.deleteMany({});
-    await prisma.projectTeam.deleteMany({});
     await prisma.team.deleteMany({});
+    await prisma.projectAccess.deleteMany({});
+    await prisma.project.deleteMany({});
+    await prisma.workspaceMember.deleteMany({});
+    await prisma.workspace.deleteMany({});
 
     const user = await prisma.user.upsert({
       where: { githubId: '999999' },
@@ -32,12 +36,29 @@ describe('Teams API', () => {
     });
     testUserId = user.id;
     authToken = generateToken(user.id, user.username);
+
+    const workspace = await prisma.workspace.create({
+      data: { name: 'Team Test Workspace', slug: 'team-test-workspace' },
+    });
+    await prisma.workspaceMember.create({
+      data: { workspaceId: workspace.id, userId: testUserId, role: 'owner' },
+    });
+    const project = await prisma.project.create({
+      data: { name: 'Team Test Project', workspaceId: workspace.id, key: 'TTP' },
+    });
+    testProjectId = project.id;
+    await prisma.projectAccess.create({
+      data: { projectId: project.id, userId: testUserId, permission: 'full' },
+    });
   }, 30000);
 
   afterAll(async () => {
     await prisma.teamMember.deleteMany({});
-    await prisma.projectTeam.deleteMany({});
     await prisma.team.deleteMany({});
+    await prisma.projectAccess.deleteMany({});
+    await prisma.project.deleteMany({});
+    await prisma.workspaceMember.deleteMany({});
+    await prisma.workspace.deleteMany({});
   }, 30000);
 
   describe('GET /api/teams', () => {
@@ -53,7 +74,7 @@ describe('Teams API', () => {
       const res = await request(app)
         .post('/api/teams')
         .set('Authorization', `Bearer ${authToken}`)
-        .send({ name: 'Engineering', key: 'ENG' });
+        .send({ name: 'Engineering', key: 'ENG', projectId: testProjectId });
 
       expect(res.status).toBe(201);
       expect(res.body.name).toBe('Engineering');
@@ -67,7 +88,7 @@ describe('Teams API', () => {
       const res = await request(app)
         .post('/api/teams')
         .set('Authorization', `Bearer ${authToken}`)
-        .send({ name: 'Bad Team', key: 'bad' });
+        .send({ name: 'Bad Team', key: 'bad', projectId: testProjectId });
 
       expect(res.status).toBe(400);
       expect(res.body.error.code).toBe('VALIDATION_ERROR');
@@ -76,7 +97,7 @@ describe('Teams API', () => {
     it('returns 401 without auth', async () => {
       const res = await request(app)
         .post('/api/teams')
-        .send({ name: 'No Auth', key: 'NA' });
+        .send({ name: 'No Auth', key: 'NA', projectId: testProjectId });
 
       expect(res.status).toBe(401);
     });
@@ -100,7 +121,7 @@ describe('Teams API', () => {
       const createRes = await request(app)
         .post('/api/teams')
         .set('Authorization', `Bearer ${authToken}`)
-        .send({ name: 'Patch Target', key: 'PAT' });
+        .send({ name: 'Patch Target', key: 'PAT', projectId: testProjectId });
       expect(createRes.status).toBe(201);
       const teamId = createRes.body.id;
 
@@ -133,7 +154,7 @@ describe('Teams API', () => {
       const createRes = await request(app)
         .post('/api/teams')
         .set('Authorization', `Bearer ${authToken}`)
-        .send({ name: 'To Delete', key: 'DEL' });
+        .send({ name: 'To Delete', key: 'DEL', projectId: testProjectId });
       expect(createRes.status).toBe(201);
       const teamId = createRes.body.id;
 
@@ -153,7 +174,7 @@ describe('Teams API', () => {
       const createRes = await request(app)
         .post('/api/teams')
         .set('Authorization', `Bearer ${authToken}`)
-        .send({ name: 'Team With Tasks', key: 'TWT' });
+        .send({ name: 'Team With Tasks', key: 'TWT', projectId: testProjectId });
       expect(createRes.status).toBe(201);
 
       await prisma.task.create({
@@ -181,11 +202,11 @@ describe('Teams API', () => {
   });
 
   describe('GET /api/teams/:id', () => {
-    it('returns team with members and project teams', async () => {
+    it('returns team with members and project', async () => {
       const createRes = await request(app)
         .post('/api/teams')
         .set('Authorization', `Bearer ${authToken}`)
-        .send({ name: 'Detail Team', key: 'DTL' });
+        .send({ name: 'Detail Team', key: 'DTL', projectId: testProjectId });
       expect(createRes.status).toBe(201);
 
       const res = await request(app)
@@ -194,7 +215,7 @@ describe('Teams API', () => {
       expect(res.status).toBe(200);
       expect(res.body.name).toBe('Detail Team');
       expect(res.body.members).toHaveLength(1);
-      expect(res.body.projectTeams).toBeDefined();
+      expect(res.body.project).toBeDefined();
     });
 
     it('returns 401 without auth', async () => {
@@ -215,7 +236,7 @@ describe('Teams API', () => {
       const createRes = await request(app)
         .post('/api/teams')
         .set('Authorization', `Bearer ${authToken}`)
-        .send({ name: 'Members Detail Team', key: 'MDT' });
+        .send({ name: 'Members Detail Team', key: 'MDT', projectId: testProjectId });
       expect(createRes.status).toBe(201);
 
       const res = await request(app)
@@ -239,7 +260,7 @@ describe('Teams API', () => {
       const createRes = await request(app)
         .post('/api/teams')
         .set('Authorization', `Bearer ${authToken}`)
-        .send({ name: 'Member Team', key: 'MBR' });
+        .send({ name: 'Member Team', key: 'MBR', projectId: testProjectId });
       expect(createRes.status).toBe(201);
 
       const secondUser = await prisma.user.upsert({
@@ -268,7 +289,7 @@ describe('Teams API', () => {
       const createRes = await request(app)
         .post('/api/teams')
         .set('Authorization', `Bearer ${authToken}`)
-        .send({ name: 'Email Team', key: 'EML' });
+        .send({ name: 'Email Team', key: 'EML', projectId: testProjectId });
       expect(createRes.status).toBe(201);
 
       const res = await request(app)
@@ -284,7 +305,7 @@ describe('Teams API', () => {
       const createRes = await request(app)
         .post('/api/teams')
         .set('Authorization', `Bearer ${authToken}`)
-        .send({ name: 'Validate Team', key: 'VAL' });
+        .send({ name: 'Validate Team', key: 'VAL', projectId: testProjectId });
       expect(createRes.status).toBe(201);
 
       const res = await request(app)
@@ -301,7 +322,7 @@ describe('Teams API', () => {
       const createRes = await request(app)
         .post('/api/teams')
         .set('Authorization', `Bearer ${authToken}`)
-        .send({ name: 'Remove Member Team', key: 'RMV' });
+        .send({ name: 'Remove Member Team', key: 'RMV', projectId: testProjectId });
       expect(createRes.status).toBe(201);
 
       const secondUser = await prisma.user.upsert({

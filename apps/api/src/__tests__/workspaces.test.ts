@@ -17,7 +17,7 @@ describe('Workspaces API', () => {
 
   beforeAll(async () => {
     await prisma.projectAccess.deleteMany({});
-    await prisma.projectTeam.deleteMany({});
+    await prisma.teamMember.deleteMany({});
     await prisma.project.deleteMany({});
     await prisma.workspaceMember.deleteMany({});
     await prisma.workspace.deleteMany({});
@@ -37,7 +37,7 @@ describe('Workspaces API', () => {
 
   afterAll(async () => {
     await prisma.projectAccess.deleteMany({});
-    await prisma.projectTeam.deleteMany({});
+    await prisma.teamMember.deleteMany({});
     await prisma.project.deleteMany({});
     await prisma.workspaceMember.deleteMany({});
     await prisma.workspace.deleteMany({});

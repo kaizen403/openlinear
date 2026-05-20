@@ -67,24 +67,16 @@ function flattenLabels<T extends { labels: TaskLabel[] }>(task: T): Omit<T, 'lab
 }
 
 async function resolveProjectTeamId(projectId: string): Promise<{ teamId: string }> {
-  const project = await prisma.project.findUnique({
-    where: { id: projectId },
-    select: { projectTeams: { select: { teamId: true } } },
+  const team = await prisma.team.findFirst({
+    where: { projectId },
+    select: { id: true },
   });
 
-  if (!project) {
-    throw new OwnershipError('project', projectId, 'not_found');
-  }
-
-  if (project.projectTeams.length === 0) {
+  if (!team) {
     throw new ValidationError('Project must have a team');
   }
 
-  if (project.projectTeams.length > 1) {
-    throw new ValidationError('Project must have exactly one team');
-  }
-
-  return { teamId: project.projectTeams[0].teamId };
+  return { teamId: team.id };
 }
 
 const taskInclude = {

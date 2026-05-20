@@ -266,21 +266,24 @@ model WorkspaceMember {
 model Team {
   id              String        @id @default(uuid())
   name            String
-  key             String        @unique // e.g. "ENG", "DSN"
+  key             String // e.g. "ENG", "DSN"
   description     String?
   color           String        @default("#6366f1")
   icon            String?
   private         Boolean       @default(false)
   inviteCode      String?       @unique
   nextIssueNumber Int           @default(1)
+  projectId       String
+  project         Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
   members         TeamMember[]
-  projectTeams    ProjectTeam[]
   tasks           Task[]
   labels          Label[]
   activityLogs    ActivityLog[]
 
+  @@unique([projectId, key])
+  @@index([projectId])
   @@map("teams")
 }
 
@@ -318,7 +321,7 @@ model Project {
   repoUrl      String? // Original URL used to connect (for display)
   createdAt    DateTime        @default(now())
   updatedAt    DateTime        @updatedAt
-  projectTeams ProjectTeam[]
+  teams        Team[]
   tasks        Task[]
   access       ProjectAccess[]
   activityLogs ActivityLog[]
@@ -342,15 +345,7 @@ model ProjectAccess {
   @@map("project_access")
 }
 
-model ProjectTeam {
-  projectId String
-  teamId    String
-  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  team      Team    @relation(fields: [teamId], references: [id], onDelete: Cascade)
 
-  @@id([projectId, teamId])
-  @@map("project_teams")
-}
 
 model Comment {
   id            String         @id @default(uuid())

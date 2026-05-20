@@ -45,9 +45,7 @@ function isSshRepoUrl(url: string): boolean {
 const userSelect = { id: true, username: true, email: true, avatarUrl: true } as const;
 
 const projectInclude = {
-  projectTeams: {
-    include: { team: true },
-  },
+  teams: true,
   repository: {
     select: { id: true, name: true, fullName: true, cloneUrl: true, defaultBranch: true },
   },
@@ -64,9 +62,6 @@ const projectAccessInclude = {
 } satisfies Prisma.ProjectAccessInclude;
 
 type ProjectWithInclude = Prisma.ProjectGetPayload<{ include: typeof projectInclude }>;
-type ProjectApiShape = Omit<ProjectWithInclude, 'projectTeams'> & {
-  teams: Array<ProjectWithInclude['projectTeams'][number]['team']>;
-};
 
 const projectListFields = [
   'id',
@@ -91,15 +86,7 @@ const projectListFields = [
   '_count',
 ] as const;
 
-function transformProject(project: ProjectWithInclude): ProjectApiShape {
-  const { projectTeams, ...rest } = project;
-  return {
-    ...rest,
-    teams: projectTeams.map((pt) => pt.team),
-  };
-}
-
-function applyProjectFields(project: ProjectApiShape, fields: string[] | null): ProjectApiShape | Record<string, unknown> {
+function applyProjectFields(project: ProjectWithInclude, fields: string[] | null): ProjectWithInclude | Record<string, unknown> {
   if (!fields) return project;
   return pickFields(project as unknown as Record<string, unknown>, fields);
 }
@@ -134,7 +121,7 @@ async function buildAccessibleProjectsWhere(
   const and: Prisma.ProjectWhereInput[] = [buildProjectAccessWhere(userId, teamIds)];
 
   if (filters.teamId) {
-    and.push({ projectTeams: { some: { teamId: filters.teamId } } });
+    and.push({ teams: { some: { id: filters.teamId } } });
   }
   if (filters.workspaceId) {
     and.push({ workspaceId: filters.workspaceId });
@@ -164,7 +151,7 @@ router.get(
         orderBy: { createdAt: 'desc' },
       });
 
-      res.json(projects.map(transformProject).map((project) => applyProjectFields(project, fields)));
+      res.json(projects.map((project) => applyProjectFields(project, fields)));
     } catch (error) {
       next(error);
     }
@@ -286,14 +273,41 @@ router.post(
           localPath: localPath || undefined,
           repoUrl: resolvedRepoUrl,
           repositoryId: resolvedRepositoryId,
-          ...(teamIds?.length ? {
-            projectTeams: {
-              create: teamIds.map((teamId) => ({ teamId })),
-            },
-          } : {}),
+          ...(teamIds?.length ? {} : {}),
         },
         include: projectInclude,
       });
+
+      if (teamIds?.length) {
+        const conflicting = await prisma.team.findMany({
+          where: { id: { in: teamIds }, projectId: { not: project.id } },
+          select: { id: true, projectId: true },
+        });
+        if (conflicting.length > 0) {
+          await prisma.project.delete({ where: { id: project.id } });
+          throw new HttpError(409, 'TEAM_PROJECT_CONFLICT', 'One or more teams already belong to a different project');
+        }
+        await prisma.team.updateMany({
+          where: { id: { in: teamIds } },
+          data: { projectId: project.id },
+        });
+        const updatedProject = await prisma.project.findUnique({
+          where: { id: project.id },
+          include: projectInclude,
+        });
+        if (updatedProject) {
+          await prisma.projectAccess.upsert({
+            where: { projectId_userId: { projectId: project.id, userId: req.userId! } },
+            update: { permission: 'full' },
+            create: { projectId: project.id, userId: req.userId!, permission: 'full' },
+          });
+          const result = applyProjectFields(updatedProject, null);
+          await broadcastToProject(project.id, 'project:created', result);
+          storeIdempotencyRecord(req, req.userId!, 'POST /api/projects', 201, result);
+          res.status(201).json(result);
+          return;
+        }
+      }
 
       await prisma.projectAccess.upsert({
         where: { projectId_userId: { projectId: project.id, userId: req.userId! } },
@@ -301,7 +315,7 @@ router.post(
         create: { projectId: project.id, userId: req.userId!, permission: 'full' },
       });
 
-      const result = transformProject(project);
+      const result = applyProjectFields(project, null);
       await broadcastToProject(project.id, 'project:created', result);
       storeIdempotencyRecord(req, req.userId!, 'POST /api/projects', 201, result);
       res.status(201).json(result);
@@ -509,7 +523,7 @@ router.get('/:id', optionalAuth, async (req: AuthRequest, res: Response, next: N
       throw new OwnershipError('project', id, 'not_found');
     }
 
-    const etag = makeEtag([project.updatedAt, project._count.tasks, project.projectTeams.length]);
+    const etag = makeEtag([project.updatedAt, project._count.tasks, project.teams.length]);
     res.setHeader('ETag', etag);
     res.setHeader('Cache-Control', 'private, max-age=0, must-revalidate');
     if (matchesEtag(req, etag)) {
@@ -517,7 +531,7 @@ router.get('/:id', optionalAuth, async (req: AuthRequest, res: Response, next: N
       return;
     }
 
-    res.json(transformProject(project));
+    res.json(applyProjectFields(project, null));
   } catch (error) {
     next(error);
   }
@@ -615,10 +629,18 @@ router.patch(
 
       const project = await prisma.$transaction(async (tx) => {
         if (teamIds !== undefined) {
-          await tx.projectTeam.deleteMany({ where: { projectId: id } });
+          await tx.team.updateMany({ where: { projectId: id }, data: { projectId: id } });
           if (teamIds.length > 0) {
-            await tx.projectTeam.createMany({
-              data: teamIds.map((teamId) => ({ projectId: id, teamId })),
+            const conflicting = await tx.team.findMany({
+              where: { id: { in: teamIds }, projectId: { not: id } },
+              select: { id: true },
+            });
+            if (conflicting.length > 0) {
+              throw new HttpError(409, 'TEAM_PROJECT_CONFLICT', 'One or more teams already belong to a different project');
+            }
+            await tx.team.updateMany({
+              where: { id: { in: teamIds } },
+              data: { projectId: id },
             });
           }
         }
@@ -640,8 +662,8 @@ router.patch(
         });
       }, { timeout: 15000, maxWait: 5000 });
 
-      const result = transformProject(project);
-      const broadcastTeamIds = project.projectTeams.map((pt) => pt.teamId);
+      const result = applyProjectFields(project, null);
+      const broadcastTeamIds = project.teams.map((t) => t.id);
       await broadcastToProject(id, 'project:updated', result);
 
       const activityTeamIds = broadcastTeamIds.length > 0 ? broadcastTeamIds : owned.teamIds;
@@ -677,7 +699,7 @@ router.delete('/:id', requireAuth, async (req: AuthRequest, res: Response, next:
       where: { id },
       select: {
         workspaceId: true,
-        projectTeams: { select: { teamId: true } },
+        teams: { select: { id: true } },
         access: {
           where: { permission: { in: ['full', 'view'] } },
           select: { userId: true },
@@ -698,13 +720,13 @@ router.delete('/:id', requireAuth, async (req: AuthRequest, res: Response, next:
     if (recipients?.workspaceId) {
       broadcastToWorkspace(recipients.workspaceId, 'project:deleted', payload);
     }
-    for (const projectTeam of recipients?.projectTeams ?? []) {
-      broadcastToTeam(projectTeam.teamId, 'project:deleted', payload);
+    for (const team of recipients?.teams ?? []) {
+      broadcastToTeam(team.id, 'project:deleted', payload);
     }
     for (const access of recipients?.access ?? []) {
       broadcastToUser(access.userId, 'project:deleted', payload);
     }
-    if (!recipients?.workspaceId && !recipients?.projectTeams.length && !recipients?.access.length) {
+    if (!recipients?.workspaceId && !recipients?.teams.length && !recipients?.access.length) {
       broadcastToUser(req.userId!, 'project:deleted', { id });
     }
     res.status(204).send();
