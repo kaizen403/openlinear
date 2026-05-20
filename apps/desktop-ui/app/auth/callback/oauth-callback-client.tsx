@@ -14,7 +14,7 @@ export function OAuthCallbackClient() {
   const code = searchParams.get("code")
   const error = searchParams.get("error")
   const [callbackUrl, setCallbackUrl] = useState("")
-  const [copied, setCopied] = useState(false)
+  const [copyStatus, setCopyStatus] = useState("")
 
   useEffect(() => {
     if (typeof window === "undefined") return
@@ -56,29 +56,41 @@ export function OAuthCallbackClient() {
       })
     )
 
-    const timeout = window.setTimeout(() => {
-      window.close()
-    }, 350)
-
-    return () => {
-      window.clearTimeout(timeout)
-    }
   }, [code])
 
-  const copyCallbackUrl = async () => {
-    if (!callbackUrl) return
+  const copyText = async (value: string, label: string) => {
+    if (!value) return
     try {
-      await navigator.clipboard.writeText(callbackUrl)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
+      await navigator.clipboard.writeText(value)
+      setCopyStatus(`${label} copied.`)
+      window.setTimeout(() => setCopyStatus(""), 2000)
+      return
+    } catch {}
+
+    const field = document.createElement("textarea")
+    field.value = value
+    field.setAttribute("readonly", "")
+    field.style.position = "fixed"
+    field.style.left = "-9999px"
+    document.body.appendChild(field)
+    field.select()
+
+    try {
+      document.execCommand("copy")
+      setCopyStatus(`${label} copied.`)
+      window.setTimeout(() => setCopyStatus(""), 2000)
     } catch {
-      setCopied(false)
+      setCopyStatus("Copy failed. Select the callback URL manually.")
+    } finally {
+      field.remove()
     }
   }
 
   return (
     <main className="min-h-screen bg-linear-bg flex items-center justify-center p-6">
       <div className="w-full max-w-lg rounded-sm border border-linear-border bg-linear-bg-secondary p-6 space-y-4">
+        <img src="/brand/logo.png" alt="OpenLinear" className="h-10 mx-auto" />
+
         <div className="flex items-center gap-2">
           {error ? (
             <AlertCircle className="h-5 w-5 text-red-400" />
@@ -96,7 +108,7 @@ export function OAuthCallbackClient() {
           </p>
         ) : code ? (
           <p className="text-sm text-linear-text-secondary">
-            Callback data has been sent to the app. This tab should close automatically.
+            Callback data is ready. If the app did not finish automatically, paste this URL or code in AI Providers settings.
           </p>
         ) : (
           <p className="text-sm text-linear-text-secondary">
@@ -104,21 +116,36 @@ export function OAuthCallbackClient() {
           </p>
         )}
 
-        <div className="rounded-sm border border-linear-border bg-linear-bg p-3 text-xs text-linear-text-tertiary break-all">
-          {callbackUrl || "Loading callback URL..."}
-        </div>
+        <textarea
+          readOnly
+          value={callbackUrl || "Loading callback URL..."}
+          className="min-h-24 w-full resize-y rounded-sm border border-linear-border bg-linear-bg p-3 font-mono text-xs text-linear-text-tertiary focus:outline-none focus:border-linear-border-hover"
+          onFocus={(event) => event.currentTarget.select()}
+        />
 
         <div className="flex flex-wrap items-center gap-2">
           <Button
             type="button"
             size="sm"
             variant="outline"
-            onClick={copyCallbackUrl}
+            onClick={() => copyText(callbackUrl, "Callback URL")}
             className="border-linear-border text-linear-text-secondary"
           >
             <Copy className="w-3.5 h-3.5 mr-2" />
-            {copied ? "Copied" : "Copy callback URL"}
+            Copy callback URL
           </Button>
+          {code && (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => copyText(code, "Code")}
+              className="border-linear-border text-linear-text-secondary"
+            >
+              <Copy className="w-3.5 h-3.5 mr-2" />
+              Copy code
+            </Button>
+          )}
           <Link
             href="/settings?section=ai-providers"
             className="inline-flex h-9 items-center rounded-sm bg-linear-accent px-3 text-sm font-medium text-white hover:bg-linear-accent-hover"
@@ -126,6 +153,11 @@ export function OAuthCallbackClient() {
             Back to AI Providers
           </Link>
         </div>
+        {copyStatus && (
+          <p className="text-xs text-linear-text-tertiary" aria-live="polite">
+            {copyStatus}
+          </p>
+        )}
       </div>
     </main>
   )
