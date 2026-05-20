@@ -80,6 +80,10 @@ function isMountedGithubOAuthPath(path: string): boolean {
   return path === '/github' || path.startsWith('/github/');
 }
 
+function isGithubOAuthPath(path: string): boolean {
+  return path === '/api/auth/github' || path.startsWith('/api/auth/github/');
+}
+
 export function createApp(): Application {
   const app: Application = express();
 
@@ -130,12 +134,15 @@ export function createApp(): Application {
 
   // Rate limiters mount BEFORE body parsing so floods are cheap to reject
   const defaultLimiter = makeRateLimiter(60_000, 100, 'default');
-  const authLimiter = makeRateLimiter(60_000, 5, 'auth');
-  const githubOAuthLimiter = makeRateLimiter(60_000, 30, 'github-oauth');
+  const authLimiter = makeRateLimiter(60_000, 60, 'auth');
+  const githubOAuthLimiter = makeRateLimiter(60_000, 120, 'github-oauth');
   const reposUrlLimiter = makeRateLimiter(60_000, 10, 'repos-url');
 
   app.use((req, res, next) => {
     if (req.path === '/api/events' || req.path.startsWith('/api/events')) {
+      return next();
+    }
+    if (req.path === '/health' || isGithubOAuthPath(req.path)) {
       return next();
     }
     return defaultLimiter(req, res, next);

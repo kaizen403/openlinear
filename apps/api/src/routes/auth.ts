@@ -126,11 +126,16 @@ function escapeHtml(value: string): string {
     .replace(/'/g, '&#39;');
 }
 
+function escapeScriptString(value: string): string {
+  return JSON.stringify(value).replace(/</g, '\\u003c');
+}
+
 function renderDesktopCallbackHtml(params: { token?: string; error?: string }): string {
   const callbackUrl = buildDesktopCallbackUrl(params);
   const hasToken = Boolean(params.token);
   const safeToken = params.token ? escapeHtml(params.token) : '';
   const safeError = params.error ? escapeHtml(params.error) : '';
+  const safeCallbackUrl = escapeHtml(callbackUrl);
   const title = hasToken ? 'OpenLinear sign-in complete' : 'OpenLinear sign-in failed';
   const statusText = hasToken
     ? 'Return to OpenLinear to finish signing in.'
@@ -147,10 +152,13 @@ function renderDesktopCallbackHtml(params: { token?: string; error?: string }): 
     :root { color-scheme: dark; font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
     body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #0f0f0f; color: #f5f5f5; }
     main { width: min(520px, calc(100vw - 32px)); border: 1px solid #2a2a2a; background: #171717; padding: 24px; border-radius: 6px; }
+    .brand { display: flex; align-items: center; gap: 10px; margin-bottom: 20px; color: #f5f5f5; font-weight: 650; letter-spacing: 0; }
+    .brand svg { width: 32px; height: 32px; color: #5e6ad2; flex: none; }
     h1 { margin: 0 0 8px; font-size: 20px; line-height: 1.25; }
     p { margin: 0 0 16px; color: #b8b8b8; font-size: 14px; line-height: 1.5; }
     a, button { appearance: none; border: 1px solid #3a3a3a; background: #5e6ad2; color: white; border-radius: 4px; padding: 10px 14px; font: inherit; font-size: 14px; cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; }
     button.secondary { background: transparent; color: #f5f5f5; }
+    .copy-status { min-height: 18px; margin: 10px 0 0; color: #8a8f98; font-size: 12px; }
     textarea { width: 100%; box-sizing: border-box; min-height: 104px; resize: vertical; margin: 8px 0 12px; padding: 10px; border-radius: 4px; border: 1px solid #333; background: #0f0f0f; color: #f5f5f5; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
     .actions { display: flex; gap: 8px; flex-wrap: wrap; }
     .fallback { margin-top: 18px; padding-top: 18px; border-top: 1px solid #2a2a2a; }
@@ -158,28 +166,68 @@ function renderDesktopCallbackHtml(params: { token?: string; error?: string }): 
 </head>
 <body>
   <main>
+    <div class="brand" aria-label="OpenLinear">
+      <svg viewBox="0 0 64 64" fill="none" aria-hidden="true">
+        <circle cx="32" cy="32" r="22" stroke="currentColor" stroke-width="8" fill="none"></circle>
+        <path d="M22 42 L42 22" stroke="currentColor" stroke-width="8" stroke-linecap="square"></path>
+      </svg>
+      <span>OpenLinear</span>
+    </div>
     <h1>${escapeHtml(title)}</h1>
     <p>${statusText}</p>
     <div class="actions">
-      <a href="${escapeHtml(callbackUrl)}">Open OpenLinear</a>
+      <a id="open-app" href="${safeCallbackUrl}">Open OpenLinear</a>
+      <button class="secondary" type="button" id="copy-app-link">Copy app link</button>
       ${hasToken ? '<button class="secondary" type="button" id="copy-token">Copy token</button>' : ''}
     </div>
+    <p id="copy-status" class="copy-status" aria-live="polite"></p>
     ${hasToken ? `<div class="fallback">
-      <p>If OpenLinear does not open, paste this token into the sign-in screen.</p>
+      <p>If OpenLinear does not open, paste the app link or this token into the sign-in screen.</p>
+      <textarea id="app-link" readonly>${safeCallbackUrl}</textarea>
       <textarea id="token" readonly>${safeToken}</textarea>
     </div>` : ''}
   </main>
   <script>
-    const callbackUrl = ${JSON.stringify(callbackUrl)};
-    const token = ${JSON.stringify(params.token ?? '')};
-    window.setTimeout(() => {
-      window.location.href = callbackUrl;
-    }, 100);
-    document.getElementById('copy-token')?.addEventListener('click', async () => {
+    const callbackUrl = ${escapeScriptString(callbackUrl)};
+    const token = ${escapeScriptString(params.token ?? '')};
+    const copyStatus = document.getElementById('copy-status');
+
+    async function copyText(value, label) {
+      if (!value) return;
       try {
-        await navigator.clipboard.writeText(token);
-        document.getElementById('copy-token').textContent = 'Copied';
+        await navigator.clipboard.writeText(value);
+        if (copyStatus) copyStatus.textContent = label + ' copied.';
+        return;
       } catch {}
+
+      const field = document.createElement('textarea');
+      field.value = value;
+      field.setAttribute('readonly', '');
+      field.style.position = 'fixed';
+      field.style.left = '-9999px';
+      document.body.appendChild(field);
+      field.select();
+      try {
+        document.execCommand('copy');
+        if (copyStatus) copyStatus.textContent = label + ' copied.';
+      } catch {
+        if (copyStatus) copyStatus.textContent = 'Copy failed. Select the token below manually.';
+      } finally {
+        field.remove();
+      }
+    }
+
+    document.getElementById('open-app')?.addEventListener('click', () => {
+      if (copyStatus) copyStatus.textContent = 'If OpenLinear did not open, copy the app link below and paste it into the sign-in screen.';
+      window.setTimeout(() => {
+        window.location.href = callbackUrl;
+      }, 0);
+    });
+    document.getElementById('copy-app-link')?.addEventListener('click', () => {
+      void copyText(callbackUrl, 'App link');
+    });
+    document.getElementById('copy-token')?.addEventListener('click', () => {
+      void copyText(token, 'Token');
     });
   </script>
 </body>

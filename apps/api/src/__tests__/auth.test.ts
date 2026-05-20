@@ -75,6 +75,12 @@ describe('Auth API', () => {
       expect(res.headers['content-type']).toContain('text/html');
       expect(res.text).toContain('OpenLinear sign-in failed');
       expect(res.text).toContain('openlinear://callback?error=access_denied');
+      expect(res.text).toContain('aria-label="OpenLinear"');
+      expect(res.text).toContain('id="open-app"');
+      expect(res.text).toContain('id="copy-app-link"');
+      expect(res.text).not.toContain('setTimeout(requestOpenLinear');
+      expect(res.text).not.toContain('preventDefault()');
+      expect(res.text).not.toContain('requestOpenLinear');
     });
   });
 
