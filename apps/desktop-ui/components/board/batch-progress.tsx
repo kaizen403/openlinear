@@ -183,18 +183,19 @@ export function BatchProgress({ batchId, status, mode, tasks, prUrl, onCancel, o
             return (
               <div
                 key={task.taskId}
-                className="bg-linear-bg-secondary border border-linear-border rounded-sm p-3 hover:border-linear-border-hover transition-colors"
+                className="bg-linear-bg-secondary border border-linear-border rounded-sm p-3"
               >
                 <div className="flex items-center gap-3">
                   <Icon
                     className={cn("w-4 h-4 flex-shrink-0", cfg.color, task.status === 'running' && 'animate-spin')}
                   />
                   <span className="text-sm text-linear-text truncate flex-1">{task.title}</span>
+                  <span className={cn("text-xs flex-shrink-0", cfg.color)}>{cfg.label}</span>
                   <button
                     onClick={() => onViewActivity?.(task.taskId)}
-                    className="text-sm text-linear-text-tertiary hover:text-linear-accent transition-colors flex-shrink-0"
+                    className="text-sm text-linear-text-tertiary hover:text-linear-accent flex-shrink-0"
                   >
-                    View activity
+                    View Full activity
                   </button>
                 </div>
               </div>

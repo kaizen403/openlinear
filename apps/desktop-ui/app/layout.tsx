@@ -66,7 +66,7 @@ export default function RootLayout({
       <head>
         <script
           dangerouslySetInnerHTML={{
-            __html: `(function(){try{var s=localStorage.getItem("openlinear-accent");if(s){var c=JSON.parse(s);document.documentElement.style.setProperty("--linear-accent",c.accent);document.documentElement.style.setProperty("--linear-accent-hover",c.hover)}}catch(e){}})()`,
+            __html: `(function(){try{var d=document.documentElement;var s=localStorage.getItem("openlinear-accent");if(s){var c=JSON.parse(s);d.style.setProperty("--linear-accent",c.accent);d.style.setProperty("--linear-accent-hover",c.hover)}var tauri=!!window.__TAURI_INTERNALS__;var platform=(navigator.platform||navigator.userAgent||"").toLowerCase();var linux=platform.indexOf("linux")!==-1||platform.indexOf("x11")!==-1;d.dataset.openlinearRuntime=tauri?"tauri":"web";d.dataset.openlinearPlatform=linux?"linux":"other";var profile=localStorage.getItem("openlinear-render-profile");d.dataset.openlinearRenderProfile=profile||(tauri&&linux?"fast":"default")}catch(e){}})()`,
           }}
         />
       </head>

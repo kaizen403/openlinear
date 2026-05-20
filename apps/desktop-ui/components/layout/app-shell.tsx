@@ -36,6 +36,8 @@ export function AppShell({ children }: AppShellProps) {
     const [mounted, setMounted] = useState(false)
     const startX = useRef(0)
     const startWidth = useRef(DEFAULT_WIDTH)
+    const pendingWidth = useRef<number | null>(null)
+    const resizeFrame = useRef<number | null>(null)
 
     /* Hydration-safe: read localStorage only after mount */
     useEffect(() => {
@@ -82,7 +84,14 @@ export function AppShell({ children }: AppShellProps) {
             if (!dragging) return
             const delta = e.clientX - startX.current
             const newWidth = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, startWidth.current + delta))
-            setSidebarWidth(newWidth)
+            pendingWidth.current = newWidth
+            if (resizeFrame.current !== null) return
+            resizeFrame.current = window.requestAnimationFrame(() => {
+                resizeFrame.current = null
+                if (pendingWidth.current !== null) {
+                    setSidebarWidth(pendingWidth.current)
+                }
+            })
         }
 
         const handleMouseUp = () => {
@@ -90,6 +99,14 @@ export function AppShell({ children }: AppShellProps) {
             setDragging(false)
             document.body.style.cursor = ""
             document.body.style.userSelect = ""
+            if (resizeFrame.current !== null) {
+                window.cancelAnimationFrame(resizeFrame.current)
+                resizeFrame.current = null
+            }
+            if (pendingWidth.current !== null) {
+                setSidebarWidth(pendingWidth.current)
+                pendingWidth.current = null
+            }
         }
 
         window.addEventListener("mousemove", handleMouseMove)
@@ -97,6 +114,10 @@ export function AppShell({ children }: AppShellProps) {
         return () => {
             window.removeEventListener("mousemove", handleMouseMove)
             window.removeEventListener("mouseup", handleMouseUp)
+            if (resizeFrame.current !== null) {
+                window.cancelAnimationFrame(resizeFrame.current)
+                resizeFrame.current = null
+            }
         }
     }, [dragging])
 
