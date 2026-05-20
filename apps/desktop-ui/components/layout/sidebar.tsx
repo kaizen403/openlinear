@@ -265,7 +265,12 @@ export function Sidebar({ open, onClose, width }: SidebarProps) {
     const router = useRouter()
     const { user, isAuthenticated, isLoading, logout } = useAuth()
     const { teams, reload: reloadTeams } = useTeams()
+    const { activeProject } = useProject()
     const { setTheme } = useTheme()
+
+    const projectTeams = activeProject
+        ? teams.filter(t => t.projectTeams?.some(pt => pt.project.id === activeProject.id))
+        : teams
     const [isTauri, setIsTauri] = useState(false)
     const [unreadCount, setUnreadCount] = useState<number>(0)
     const [isFullscreen, setIsFullscreen] = useState(false)
@@ -447,11 +452,10 @@ export function Sidebar({ open, onClose, width }: SidebarProps) {
 
                 </div>
 
-                {/* Team hierarchy */}
-                <div className="mt-4 px-3">
+                    <div className="mt-4 px-3">
                     <div className="flex items-center justify-between px-3 mb-1">
                         <span className="text-xs font-semibold uppercase tracking-wider text-linear-text-tertiary">
-                            Your teams
+                            Teams
                         </span>
                         <Link
                             href="/teams"
@@ -461,9 +465,9 @@ export function Sidebar({ open, onClose, width }: SidebarProps) {
                             <Settings className="w-3.5 h-3.5" />
                         </Link>
                     </div>
-                    {teams.length > 0 ? (
+                    {projectTeams.length > 0 ? (
                         <div className="space-y-0.5">
-                            {teams.map(team => (
+                            {projectTeams.map(team => (
                                 <TeamSection
                                     key={team.id}
                                     team={team}

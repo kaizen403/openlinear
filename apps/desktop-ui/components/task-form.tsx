@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
-import { Loader2, FolderKanban } from "lucide-react"
+import { Loader2, FolderKanban, Users } from "lucide-react"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import * as z from "zod"
@@ -33,6 +33,8 @@ import { LabelPicker } from "@/components/label-picker"
 import { DatePicker } from "@/components/ui/date-picker"
 import { TaskFormModelSelector } from "@/components/task-form-model-selector"
 import { Project } from "@/lib/api"
+import { useTeams } from "@/providers/teams-provider"
+import { useProject } from "@/hooks/use-project"
 
 const getFormSchema = (hasProjects: boolean) => z.object({
   title: z.string().min(1, "Title is required"),
@@ -40,6 +42,7 @@ const getFormSchema = (hasProjects: boolean) => z.object({
   status: z.enum(["todo", "in_progress", "done", "cancelled"]),
   labelIds: z.array(z.string()),
   projectId: hasProjects ? z.string().min(1, "Project is required") : z.string().optional(),
+  teamId: z.string().optional(),
   dueDate: z.string().optional(),
   model: z.string().nullable().optional(),
 })
@@ -76,6 +79,13 @@ export function TaskFormDialog({
 }: TaskFormDialogProps) {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const hasProjects = projects.length > 0
+  const { teams } = useTeams()
+  const { activeProject } = useProject()
+
+  const effectiveProjectId = defaultProjectId || activeProject?.id || null
+  const projectTeams = effectiveProjectId
+    ? teams.filter(t => t.projectTeams?.some(pt => pt.project.id === effectiveProjectId))
+    : teams
 
   const form = useForm<FormValues>({
     resolver: zodResolver(getFormSchema(hasProjects)),
@@ -85,6 +95,7 @@ export function TaskFormDialog({
       status: defaultStatus || "todo",
       labelIds: [],
       projectId: defaultProjectId || (hasProjects ? "" : undefined),
+      teamId: "",
       dueDate: "",
       model: null,
     },
@@ -109,6 +120,7 @@ export function TaskFormDialog({
           status: values.status,
           labelIds: values.labelIds.length > 0 ? values.labelIds : undefined,
           projectId: values.projectId || undefined,
+          teamId: values.teamId || undefined,
           dueDate: values.dueDate ? new Date(values.dueDate).toISOString() : undefined,
           model: values.model || undefined,
         }),
@@ -336,6 +348,52 @@ export function TaskFormDialog({
                   </FormItem>
                 )}
               />
+
+              {projectTeams.length > 0 && (
+                <FormField
+                  control={form.control}
+                  name="teamId"
+                  render={({ field }) => (
+                    <FormItem className="space-y-0">
+                      <Select
+                        onValueChange={field.onChange}
+                        value={field.value || ""}
+                      >
+                        <FormControl>
+                          <SelectTrigger className="h-7 w-auto px-2.5 text-xs rounded-sm bg-transparent border-none hover:bg-linear-bg-tertiary text-linear-text-secondary gap-1.5 focus:ring-0 shadow-none">
+                            <div className="flex items-center gap-1.5">
+                              <Users className="w-3 h-3 text-linear-text-tertiary" />
+                              <SelectValue placeholder="Team">
+                                {field.value
+                                  ? projectTeams.find((t) => t.id === field.value)?.name
+                                  : "Team"}
+                              </SelectValue>
+                            </div>
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent className="bg-linear-bg-secondary border-linear-border">
+                          {projectTeams.map((team) => (
+                            <SelectItem
+                              key={team.id}
+                              value={team.id}
+                              className="text-linear-text focus:bg-linear-bg-tertiary focus:text-linear-text text-xs"
+                            >
+                              <div className="flex items-center gap-2">
+                                <div
+                                  className="w-2 h-2 rounded-full"
+                                  style={{ backgroundColor: team.color }}
+                                />
+                                {team.name}
+                              </div>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage className="text-red-400 text-xs" />
+                    </FormItem>
+                  )}
+                />
+              )}
 
               {hasProjects && !defaultProjectId && (
                 <FormField
