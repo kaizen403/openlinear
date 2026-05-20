@@ -23,6 +23,9 @@ echo "[dev] (sidecar serves CRUD + /api/tasks/:id/execute + /api/batches + /api/
 # Acknowledge OpenCode's single-tenant model so the sidecar boots against
 # multi-user databases (shared dev DB, Neon). See docs/limitations.md.
 export OPENLINEAR_ALLOW_SHARED_OPENCODE="${OPENLINEAR_ALLOW_SHARED_OPENCODE:-1}"
+export NEXT_PUBLIC_API_URL="${NEXT_PUBLIC_API_URL:-http://127.0.0.1:3001}"
+export FRONTEND_URL="${FRONTEND_URL:-http://127.0.0.1:3000}"
+export CORS_ORIGIN="${CORS_ORIGIN:-http://127.0.0.1:3000,http://localhost:3000,tauri://localhost,https://tauri.localhost}"
 
 # Start the SIDECAR (not the CRUD-only API) on port 3001. The sidecar wraps
 # the API app and additionally mounts execution, batch, and opencode routes

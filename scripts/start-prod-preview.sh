@@ -12,6 +12,9 @@ err()  { echo -e "${RED}[start]${NC} $1"; }
 
 UI_PORT="${UI_PORT:-3000}"
 export API_PORT="${API_PORT:-3001}"
+UI_HOST="${UI_HOST:-127.0.0.1}"
+UI_ORIGIN="http://$UI_HOST:$UI_PORT"
+API_ORIGIN="http://127.0.0.1:$API_PORT"
 # Acknowledge OpenCode's single-tenant model so the sidecar boots against
 # multi-user databases (e.g. shared dev DB, Neon). See docs/limitations.md;
 # unset this and run one sidecar per user only in true multi-tenant deploys.
@@ -60,13 +63,16 @@ log "Clearing stale Next.js build cache (.next, out) so CSS/font changes always 
 rm -rf "$ROOT_DIR/apps/desktop-ui/.next" "$ROOT_DIR/apps/desktop-ui/out"
 
 log "Building Next.js frontend for production (static export -> out/)..."
-BUILD_FOR_TAURI=1 pnpm --filter @openlinear/desktop-ui build
+NEXT_PUBLIC_API_URL="$API_ORIGIN" BUILD_FOR_TAURI=1 pnpm --filter @openlinear/desktop-ui build
 
 OUT_DIR="$ROOT_DIR/apps/desktop-ui/out"
 if [ ! -d "$OUT_DIR" ]; then
     err "Build did not produce $OUT_DIR"
     exit 1
 fi
+
+export FRONTEND_URL="${FRONTEND_URL:-$UI_ORIGIN}"
+export CORS_ORIGIN="${CORS_ORIGIN:-$UI_ORIGIN,http://localhost:$UI_PORT,tauri://localhost,https://tauri.localhost}"
 
 log "Starting execution-capable sidecar on port $API_PORT..."
 log "(sidecar serves CRUD + /api/tasks/:id/execute + /api/batches + /api/opencode)"
@@ -86,14 +92,14 @@ for i in $(seq 1 30); do
     sleep 1
 done
 
-log "Serving production build from $OUT_DIR on port $UI_PORT..."
-pnpm dlx serve@14 -s "$OUT_DIR" -l "$UI_PORT" --no-clipboard >/tmp/openlinear-static-server.log 2>&1 &
+log "Serving production build from $OUT_DIR at $UI_ORIGIN..."
+pnpm dlx serve@14 -s "$OUT_DIR" -l "tcp://$UI_HOST:$UI_PORT" --no-clipboard >/tmp/openlinear-static-server.log 2>&1 &
 PIDS+=($!)
 
 log "Waiting for static server..."
 for i in $(seq 1 20); do
-    if curl -sf "http://127.0.0.1:$UI_PORT/" >/dev/null 2>&1; then
-        ok "Static server ready at http://127.0.0.1:$UI_PORT"
+    if curl -sf "$UI_ORIGIN/" >/dev/null 2>&1; then
+        ok "Static server ready at $UI_ORIGIN"
         break
     fi
     if [ "$i" -eq 20 ]; then
@@ -104,7 +110,8 @@ for i in $(seq 1 20); do
 done
 
 log "Launching Tauri (skipping bundled sidecar; using live API on $API_PORT)..."
-TAURI_CONFIG_OVERRIDE='{"build":{"beforeDevCommand":"","devUrl":"http://localhost:'"$UI_PORT"'"}}'
+TAURI_DEV_URL="$UI_ORIGIN/?openlinearBuild=$(date +%s)"
+TAURI_CONFIG_OVERRIDE='{"build":{"beforeDevCommand":"","devUrl":"'"$TAURI_DEV_URL"'"}}'
 
 OPENLINEAR_SKIP_SIDECAR=1 API_PORT="$API_PORT" \
     pnpm --filter @openlinear/desktop exec tauri dev \
