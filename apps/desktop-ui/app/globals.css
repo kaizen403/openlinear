@@ -19,7 +19,7 @@
  */
 @font-face {
   font-family: 'Anthropic Sans';
-  src: url('/fonts/AnthropicSans-Regular.woff2') format('woff2');
+  src: url('/fonts/AnthropicSans-Regular.woff2?v=static-meta-20260519') format('woff2');
   font-weight: 400;
   font-style: normal;
   font-display: block;
@@ -31,7 +31,7 @@
 }
 @font-face {
   font-family: 'Anthropic Sans';
-  src: url('/fonts/AnthropicSans-Medium.woff2') format('woff2');
+  src: url('/fonts/AnthropicSans-Medium.woff2?v=static-meta-20260519') format('woff2');
   font-weight: 500;
   font-style: normal;
   font-display: block;
@@ -43,7 +43,7 @@
 }
 @font-face {
   font-family: 'Anthropic Sans';
-  src: url('/fonts/AnthropicSans-SemiBold.woff2') format('woff2');
+  src: url('/fonts/AnthropicSans-SemiBold.woff2?v=static-meta-20260519') format('woff2');
   font-weight: 600;
   font-style: normal;
   font-display: block;
@@ -55,7 +55,7 @@
 }
 @font-face {
   font-family: 'Anthropic Sans';
-  src: url('/fonts/AnthropicSans-Bold.woff2') format('woff2');
+  src: url('/fonts/AnthropicSans-Bold.woff2?v=static-meta-20260519') format('woff2');
   font-weight: 700;
   font-style: normal;
   font-display: block;
@@ -72,10 +72,9 @@
    * strong-binding alias that rewrites Inter / system-ui / sans-serif to
    * a different face (Geist, JetBrains Mono, etc.), which leaks through
    * webkit and replaces fallback glyphs mid-word with mismatched metrics.
-   * We jump straight to faces that those configs leave alone, plus the
-   * generic `sans-serif` keyword last (which lets fontconfig pick one
-   * Cairo-rendered face for everything not covered by Anthropic Sans). */
-  --font-sans: 'Anthropic Sans', 'Cantarell', 'DejaVu Sans', sans-serif;
+   * We jump straight to explicit faces that those configs leave alone. Do
+   * not append generic `sans-serif`: user fontconfig can alias it too. */
+  --font-sans: 'Anthropic Sans', 'Cantarell', 'Noto Sans', 'DejaVu Sans';
   --font-ui: var(--font-sans);
 
   --font-mono: ui-monospace, 'JetBrains Mono', 'Fira Code', 'SFMono-Regular',
@@ -234,4 +233,40 @@ code,
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
+}
+
+/* ── Tauri Linux fast render profile ───────────────────
+ * WebKitGTK on some Linux/Arch setups stalls input while compositing
+ * backdrop filters, large shadows, and animated opacity changes. The root
+ * layout enables this profile only inside the Tauri runtime on Linux, before
+ * first paint. Set localStorage["openlinear-render-profile"] = "default" to
+ * compare against the full-effect UI on the same device. */
+html[data-openlinear-render-profile="fast"] *,
+html[data-openlinear-render-profile="fast"] *::before,
+html[data-openlinear-render-profile="fast"] *::after {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+  scroll-behavior: auto !important;
+}
+
+html[data-openlinear-render-profile="fast"] button,
+html[data-openlinear-render-profile="fast"] a,
+html[data-openlinear-render-profile="fast"] [role="button"],
+html[data-openlinear-render-profile="fast"] input,
+html[data-openlinear-render-profile="fast"] select,
+html[data-openlinear-render-profile="fast"] textarea,
+html[data-openlinear-render-profile="fast"] [class*="transition-"] {
+  transition-duration: 0ms !important;
+}
+
+html[data-openlinear-render-profile="fast"] [class*="shadow"] {
+  box-shadow: none !important;
+}
+
+html[data-openlinear-render-profile="fast"] .animate-pulse {
+  animation: none !important;
+}
+
+html[data-openlinear-render-profile="fast"] .animate-spin {
+  animation-duration: 1.25s !important;
 }
