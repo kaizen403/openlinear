@@ -3,7 +3,15 @@ import { PrismaClient } from "../generated/prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import crypto from "crypto";
 
-process.loadEnvFile(resolve(import.meta.dirname, "../.env"));
+const localEnv = resolve(import.meta.dirname, "../.env");
+const rootEnv = resolve(import.meta.dirname, "../../../.env");
+try {
+  process.loadEnvFile(localEnv);
+} catch {
+  try {
+    process.loadEnvFile(rootEnv);
+  } catch {}
+}
 
 const adapter = new PrismaPg({
   connectionString: process.env.DATABASE_URL,
