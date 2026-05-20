@@ -8,6 +8,7 @@ import { TaskFormDialog } from "@/components/task-form"
 
 import { useAuth } from "@/hooks/use-auth"
 import { useProject } from "@/hooks/use-project"
+import { useWorkspace } from "@/hooks/use-workspace"
 import { fetchTeams, Team } from "@/lib/api"
 import { OnboardingWizard } from "@/components/onboarding/onboarding-wizard"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -55,6 +56,7 @@ function HomeContent() {
   const [refreshKey, setRefreshKey] = useState(0)
   const { isAuthenticated, isLoading, user } = useAuth()
   const { activeProject, projects, isLoading: isProjectsLoading, refreshProjects } = useProject()
+  const { refreshWorkspaces } = useWorkspace()
   const router = useRouter()
   const [teams, setTeams] = useState<Team[]>([])
   const [searchQuery, setSearchQuery] = useState("")
@@ -104,7 +106,8 @@ function HomeContent() {
         <div className="flex-1 flex items-center justify-center p-6">
           <OnboardingWizard
             teams={teams}
-            onComplete={() => {
+            onComplete={({ workspaceId }) => {
+              refreshWorkspaces()
               refreshProjects()
             }}
           />

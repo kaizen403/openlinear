@@ -6,6 +6,7 @@ import { motion, AnimatePresence, useReducedMotion } from "framer-motion"
 import {
   ArrowRight,
   ArrowLeft,
+  Building2,
   CalendarClock,
   Check,
   Copy,
@@ -30,6 +31,7 @@ import { Input } from "@/components/ui/input"
 import {
   createProject,
   createTask,
+  createWorkspace,
   ApiError,
   createTeam,
   fetchGitHubRepos,
@@ -43,16 +45,15 @@ import {
 import { useAuth } from "@/hooks/use-auth"
 
 const SPRING = { type: "spring" as const, stiffness: 300, damping: 30 }
-const STORAGE_KEY = "openlinear:onboarding:v2"
+const STORAGE_KEY = "openlinear:onboarding:v3"
 const REPO_PAGE_SIZE = 30
 
 const STEP_LABELS = [
-  "Welcome",
+  "Workspace",
   "Connect repo",
   "Pick branch",
   "Set up team",
-  "Invite",
-  "Create first task",
+  "Create project",
 ] as const
 
 const FILTER_OPTIONS: Array<{ value: GitHubRepoFilter; label: string }> = [
@@ -71,7 +72,7 @@ const SORT_OPTIONS: Array<{ value: GitHubRepoSort; label: string }> = [
 
 interface OnboardingWizardProps {
   teams: Team[]
-  onComplete: (result: { teamId: string; projectId: string }) => void
+  onComplete: (result: { teamId: string; projectId: string; workspaceId: string }) => void
   onCancel?: () => void
 }
 
@@ -228,14 +229,20 @@ function mergeRepos(existing: GitHubRepo[], next: GitHubRepo[]): GitHubRepo[] {
   return merged
 }
 
-function WelcomeStep({
-  isSkipping,
-  onNext,
+function WorkspaceStep({
+  workspaceName,
+  isCreating,
+  onChange,
+  onCreate,
   onSkipDemo,
+  isSkipping,
 }: {
-  isSkipping: boolean
-  onNext: () => void
+  workspaceName: string
+  isCreating: boolean
+  onChange: (name: string) => void
+  onCreate: () => void
   onSkipDemo: () => void
+  isSkipping: boolean
 }) {
   const reduceMotion = useReducedMotion()
 
@@ -247,7 +254,7 @@ function WelcomeStep({
         transition={reduceMotion ? { duration: 0 } : { ...SPRING, delay: 0.1 }}
         className="w-20 h-20 mx-auto rounded-sm bg-linear-accent/10 flex items-center justify-center"
       >
-        <Rocket className="w-10 h-10 text-linear-accent" />
+        <Building2 className="w-10 h-10 text-linear-accent" />
       </motion.div>
 
       <motion.div
@@ -256,9 +263,9 @@ function WelcomeStep({
         transition={reduceMotion ? { duration: 0 } : { ...SPRING, delay: 0.2 }}
         className="space-y-2"
       >
-        <h2 className="text-2xl font-semibold text-linear-text">Welcome to OpenLinear</h2>
+        <h2 className="text-2xl font-semibold text-linear-text">Create your workspace</h2>
         <p className="text-sm text-linear-text-secondary max-w-sm mx-auto leading-relaxed">
-          Connect a repository when you are ready, or start with a demo project and explore the workspace first.
+          A workspace is your team&apos;s home. All projects and issues live here.
         </p>
       </motion.div>
 
@@ -266,21 +273,40 @@ function WelcomeStep({
         initial={reduceMotion ? false : { y: 20, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         transition={reduceMotion ? { duration: 0 } : { ...SPRING, delay: 0.3 }}
-        className="flex flex-col sm:flex-row items-center justify-center gap-2"
+        className="max-w-xs mx-auto space-y-4"
       >
+        <Input
+          placeholder="e.g. Acme Inc"
+          value={workspaceName}
+          onChange={(e) => onChange(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && workspaceName.trim()) onCreate()
+          }}
+          className="text-center"
+        />
         <button
           type="button"
-          onClick={onNext}
-          className="w-full sm:w-auto bg-linear-accent hover:bg-linear-accent-hover text-white rounded-sm h-10 px-6 text-sm font-medium transition-colors inline-flex items-center justify-center gap-2"
+          onClick={onCreate}
+          disabled={!workspaceName.trim() || isCreating}
+          className="w-full bg-linear-accent hover:bg-linear-accent-hover disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-sm h-10 px-6 text-sm font-medium transition-colors inline-flex items-center justify-center gap-2"
         >
-          Connect a repo
-          <ArrowRight className="w-4 h-4" />
+          {isCreating ? (
+            <>
+              <Loader2 className="w-4 h-4 animate-spin" />
+              Creating...
+            </>
+          ) : (
+            <>
+              Continue
+              <ArrowRight className="w-4 h-4" />
+            </>
+          )}
         </button>
         <button
           type="button"
           onClick={onSkipDemo}
           disabled={isSkipping}
-          className="w-full sm:w-auto border border-linear-border hover:bg-linear-bg-tertiary disabled:opacity-50 disabled:cursor-not-allowed text-linear-text rounded-sm h-10 px-6 text-sm font-medium transition-colors inline-flex items-center justify-center gap-2"
+          className="w-full border border-linear-border hover:bg-linear-bg-tertiary disabled:opacity-50 disabled:cursor-not-allowed text-linear-text-secondary rounded-sm h-9 px-6 text-xs font-medium transition-colors inline-flex items-center justify-center gap-2"
         >
           {isSkipping ? (
             <>
@@ -1403,6 +1429,8 @@ export function OnboardingWizard({ teams, onComplete, onCancel }: OnboardingWiza
   const [repoDraft, setRepoDraft] = useState<RepoDraft>(EMPTY_REPO_DRAFT)
   const [firstTaskTitle, setFirstTaskTitle] = useState("")
   const [createdTeam, setCreatedTeam] = useState<Team | null>(null)
+  const [workspaceName, setWorkspaceName] = useState("")
+  const [createdWorkspaceId, setCreatedWorkspaceId] = useState<string | null>(null)
   const [isCreatingWorkspace, setIsCreatingWorkspace] = useState(false)
   const [isSkippingDemo, setIsSkippingDemo] = useState(false)
   const didLoadStoredDraftRef = useRef(false)
@@ -1427,14 +1455,18 @@ export function OnboardingWizard({ teams, onComplete, onCancel }: OnboardingWiza
   }, [currentStep, firstTaskTitle, repoDraft])
 
   useEffect(() => {
-    if (currentStep > 1 && !hasRepoSelection(repoDraft)) {
+    if (currentStep > 1 && !createdWorkspaceId) {
+      setCurrentStep(0)
+      return
+    }
+    if (currentStep > 2 && !hasRepoSelection(repoDraft)) {
       setCurrentStep(1)
       return
     }
     if (currentStep > 3 && !team) {
       setCurrentStep(3)
     }
-  }, [currentStep, repoDraft, team])
+  }, [currentStep, repoDraft, team, createdWorkspaceId])
 
   const updateRepoDraft = useCallback((patch: Partial<RepoDraft>) => {
     setRepoDraft((current) => ({ ...current, ...patch }))
@@ -1458,25 +1490,46 @@ export function OnboardingWizard({ teams, onComplete, onCancel }: OnboardingWiza
     return created
   }, [team, user?.username])
 
+  const handleCreateWorkspaceStep = useCallback(async () => {
+    if (!workspaceName.trim()) return
+    setIsCreatingWorkspace(true)
+    try {
+      const ws = await createWorkspace({ name: workspaceName.trim() })
+      setCreatedWorkspaceId(ws.id)
+      goToStep(1)
+    } catch {
+      toast.error("Failed to create workspace. Please try again.")
+    } finally {
+      setIsCreatingWorkspace(false)
+    }
+  }, [workspaceName, goToStep])
+
   const handleSkipDemo = useCallback(async () => {
     setIsSkippingDemo(true)
     try {
+      let wsId = createdWorkspaceId
+      if (!wsId) {
+        const ws = await createWorkspace({ name: user?.username ? `${user.username}'s Workspace` : "My Workspace" })
+        wsId = ws.id
+        setCreatedWorkspaceId(wsId)
+      }
       const resolvedTeam = await ensureTeam()
       const project = await createProject({
         name: "Demo Project",
         teamIds: [resolvedTeam.id],
+        workspaceId: wsId,
       })
       clearStoredDraft()
-      onComplete({ teamId: resolvedTeam.id, projectId: project.id })
+      onComplete({ teamId: resolvedTeam.id, projectId: project.id, workspaceId: wsId })
     } catch {
       toast.error("Failed to create demo project. Please try again.")
     } finally {
       setIsSkippingDemo(false)
     }
-  }, [ensureTeam, onComplete])
+  }, [createdWorkspaceId, ensureTeam, onComplete, user?.username])
 
-  const handleCreateWorkspace = useCallback(async () => {
-    if (!repoDraft.projectName.trim()) return
+  const handleCreateProject = useCallback(async () => {
+    if (!repoDraft.projectName.trim() || !createdWorkspaceId) return
     setIsCreatingWorkspace(true)
 
     try {
@@ -1503,6 +1556,7 @@ export function OnboardingWizard({ teams, onComplete, onCancel }: OnboardingWiza
         repoUrl,
         repositoryId,
         defaultBranch: repoDraft.defaultBranch.trim() || "main",
+        workspaceId: createdWorkspaceId,
       })
 
       if (firstTaskTitle.trim()) {
@@ -1514,13 +1568,13 @@ export function OnboardingWizard({ teams, onComplete, onCancel }: OnboardingWiza
       }
 
       clearStoredDraft()
-      onComplete({ teamId: resolvedTeam.id, projectId: project.id })
+      onComplete({ teamId: resolvedTeam.id, projectId: project.id, workspaceId: createdWorkspaceId })
     } catch {
-      toast.error("Failed to create workspace. Please try again.")
+      toast.error("Failed to create project. Please try again.")
     } finally {
       setIsCreatingWorkspace(false)
     }
-  }, [ensureTeam, firstTaskTitle, onComplete, repoDraft])
+  }, [createdWorkspaceId, ensureTeam, firstTaskTitle, onComplete, repoDraft])
 
   const handleRepoContinue = useCallback(() => {
     if (!hasRepoSelection(repoDraft)) return
@@ -1543,7 +1597,15 @@ export function OnboardingWizard({ teams, onComplete, onCancel }: OnboardingWiza
   )
 
   const steps = [
-    <WelcomeStep key="welcome" isSkipping={isSkippingDemo} onNext={() => goToStep(1)} onSkipDemo={handleSkipDemo} />,
+    <WorkspaceStep
+      key="workspace"
+      workspaceName={workspaceName}
+      isCreating={isCreatingWorkspace}
+      onChange={setWorkspaceName}
+      onCreate={handleCreateWorkspaceStep}
+      onSkipDemo={handleSkipDemo}
+      isSkipping={isSkippingDemo}
+    />,
     <RepoStep key="repo" draft={repoDraft} onDraftChange={updateRepoDraft} onContinue={handleRepoContinue} />,
     <BranchStep
       key="branch"
@@ -1553,21 +1615,15 @@ export function OnboardingWizard({ teams, onComplete, onCancel }: OnboardingWiza
       onContinue={() => goToStep(3)}
     />,
     <TeamStep key="team" team={team} onBack={() => goToStep(2)} onTeamReady={handleTeamReady} />,
-    <InviteStep
-      key="invite"
-      team={team}
-      onBack={() => goToStep(3)}
-      onContinue={() => goToStep(5)}
-    />,
     <FirstTaskStep
-      key="task"
+      key="project"
       draft={repoDraft}
       firstTaskTitle={firstTaskTitle}
       isCreating={isCreatingWorkspace}
       onDraftChange={updateRepoDraft}
       onFirstTaskTitleChange={setFirstTaskTitle}
-      onBack={() => goToStep(4)}
-      onCreate={handleCreateWorkspace}
+      onBack={() => goToStep(3)}
+      onCreate={handleCreateProject}
     />,
   ]
   const stepBody = steps[currentStep] ?? steps[0]

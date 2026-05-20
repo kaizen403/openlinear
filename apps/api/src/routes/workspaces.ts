@@ -6,6 +6,15 @@ import { ensureDefaultWorkspaceForUser } from '../services/workspaces';
 
 const router: Router = Router();
 
+function slugify(value: string): string {
+  const slug = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return slug || 'workspace';
+}
+
 async function assertWorkspaceMember(workspaceId: string, userId: string) {
   const membership = await prisma.workspaceMember.findUnique({
     where: { workspaceId_userId: { workspaceId, userId } },
@@ -104,6 +113,77 @@ router.get('/:id', requireAuth, async (req: AuthRequest, res: Response, next: Ne
       ...workspace,
       currentMember: membership,
     });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/', requireAuth, async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { name } = req.body as { name?: string };
+    if (!name || typeof name !== 'string' || name.trim().length < 1 || name.trim().length > 100) {
+      res.status(400).json({ error: 'name is required (1-100 characters)' });
+      return;
+    }
+
+    const trimmed = name.trim();
+    const baseSlug = slugify(trimmed);
+    let slug = baseSlug;
+    let suffix = 1;
+
+    while (await prisma.workspace.findUnique({ where: { slug }, select: { id: true } })) {
+      suffix += 1;
+      slug = `${baseSlug}-${suffix}`;
+    }
+
+    const workspace = await prisma.workspace.create({
+      data: { name: trimmed, slug },
+    });
+
+    await prisma.workspaceMember.create({
+      data: {
+        workspaceId: workspace.id,
+        userId: req.userId!,
+        role: 'owner',
+        joinedAt: new Date(),
+      },
+    });
+
+    res.status(201).json(workspace);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.patch('/:id', requireAuth, async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const id = req.params.id as string;
+    const membership = await assertWorkspaceMember(id, req.userId!);
+
+    if (membership.role !== 'owner' && membership.role !== 'admin') {
+      res.status(403).json({ error: 'Only owners and admins can update workspace settings' });
+      return;
+    }
+
+    const { name } = req.body as { name?: string };
+    const data: { name?: string } = {};
+
+    if (name && typeof name === 'string' && name.trim().length >= 1 && name.trim().length <= 100) {
+      data.name = name.trim();
+    }
+
+    if (Object.keys(data).length === 0) {
+      res.status(400).json({ error: 'No valid fields to update' });
+      return;
+    }
+
+    const workspace = await prisma.workspace.update({
+      where: { id },
+      data,
+      include: { _count: { select: { members: true, projects: true } } },
+    });
+
+    res.json(workspace);
   } catch (error) {
     next(error);
   }
