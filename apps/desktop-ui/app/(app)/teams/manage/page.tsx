@@ -55,12 +55,21 @@ import {
   fetchProjects,
   deleteProject,
   removeTeamMember,
+  updateTeamMember,
   type Team,
   type TeamMember,
   type Project,
 } from "@/lib/api"
 import { useSSESubscription } from "@/providers/sse-provider"
 import { apiFetch, ApiError } from "@/lib/api/fetch"
+import { useAuth } from "@/hooks/use-auth"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { toast } from "sonner"
 
 const roleIcons = {
@@ -97,6 +106,7 @@ export default function TeamDetailPage() {
 
 function TeamDetailPageContent() {
   const router = useRouter()
+  const { user: authUser } = useAuth()
   const searchParams = useSearchParams()
   const teamId = searchParams.get("id") ?? ""
 
@@ -214,6 +224,19 @@ function TeamDetailPageContent() {
   const handleRemoveMember = (userId: string) => {
     if (!teamId) return
     setRemoveMemberId(userId)
+  }
+
+  const handleRoleChange = async (userId: string, role: TeamMember['role']) => {
+    if (!teamId) return
+    const prev = team?.members ?? []
+    setTeam((t) => (t ? { ...t, members: prev.map((m) => (m.userId === userId ? { ...m, role } : m)) } : t))
+    try {
+      await updateTeamMember(teamId, userId, { role })
+      toast.success("Role updated")
+    } catch (err) {
+      setTeam((t) => (t ? { ...t, members: prev } : t))
+      toast.error(err instanceof Error ? err.message : "Failed to update role")
+    }
   }
 
   const confirmRemoveMember = async () => {
@@ -466,6 +489,10 @@ function TeamDetailPageContent() {
                 <div className="space-y-2">
                   {members.map((member: TeamMember) => {
                     const RoleIcon = roleIcons[member.role]
+                    const callerMember = members.find((m) => m.userId === authUser?.id)
+                    const isCallerOwner = callerMember?.role === 'owner'
+                    const isSelf = member.userId === authUser?.id
+                    const canEditRole = isCallerOwner && !isSelf
                     return (
                       <div
                         key={member.id}
@@ -493,23 +520,43 @@ function TeamDetailPageContent() {
                           </div>
                         </div>
                         <div className="flex items-center gap-3">
-                          <Badge
-                            variant="outline"
-                            className={cn(
-                              getBadgeColorClasses(TEAM_ROLE_COLORS[member.role]),
-                              "flex items-center gap-1 capitalize",
-                            )}
-                          >
-                            <RoleIcon className="w-3 h-3" />
-                            {member.role}
-                          </Badge>
-                          <button
-                            onClick={() => handleRemoveMember(member.userId)}
-                            className="p-1.5 rounded-sm hover:bg-destructive/10 transition-colors"
-                            title="Remove member"
-                          >
-                            <Trash2 className="w-4 h-4 text-destructive" />
-                          </button>
+                          {canEditRole ? (
+                            <Select
+                              value={member.role}
+                              onValueChange={(v) => handleRoleChange(member.userId, v as TeamMember['role'])}
+                            >
+                              <SelectTrigger className="h-7 w-28 text-xs">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {(['owner', 'admin', 'member'] as const).map((r) => (
+                                  <SelectItem key={r} value={r}>
+                                    <span className="capitalize">{r}</span>
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          ) : (
+                            <Badge
+                              variant="outline"
+                              className={cn(
+                                getBadgeColorClasses(TEAM_ROLE_COLORS[member.role]),
+                                "flex items-center gap-1 capitalize",
+                              )}
+                            >
+                              <RoleIcon className="w-3 h-3" />
+                              {member.role}
+                            </Badge>
+                          )}
+                          {canEditRole && (
+                            <button
+                              onClick={() => handleRemoveMember(member.userId)}
+                              className="p-1.5 rounded-sm hover:bg-destructive/10 transition-colors"
+                              title="Remove member"
+                            >
+                              <Trash2 className="w-4 h-4 text-destructive" />
+                            </button>
+                          )}
                         </div>
                       </div>
                     )
