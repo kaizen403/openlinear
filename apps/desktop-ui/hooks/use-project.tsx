@@ -3,6 +3,7 @@
 import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from "react"
 import { fetchProjects, Project } from "@/lib/api"
 import { useWorkspace } from "@/hooks/use-workspace"
+import { useSSESubscription, type SSEEventData, type SSEEventType } from "@/providers/sse-provider"
 
 interface ProjectContextType {
   activeProject: Project | null
@@ -77,6 +78,29 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       setIsLoading(false)
     })()
   }, [activeWorkspace, workspaceLoading, loadProjects])
+
+  useSSESubscription(useCallback((eventType: SSEEventType, data: SSEEventData) => {
+    if (!activeWorkspace) return
+    if (eventType === 'project:created') {
+      const p = data as unknown as Project
+      if (!p?.id || p.workspaceId !== activeWorkspace.id) return
+      setProjects((prev) => (prev.some((x) => x.id === p.id) ? prev : [...prev, p]))
+      return
+    }
+    if (eventType === 'project:updated') {
+      const p = data as unknown as Project
+      if (!p?.id) return
+      setProjects((prev) => prev.map((x) => (x.id === p.id ? { ...x, ...p } : x)))
+      setActiveProjectState((prev) => (prev?.id === p.id ? { ...prev, ...p } : prev))
+      return
+    }
+    if (eventType === 'project:deleted') {
+      const id = (data as { id?: string; projectId?: string }).id ?? (data as { projectId?: string }).projectId
+      if (!id) return
+      setProjects((prev) => prev.filter((x) => x.id !== id))
+      setActiveProjectState((prev) => (prev?.id === id ? null : prev))
+    }
+  }, [activeWorkspace]))
 
   return (
     <ProjectContext.Provider value={{ activeProject, projects, isLoading, setActiveProject, refreshProjects }}>

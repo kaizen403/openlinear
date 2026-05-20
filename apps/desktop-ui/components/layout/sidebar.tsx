@@ -210,6 +210,19 @@ function WorkspaceSwitcher() {
                             )}
                         </button>
                     ))}
+                    {activeWorkspace && (
+                        <>
+                            <div className="my-1 h-px bg-linear-border" />
+                            <Link
+                                href="/workspaces/manage"
+                                onClick={() => setIsOpen(false)}
+                                className="flex items-center gap-2 w-full px-2 py-1.5 rounded-sm text-sm text-linear-text-secondary hover:bg-linear-bg-tertiary transition-colors"
+                            >
+                                <Settings className="w-3.5 h-3.5 flex-shrink-0" />
+                                <span>Workspace settings</span>
+                            </Link>
+                        </>
+                    )}
                 </PopoverContent>
             </Popover>
         </div>

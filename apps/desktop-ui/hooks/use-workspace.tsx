@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from "react"
 import { fetchWorkspaces } from "@/lib/api/workspaces"
+import { useSSESubscription, type SSEEventData, type SSEEventType } from "@/providers/sse-provider"
 import type { Workspace } from "@/lib/api/types"
 
 interface WorkspaceContextType {
@@ -60,6 +61,32 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       setIsLoading(false)
     })()
   }, [loadWorkspaces])
+
+  useSSESubscription(useCallback((eventType: SSEEventType, data: SSEEventData) => {
+    if (eventType === 'workspace:joined') {
+      const ws = data as unknown as Workspace
+      if (!ws?.id) return
+      setWorkspaces((prev) => (prev.some((w) => w.id === ws.id) ? prev.map((w) => (w.id === ws.id ? ws : w)) : [...prev, ws]))
+      return
+    }
+    if (eventType === 'workspace:updated') {
+      const ws = data as unknown as Workspace
+      if (!ws?.id) return
+      setWorkspaces((prev) => prev.map((w) => (w.id === ws.id ? { ...w, ...ws } : w)))
+      setActiveWorkspaceState((prev) => (prev?.id === ws.id ? { ...prev, ...ws } : prev))
+      return
+    }
+    if (eventType === 'workspace:left' || eventType === 'workspace:deleted') {
+      const id = (data as { workspaceId?: string; id?: string }).workspaceId ?? (data as { id?: string }).id
+      if (!id) return
+      setWorkspaces((prev) => prev.filter((w) => w.id !== id))
+      setActiveWorkspaceState((prev) => {
+        if (prev?.id !== id) return prev
+        try { localStorage.removeItem(STORAGE_KEY) } catch {}
+        return null
+      })
+    }
+  }, []))
 
   return (
     <WorkspaceContext.Provider value={{ activeWorkspace, workspaces, isLoading, setActiveWorkspace, refreshWorkspaces }}>

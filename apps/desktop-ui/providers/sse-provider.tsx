@@ -41,6 +41,8 @@ export interface SSEEventData {
     title: string
     status: 'queued' | 'running' | 'completed' | 'failed' | 'skipped' | 'cancelled'
   }>
+  /** Catch-all for workspace, project, team, member, access payloads. */
+  [key: string]: unknown
 }
 
 export type SSEEventType =
@@ -68,9 +70,22 @@ export type SSEEventType =
   | 'team:created'
   | 'team:updated'
   | 'team:deleted'
+  | 'team:joined'
+  | 'team:left'
+  | 'team:member-added'
+  | 'team:member-updated'
+  | 'team:member-removed'
   | 'project:created'
   | 'project:updated'
   | 'project:deleted'
+  | 'project:access-changed'
+  | 'workspace:joined'
+  | 'workspace:left'
+  | 'workspace:updated'
+  | 'workspace:deleted'
+  | 'workspace:member-added'
+  | 'workspace:member-updated'
+  | 'workspace:member-removed'
 
 type SSEListener = (eventType: SSEEventType, data: SSEEventData) => void
 
@@ -106,9 +121,22 @@ const ALL_EVENT_TYPES: SSEEventType[] = [
   'team:created',
   'team:updated',
   'team:deleted',
+  'team:joined',
+  'team:left',
+  'team:member-added',
+  'team:member-updated',
+  'team:member-removed',
   'project:created',
   'project:updated',
   'project:deleted',
+  'project:access-changed',
+  'workspace:joined',
+  'workspace:left',
+  'workspace:updated',
+  'workspace:deleted',
+  'workspace:member-added',
+  'workspace:member-updated',
+  'workspace:member-removed',
 ]
 
 interface SSEStream {

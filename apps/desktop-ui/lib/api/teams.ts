@@ -58,6 +58,17 @@ export async function removeTeamMember(teamId: string, userId: string): Promise<
   await apiFetch<void>(`/api/teams/${teamId}/members/${userId}`, { method: 'DELETE' });
 }
 
+export async function updateTeamMember(
+  teamId: string,
+  userId: string,
+  data: { role: 'owner' | 'admin' | 'member' },
+): Promise<TeamMember> {
+  return apiFetch<TeamMember>(`/api/teams/${teamId}/members/${userId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  });
+}
+
 export async function joinTeam(inviteCode: string): Promise<Team> {
   return apiFetch<Team>('/api/teams/join', {
     method: 'POST',

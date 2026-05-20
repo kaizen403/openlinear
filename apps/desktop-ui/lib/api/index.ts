@@ -34,11 +34,11 @@ export {
 
 export { fetchUserRepositories, fetchGitHubRepos, importRepo, activateRepository, getActiveRepository, setActiveRepositoryBaseBranch, addRepoByUrl, getActivePublicRepository, activatePublicRepository } from './repos';
 
-export { fetchTeams, fetchTeam, createTeam, updateTeam, deleteTeam, addTeamMember, removeTeamMember, joinTeam } from './teams';
+export { fetchTeams, fetchTeam, createTeam, updateTeam, deleteTeam, addTeamMember, removeTeamMember, updateTeamMember, joinTeam } from './teams';
 
 export { fetchProjects, createProject, updateProject, deleteProject, fetchProjectAccess, grantProjectAccess, revokeProjectAccess } from './projects';
 
-export { fetchWorkspaces, fetchWorkspace, fetchWorkspaceMembers, createWorkspace, updateWorkspace } from './workspaces';
+export { fetchWorkspaces, fetchWorkspace, fetchWorkspaceMembers, createWorkspace, updateWorkspace, deleteWorkspace, inviteWorkspaceMember, updateWorkspaceMember, removeWorkspaceMember } from './workspaces';
 
 export { fetchMyIssues, createTask, executeTaskPublic, refreshTaskPr, fetchInboxTasks, fetchInboxCount, markInboxRead, markAllInboxRead } from './tasks';
 
