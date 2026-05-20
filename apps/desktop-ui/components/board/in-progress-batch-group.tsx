@@ -45,7 +45,7 @@ export function InProgressBatchGroup({
               {formatBatchMode(activeBatch.mode)} Issues
             </span>
           </div>
-          <div className="space-y-0">
+          <div className="space-y-2">
             {batch.map((task, i) => (
               <div key={`batch-connector-${task.id}`}>
                 {i > 0 && (

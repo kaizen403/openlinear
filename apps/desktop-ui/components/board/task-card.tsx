@@ -121,8 +121,7 @@ function TaskCardComponent({ task, onExecute, onCancel, onDelete, onMoveToInProg
   const prLink = !isActiveProgress ? (cardProgress?.prUrl || task.prUrl) : null
 
   return (
-    <div>
-    <Card 
+    <Card
       role={selectionMode ? 'checkbox' : undefined}
       aria-checked={selectionMode ? selected : undefined}
       aria-label={selectionMode ? `Select task ${task.title}` : undefined}
@@ -336,7 +335,6 @@ function TaskCardComponent({ task, onExecute, onCancel, onDelete, onMoveToInProg
         </div>
       </CardContent>
     </Card>
-    </div>
   )
 }
 
