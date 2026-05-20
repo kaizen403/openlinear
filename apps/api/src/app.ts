@@ -33,16 +33,31 @@ import { isValidationError, isHttpError } from './errors';
 import { Prisma, prisma } from '@openlinear/db';
 import { getUserTeamIds } from './services/team-scope';
 
+function addLoopbackAliases(allowed: Set<string>, origin: string) {
+  allowed.add(origin);
+  try {
+    const url = new URL(origin);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return;
+    if (url.hostname === 'localhost') {
+      url.hostname = '127.0.0.1';
+      allowed.add(url.toString().replace(/\/$/, ''));
+    } else if (url.hostname === '127.0.0.1' || url.hostname === '[::1]') {
+      url.hostname = 'localhost';
+      allowed.add(url.toString().replace(/\/$/, ''));
+    }
+  } catch {
+    // Non-URL origins such as Tauri schemes are already added above.
+  }
+}
+
 function buildCorsOrigin(): cors.CorsOptions['origin'] {
   const raw = process.env.CORS_ORIGIN || 'http://localhost:3000';
-  const allowed = new Set(
-    raw
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean),
-  );
-  allowed.add('tauri://localhost');
-  allowed.add('https://tauri.localhost');
+  const allowed = new Set<string>();
+  for (const origin of raw.split(',').map((s) => s.trim()).filter(Boolean)) {
+    addLoopbackAliases(allowed, origin);
+  }
+  addLoopbackAliases(allowed, 'tauri://localhost');
+  addLoopbackAliases(allowed, 'https://tauri.localhost');
 
   return (origin, callback) => {
     if (!origin || allowed.has(origin)) {

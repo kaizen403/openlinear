@@ -3,7 +3,14 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { toast } from 'sonner';
-import { User, Repository, fetchCurrentUser, getActiveRepository, logout as apiLogout } from '@/lib/api';
+import {
+  User,
+  Repository,
+  fetchCurrentUser,
+  getActiveRepository,
+  logout as apiLogout,
+  verifyCallbackToken,
+} from '@/lib/api';
 
 interface AuthContextType {
   user: User | null;
@@ -92,22 +99,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const handleAuthCallback = useCallback(async (payload: AuthCallbackPayload) => {
     if (payload.success && payload.token) {
       setIsLoading(true);
-      localStorage.setItem('token', payload.token);
       setActiveRepository(null);
 
-      const result = await loadUser();
-      if (result.stale) return;
-      if (result.user) {
+      const requestId = ++authRequestId.current;
+      try {
+        const userData = await verifyCallbackToken(payload.token);
+        if (requestId !== authRequestId.current) return;
+        setUser(userData);
         await refreshActiveRepository();
         if (pathname === '/login') {
           router.replace('/');
         }
+      } catch (err) {
+        console.warn('[Auth] Failed to verify Tauri callback token:', err);
+        toast.error('Could not finish GitHub sign-in. Paste the callback token from the browser page.');
+      } finally {
+        if (requestId === authRequestId.current) {
+          setIsLoading(false);
+        }
       }
-      setIsLoading(false);
     } else if (payload.error) {
       console.error('[Auth] Tauri callback error:', payload.error);
     }
-  }, [loadUser, pathname, refreshActiveRepository, router]);
+  }, [pathname, refreshActiveRepository, router]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;

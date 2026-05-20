@@ -72,7 +72,8 @@ if [ ! -d "$OUT_DIR" ]; then
 fi
 
 export FRONTEND_URL="${FRONTEND_URL:-$UI_ORIGIN}"
-export CORS_ORIGIN="${CORS_ORIGIN:-$UI_ORIGIN,http://localhost:$UI_PORT,tauri://localhost,https://tauri.localhost}"
+REQUIRED_CORS_ORIGINS="$UI_ORIGIN,http://localhost:$UI_PORT,tauri://localhost,https://tauri.localhost"
+export CORS_ORIGIN="${CORS_ORIGIN:+$CORS_ORIGIN,}$REQUIRED_CORS_ORIGINS"
 
 log "Starting execution-capable sidecar on port $API_PORT..."
 log "(sidecar serves CRUD + /api/tasks/:id/execute + /api/batches + /api/opencode)"

@@ -104,14 +104,20 @@ if (typeof window !== 'undefined') {
 
 function envApiUrl(): string | undefined {
   if (typeof process !== 'undefined' && process.env?.NEXT_PUBLIC_API_URL) {
-    return process.env.NEXT_PUBLIC_API_URL;
+    return normalizeLoopbackApiUrl(process.env.NEXT_PUBLIC_API_URL);
   }
   return undefined;
 }
 
+function normalizeLoopbackApiUrl(value: string): string {
+  return value
+    .replace(/^http:\/\/localhost(?=[:/]|$)/, 'http://127.0.0.1')
+    .replace(/^http:\/\/\[::1\](?=[:/]|$)/, 'http://127.0.0.1');
+}
+
 function envCloudUrl(): string | undefined {
   if (typeof process !== 'undefined' && process.env?.NEXT_PUBLIC_CLOUD_API_URL) {
-    return process.env.NEXT_PUBLIC_CLOUD_API_URL;
+    return normalizeLoopbackApiUrl(process.env.NEXT_PUBLIC_CLOUD_API_URL);
   }
   return undefined;
 }

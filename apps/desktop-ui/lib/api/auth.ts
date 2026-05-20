@@ -6,8 +6,9 @@ import {
 } from './client';
 import type { User } from './types';
 
-const TOKEN_VERIFY_ATTEMPTS = 3;
-const TOKEN_VERIFY_RETRY_MS = 450;
+const TOKEN_VERIFY_TIMEOUT_MS = 15_000;
+const TOKEN_VERIFY_MIN_RETRY_MS = 300;
+const TOKEN_VERIFY_MAX_RETRY_MS = 1_250;
 
 function isTauriRuntime(): boolean {
   return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
@@ -36,7 +37,10 @@ function sleep(ms: number): Promise<void> {
 }
 
 function isRetryableTokenVerificationError(err: unknown): boolean {
-  return err instanceof NetworkError || (err instanceof ApiError && err.status >= 500);
+  return (
+    err instanceof NetworkError ||
+    (err instanceof ApiError && (err.status === 408 || err.status === 429 || err.status >= 500))
+  );
 }
 
 async function getAuthApiUrl(): Promise<string> {
@@ -103,18 +107,21 @@ export async function verifyCallbackToken(token: string): Promise<User> {
   const previousToken = localStorage.getItem('token');
   localStorage.setItem('token', token);
 
+  const deadline = Date.now() + TOKEN_VERIFY_TIMEOUT_MS;
+  let retryDelayMs = TOKEN_VERIFY_MIN_RETRY_MS;
   let lastError: unknown;
-  for (let attempt = 0; attempt < TOKEN_VERIFY_ATTEMPTS; attempt += 1) {
+  while (Date.now() < deadline) {
     try {
       const apiUrl = await getAuthApiUrl();
       return await apiFetch<User>(`${apiUrl}/api/auth/me`, { allowUnauthenticated: true });
     } catch (err) {
       lastError = err;
-      if (!isRetryableTokenVerificationError(err) || attempt === TOKEN_VERIFY_ATTEMPTS - 1) {
+      if (!isRetryableTokenVerificationError(err)) {
         restoreToken(previousToken);
         throw err;
       }
-      await sleep(TOKEN_VERIFY_RETRY_MS);
+      await sleep(Math.min(retryDelayMs, Math.max(0, deadline - Date.now())));
+      retryDelayMs = Math.min(TOKEN_VERIFY_MAX_RETRY_MS, retryDelayMs + 150);
     }
   }
 

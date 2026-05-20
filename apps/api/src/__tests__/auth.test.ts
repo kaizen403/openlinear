@@ -5,6 +5,7 @@ import { createApp } from '../app';
 describe('Auth API', () => {
   const app = createApp();
   const originalGitHubRedirectUri = process.env.GITHUB_REDIRECT_URI;
+  const originalCorsOrigin = process.env.CORS_ORIGIN;
 
   afterEach(() => {
     if (originalGitHubRedirectUri === undefined) {
@@ -12,6 +13,33 @@ describe('Auth API', () => {
     } else {
       process.env.GITHUB_REDIRECT_URI = originalGitHubRedirectUri;
     }
+    if (originalCorsOrigin === undefined) {
+      delete process.env.CORS_ORIGIN;
+    } else {
+      process.env.CORS_ORIGIN = originalCorsOrigin;
+    }
+  });
+
+  describe('CORS loopback origins', () => {
+    it('allows the 127.0.0.1 desktop origin with default CORS settings', async () => {
+      delete process.env.CORS_ORIGIN;
+
+      const res = await request(createApp())
+        .get('/api/auth/me')
+        .set('Origin', 'http://127.0.0.1:3000');
+
+      expect(res.headers['access-control-allow-origin']).toBe('http://127.0.0.1:3000');
+    });
+
+    it('expands configured localhost origins to the matching 127.0.0.1 origin', async () => {
+      process.env.CORS_ORIGIN = 'http://localhost:3000';
+
+      const res = await request(createApp())
+        .get('/api/auth/me')
+        .set('Origin', 'http://127.0.0.1:3000');
+
+      expect(res.headers['access-control-allow-origin']).toBe('http://127.0.0.1:3000');
+    });
   });
 
   describe('GET /api/auth/github', () => {
