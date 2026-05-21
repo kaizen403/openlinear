@@ -300,7 +300,7 @@ export function KanbanBoard(props: KanbanBoardProps) {
 
   return (
     <DragDropContext onDragStart={handleDragStart} onDragEnd={handleDragEndWithState}>
-      <div ref={boardRef} className="flex-1 relative bg-linear-bg flex flex-col overflow-hidden">
+      <div ref={boardRef} className="flex-1 min-h-0 relative bg-linear-bg flex flex-col overflow-hidden">
         {activeBatch && (
           <BatchProgress
             batchId={activeBatch.id}
@@ -321,7 +321,7 @@ export function KanbanBoard(props: KanbanBoardProps) {
           selectedTaskIds={selectedTaskIds}
           activeBatch={activeBatch}
         />
-        <div className="flex md:grid md:grid-cols-2 lg:grid-cols-4 flex-1 min-h-0 overflow-x-auto snap-x snap-mandatory md:overflow-x-visible md:snap-none">
+        <div className="flex md:grid md:grid-cols-2 lg:grid-cols-4 flex-1 min-h-0 overflow-x-auto overflow-y-hidden snap-x snap-mandatory md:overflow-x-visible md:snap-none">
           {COLUMNS.map((column) => {
             const columnTasks = getTasksByStatus(column.status)
             const hasParallelGroup =
