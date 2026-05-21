@@ -26,6 +26,11 @@ export async function fetchMyIssues(
   return unwrap(data);
 }
 
+export async function fetchProjectIssues(projectId: string): Promise<MyIssueTask[]> {
+  const data = await apiFetch<Paginated<MyIssueTask> | MyIssueTask[]>(`/api/tasks?projectId=${projectId}`);
+  return unwrap(data);
+}
+
 export async function createTask(data: {
   title: string;
   description?: string;

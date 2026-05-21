@@ -154,7 +154,7 @@ export function buildProjectAccessWhere(userId: string, teamIds: string[] = []):
         access: { some: { userId, permission: { in: ['full', 'view'] } } },
       },
       ...(teamIds.length > 0
-        ? [{ projectTeams: { some: { teamId: { in: teamIds } } } }]
+        ? [{ teams: { some: { id: { in: teamIds } } } }]
         : []),
     ],
   };
@@ -164,7 +164,7 @@ export function buildProjectFullAccessWhere(userId: string, teamIds: string[] = 
   const legacyTeamAccessWhere: Prisma.ProjectWhereInput[] = teamIds.length > 0
     ? [
         {
-          projectTeams: { some: { teamId: { in: teamIds } } },
+          teams: { some: { id: { in: teamIds } } },
           NOT: { workspace: { members: { some: { userId } } } },
           OR: [
             { workspaceId: { not: null } },
@@ -226,8 +226,8 @@ export async function resolveProjectAccess(
           },
         },
       },
-      projectTeams: {
-        select: { teamId: true },
+      teams: {
+        select: { id: true },
       },
     },
   });
@@ -236,7 +236,7 @@ export async function resolveProjectAccess(
     return { reason: 'not_found' };
   }
 
-  const teamIds = project.projectTeams.map((pt) => pt.teamId);
+  const teamIds = project.teams.map((t) => t.id);
   const explicit = project.access[0]?.permission;
   if (explicit === 'deny') {
     return { reason: 'forbidden', id: project.id, workspaceId: project.workspaceId, teamIds };

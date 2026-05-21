@@ -12,13 +12,16 @@ function generateToken(userId: string, username: string) {
 
 async function cleanup() {
   await prisma.activityLog.deleteMany({});
-  await prisma.projectTeam.deleteMany({});
+  await prisma.teamMember.deleteMany({});
   await prisma.task.updateMany({
     where: { teamId: { not: null } },
     data: { teamId: null },
   });
-  await prisma.teamMember.deleteMany({});
   await prisma.team.deleteMany({});
+  await prisma.projectAccess.deleteMany({});
+  await prisma.project.deleteMany({});
+  await prisma.workspaceMember.deleteMany({});
+  await prisma.workspace.deleteMany({});
 }
 
 async function createUser(githubId: string, username: string) {
@@ -33,11 +36,12 @@ async function createUser(githubId: string, username: string) {
   });
 }
 
-async function createTeam(ownerId: string, key: string) {
+async function createTeam(ownerId: string, key: string, projectId: string) {
   const team = await prisma.team.create({
     data: {
       name: `Team ${key}`,
       key,
+      project: { connect: { id: projectId } },
       members: {
         create: {
           userId: ownerId,
@@ -58,6 +62,7 @@ describe('Team member role management', () => {
   let ownerToken: string;
   let adminToken: string;
   let memberToken: string;
+  let testProjectId: string;
 
   beforeAll(async () => {
     await cleanup();
@@ -68,6 +73,20 @@ describe('Team member role management', () => {
     ownerToken = generateToken(owner.id, owner.username);
     adminToken = generateToken(admin.id, admin.username);
     memberToken = generateToken(member.id, member.username);
+
+    const workspace = await prisma.workspace.create({
+      data: { name: 'Team Members Workspace', slug: 'team-members-workspace' },
+    });
+    await prisma.workspaceMember.create({
+      data: { workspaceId: workspace.id, userId: owner.id, role: 'owner' },
+    });
+    const project = await prisma.project.create({
+      data: { name: 'Team Members Project', workspaceId: workspace.id, key: 'TMP' },
+    });
+    testProjectId = project.id;
+    await prisma.projectAccess.create({
+      data: { projectId: project.id, userId: owner.id, permission: 'full' },
+    });
   }, 30000);
 
   afterAll(async () => {
@@ -75,7 +94,7 @@ describe('Team member role management', () => {
   }, 30000);
 
   it('lets an owner update a member role', async () => {
-    const team = await createTeam(owner.id, 'TMR1');
+    const team = await createTeam(owner.id, 'TMR1', testProjectId);
     await prisma.teamMember.create({
       data: { teamId: team.id, userId: member.id, role: 'member' },
     });
@@ -92,7 +111,7 @@ describe('Team member role management', () => {
   });
 
   it('lets an admin update non-owner roles', async () => {
-    const team = await createTeam(owner.id, 'TMR2');
+    const team = await createTeam(owner.id, 'TMR2', testProjectId);
     await prisma.teamMember.create({
       data: { teamId: team.id, userId: admin.id, role: 'admin' },
     });
@@ -110,7 +129,7 @@ describe('Team member role management', () => {
   });
 
   it('blocks admins from promoting a member to owner', async () => {
-    const team = await createTeam(owner.id, 'TMR3');
+    const team = await createTeam(owner.id, 'TMR3', testProjectId);
     await prisma.teamMember.create({
       data: { teamId: team.id, userId: admin.id, role: 'admin' },
     });
@@ -128,7 +147,7 @@ describe('Team member role management', () => {
   });
 
   it('lets an owner promote a member to owner', async () => {
-    const team = await createTeam(owner.id, 'TMR4');
+    const team = await createTeam(owner.id, 'TMR4', testProjectId);
     await prisma.teamMember.create({
       data: { teamId: team.id, userId: member.id, role: 'member' },
     });
@@ -143,7 +162,7 @@ describe('Team member role management', () => {
   });
 
   it('protects the last team owner from demotion and removal', async () => {
-    const team = await createTeam(owner.id, 'TMR5');
+    const team = await createTeam(owner.id, 'TMR5', testProjectId);
 
     const demote = await request(app)
       .patch(`/api/teams/${team.id}/members/${owner.id}`)
@@ -161,7 +180,7 @@ describe('Team member role management', () => {
   });
 
   it('blocks non-admin members from changing roles', async () => {
-    const team = await createTeam(owner.id, 'TMR6');
+    const team = await createTeam(owner.id, 'TMR6', testProjectId);
     await prisma.teamMember.create({
       data: { teamId: team.id, userId: member.id, role: 'member' },
     });

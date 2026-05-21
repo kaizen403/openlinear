@@ -69,24 +69,16 @@ function flattenLabels<T extends { labels: TaskLabel[] }>(task: T): Omit<T, 'lab
 }
 
 async function resolveProjectTeamId(projectId: string): Promise<{ teamId: string }> {
-  const project = await prisma.project.findUnique({
-    where: { id: projectId },
-    select: { projectTeams: { select: { teamId: true } } },
+  const team = await prisma.team.findFirst({
+    where: { projectId },
+    select: { id: true },
   });
 
-  if (!project) {
-    throw new OwnershipError('project', projectId, 'not_found');
-  }
-
-  if (project.projectTeams.length === 0) {
+  if (!team) {
     throw new ValidationError('Project must have a team');
   }
 
-  if (project.projectTeams.length > 1) {
-    throw new ValidationError('Project must have exactly one team');
-  }
-
-  return { teamId: project.projectTeams[0].teamId };
+  return { teamId: team.id };
 }
 
 const taskInclude = {
@@ -99,21 +91,39 @@ const taskInclude = {
 
 const router: Router = Router();
 
-function buildTaskProjectAccessWhere(userId: string, teamIds: string[]): Prisma.TaskWhereInput {
+async function buildTaskProjectAccessWhere(userId: string, teamIds: string[]): Promise<Prisma.TaskWhereInput> {
+  const accessibleProjects = await prisma.project.findMany({
+    where: buildProjectAccessWhere(userId, teamIds),
+    select: { id: true },
+  });
+  const projectIds = accessibleProjects.map((project) => project.id);
+  const visibility: Prisma.TaskWhereInput[] = [];
+  if (teamIds.length > 0) {
+    visibility.push({ projectId: null, teamId: { in: teamIds } });
+  }
+  if (projectIds.length > 0) {
+    visibility.push({ projectId: { in: projectIds } });
+  }
   return {
-    OR: [
-      { projectId: null, teamId: { in: teamIds } },
-      { project: { is: buildProjectAccessWhere(userId, teamIds) } },
-    ],
+    OR: visibility.length > 0 ? visibility : [{ id: { in: [] } }],
   };
 }
 
-function buildTaskProjectFullAccessWhere(userId: string, teamIds: string[]): Prisma.TaskWhereInput {
+async function buildTaskProjectFullAccessWhere(userId: string, teamIds: string[]): Promise<Prisma.TaskWhereInput> {
+  const accessibleProjects = await prisma.project.findMany({
+    where: buildProjectFullAccessWhere(userId, teamIds),
+    select: { id: true },
+  });
+  const projectIds = accessibleProjects.map((project) => project.id);
+  const visibility: Prisma.TaskWhereInput[] = [];
+  if (teamIds.length > 0) {
+    visibility.push({ projectId: null, teamId: { in: teamIds } });
+  }
+  if (projectIds.length > 0) {
+    visibility.push({ projectId: { in: projectIds } });
+  }
   return {
-    OR: [
-      { projectId: null, teamId: { in: teamIds } },
-      { project: { is: buildProjectFullAccessWhere(userId, teamIds) } },
-    ],
+    OR: visibility.length > 0 ? visibility : [{ id: { in: [] } }],
   };
 }
 
@@ -128,7 +138,7 @@ router.get(
       const where: Prisma.TaskWhereInput = {
         AND: [
           { archived: true },
-          buildTaskProjectAccessWhere(req.userId!, teamIds),
+          await buildTaskProjectAccessWhere(req.userId!, teamIds),
         ],
       };
       const [tasks, total] = await prisma.$transaction(
@@ -157,7 +167,7 @@ router.delete('/archived', requireAuth, async (req: AuthRequest, res: Response, 
     const where: Prisma.TaskWhereInput = {
       AND: [
         { archived: true },
-        buildTaskProjectFullAccessWhere(req.userId!, teamIds),
+        await buildTaskProjectFullAccessWhere(req.userId!, teamIds),
       ],
     };
     await prisma.task.deleteMany({
@@ -194,7 +204,7 @@ router.get(
       const userTeamIds = await getUserTeamIds(req.userId!);
       const filters: Prisma.TaskWhereInput[] = [
         { archived: false },
-        buildTaskProjectAccessWhere(req.userId!, userTeamIds),
+        await buildTaskProjectAccessWhere(req.userId!, userTeamIds),
       ];
 
       if (teamId) {

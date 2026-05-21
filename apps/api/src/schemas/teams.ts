@@ -7,6 +7,7 @@ export const createTeamBodySchema = z.object({
     .min(1)
     .max(10)
     .regex(/^[A-Z][A-Z0-9]*$/, 'Key must be uppercase alphanumeric starting with a letter'),
+  projectId: z.string().uuid(),
   description: z.string().max(500).optional(),
   color: z
     .string()

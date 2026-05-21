@@ -44,7 +44,6 @@ import {
 } from "@/components/ui/select"
 import {
   fetchProjects,
-  fetchTeams,
   createProject,
   updateProject,
   deleteProject,
@@ -56,6 +55,7 @@ import {
   type GitHubRepo,
 } from "@/lib/api"
 import { useSSESubscription } from "@/providers/sse-provider"
+import { useWorkspace } from "@/hooks/use-workspace"
 import { toast } from "sonner"
 import { EmptyState } from "@/components/empty-state"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -111,6 +111,23 @@ const statusOptions = [
   { value: "cancelled", label: "Cancelled" },
 ] as const
 
+const PROJECT_LIST_FIELDS = [
+  'id',
+  'workspaceId',
+  'key',
+  'name',
+  'description',
+  'status',
+  'color',
+  'icon',
+  'targetDate',
+  'repoUrl',
+  'localPath',
+  'repositoryId',
+  'teams',
+  '_count',
+] as const
+
 function ProjectIcon({ type, color }: { type: string | null; color: string }) {
   const iconClass = "w-3.5 h-3.5 text-linear-text-secondary"
   return (
@@ -162,11 +179,12 @@ function formatDate(dateString: string | null): string {
 function ProjectsContent() {
   const searchParams = useSearchParams()
   const router = useRouter()
+  const { activeWorkspace, isLoading: isWorkspaceLoading } = useWorkspace()
+  const activeWorkspaceId = activeWorkspace?.id
   const filterTeamId = searchParams.get("teamId") || undefined
   const editProjectId = searchParams.get("editProjectId")
   const [activeTab, setActiveTab] = useState("all")
   const [projects, setProjects] = useState<Project[]>([])
-  const [teams, setTeams] = useState<Team[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState("")
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
@@ -183,8 +201,7 @@ function ProjectsContent() {
   const [formData, setFormData] = useState({
     name: "",
     description: "",
-    status: "planned" as StatusType,
-    teamId: filterTeamId || "" as string,
+    status: "planned" as string,
     targetDate: "",
     sourceType: "none" as "none" | "repo" | "local",
     repoUrl: "",
@@ -193,8 +210,7 @@ function ProjectsContent() {
   const [editFormData, setEditFormData] = useState({
     name: "",
     description: "",
-    status: "planned" as StatusType,
-    teamId: "",
+    status: "planned" as string,
     targetDate: "",
     sourceType: "none" as "none" | "repo" | "local",
     repoUrl: "",
@@ -292,37 +308,34 @@ function ProjectsContent() {
   }, [isDesktopApp])
 
   const loadProjects = useCallback(async () => {
+    if (isWorkspaceLoading) return
+    if (!activeWorkspaceId) {
+      setProjects([])
+      return
+    }
     try {
-      const data = await fetchProjects({ teamId: filterTeamId })
+      const data = await fetchProjects({
+        teamId: filterTeamId,
+        workspaceId: activeWorkspaceId,
+        fields: [...PROJECT_LIST_FIELDS],
+      })
       setProjects(data)
     } catch (error) {
       const { toastMessage } = mapErrorToForm(
         error,
-        "Could not load projects. Check your connection and try again.",
+        "Could not reach OpenLinear server. Check your connection and try again.",
       )
       toast.error(`Failed to load projects: ${toastMessage}`)
     }
-  }, [filterTeamId])
-
-  const loadTeams = useCallback(async () => {
-    try {
-      const data = await fetchTeams()
-      setTeams(data)
-    } catch (error) {
-      const { toastMessage } = mapErrorToForm(
-        error,
-        "Could not load teams. Check your connection and try again.",
-      )
-      toast.error(`Failed to load teams: ${toastMessage}`)
-    }
-  }, [])
+  }, [activeWorkspaceId, filterTeamId, isWorkspaceLoading])
 
   useEffect(() => {
+    if (isWorkspaceLoading) return
     setIsLoading(true)
-    Promise.all([loadProjects(), loadTeams()]).finally(() => {
+    Promise.all([loadProjects()]).finally(() => {
       setIsLoading(false)
     })
-  }, [loadProjects, loadTeams])
+  }, [isWorkspaceLoading, loadProjects])
 
   useEffect(() => {
     if (!editProjectId) return
@@ -336,7 +349,6 @@ function ProjectsContent() {
       name: project.name,
       description: project.description || "",
       status: project.status,
-      teamId: project.teams?.[0]?.id || "",
       targetDate: project.targetDate ? project.targetDate.split('T')[0] : "",
       sourceType: project.repoUrl ? "repo" : project.localPath ? "local" : "none",
       repoUrl: project.repoUrl || "",
@@ -367,9 +379,6 @@ function ProjectsContent() {
   useSSESubscription((eventType) => {
     if (['project:created', 'project:updated', 'project:deleted'].includes(eventType)) {
       loadProjects()
-    }
-    if (['team:created', 'team:updated', 'team:deleted'].includes(eventType)) {
-      loadTeams()
     }
   })
 
@@ -415,9 +424,9 @@ function ProjectsContent() {
     try {
       await createProject({
         name: formData.name.trim(),
+        workspaceId: activeWorkspaceId,
         description: formData.description.trim() || undefined,
         status: formData.status,
-        teamIds: formData.teamId ? [formData.teamId] : undefined,
         targetDate: formData.targetDate ? new Date(formData.targetDate).toISOString() : undefined,
         color: "#10b981",
         repoUrl: formData.sourceType === "repo" ? formData.repoUrl.trim() : undefined,
@@ -428,7 +437,6 @@ function ProjectsContent() {
         name: "",
         description: "",
         status: "planned",
-        teamId: "",
         targetDate: "",
         sourceType: "none",
         repoUrl: "",
@@ -479,7 +487,6 @@ function ProjectsContent() {
         name: editFormData.name.trim(),
         description: editFormData.description.trim() || null,
         status: editFormData.status,
-        ...(editFormData.teamId ? { teamIds: [editFormData.teamId] } : { teamIds: [] }),
         targetDate: editFormData.targetDate ? new Date(editFormData.targetDate).toISOString() : null,
         repoUrl: editFormData.sourceType === "repo" ? editFormData.repoUrl.trim() : null,
         localPath:
@@ -619,35 +626,6 @@ function ProjectsContent() {
                                 {option.label}
                               </SelectItem>
                             ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      
-                      <div className="space-y-2">
-                        <Label htmlFor="team" className="text-linear-text">Team</Label>
-                        <Select
-                          value={formData.teamId}
-                          onValueChange={(value) => setFormData(prev => ({ ...prev, teamId: value }))}
-                        >
-                          <SelectTrigger className="bg-linear-bg-tertiary border-linear-border text-linear-text">
-                            <SelectValue placeholder="Select a team" />
-                          </SelectTrigger>
-                          <SelectContent className="bg-linear-bg border-linear-border">
-                            {teams.length === 0 ? (
-                              <SelectItem value="no-teams" disabled className="text-linear-text-tertiary">
-                                No teams available
-                              </SelectItem>
-                            ) : (
-                              teams.map((team) => (
-                                <SelectItem
-                                  key={team.id}
-                                  value={team.id}
-                                  className="text-linear-text focus:bg-linear-bg-tertiary focus:text-linear-text"
-                                >
-                                  {team.name}
-                                </SelectItem>
-                              ))
-                            )}
                           </SelectContent>
                         </Select>
                       </div>
@@ -1006,8 +984,7 @@ function ProjectsContent() {
                                   name: project.name,
                                   description: project.description || "",
                                   status: project.status,
-                                  teamId: project.teams?.[0]?.id || "",
-                                  targetDate: project.targetDate ? project.targetDate.split('T')[0] : "",
+                                   targetDate: project.targetDate ? project.targetDate.split('T')[0] : "",
                                   sourceType: project.repoUrl ? "repo" : project.localPath ? "local" : "none",
                                   repoUrl: project.repoUrl || "",
                                   localPath: project.localPath || "",
@@ -1112,7 +1089,6 @@ function ProjectsContent() {
                             name: project.name,
                             description: project.description || "",
                             status: project.status,
-                            teamId: project.teams?.[0]?.id || "",
                             targetDate: project.targetDate ? project.targetDate.split('T')[0] : "",
                             sourceType: project.repoUrl ? "repo" : project.localPath ? "local" : "none",
                             repoUrl: project.repoUrl || "",
@@ -1237,32 +1213,6 @@ function ProjectsContent() {
                       className="text-linear-text focus:bg-linear-bg-tertiary focus:text-linear-text"
                     >
                       {option.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="edit-team" className="text-linear-text">Team</Label>
-              <Select
-                value={editFormData.teamId || "__none__"}
-                onValueChange={(value) => setEditFormData(prev => ({ ...prev, teamId: value === "__none__" ? "" : value }))}
-              >
-                <SelectTrigger className="bg-linear-bg-tertiary border-linear-border text-linear-text">
-                  <SelectValue placeholder="Select a team" />
-                </SelectTrigger>
-                <SelectContent className="bg-linear-bg border-linear-border">
-                  <SelectItem value="__none__" className="text-linear-text focus:bg-linear-bg-tertiary focus:text-linear-text">
-                    No team
-                  </SelectItem>
-                  {teams.map((team) => (
-                    <SelectItem
-                      key={team.id}
-                      value={team.id}
-                      className="text-linear-text focus:bg-linear-bg-tertiary focus:text-linear-text"
-                    >
-                      {team.name}
                     </SelectItem>
                   ))}
                 </SelectContent>

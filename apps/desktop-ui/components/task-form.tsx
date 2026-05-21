@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useMemo } from "react"
 import { Loader2, FolderKanban, Users } from "lucide-react"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
@@ -84,29 +84,33 @@ export function TaskFormDialog({
 
   const effectiveProjectId = defaultProjectId || activeProject?.id || null
   const projectTeams = effectiveProjectId
-    ? teams.filter(t => t.projectTeams?.some(pt => pt.project.id === effectiveProjectId))
+    ? teams.filter(t => t.projectId === effectiveProjectId)
     : teams
+  const defaultFormValues = useMemo<FormValues>(() => ({
+    title: "",
+    description: "",
+    status: defaultStatus || "todo",
+    labelIds: [],
+    projectId: defaultProjectId || (hasProjects ? "" : undefined),
+    teamId: "",
+    dueDate: "",
+    model: null,
+  }), [defaultProjectId, defaultStatus, hasProjects])
 
   const form = useForm<FormValues>({
     resolver: zodResolver(getFormSchema(hasProjects)),
-    defaultValues: {
-      title: "",
-      description: "",
-      status: defaultStatus || "todo",
-      labelIds: [],
-      projectId: defaultProjectId || (hasProjects ? "" : undefined),
-      teamId: "",
-      dueDate: "",
-      model: null,
-    },
+    defaultValues: defaultFormValues,
   })
 
   useEffect(() => {
     if (open) {
-      form.setValue("status", defaultStatus || "todo")
-      form.setValue("projectId", defaultProjectId || (hasProjects ? "" : undefined))
+      form.reset(defaultFormValues)
     }
-  }, [defaultStatus, defaultProjectId, open, form, hasProjects])
+  }, [defaultFormValues, form, open])
+
+  const resetAfterClose = useCallback(() => {
+    window.setTimeout(() => form.reset(defaultFormValues), 0)
+  }, [defaultFormValues, form])
 
   const onSubmit = useCallback(async (values: FormValues) => {
     try {
@@ -126,8 +130,8 @@ export function TaskFormDialog({
         }),
       })
 
-      form.reset()
       onOpenChange(false)
+      resetAfterClose()
       onSuccess?.()
     } catch (error) {
       if (error instanceof ApiError) {
@@ -153,7 +157,7 @@ export function TaskFormDialog({
     } finally {
       setIsSubmitting(false)
     }
-  }, [form, onOpenChange, onSuccess])
+  }, [form, onOpenChange, onSuccess, resetAfterClose])
 
   // ⌘+Enter keyboard shortcut
   useEffect(() => {
@@ -171,10 +175,10 @@ export function TaskFormDialog({
   }, [open, form, onSubmit])
 
   const handleOpenChange = (newOpen: boolean) => {
-    if (!newOpen) {
-      form.reset()
-    }
     onOpenChange(newOpen)
+    if (!newOpen) {
+      resetAfterClose()
+    }
   }
 
   const handleTextareaInput = (e: React.FormEvent<HTMLTextAreaElement>) => {

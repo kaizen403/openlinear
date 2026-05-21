@@ -13,7 +13,7 @@ function generateToken(userId: string, username: string) {
 async function cleanup() {
   await prisma.activityLog.deleteMany({});
   await prisma.projectAccess.deleteMany({});
-  await prisma.projectTeam.deleteMany({});
+    await prisma.teamMember.deleteMany({});
   await prisma.task.updateMany({
     where: { projectId: { not: null } },
     data: { projectId: null },

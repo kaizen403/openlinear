@@ -15,6 +15,7 @@ describe('Tasks API', () => {
   let testUserId: string;
   let authToken: string;
   let testTeamId: string;
+  let testProjectId: string;
 
   beforeAll(async () => {
     await prisma.personalAccessToken.deleteMany({});
@@ -22,7 +23,6 @@ describe('Tasks API', () => {
     await prisma.taskLabel.deleteMany({});
     await prisma.task.updateMany({ where: { teamId: { not: null } }, data: { teamId: null, projectId: null } });
     await prisma.task.deleteMany({});
-    await prisma.projectTeam.deleteMany({});
     await prisma.project.deleteMany({});
     await prisma.workspaceMember.deleteMany({});
     await prisma.workspace.deleteMany({});
@@ -42,8 +42,22 @@ describe('Tasks API', () => {
     testUserId = user.id;
     authToken = generateToken(user.id, user.username);
 
+    const workspace = await prisma.workspace.create({
+      data: { name: 'Task Test Workspace', slug: 'task-test-workspace' },
+    });
+    await prisma.workspaceMember.create({
+      data: { workspaceId: workspace.id, userId: testUserId, role: 'owner' },
+    });
+    const project = await prisma.project.create({
+      data: { name: 'Task Test Project', workspaceId: workspace.id, key: 'TTPR' },
+    });
+    testProjectId = project.id;
+    await prisma.projectAccess.create({
+      data: { projectId: project.id, userId: testUserId, permission: 'full' },
+    });
+
     const team = await prisma.team.create({
-      data: { name: 'Task Test Team', key: 'TTT' },
+      data: { name: 'Task Test Team', key: 'TTT', projectId: testProjectId },
     });
     testTeamId = team.id;
 
@@ -58,7 +72,6 @@ describe('Tasks API', () => {
     await prisma.taskLabel.deleteMany({});
     await prisma.task.updateMany({ where: { teamId: { not: null } }, data: { teamId: null, projectId: null } });
     await prisma.task.deleteMany({});
-    await prisma.projectTeam.deleteMany({});
     await prisma.project.deleteMany({});
     await prisma.workspaceMember.deleteMany({});
     await prisma.workspace.deleteMany({});
@@ -93,8 +106,8 @@ describe('Tasks API', () => {
 
     it('filters tasks by teamId when caller is a member', async () => {
       const team = await prisma.team.create({
-        data: { name: 'Filter Team', key: 'FLT' },
-      });
+            data: { name: 'Filter Team', key: 'FLT', projectId: testProjectId },
+          });
       await prisma.teamMember.create({ data: { teamId: team.id, userId: testUserId, role: 'member' } });
 
       await prisma.task.create({ data: { title: 'Team Task', priority: 'medium', teamId: team.id } });
@@ -109,8 +122,8 @@ describe('Tasks API', () => {
 
     it('rejects teamId filter when caller is not a member', async () => {
       const otherTeam = await prisma.team.create({
-        data: { name: 'Other', key: 'OTH' },
-      });
+            data: { name: 'Other', key: 'OTH', projectId: testProjectId },
+          });
 
       const res = await request(app)
         .get(`/api/tasks?teamId=${otherTeam.id}`)
@@ -132,7 +145,7 @@ describe('Tasks API', () => {
           name: 'Denied Task Project',
           workspaceId: workspace.id,
           key: 'DTP',
-          projectTeams: { create: [{ teamId: testTeamId }] },
+          
         },
       });
       await prisma.projectAccess.create({
@@ -183,7 +196,7 @@ describe('Tasks API', () => {
           name: 'Workspace Visible Project',
           workspaceId: workspace.id,
           key: 'WVP',
-          projectTeams: { create: [{ teamId: testTeamId }] },
+          
         },
       });
       await prisma.task.createMany({
@@ -231,8 +244,8 @@ describe('Tasks API', () => {
 
     it('creates a task with teamId and generates identifier', async () => {
       const team = await prisma.team.create({
-        data: { name: 'Engineering', key: 'TENG' },
-      });
+            data: { name: 'Engineering', key: 'TENG', projectId: testProjectId },
+          });
       await prisma.teamMember.create({ data: { teamId: team.id, userId: testUserId, role: 'owner' } });
 
       const res = await request(app)
@@ -250,8 +263,8 @@ describe('Tasks API', () => {
 
     it('increments identifier for subsequent tasks in the same team', async () => {
       const team = await prisma.team.create({
-        data: { name: 'Engineering', key: 'SEQ' },
-      });
+            data: { name: 'Engineering', key: 'SEQ', projectId: testProjectId },
+          });
       await prisma.teamMember.create({ data: { teamId: team.id, userId: testUserId, role: 'owner' } });
 
       const res1 = await request(app)
@@ -269,8 +282,8 @@ describe('Tasks API', () => {
 
     it('rejects creating a task in a team the caller is not a member of', async () => {
       const otherTeam = await prisma.team.create({
-        data: { name: 'Foreign', key: 'FRG' },
-      });
+            data: { name: 'Foreign', key: 'FRG', projectId: testProjectId },
+          });
 
       const res = await request(app)
         .post('/api/tasks')
@@ -608,7 +621,7 @@ describe('Tasks API', () => {
         create: { githubId: '444444', username: 'userBarchive', email: 'barch@example.com' },
       });
       const tokenB = generateToken(userB.id, userB.username);
-      const teamB = await prisma.team.create({ data: { name: 'B Team', key: 'BBB' } });
+      const teamB = await prisma.team.create({ data: { name: 'B Team', key: 'BBB', projectId: testProjectId } });
       await prisma.teamMember.create({ data: { teamId: teamB.id, userId: userB.id, role: 'owner' } });
 
       await prisma.task.create({
@@ -660,7 +673,7 @@ describe('Tasks API', () => {
           name: 'Archive Viewer Project',
           workspaceId: workspace.id,
           key: 'AVP',
-          projectTeams: { create: [{ teamId: testTeamId }] },
+          
         },
       });
       const task = await prisma.task.create({

@@ -3,6 +3,7 @@
 import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from "react"
 import { fetchTeams, type Team } from "@/lib/api"
 import { useAuth } from "@/hooks/use-auth"
+import { useWorkspace } from "@/hooks/use-workspace"
 import { useSSESubscription } from "@/providers/sse-provider"
 
 interface TeamsContextType {
@@ -12,27 +13,37 @@ interface TeamsContextType {
 }
 
 const TeamsContext = createContext<TeamsContextType | undefined>(undefined)
+const SHARED_TEAM_FIELDS = ['id', 'name', 'color', 'projectId'] as const
 
 export function TeamsProvider({ children }: { children: ReactNode }) {
   const { isAuthenticated, user } = useAuth()
+  const { activeWorkspace, isLoading: isWorkspaceLoading } = useWorkspace()
+  const activeWorkspaceId = activeWorkspace?.id
   const [teams, setTeams] = useState<Team[]>([])
   const [isLoading, setIsLoading] = useState(false)
 
   const reload = useCallback(async () => {
-    if (!isAuthenticated) {
+    if (!isAuthenticated || isWorkspaceLoading) {
+      if (!isWorkspaceLoading) setTeams([])
+      return
+    }
+    if (!activeWorkspaceId) {
       setTeams([])
       return
     }
     setIsLoading(true)
     try {
-      const data = await fetchTeams()
+      const data = await fetchTeams({
+        workspaceId: activeWorkspaceId,
+        fields: [...SHARED_TEAM_FIELDS],
+      })
       setTeams(data)
     } catch {
       setTeams([])
     } finally {
       setIsLoading(false)
     }
-  }, [isAuthenticated])
+  }, [activeWorkspaceId, isAuthenticated, isWorkspaceLoading])
 
   useEffect(() => {
     void reload()

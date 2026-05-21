@@ -105,8 +105,8 @@ router.get(
         wantProjects && hasTeams
           ? prisma.project.findMany({
               where: {
-                projectTeams: {
-                  some: { teamId: { in: userTeamIds } },
+                teams: {
+                  some: { id: { in: userTeamIds } },
                 },
                 OR: [
                   { name: { contains: q, mode: 'insensitive' } },

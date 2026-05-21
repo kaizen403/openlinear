@@ -3,7 +3,6 @@
 import { Suspense, useState, useEffect, useCallback } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import {
-  ArrowLeft,
   Users,
   Trash2,
   User,
@@ -12,12 +11,16 @@ import {
   Ban,
   Plus,
   Settings,
+  FolderKanban,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { cn } from "@/lib/utils"
+import {
+  SettingsPageShell,
+  SettingsPanel,
+  SettingsSection,
+} from "@/components/settings/settings-layout"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Badge } from "@/components/ui/badge"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -98,47 +101,38 @@ function ProjectManageContent() {
   const [grantPermission, setGrantPermission] = useState<ProjectPermission>("full")
   const [isGranting, setIsGranting] = useState(false)
 
-  const loadProject = useCallback(async () => {
+  const loadSettings = useCallback(async () => {
     if (!projectId) return
+    setIsLoading(true)
+    setIsLoadingAccess(true)
     try {
-      setIsLoading(true)
-      const data = await apiFetch<Project>(`/api/projects/${projectId}`)
-      setProject(data)
-      setProjectName(data.name)
-      setProjectDescription(data.description || "")
+      const [projectData, accessData] = await Promise.all([
+        apiFetch<Project>(`/api/projects/${projectId}`),
+        fetchProjectAccess(projectId),
+      ])
+
+      setProject(projectData)
+      setProjectName(projectData.name)
+      setProjectDescription(projectData.description || "")
+      setAccess(accessData)
+
+      const workspaceId = projectData.workspaceId ?? activeWorkspace?.id
+      if (workspaceId) {
+        setWorkspaceMembers(await fetchWorkspaceMembers(workspaceId))
+      } else {
+        setWorkspaceMembers([])
+      }
     } catch {
       toast.error("Failed to load project")
     } finally {
       setIsLoading(false)
-    }
-  }, [projectId])
-
-  const loadAccess = useCallback(async () => {
-    if (!projectId) return
-    try {
-      setIsLoadingAccess(true)
-      const data = await fetchProjectAccess(projectId)
-      setAccess(data)
-    } catch {
-    } finally {
       setIsLoadingAccess(false)
     }
-  }, [projectId])
-
-  const loadMembers = useCallback(async () => {
-    if (!activeWorkspace) return
-    try {
-      const data = await fetchWorkspaceMembers(activeWorkspace.id)
-      setWorkspaceMembers(data)
-    } catch {
-    }
-  }, [activeWorkspace])
+  }, [activeWorkspace?.id, projectId])
 
   useEffect(() => {
-    loadProject()
-    loadAccess()
-    loadMembers()
-  }, [loadProject, loadAccess, loadMembers])
+    loadSettings()
+  }, [loadSettings])
 
   const handleSave = async () => {
     if (!projectId || !projectName.trim()) return
@@ -178,10 +172,13 @@ function ProjectManageContent() {
     if (!projectId || !grantUserId) return
     try {
       setIsGranting(true)
-      await grantProjectAccess(projectId, grantUserId, grantPermission)
+      const granted = await grantProjectAccess(projectId, grantUserId, grantPermission)
+      setAccess((prev) => [
+        ...prev.filter((entry) => entry.userId !== granted.userId),
+        granted,
+      ])
       setGrantUserId("")
       setGrantPermission("full")
-      await loadAccess()
       toast.success("Access granted")
     } catch {
       toast.error("Failed to grant access")
@@ -190,12 +187,34 @@ function ProjectManageContent() {
     }
   }
 
+  const handlePermissionChange = async (userId: string, permission: ProjectPermission) => {
+    if (!projectId) return
+    const previous = access
+    setAccess((prev) =>
+      prev.map((entry) => (entry.userId === userId ? { ...entry, permission } : entry)),
+    )
+    try {
+      const updated = await grantProjectAccess(projectId, userId, permission)
+      setAccess((prev) =>
+        prev.map((entry) => (entry.userId === userId ? updated : entry)),
+      )
+      toast.success("Access updated")
+    } catch {
+      setAccess(previous)
+      toast.error("Failed to update access")
+    }
+  }
+
   const handleRevoke = async () => {
     if (!projectId || !revokeTarget) return
     try {
       setIsRevoking(true)
       await revokeProjectAccess(projectId, revokeTarget.userId)
-      await loadAccess()
+      setAccess((prev) =>
+        prev.map((entry) =>
+          entry.userId === revokeTarget.userId ? { ...entry, permission: "deny" } : entry,
+        ),
+      )
       toast.success(`Access revoked for ${revokeTarget.username}`)
     } catch {
       toast.error("Failed to revoke access")
@@ -211,43 +230,45 @@ function ProjectManageContent() {
 
   if (isLoading) {
     return (
-      <div className="flex-1 p-6 sm:p-8">
+      <SettingsPageShell
+        title="Project"
+        backLabel="projects"
+        onBack={() => router.push("/projects")}
+        icon={<FolderKanban className="h-4 w-4" />}
+      >
         <div className="h-6 w-48 bg-linear-bg-secondary rounded-sm animate-pulse" />
-      </div>
+      </SettingsPageShell>
     )
   }
 
   if (!project) {
     return (
-      <div className="flex-1 p-6 sm:p-8">
+      <SettingsPageShell
+        title="Project"
+        backLabel="projects"
+        onBack={() => router.push("/projects")}
+        icon={<FolderKanban className="h-4 w-4" />}
+      >
         <p className="text-linear-text-tertiary">Project not found</p>
-      </div>
+      </SettingsPageShell>
     )
   }
 
   return (
-    <div className="flex-1 overflow-y-auto p-6 sm:p-8">
-      <div className="flex items-center gap-3 mb-8">
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => router.push("/projects")}
-          className="text-linear-text-tertiary hover:text-linear-text"
+    <>
+      <SettingsPageShell
+        title={project.name}
+        backLabel="projects"
+        onBack={() => router.push("/projects")}
+        icon={<FolderKanban className="h-4 w-4" />}
+      >
+        <SettingsSection
+          title="General"
+          description="Control the project name and description shown across issues, teams, and navigation."
+          icon={<Settings className="h-4 w-4" />}
         >
-          <ArrowLeft className="h-4 w-4 mr-1" />
-          Projects
-        </Button>
-        <span className="text-linear-text-tertiary">/</span>
-        <h1 className="text-lg font-medium text-linear-text">{project.name}</h1>
-      </div>
-
-      <div className="space-y-10">
-        <section>
-          <div className="flex items-center gap-2 mb-4">
-            <Settings className="h-4 w-4 text-linear-text-tertiary" />
-            <h2 className="text-sm font-medium text-linear-text">Settings</h2>
-          </div>
-          <div className="space-y-4 max-w-lg">
+          <SettingsPanel className="max-w-xl p-4">
+            <div className="space-y-4">
             <div className="space-y-1.5">
               <Label className="text-xs text-linear-text-secondary">Name</Label>
               <Input
@@ -273,21 +294,18 @@ function ProjectManageContent() {
             >
               {isSaving ? "Saving..." : "Save changes"}
             </Button>
-          </div>
-        </section>
+            </div>
+          </SettingsPanel>
+        </SettingsSection>
 
-        <section>
-          <div className="flex items-center gap-2 mb-4">
-            <Users className="h-4 w-4 text-linear-text-tertiary" />
-            <h2 className="text-sm font-medium text-linear-text">Access</h2>
-            <span className="text-xs text-linear-text-tertiary">
-              ({access.length} {access.length === 1 ? "member" : "members"})
-            </span>
-          </div>
+        <SettingsSection
+          title="Access"
+          description={`${access.length} explicit ${access.length === 1 ? "rule" : "rules"}. Workspace members keep default access unless denied here.`}
+          icon={<Users className="h-4 w-4" />}
+        >
 
-          {/* Grant access form */}
           {availableMembers.length > 0 && (
-            <div className="flex items-center gap-2 mb-4">
+            <div className="mb-4 flex flex-wrap items-center gap-2">
               <Select value={grantUserId} onValueChange={setGrantUserId}>
                 <SelectTrigger className="w-[200px] h-8 text-xs bg-linear-bg-secondary border-linear-border">
                   <SelectValue placeholder="Select member" />
@@ -322,7 +340,6 @@ function ProjectManageContent() {
             </div>
           )}
 
-          {/* Access table */}
           {isLoadingAccess ? (
             <div className="space-y-2">
               {[1, 2, 3].map((i) => (
@@ -334,7 +351,7 @@ function ProjectManageContent() {
               No explicit access rules. All workspace members have access by default.
             </p>
           ) : (
-            <div className="border border-linear-border rounded-sm overflow-hidden">
+            <SettingsPanel className="overflow-hidden">
               <table className="w-full text-xs">
                 <thead>
                   <tr className="border-b border-linear-border bg-linear-bg-secondary">
@@ -368,10 +385,26 @@ function ProjectManageContent() {
                           </div>
                         </td>
                         <td className="px-3 py-2">
-                          <Badge variant="outline" className="text-[10px] gap-1">
-                            <Icon className="h-3 w-3" />
-                            {permissionLabels[entry.permission]}
-                          </Badge>
+                          <Select
+                            value={entry.permission}
+                            onValueChange={(value) =>
+                              handlePermissionChange(entry.userId, value as ProjectPermission)
+                            }
+                          >
+                            <SelectTrigger className="h-7 w-32 bg-linear-bg text-xs">
+                              <div className="flex items-center gap-1.5">
+                                <Icon className="h-3 w-3" />
+                                <SelectValue />
+                              </div>
+                            </SelectTrigger>
+                            <SelectContent>
+                              {(["full", "view", "deny"] as ProjectPermission[]).map((permission) => (
+                                <SelectItem key={permission} value={permission}>
+                                  {permissionLabels[permission]}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
                         </td>
                         <td className="px-3 py-2 text-right">
                           <button
@@ -386,15 +419,14 @@ function ProjectManageContent() {
                   })}
                 </tbody>
               </table>
-            </div>
+            </SettingsPanel>
           )}
-        </section>
+        </SettingsSection>
 
-        <section className="border-t border-linear-border pt-8">
-          <h2 className="text-sm font-medium text-linear-text mb-2">Delete project</h2>
-          <p className="text-xs text-linear-text-tertiary mb-4">
-            Permanently delete this project and all its issues. This cannot be undone.
-          </p>
+        <SettingsSection
+          title="Delete project"
+          description="Permanently delete this project and all its issues. This cannot be undone."
+        >
           <Button
             variant="outline"
             size="sm"
@@ -404,8 +436,8 @@ function ProjectManageContent() {
             <Trash2 className="h-3.5 w-3.5 mr-1.5" />
             Delete project
           </Button>
-        </section>
-      </div>
+        </SettingsSection>
+      </SettingsPageShell>
 
       <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
         <AlertDialogContent>
@@ -448,6 +480,6 @@ function ProjectManageContent() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </div>
+    </>
   )
 }

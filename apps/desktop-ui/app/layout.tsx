@@ -76,14 +76,14 @@ export default function RootLayout({
           <ThemeMeta />
           <AuthProvider>
             <SSEProvider>
-              <TeamsProvider>
-                <WorkspaceProvider>
+              <WorkspaceProvider>
+                <TeamsProvider>
                   <ProjectProvider>
                     {children}
                     <GlobalQuickCapture />
                   </ProjectProvider>
-                </WorkspaceProvider>
-              </TeamsProvider>
+                </TeamsProvider>
+              </WorkspaceProvider>
             </SSEProvider>
             <GodModeOverlay />
             <CommandPalette />

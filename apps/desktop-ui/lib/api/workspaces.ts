@@ -6,11 +6,18 @@ export async function fetchWorkspaces(): Promise<Workspace[]> {
 }
 
 export async function fetchWorkspace(id: string): Promise<Workspace> {
-  return apiFetch<Workspace>(`/api/workspaces/${id}`);
+  const res = await apiFetch<Workspace & { currentMember?: { role: string; invitedAt: string; joinedAt: string | null } }>(`/api/workspaces/${id}`);
+  if (res.currentMember && !res.role) {
+    res.role = res.currentMember.role as Workspace['role'];
+    res.invitedAt = res.currentMember.invitedAt;
+    res.joinedAt = res.currentMember.joinedAt;
+  }
+  return res;
 }
 
 export async function fetchWorkspaceMembers(id: string): Promise<WorkspaceMember[]> {
-  return apiFetch<WorkspaceMember[]>(`/api/workspaces/${id}/members`);
+  const res = await apiFetch<{ data: WorkspaceMember[]; nextCursor: string | null }>(`/api/workspaces/${id}/members?limit=200`);
+  return res.data;
 }
 
 export async function createWorkspace(data: { name: string }): Promise<Workspace> {

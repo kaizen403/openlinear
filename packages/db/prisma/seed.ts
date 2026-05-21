@@ -126,45 +126,6 @@ async function main() {
   });
   console.log(`[seed] Upserted WorkspaceMember demo -> ${workspace.slug}`);
 
-  // 3. Create team "Default" with key "DEF"
-  const team = await prisma.team.upsert({
-    where: { id: "seed-team-default" },
-    update: {},
-    create: {
-      id: "seed-team-default",
-      name: "Default",
-      key: "DEF",
-      inviteCode: generateInviteCode("DEF"),
-    },
-  });
-  console.log(`[seed] Upserted team "${team.name}" (${team.key})`);
-
-  const teamsWithoutCode = await prisma.team.findMany({
-    where: { inviteCode: null },
-  });
-  for (const t of teamsWithoutCode) {
-    await prisma.team.update({
-      where: { id: t.id },
-      data: { inviteCode: generateInviteCode(t.key) },
-    });
-  }
-  if (teamsWithoutCode.length > 0) {
-    console.log(`[seed] Backfilled invite codes for ${teamsWithoutCode.length} teams`);
-  }
-
-  // 4. Link demo user to Default team
-  await prisma.teamMember.upsert({
-    where: { teamId_userId: { teamId: team.id, userId: user.id } },
-    update: {},
-    create: {
-      teamId: team.id,
-      userId: user.id,
-      role: "owner",
-    },
-  });
-  console.log(`[seed] Upserted TeamMember demo -> Default`);
-
-  // 5. Check for an active repository
   const activeRepo = await prisma.repository.findFirst({
     where: { isActive: true },
   });
@@ -174,7 +135,6 @@ async function main() {
       : `[seed] No active repository found`
   );
 
-  // 6. Create project "OpenLinear"
   const project = await prisma.project.upsert({
     where: { id: "seed-project-openlinear" },
     update: {
@@ -199,18 +159,42 @@ async function main() {
   });
   console.log(`[seed] Upserted ProjectAccess demo -> OpenLinear`);
 
-  // 7. Link project to team
-  await prisma.projectTeam.upsert({
-    where: {
-      projectId_teamId: { projectId: project.id, teamId: team.id },
-    },
-    update: {},
+  const team = await prisma.team.upsert({
+    where: { id: "seed-team-default" },
+    update: { projectId: project.id },
     create: {
+      id: "seed-team-default",
+      name: "Default",
+      key: "DEF",
       projectId: project.id,
-      teamId: team.id,
+      inviteCode: generateInviteCode("DEF"),
     },
   });
-  console.log(`[seed] Upserted ProjectTeam OpenLinear -> Default`);
+  console.log(`[seed] Upserted team "${team.name}" (${team.key})`);
+
+  const teamsWithoutCode = await prisma.team.findMany({
+    where: { inviteCode: null },
+  });
+  for (const t of teamsWithoutCode) {
+    await prisma.team.update({
+      where: { id: t.id },
+      data: { inviteCode: generateInviteCode(t.key) },
+    });
+  }
+  if (teamsWithoutCode.length > 0) {
+    console.log(`[seed] Backfilled invite codes for ${teamsWithoutCode.length} teams`);
+  }
+
+  await prisma.teamMember.upsert({
+    where: { teamId_userId: { teamId: team.id, userId: user.id } },
+    update: {},
+    create: {
+      teamId: team.id,
+      userId: user.id,
+      role: "owner",
+    },
+  });
+  console.log(`[seed] Upserted TeamMember demo -> Default`);
 
   // 8. Migrate orphan tasks into the project and team
   const migrated = await prisma.task.updateMany({

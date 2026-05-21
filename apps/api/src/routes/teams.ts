@@ -4,7 +4,7 @@ import crypto from 'crypto';
 import { broadcastToTeam, broadcastToUser } from '../sse';
 import { requireAuth, optionalAuth, AuthRequest } from '../middleware/auth';
 import { validateBody, ValidatedRequest } from '../middleware/validate';
-import { assertTeamRole, OwnershipError } from '../services/ownership';
+import { assertTeamRole, assertProjectAccess, OwnershipError } from '../services/ownership';
 import { logActivity } from '../services/activity';
 import { HttpError } from '../errors';
 import { makeEtag } from '../lib/etag';
@@ -36,18 +36,14 @@ const memberInclude = { user: { select: userSelect } } as const;
 const teamFullInclude = {
   members: { include: memberInclude },
   _count: { select: { members: true } },
-  projectTeams: {
-    include: {
-      project: {
-        select: { id: true, name: true, status: true, color: true, icon: true },
-      },
-    },
+  project: {
+    select: { id: true, name: true, status: true, color: true, icon: true },
   },
 } satisfies Prisma.TeamInclude;
 const teamDetailInclude = {
   members: { include: { user: true } },
-  projectTeams: true,
-  _count: { select: { members: true, projectTeams: true } },
+  project: true,
+  _count: { select: { members: true } },
 } satisfies Prisma.TeamInclude;
 
 const teamListFields = [
@@ -60,20 +56,56 @@ const teamListFields = [
   'private',
   'inviteCode',
   'nextIssueNumber',
+  'projectId',
   'createdAt',
   'updatedAt',
   'members',
-  'projectTeams',
+  'project',
   '_count',
 ] as const;
 
 const teamMemberFields = ['id', 'teamId', 'userId', 'role', 'sortOrder', 'createdAt', 'user'] as const;
+
+const teamScalarFields = new Set<string>([
+  'id',
+  'name',
+  'key',
+  'description',
+  'color',
+  'icon',
+  'private',
+  'inviteCode',
+  'nextIssueNumber',
+  'projectId',
+  'createdAt',
+  'updatedAt',
+]);
 
 type TeamMemberWithUser = Prisma.TeamMemberGetPayload<{ include: typeof memberInclude }>;
 
 function generateInviteCode(key: string): string {
   const random = crypto.randomBytes(4).toString('hex').toUpperCase();
   return `${key}-${random}`;
+}
+
+function buildTeamSelect(fields: string[]): Prisma.TeamSelect {
+  const select: Prisma.TeamSelect = {};
+  for (const field of fields) {
+    if (teamScalarFields.has(field)) {
+      (select as Record<string, unknown>)[field] = true;
+      continue;
+    }
+    if (field === 'members') {
+      select.members = { include: memberInclude };
+    } else if (field === 'project') {
+      select.project = {
+        select: { id: true, name: true, status: true, color: true, icon: true },
+      };
+    } else if (field === '_count') {
+      select._count = { select: { members: true } };
+    }
+  }
+  return select;
 }
 
 function teamMemberToRecord(member: TeamMemberWithUser): Record<string, unknown> {
@@ -128,12 +160,25 @@ router.get('/', optionalAuth, async (req: AuthRequest, res: Response, next: Next
     }
 
     const fields = parseFields(req.query.fields, teamListFields);
-    const teams = await prisma.team.findMany({
-      where: { members: { some: { userId: req.userId } } },
-      include: teamFullInclude,
-      orderBy: { createdAt: 'asc' },
-    });
-    res.json(teams.map((team) => pickFields({ ...team }, fields)));
+    const projectId = req.query.projectId as string | undefined;
+    const workspaceId = req.query.workspaceId as string | undefined;
+    const where: Prisma.TeamWhereInput = {
+      members: { some: { userId: req.userId } },
+      ...(projectId ? { projectId } : {}),
+      ...(workspaceId ? { project: { workspaceId } } : {}),
+    };
+    const teams = fields
+      ? await prisma.team.findMany({
+          where,
+          select: buildTeamSelect(fields),
+          orderBy: { createdAt: 'asc' },
+        })
+      : await prisma.team.findMany({
+          where,
+          include: teamFullInclude,
+          orderBy: { createdAt: 'asc' },
+        });
+    res.json(fields ? teams : teams.map((team) => pickFields({ ...team }, fields)));
   } catch (error) {
     next(error);
   }
@@ -152,6 +197,17 @@ router.post(
       }
 
       const data = req.validBody!;
+
+      await assertProjectAccess(data.projectId, req.userId!, 'full');
+
+      const existingKey = await prisma.team.findFirst({
+        where: { projectId: data.projectId, key: data.key },
+        select: { id: true },
+      });
+      if (existingKey) {
+        throw new HttpError(409, 'TEAM_KEY_TAKEN', `Team key "${data.key}" is already used in this project`);
+      }
+
       const created = await prisma.team.create({
         data: {
           ...data,
@@ -264,7 +320,6 @@ router.delete('/:id', requireAuth, async (req: AuthRequest, res: Response, next:
       }
       memberUserIds.push(...members.map((member) => member.userId));
       await tx.teamMember.deleteMany({ where: { teamId: id } });
-      await tx.projectTeam.deleteMany({ where: { teamId: id } });
       await tx.team.delete({ where: { id } });
     }, { timeout: 15000, maxWait: 5000 });
     for (const uid of memberUserIds) {
@@ -289,7 +344,7 @@ router.get('/:id', requireAuth, async (req: AuthRequest, res: Response, next: Ne
       throw new OwnershipError('team', id, 'not_found');
     }
 
-    const etag = makeEtag([team.updatedAt, team._count.members, team._count.projectTeams]);
+    const etag = makeEtag([team.updatedAt, team._count.members]);
     res.setHeader('ETag', etag);
     res.setHeader('Cache-Control', 'private, max-age=0, must-revalidate');
     if (req.header('If-None-Match') === etag) {

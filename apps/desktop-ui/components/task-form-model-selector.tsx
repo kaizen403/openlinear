@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useCallback, useState } from "react"
 import { Cpu } from "lucide-react"
 import {
   Select,
@@ -21,24 +21,46 @@ interface TaskFormModelSelectorProps {
 
 const DEFAULT_SENTINEL = "__default__"
 
-export function TaskFormModelSelector({ value, onChange }: TaskFormModelSelectorProps) {
-  const [providers, setProviders] = useState<ProviderModels[]>([])
-  const [isLoading, setIsLoading] = useState(true)
+let modelProvidersCache: ProviderModels[] | null = null
+let modelProvidersRequest: Promise<ProviderModels[]> | null = null
 
-  useEffect(() => {
-    let cancelled = false
-    getModels()
-      .then((data) => {
-        if (!cancelled) setProviders(data.providers || [])
-      })
-      .catch((err) => console.error("Failed to load models:", err))
-      .finally(() => {
-        if (!cancelled) setIsLoading(false)
-      })
-    return () => {
-      cancelled = true
+async function loadModelProviders(): Promise<ProviderModels[]> {
+  if (modelProvidersCache) return modelProvidersCache
+  modelProvidersRequest ??= getModels()
+    .then((data) => {
+      modelProvidersCache = data.providers || []
+      return modelProvidersCache
+    })
+    .finally(() => {
+      modelProvidersRequest = null
+    })
+  return modelProvidersRequest
+}
+
+export function TaskFormModelSelector({ value, onChange }: TaskFormModelSelectorProps) {
+  const [providers, setProviders] = useState<ProviderModels[]>(modelProvidersCache ?? [])
+  const [isLoading, setIsLoading] = useState(false)
+  const [open, setOpen] = useState(false)
+
+  const loadModels = useCallback(async () => {
+    if (modelProvidersCache) {
+      setProviders(modelProvidersCache)
+      return
+    }
+    setIsLoading(true)
+    try {
+      setProviders(await loadModelProviders())
+    } catch (err) {
+      console.error("Failed to load models:", err)
+    } finally {
+      setIsLoading(false)
     }
   }, [])
+
+  const handleOpenChange = useCallback((nextOpen: boolean) => {
+    setOpen(nextOpen)
+    if (nextOpen) void loadModels()
+  }, [loadModels])
 
   const selectedLabel = (() => {
     if (!value) return "Default"
@@ -51,6 +73,8 @@ export function TaskFormModelSelector({ value, onChange }: TaskFormModelSelector
 
   return (
     <Select
+      open={open}
+      onOpenChange={handleOpenChange}
       value={value ?? DEFAULT_SENTINEL}
       onValueChange={(v) => onChange(v === DEFAULT_SENTINEL ? null : v)}
     >

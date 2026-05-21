@@ -95,7 +95,7 @@ export async function broadcastToProject(
     where: { id: projectId },
     select: {
       workspaceId: true,
-      projectTeams: { select: { teamId: true } },
+      teams: { select: { id: true } },
       access: {
         where: { permission: { in: ['full', 'view'] } },
         select: { userId: true },
@@ -106,8 +106,8 @@ export async function broadcastToProject(
   if (project.workspaceId) {
     broadcastToWorkspace(project.workspaceId, event, data);
   }
-  for (const projectTeam of project.projectTeams) {
-    broadcastToTeam(projectTeam.teamId, event, data);
+  for (const team of project.teams) {
+    broadcastToTeam(team.id, event, data);
   }
   for (const access of project.access) {
     broadcastToUser(access.userId, event, data);

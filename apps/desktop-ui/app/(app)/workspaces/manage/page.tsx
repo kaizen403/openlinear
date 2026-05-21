@@ -3,7 +3,6 @@
 import { Suspense, useState, useEffect, useCallback } from "react"
 import { useRouter } from "next/navigation"
 import {
-  ArrowLeft,
   Building2,
   Users,
   Trash2,
@@ -15,6 +14,11 @@ import {
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
+import {
+  SettingsPageShell,
+  SettingsPanel,
+  SettingsSection,
+} from "@/components/settings/settings-layout"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
@@ -102,38 +106,37 @@ function WorkspaceManageContent() {
   const isOwner = workspace?.role === "owner"
   const canManage = workspace?.role === "owner" || workspace?.role === "admin"
 
-  const loadWorkspace = useCallback(async () => {
+  const loadSettings = useCallback(async () => {
     if (!workspaceId) return
     setIsLoading(true)
-    try {
-      const data = await fetchWorkspace(workspaceId)
-      setWorkspace(data)
-      setName(data.name)
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "Failed to load workspace"
-      toast.error(msg)
-    } finally {
-      setIsLoading(false)
-    }
-  }, [workspaceId])
-
-  const loadMembers = useCallback(async () => {
-    if (!workspaceId) return
     setIsLoadingMembers(true)
     try {
-      const data = await fetchWorkspaceMembers(workspaceId)
-      setMembers(data)
-    } catch {
-      setMembers([])
+      const [workspaceResult, membersResult] = await Promise.allSettled([
+        fetchWorkspace(workspaceId),
+        fetchWorkspaceMembers(workspaceId),
+      ])
+
+      if (workspaceResult.status === "fulfilled") {
+        setWorkspace(workspaceResult.value)
+        setName(workspaceResult.value.name)
+      } else {
+        const msg =
+          workspaceResult.reason instanceof Error
+            ? workspaceResult.reason.message
+            : "Failed to load workspace"
+        toast.error(msg)
+      }
+
+      setMembers(membersResult.status === "fulfilled" ? membersResult.value : [])
     } finally {
+      setIsLoading(false)
       setIsLoadingMembers(false)
     }
   }, [workspaceId])
 
   useEffect(() => {
-    loadWorkspace()
-    loadMembers()
-  }, [loadWorkspace, loadMembers])
+    loadSettings()
+  }, [loadSettings])
 
   useSSESubscription(useCallback((eventType: SSEEventType, data: SSEEventData) => {
     if (!workspaceId) return
@@ -258,33 +261,19 @@ function WorkspaceManageContent() {
   }
 
   return (
-    <div className="flex h-full flex-col overflow-hidden">
-      <header className="flex h-12 shrink-0 items-center gap-3 border-b border-linear-border px-6">
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-7 w-7"
-          onClick={() => router.back()}
+    <>
+      <SettingsPageShell
+        title={workspace?.name ?? "Workspace"}
+        backLabel="workspace"
+        onBack={() => router.back()}
+        icon={<Building2 className="h-4 w-4" />}
+      >
+        <SettingsSection
+          title="General"
+          description="Update the workspace name. The URL slug stays system-managed."
+          icon={<Building2 className="h-4 w-4" />}
         >
-          <ArrowLeft className="h-4 w-4" />
-        </Button>
-        <div className="flex items-center gap-2 text-sm text-linear-text">
-          <Building2 className="h-4 w-4 text-linear-text-tertiary" />
-          <span>{workspace?.name ?? "Workspace"}</span>
-          <span className="text-linear-text-tertiary">·</span>
-          <span className="text-linear-text-tertiary">Settings</span>
-        </div>
-      </header>
-
-      <div className="flex-1 overflow-y-auto">
-        <div className="space-y-10 p-6 sm:p-8">
-          <section className="space-y-4">
-            <div>
-              <h2 className="text-sm font-medium text-linear-text">General</h2>
-              <p className="text-xs text-linear-text-tertiary">
-                Update your workspace name. Slug is generated automatically.
-              </p>
-            </div>
+          <SettingsPanel className="max-w-xl p-4">
             <div className="space-y-2">
               <Label htmlFor="workspace-name" className="text-xs text-linear-text-secondary">
                 Name
@@ -311,17 +300,14 @@ function WorkspaceManageContent() {
                 </p>
               )}
             </div>
-          </section>
+          </SettingsPanel>
+        </SettingsSection>
 
-          <section className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="text-sm font-medium text-linear-text">Members</h2>
-                <p className="text-xs text-linear-text-tertiary">
-                  {members.length} {members.length === 1 ? "member" : "members"} in this workspace
-                </p>
-              </div>
-            </div>
+        <SettingsSection
+          title="Members"
+          description={`${members.length} ${members.length === 1 ? "member" : "members"} in this workspace`}
+          icon={<Users className="h-4 w-4" />}
+        >
 
             {canManage && (
               <div className="flex gap-2 rounded-sm border border-linear-border bg-linear-bg-secondary p-3">
@@ -445,16 +431,13 @@ function WorkspaceManageContent() {
                 </ul>
               )}
             </div>
-          </section>
+        </SettingsSection>
 
           {isOwner && (
-            <section className="space-y-4">
-              <div>
-                <h2 className="text-sm font-medium text-linear-text">Delete workspace</h2>
-                <p className="text-xs text-linear-text-tertiary">
-                  Permanently delete this workspace. All projects must be removed first.
-                </p>
-              </div>
+            <SettingsSection
+              title="Delete workspace"
+              description="Permanently delete this workspace. All projects must be removed first."
+            >
               <Button
                 variant="outline"
                 size="sm"
@@ -464,10 +447,9 @@ function WorkspaceManageContent() {
                 <Trash2 className="mr-1.5 h-3.5 w-3.5" />
                 Delete workspace
               </Button>
-            </section>
+            </SettingsSection>
           )}
-        </div>
-      </div>
+      </SettingsPageShell>
 
       <AlertDialog
         open={!!removeTarget}
@@ -517,6 +499,6 @@ function WorkspaceManageContent() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </div>
+    </>
   )
 }

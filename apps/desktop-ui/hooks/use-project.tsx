@@ -16,27 +16,45 @@ interface ProjectContextType {
 const ProjectContext = createContext<ProjectContextType | undefined>(undefined)
 
 const STORAGE_KEY = "openlinear:activeProjectId"
+const SHARED_PROJECT_FIELDS = [
+  'id',
+  'workspaceId',
+  'key',
+  'name',
+  'description',
+  'status',
+  'color',
+  'icon',
+  'repositoryId',
+  'localPath',
+  'repoUrl',
+  'repository',
+] as const
 
 export function ProjectProvider({ children }: { children: ReactNode }) {
   const { activeWorkspace, isLoading: workspaceLoading } = useWorkspace()
+  const activeWorkspaceId = activeWorkspace?.id
   const [projects, setProjects] = useState<Project[]>([])
   const [activeProject, setActiveProjectState] = useState<Project | null>(null)
   const [isLoading, setIsLoading] = useState(true)
 
   const loadProjects = useCallback(async () => {
-    if (!activeWorkspace) {
+    if (!activeWorkspaceId) {
       setProjects([])
       return [] as Project[]
     }
     try {
-      const data = await fetchProjects({ workspaceId: activeWorkspace.id })
+      const data = await fetchProjects({
+        workspaceId: activeWorkspaceId,
+        fields: [...SHARED_PROJECT_FIELDS],
+      })
       setProjects(data)
       return data
     } catch {
       setProjects([])
       return [] as Project[]
     }
-  }, [activeWorkspace])
+  }, [activeWorkspaceId])
 
   const setActiveProject = useCallback((project: Project) => {
     setActiveProjectState(project)
@@ -49,7 +67,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (workspaceLoading) return
-    if (!activeWorkspace) {
+    if (!activeWorkspaceId) {
       setProjects([])
       setActiveProjectState(null)
       setIsLoading(false)
@@ -77,13 +95,13 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       }
       setIsLoading(false)
     })()
-  }, [activeWorkspace, workspaceLoading, loadProjects])
+  }, [activeWorkspaceId, workspaceLoading, loadProjects])
 
   useSSESubscription(useCallback((eventType: SSEEventType, data: SSEEventData) => {
-    if (!activeWorkspace) return
+    if (!activeWorkspaceId) return
     if (eventType === 'project:created') {
       const p = data as unknown as Project
-      if (!p?.id || p.workspaceId !== activeWorkspace.id) return
+      if (!p?.id || p.workspaceId !== activeWorkspaceId) return
       setProjects((prev) => (prev.some((x) => x.id === p.id) ? prev : [...prev, p]))
       return
     }
@@ -100,7 +118,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       setProjects((prev) => prev.filter((x) => x.id !== id))
       setActiveProjectState((prev) => (prev?.id === id ? null : prev))
     }
-  }, [activeWorkspace]))
+  }, [activeWorkspaceId]))
 
   return (
     <ProjectContext.Provider value={{ activeProject, projects, isLoading, setActiveProject, refreshProjects }}>

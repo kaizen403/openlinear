@@ -40,7 +40,7 @@ export { fetchProjects, createProject, updateProject, deleteProject, fetchProjec
 
 export { fetchWorkspaces, fetchWorkspace, fetchWorkspaceMembers, createWorkspace, updateWorkspace, deleteWorkspace, inviteWorkspaceMember, updateWorkspaceMember, removeWorkspaceMember } from './workspaces';
 
-export { fetchMyIssues, createTask, executeTaskPublic, refreshTaskPr, fetchInboxTasks, fetchInboxCount, markInboxRead, markAllInboxRead } from './tasks';
+export { fetchMyIssues, fetchProjectIssues, createTask, executeTaskPublic, refreshTaskPr, fetchInboxTasks, fetchInboxCount, markInboxRead, markAllInboxRead } from './tasks';
 
 export { fetchPersonalAccessTokens, createPersonalAccessToken, revokePersonalAccessToken } from './pats';
 export type { PersonalAccessToken, CreatedPersonalAccessToken } from './pats';
