@@ -40,7 +40,7 @@ export { fetchProjects, createProject, updateProject, deleteProject, fetchProjec
 
 export { fetchWorkspaces, fetchWorkspace, fetchWorkspaceMembers, createWorkspace, updateWorkspace, deleteWorkspace, inviteWorkspaceMember, updateWorkspaceMember, removeWorkspaceMember } from './workspaces';
 
-export { fetchMyIssues, createTask, executeTaskPublic, refreshTaskPr, fetchInboxTasks, fetchInboxCount, markInboxRead, markAllInboxRead } from './tasks';
+export { fetchMyIssues, fetchProjectIssues, createTask, executeTaskPublic, refreshTaskPr, fetchInboxTasks, fetchInboxCount, markInboxRead, markAllInboxRead } from './tasks';
 
 export { checkBrainstormAvailability, generateBrainstormQuestions, streamBrainstormTasks, transcribeAudio } from './brainstorm';
 export type { BrainstormTask, BrainstormAvailability } from './brainstorm';

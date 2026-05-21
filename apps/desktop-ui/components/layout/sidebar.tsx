@@ -134,7 +134,7 @@ function ProjectSection({ project, pathname, searchParams, isActive, onSelect }:
         if (isActive) setExpanded(true)
     }, [isActive])
 
-    const isIssuesActive = isActive && (pathname === "/" || pathname === "")
+    const isIssuesActive = pathname === "/projects/issues" && searchParams.get("id") === project.id
     const isTeamsActive = (pathname === "/teams" || pathname === "/teams/issues" || pathname === "/teams/manage") && searchParams.get("projectId") === project.id
     const isSettingsActive = pathname === "/projects/manage" && searchParams.get("id") === project.id
 
@@ -168,7 +168,7 @@ function ProjectSection({ project, pathname, searchParams, isActive, onSelect }:
             {expanded && (
                 <div className="ml-3 pl-3 border-l border-linear-border mt-0.5 space-y-0.5">
                     <Link
-                        href="/"
+                        href={`/projects/issues?id=${project.id}&name=${encodeURIComponent(project.name)}`}
                         onClick={onSelect}
                         className={subNavItemClass(isIssuesActive)}
                     >
