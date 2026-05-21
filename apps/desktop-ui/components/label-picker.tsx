@@ -13,6 +13,7 @@ import { Badge } from "@/components/ui/badge"
 import { Checkbox } from "@/components/ui/checkbox"
 import { cn } from "@/lib/utils"
 import { EmptyState } from "@/components/empty-state"
+import { apiFetch, ApiError } from "@/lib/api/fetch"
 
 interface Label {
   id: string
@@ -22,31 +23,29 @@ interface Label {
 }
 
 interface LabelPickerProps {
+  projectId: string
   selectedIds: string[]
   onChange: (ids: string[]) => void
   triggerClassName?: string
 }
 
-import { apiFetch, ApiError } from "@/lib/api/fetch"
+const labelsCacheMap = new Map<string, Label[]>()
 
-let labelsCache: Label[] | null = null
-let labelsRequest: Promise<Label[]> | null = null
-
-async function loadLabels(): Promise<Label[]> {
-  if (labelsCache) return labelsCache
-  labelsRequest ??= apiFetch<Label[]>('/api/labels')
-    .then((data) => {
-      labelsCache = [...data].sort((a, b) => a.priority - b.priority)
-      return labelsCache
-    })
-    .finally(() => {
-      labelsRequest = null
-    })
-  return labelsRequest
+async function loadLabels(projectId: string): Promise<Label[]> {
+  const cached = labelsCacheMap.get(projectId)
+  if (cached) return cached
+  const data = await apiFetch<Label[]>(`/api/labels?projectId=${projectId}`)
+  const sorted = [...data].sort((a, b) => a.priority - b.priority)
+  labelsCacheMap.set(projectId, sorted)
+  return sorted
 }
 
-export function LabelPicker({ selectedIds, onChange, triggerClassName }: LabelPickerProps) {
-  const [labels, setLabels] = useState<Label[]>(labelsCache ?? [])
+export function invalidateLabelCache(projectId: string) {
+  labelsCacheMap.delete(projectId)
+}
+
+export function LabelPicker({ projectId, selectedIds, onChange, triggerClassName }: LabelPickerProps) {
+  const [labels, setLabels] = useState<Label[]>(labelsCacheMap.get(projectId) ?? [])
   const [loading, setLoading] = useState(false)
   const [open, setOpen] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -55,7 +54,7 @@ export function LabelPicker({ selectedIds, onChange, triggerClassName }: LabelPi
     try {
       setLoading(true)
       setLoadError(null)
-      setLabels(await loadLabels())
+      setLabels(await loadLabels(projectId))
     } catch (err) {
       const msg =
         err instanceof ApiError
@@ -68,13 +67,19 @@ export function LabelPicker({ selectedIds, onChange, triggerClassName }: LabelPi
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [projectId])
 
   useEffect(() => {
-    if (open && labelsCache === null && labels.length === 0 && !loading && !loadError) {
+    if (open && !labelsCacheMap.has(projectId) && labels.length === 0 && !loading && !loadError) {
       void fetchLabels()
     }
-  }, [fetchLabels, labels.length, loadError, loading, open])
+  }, [fetchLabels, labels.length, loadError, loading, open, projectId])
+
+  useEffect(() => {
+    const cached = labelsCacheMap.get(projectId)
+    if (cached) setLabels(cached)
+    else setLabels([])
+  }, [projectId])
 
   const toggleLabel = (labelId: string) => {
     if (selectedIds.includes(labelId)) {
@@ -145,8 +150,8 @@ export function LabelPicker({ selectedIds, onChange, triggerClassName }: LabelPi
               <EmptyState
                 size="compact"
                 icon={Tag}
-                title="No labels available"
-                description="Create labels in Settings to tag tasks"
+                title="No labels yet"
+                description="Create labels in project settings"
               />
             ) : (
               labels.map((label) => (

@@ -12,6 +12,8 @@ import {
   Plus,
   Settings,
   FolderKanban,
+  Tag,
+  Pencil,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
@@ -54,6 +56,7 @@ import { apiFetch } from "@/lib/api/fetch"
 import { useProject } from "@/hooks/use-project"
 import { useWorkspace } from "@/hooks/use-workspace"
 import { toast } from "sonner"
+import { invalidateLabelCache } from "@/components/label-picker"
 
 const permissionLabels: Record<ProjectPermission, string> = {
   full: "Full access",
@@ -101,6 +104,29 @@ function ProjectManageContent() {
   const [grantPermission, setGrantPermission] = useState<ProjectPermission>("full")
   const [isGranting, setIsGranting] = useState(false)
 
+  // Labels state
+  interface ProjectLabel {
+    id: string
+    name: string
+    color: string
+    priority: number
+    projectId: string
+  }
+
+  const [labels, setLabels] = useState<ProjectLabel[]>([])
+  const [isLoadingLabels, setIsLoadingLabels] = useState(false)
+  const [newLabelName, setNewLabelName] = useState("")
+  const [newLabelColor, setNewLabelColor] = useState("#6366f1")
+  const [isCreatingLabel, setIsCreatingLabel] = useState(false)
+  const [editingLabelId, setEditingLabelId] = useState<string | null>(null)
+  const [editLabelName, setEditLabelName] = useState("")
+  const [editLabelColor, setEditLabelColor] = useState("")
+
+  const PRESET_COLORS = [
+    "#ef4444", "#f97316", "#eab308", "#22c55e", "#06b6d4",
+    "#3b82f6", "#6366f1", "#8b5cf6", "#ec4899", "#64748b",
+  ]
+
   const loadSettings = useCallback(async () => {
     if (!projectId) return
     setIsLoading(true)
@@ -133,6 +159,23 @@ function ProjectManageContent() {
   useEffect(() => {
     loadSettings()
   }, [loadSettings])
+
+  const loadLabels = useCallback(async () => {
+    if (!projectId) return
+    setIsLoadingLabels(true)
+    try {
+      const data = await apiFetch<ProjectLabel[]>(`/api/labels?projectId=${projectId}`)
+      setLabels(data.sort((a, b) => b.priority - a.priority))
+    } catch {
+      toast.error("Failed to load labels")
+    } finally {
+      setIsLoadingLabels(false)
+    }
+  }, [projectId])
+
+  useEffect(() => {
+    if (projectId) void loadLabels()
+  }, [projectId, loadLabels])
 
   const handleSave = async () => {
     if (!projectId || !projectName.trim()) return
@@ -221,6 +264,53 @@ function ProjectManageContent() {
     } finally {
       setIsRevoking(false)
       setRevokeTarget(null)
+    }
+  }
+
+  const handleCreateLabel = async () => {
+    if (!newLabelName.trim() || !projectId) return
+    setIsCreatingLabel(true)
+    try {
+      const label = await apiFetch<ProjectLabel>('/api/labels', {
+        method: 'POST',
+        body: JSON.stringify({ name: newLabelName.trim(), color: newLabelColor, projectId }),
+      })
+      setLabels((prev) => [label, ...prev])
+      setNewLabelName("")
+      setNewLabelColor("#6366f1")
+      invalidateLabelCache(projectId)
+      toast.success(`Label "${label.name}" created`)
+    } catch {
+      toast.error("Failed to create label")
+    } finally {
+      setIsCreatingLabel(false)
+    }
+  }
+
+  const handleUpdateLabel = async (labelId: string) => {
+    if (!editLabelName.trim()) return
+    try {
+      const updated = await apiFetch<ProjectLabel>(`/api/labels/${labelId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ name: editLabelName.trim(), color: editLabelColor }),
+      })
+      setLabels((prev) => prev.map((l) => (l.id === labelId ? updated : l)))
+      setEditingLabelId(null)
+      invalidateLabelCache(projectId)
+      toast.success("Label updated")
+    } catch {
+      toast.error("Failed to update label")
+    }
+  }
+
+  const handleDeleteLabel = async (labelId: string) => {
+    try {
+      await apiFetch(`/api/labels/${labelId}`, { method: 'DELETE' })
+      setLabels((prev) => prev.filter((l) => l.id !== labelId))
+      invalidateLabelCache(projectId)
+      toast.success("Label deleted")
+    } catch {
+      toast.error("Failed to delete label")
     }
   }
 
@@ -421,6 +511,117 @@ function ProjectManageContent() {
               </table>
             </SettingsPanel>
           )}
+        </SettingsSection>
+
+        <SettingsSection
+          title="Labels"
+          description="Manage labels for categorizing issues in this project."
+        >
+          <SettingsPanel>
+            <div className="p-4 space-y-4">
+              <div className="flex items-end gap-2">
+                <div className="flex-1 space-y-1.5">
+                  <Label className="text-xs text-linear-text-tertiary">Name</Label>
+                  <Input
+                    value={newLabelName}
+                    onChange={(e) => setNewLabelName(e.target.value)}
+                    placeholder="Label name"
+                    className="h-8"
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void handleCreateLabel() } }}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-linear-text-tertiary">Color</Label>
+                  <div className="flex gap-1">
+                    {PRESET_COLORS.map((color) => (
+                      <button
+                        key={color}
+                        type="button"
+                        className={`w-6 h-6 rounded-sm transition-all ${newLabelColor === color ? "ring-1 ring-foreground ring-offset-1 ring-offset-background scale-110" : "hover:scale-110"}`}
+                        style={{ backgroundColor: color }}
+                        onClick={() => setNewLabelColor(color)}
+                      />
+                    ))}
+                  </div>
+                </div>
+                <Button
+                  size="sm"
+                  onClick={handleCreateLabel}
+                  disabled={!newLabelName.trim() || isCreatingLabel}
+                  className="h-8"
+                >
+                  <Plus className="h-3.5 w-3.5 mr-1" />
+                  Add
+                </Button>
+              </div>
+
+              {isLoadingLabels ? (
+                <div className="text-sm text-linear-text-tertiary py-4 text-center">Loading...</div>
+              ) : labels.length === 0 ? (
+                <div className="text-sm text-linear-text-tertiary py-4 text-center">
+                  No labels yet. Create one above.
+                </div>
+              ) : (
+                <div className="space-y-1">
+                  {labels.map((label) => (
+                    <div
+                      key={label.id}
+                      className="flex items-center gap-3 px-3 py-2 rounded-sm hover:bg-linear-bg-tertiary group"
+                    >
+                      {editingLabelId === label.id ? (
+                        <>
+                          <div className="flex gap-1">
+                            {PRESET_COLORS.map((color) => (
+                              <button
+                                key={color}
+                                type="button"
+                                className={`w-4 h-4 rounded-sm ${editLabelColor === color ? "ring-1 ring-foreground" : ""}`}
+                                style={{ backgroundColor: color }}
+                                onClick={() => setEditLabelColor(color)}
+                              />
+                            ))}
+                          </div>
+                          <Input
+                            value={editLabelName}
+                            onChange={(e) => setEditLabelName(e.target.value)}
+                            className="h-7 flex-1 text-sm"
+                            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void handleUpdateLabel(label.id) } }}
+                            autoFocus
+                          />
+                          <Button size="sm" className="h-7 text-xs" onClick={() => handleUpdateLabel(label.id)}>
+                            Save
+                          </Button>
+                          <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setEditingLabelId(null)}>
+                            Cancel
+                          </Button>
+                        </>
+                      ) : (
+                        <>
+                          <div
+                            className="w-3 h-3 rounded-full shrink-0"
+                            style={{ backgroundColor: label.color }}
+                          />
+                          <span className="flex-1 text-sm text-linear-text">{label.name}</span>
+                          <button
+                            onClick={() => { setEditingLabelId(label.id); setEditLabelName(label.name); setEditLabelColor(label.color) }}
+                            className="opacity-0 group-hover:opacity-100 text-linear-text-tertiary hover:text-linear-text transition-opacity"
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteLabel(label.id)}
+                            className="opacity-0 group-hover:opacity-100 text-linear-text-tertiary hover:text-destructive transition-opacity"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </SettingsPanel>
         </SettingsSection>
 
         <SettingsSection

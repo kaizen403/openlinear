@@ -6,7 +6,6 @@ import {
   Users,
   Trash2,
   User,
-  Crown,
   Shield,
   Copy,
   Check,
@@ -74,7 +73,7 @@ import {
 import { toast } from "sonner"
 
 const roleIcons = {
-  owner: Crown,
+  owner: User,
   admin: Shield,
   member: User,
 }

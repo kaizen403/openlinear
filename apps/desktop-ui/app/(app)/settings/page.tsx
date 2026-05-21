@@ -24,7 +24,7 @@ import {
   AlertCircle,
   User as UserIcon,
   Github,
-  Search,
+  Building2,
 } from "lucide-react"
 import { Slider } from "@/components/ui/slider"
 import { Button } from "@/components/ui/button"
@@ -45,12 +45,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { useSearchParams } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import { useTheme } from "next-themes"
 import { toast } from "sonner"
 import { DatabaseSettings } from "@/components/desktop/database-settings"
 import { AIProvidersSection } from "@/components/settings/ai-providers-section"
 import { PersonalAccessTokensSection } from "@/components/settings/personal-access-tokens-section"
+import { WorkspacesSection } from "@/components/settings/workspaces-section"
 import { getActiveRepository, setActiveRepositoryBaseBranch } from "@/lib/api"
 import { apiFetch } from "@/lib/api/fetch"
 import { startLogin, updateEmail } from "@/lib/api"
@@ -59,6 +60,7 @@ import { EmptyState } from "@/components/empty-state"
 
 type SettingsSection =
   | "profile"
+  | "workspaces"
   | "general"
   | "appearance"
   | "notifications"
@@ -74,6 +76,7 @@ const NAV_ITEMS: {
   icon: React.ElementType
 }[] = [
   { id: "profile", label: "Profile", icon: UserIcon },
+  { id: "workspaces", label: "Workspaces", icon: Building2 },
   { id: "general", label: "General", icon: Globe },
   { id: "appearance", label: "Appearance", icon: Palette },
   { id: "notifications", label: "Notifications", icon: Bell },
@@ -88,8 +91,12 @@ const DEFAULT_ACCENT = { accent: "#10b981", hover: "#059669" }
 const LEGACY_ACCENTS = new Set(["#1d4ed8", "#1e40af", "#3b82f6", "#2563eb"])
 
 function SettingsContent() {
+  const router = useRouter()
   const searchParams = useSearchParams()
-  const initialSection = (searchParams.get("section") as SettingsSection) || "profile"
+  const requestedSection = searchParams.get("section")
+  const initialSection = NAV_ITEMS.some((item) => item.id === requestedSection)
+    ? (requestedSection as SettingsSection)
+    : "profile"
   const [activeSection, setActiveSection] =
     useState<SettingsSection>(initialSection)
 
@@ -150,6 +157,20 @@ function SettingsContent() {
   ] as const
 
   const [accentColor, setAccentColor] = useState(DEFAULT_ACCENT.accent)
+
+  useEffect(() => {
+    const section = searchParams.get("section")
+    if (!section) {
+      setActiveSection("profile")
+    } else if (NAV_ITEMS.some((item) => item.id === section)) {
+      setActiveSection(section as SettingsSection)
+    }
+  }, [searchParams])
+
+  const selectSection = useCallback((section: SettingsSection) => {
+    setActiveSection(section)
+    router.replace(section === "profile" ? "/settings" : `/settings?section=${section}`, { scroll: false })
+  }, [router])
 
   const applyAccentColor = (accent: string, hover: string) => {
     setAccentColor(accent)
@@ -1047,6 +1068,8 @@ function SettingsContent() {
     switch (activeSection) {
       case "profile":
         return renderProfile()
+      case "workspaces":
+        return <WorkspacesSection />
       case "general":
         return renderGeneral()
       case "appearance":
@@ -1085,7 +1108,7 @@ function SettingsContent() {
             return (
               <button
                 key={item.id}
-                onClick={() => setActiveSection(item.id)}
+                onClick={() => selectSection(item.id)}
                 className={`flex items-center gap-2.5 px-3 py-2 rounded-sm text-sm whitespace-nowrap transition-colors ${
                   isActive
                     ? "bg-linear-bg-tertiary text-linear-text"
@@ -1101,7 +1124,7 @@ function SettingsContent() {
         </nav>
 
         <main className="flex-1 overflow-y-auto p-6 sm:p-8">
-          <div className="max-w-2xl pb-8">{renderContent()}</div>
+          <div className="pb-8">{renderContent()}</div>
         </main>
       </div>
     </>

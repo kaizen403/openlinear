@@ -1,12 +1,10 @@
 import { Router, Response, NextFunction } from 'express';
 import { prisma } from '@openlinear/db';
-import { broadcastToTeam, broadcastToUser, broadcastToTaskById } from '../sse';
+import { broadcastToProject, broadcastToTaskById } from '../sse';
 import { requireAuth, AuthRequest } from '../middleware/auth';
 import { validateBody, validateQuery, ValidatedRequest } from '../middleware/validate';
-import { getUserTeamIds } from '../services/team-scope';
 import {
   assertTaskOwned,
-  assertTeamRole,
   OwnershipError,
 } from '../services/ownership';
 import {
@@ -22,26 +20,43 @@ import {
 
 const router: Router = Router();
 
+async function assertProjectMember(projectId: string, userId: string): Promise<void> {
+  const project = await prisma.project.findFirst({
+    where: {
+      id: projectId,
+      workspace: { members: { some: { userId } } },
+      NOT: { access: { some: { userId, permission: 'deny' } } },
+    },
+    select: { id: true },
+  });
+  if (!project) {
+    throw new OwnershipError('project', projectId, 'not_found');
+  }
+}
+
+async function assertLabelAccess(labelId: string, userId: string): Promise<string> {
+  const label = await prisma.label.findUnique({
+    where: { id: labelId },
+    select: { projectId: true },
+  });
+  if (!label) {
+    throw new OwnershipError('label', labelId, 'not_found');
+  }
+  await assertProjectMember(label.projectId, userId);
+  return label.projectId;
+}
+
 router.get(
   '/',
   requireAuth,
   validateQuery(listLabelsQuerySchema),
   async (req: AuthRequest & ValidatedRequest<unknown, ListLabelsQuery>, res: Response, next: NextFunction) => {
     try {
-      const teamIdParam = req.validQuery?.teamId;
-      const userTeamIds = await getUserTeamIds(req.userId!);
-
-      const teamFilter = teamIdParam
-        ? userTeamIds.includes(teamIdParam) ? [teamIdParam] : []
-        : userTeamIds;
+      const { projectId } = req.validQuery!;
+      await assertProjectMember(projectId, req.userId!);
 
       const labels = await prisma.label.findMany({
-        where: {
-          OR: [
-            { teamId: { in: teamFilter } },
-            { teamId: null },
-          ],
-        },
+        where: { projectId },
         orderBy: { priority: 'desc' },
       });
       res.json(labels);
@@ -57,39 +72,20 @@ router.post(
   validateBody(createLabelBodySchema),
   async (req: AuthRequest & ValidatedRequest<CreateLabelBody>, res: Response, next: NextFunction) => {
     try {
-      const { teamId, ...rest } = req.validBody!;
-      if (teamId) {
-        await assertTeamRole(teamId, req.userId!, ['owner', 'admin', 'member']);
-      }
+      const { projectId, ...rest } = req.validBody!;
+      await assertProjectMember(projectId, req.userId!);
 
       const label = await prisma.label.create({
-        data: { ...rest, teamId: teamId ?? null },
+        data: { ...rest, projectId },
       });
 
-      if (label.teamId) {
-        broadcastToTeam(label.teamId, 'label:created', label);
-      } else {
-        broadcastToUser(req.userId!, 'label:created', label);
-      }
+      broadcastToProject(projectId, 'label:created', label);
       res.status(201).json(label);
     } catch (error) {
       next(error);
     }
   },
 );
-
-async function assertLabelAccess(labelId: string, userId: string): Promise<void> {
-  const label = await prisma.label.findUnique({
-    where: { id: labelId },
-    select: { teamId: true },
-  });
-  if (!label) {
-    throw new OwnershipError('label', labelId, 'not_found');
-  }
-  if (label.teamId) {
-    await assertTeamRole(label.teamId, userId, ['owner', 'admin', 'member']);
-  }
-}
 
 router.patch(
   '/:id',
@@ -98,18 +94,14 @@ router.patch(
   async (req: AuthRequest & ValidatedRequest<UpdateLabelBody>, res: Response, next: NextFunction) => {
     try {
       const id = req.params.id as string;
-      await assertLabelAccess(id, req.userId!);
+      const projectId = await assertLabelAccess(id, req.userId!);
 
       const label = await prisma.label.update({
         where: { id },
         data: req.validBody!,
       });
 
-      if (label.teamId) {
-        broadcastToTeam(label.teamId, 'label:updated', label);
-      } else {
-        broadcastToUser(req.userId!, 'label:updated', label);
-      }
+      broadcastToProject(projectId, 'label:updated', label);
       res.json(label);
     } catch (error) {
       next(error);
@@ -120,20 +112,10 @@ router.patch(
 router.delete('/:id', requireAuth, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const id = req.params.id as string;
-    await assertLabelAccess(id, req.userId!);
-
-    const existing = await prisma.label.findUnique({
-      where: { id },
-      select: { teamId: true },
-    });
+    const projectId = await assertLabelAccess(id, req.userId!);
 
     await prisma.label.delete({ where: { id } });
-
-    if (existing?.teamId) {
-      broadcastToTeam(existing.teamId, 'label:deleted', { id });
-    } else {
-      broadcastToUser(req.userId!, 'label:deleted', { id });
-    }
+    broadcastToProject(projectId, 'label:deleted', { id });
     res.status(204).send();
   } catch (error) {
     next(error);
@@ -173,9 +155,7 @@ router.delete('/tasks/:id/labels/:labelId', requireAuth, async (req: AuthRequest
     await assertTaskOwned(taskId, req.userId!);
 
     await prisma.taskLabel.delete({
-      where: {
-        taskId_labelId: { taskId, labelId },
-      },
+      where: { taskId_labelId: { taskId, labelId } },
     });
 
     broadcastToTaskById(taskId, 'task:label:removed', { taskId, labelId });

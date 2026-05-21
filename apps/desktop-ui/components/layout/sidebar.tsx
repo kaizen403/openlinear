@@ -8,7 +8,7 @@ import {
     Home, Inbox, Layers, Settings,
     PanelLeftClose, LogOut, Archive, Brain, BarChart3,
     ChevronRight, ChevronDown, Hexagon, Plus,
-    ChevronsUpDown, Building2, Users, FolderKanban,
+    ChevronsUpDown, Building2, Users, FolderKanban, Columns3,
     User as UserIcon, Sun, Moon, Monitor
 } from "lucide-react"
 
@@ -106,7 +106,7 @@ function WorkspaceSwitcher() {
                         <>
                             <div className="my-1 h-px bg-linear-border" />
                             <Link
-                                href="/workspaces/manage"
+                                href="/settings?section=workspaces"
                                 onClick={() => setIsOpen(false)}
                                 className="flex items-center gap-2 w-full px-2 py-1.5 rounded-sm text-sm text-linear-text-secondary hover:bg-linear-bg-tertiary transition-colors"
                             >
@@ -134,6 +134,7 @@ function ProjectSection({ project, pathname, searchParams, isActive, onSelect }:
         if (isActive) setExpanded(true)
     }, [isActive])
 
+    const isBoardActive = pathname === "/projects/board" && searchParams.get("id") === project.id
     const isIssuesActive = pathname === "/projects/issues" && searchParams.get("id") === project.id
     const isTeamsActive = (pathname === "/teams" || pathname === "/teams/issues" || pathname === "/teams/manage") && searchParams.get("projectId") === project.id
     const isSettingsActive = pathname === "/projects/manage" && searchParams.get("id") === project.id
@@ -167,6 +168,14 @@ function ProjectSection({ project, pathname, searchParams, isActive, onSelect }:
 
             {expanded && (
                 <div className="ml-3 pl-3 border-l border-linear-border mt-0.5 space-y-0.5">
+                    <Link
+                        href={`/projects/board?id=${project.id}&name=${encodeURIComponent(project.name)}`}
+                        onClick={onSelect}
+                        className={subNavItemClass(isBoardActive)}
+                    >
+                        <Columns3 className="w-3.5 h-3.5 flex-shrink-0" />
+                        <span>Board</span>
+                    </Link>
                     <Link
                         href={`/projects/issues?id=${project.id}&name=${encodeURIComponent(project.name)}`}
                         onClick={onSelect}

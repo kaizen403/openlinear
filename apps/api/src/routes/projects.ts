@@ -334,6 +334,18 @@ router.post(
         include: projectInclude,
       });
 
+      await prisma.label.createMany({
+        data: [
+          { name: 'Bug', color: '#ef4444', priority: 5, projectId: project.id },
+          { name: 'Feature', color: '#3b82f6', priority: 4, projectId: project.id },
+          { name: 'Frontend', color: '#8b5cf6', priority: 3, projectId: project.id },
+          { name: 'Backend', color: '#22c55e', priority: 3, projectId: project.id },
+          { name: 'Docs', color: '#eab308', priority: 2, projectId: project.id },
+          { name: 'Urgent', color: '#f97316', priority: 6, projectId: project.id },
+        ],
+        skipDuplicates: true,
+      });
+
       if (teamIds?.length) {
         const conflicting = await prisma.team.findMany({
           where: { id: { in: teamIds }, projectId: { not: project.id } },

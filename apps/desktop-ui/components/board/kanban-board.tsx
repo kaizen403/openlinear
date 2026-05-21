@@ -1,6 +1,7 @@
 "use client"
 
-import { useEffect, useState, useCallback, useRef } from "react"
+import { useEffect, useState, useCallback, useRef, useMemo } from "react"
+import { createPortal } from "react-dom"
 import { DragDropContext, Droppable, Draggable, DropResult } from "@hello-pangea/dnd"
 import { Column } from "./column"
 import { TaskCard } from "./task-card"
@@ -244,29 +245,35 @@ export function KanbanBoard(props: KanbanBoardProps) {
       index={index}
       isDragDisabled={selectionActive || task.id.startsWith('temp-')}
     >
-      {(provided, snapshot) => (
-        <div
-          ref={provided.innerRef}
-          {...provided.draggableProps}
-          {...provided.dragHandleProps}
-          style={provided.draggableProps.style}
-        >
-          <TaskCard
-            task={task}
-            onMoveToInProgress={task.status === 'todo' ? handleMoveToInProgress : undefined}
-            onExecute={task.status === 'in_progress' && canExecute ? handleExecute : undefined}
-            onCancel={task.status === 'in_progress' ? handleCancel : undefined}
-            onDelete={handleDelete}
-            onTaskClick={handleTaskClick}
-            selected={selectedTaskIds.has(task.id)}
-            onToggleSelect={toggleTaskSelect}
-            selectionMode={selectionActive || selectingColumns.has(task.status)}
-            isBatchTask={batchTaskIds.includes(task.id)}
-            isCompletedBatchTask={isCompletedBatch}
-            isDragging={snapshot.isDragging}
-          />
-        </div>
-      )}
+      {(provided, snapshot) => {
+        const child = (
+          <div
+            ref={provided.innerRef}
+            {...provided.draggableProps}
+            {...provided.dragHandleProps}
+            style={provided.draggableProps.style}
+          >
+            <TaskCard
+              task={task}
+              onMoveToInProgress={task.status === 'todo' ? handleMoveToInProgress : undefined}
+              onExecute={task.status === 'in_progress' && canExecute ? handleExecute : undefined}
+              onCancel={task.status === 'in_progress' ? handleCancel : undefined}
+              onDelete={handleDelete}
+              onTaskClick={handleTaskClick}
+              selected={selectedTaskIds.has(task.id)}
+              onToggleSelect={toggleTaskSelect}
+              selectionMode={selectionActive || selectingColumns.has(task.status)}
+              isBatchTask={batchTaskIds.includes(task.id)}
+              isCompletedBatchTask={isCompletedBatch}
+              isDragging={snapshot.isDragging}
+            />
+          </div>
+        )
+        if (snapshot.isDragging) {
+          return createPortal(child, document.body)
+        }
+        return child
+      }}
     </Draggable>
   )
 

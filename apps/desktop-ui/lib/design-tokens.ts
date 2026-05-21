@@ -127,8 +127,8 @@ export const PRIORITY_COLORS: Readonly<Record<PriorityKey, ColorTriad>> = {
 } as const
 
 export const TEAM_ROLE_COLORS: Readonly<Record<TeamRoleKey, ColorTriad>> = {
-  owner: PRIORITY_COLORS.high,
-  admin: STATUS_COLORS.in_progress,
+  owner: STATUS_COLORS.todo,
+  admin: STATUS_COLORS.todo,
   member: STATUS_COLORS.todo,
 } as const
 

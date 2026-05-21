@@ -153,16 +153,16 @@ model Task {
 }
 
 model Label {
-  id       String      @id @default(uuid())
-  name     String
-  color    String
-  priority Int         @default(0)
-  teamId   String?
-  team     Team?       @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  tasks    TaskLabel[]
+  id        String      @id @default(uuid())
+  name      String
+  color     String
+  priority  Int         @default(0)
+  projectId String
+  project   Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  tasks     TaskLabel[]
 
-  @@unique([teamId, name])
-  @@index([teamId])
+  @@unique([projectId, name])
+  @@index([projectId])
   @@map("labels")
 }
 
@@ -299,7 +299,6 @@ model Team {
   updatedAt       DateTime      @updatedAt
   members         TeamMember[]
   tasks           Task[]
-  labels          Label[]
   activityLogs    ActivityLog[]
 
   @@unique([projectId, key])
@@ -344,6 +343,7 @@ model Project {
   updatedAt    DateTime        @updatedAt
   teams        Team[]
   tasks        Task[]
+  labels       Label[]
   access       ProjectAccess[]
   activityLogs ActivityLog[]
 

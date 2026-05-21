@@ -311,6 +311,7 @@ export function TaskFormDialog({
                   <FormItem className="space-y-0">
                     <FormControl>
                       <LabelPicker
+                        projectId={effectiveProjectId || ""}
                         selectedIds={field.value}
                         onChange={field.onChange}
                         triggerClassName="h-7 w-auto px-2.5 text-xs rounded-sm bg-transparent border-none hover:bg-linear-bg-tertiary hover:border-none text-linear-text-secondary shadow-none"

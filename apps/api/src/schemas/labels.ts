@@ -1,12 +1,12 @@
 import { z } from 'zod';
 
-const hexColor = z.string().regex(/^#[0-9A-Fa-f]{6}$/, 'Color must be a valid hex color');
+const hexColor = z.string().regex(/^#[0-9A-Fa-f]{6}$/);
 
 export const createLabelBodySchema = z.object({
   name: z.string().min(1).max(50),
   color: hexColor,
   priority: z.number().int().min(0).default(0),
-  teamId: z.string().uuid().optional(),
+  projectId: z.string().uuid(),
 });
 
 export const updateLabelBodySchema = z.object({
@@ -20,7 +20,7 @@ export const assignLabelBodySchema = z.object({
 });
 
 export const listLabelsQuerySchema = z.object({
-  teamId: z.string().uuid().optional(),
+  projectId: z.string().uuid(),
 });
 
 export type CreateLabelBody = z.infer<typeof createLabelBodySchema>;

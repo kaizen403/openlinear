@@ -38,7 +38,8 @@ export { fetchTeams, fetchTeam, createTeam, updateTeam, deleteTeam, addTeamMembe
 
 export { fetchProjects, createProject, updateProject, deleteProject, fetchProjectAccess, grantProjectAccess, revokeProjectAccess } from './projects';
 
-export { fetchWorkspaces, fetchWorkspace, fetchWorkspaceMembers, createWorkspace, updateWorkspace, deleteWorkspace, inviteWorkspaceMember, updateWorkspaceMember, removeWorkspaceMember } from './workspaces';
+export { fetchWorkspaces, fetchWorkspace, fetchWorkspaceStructure, fetchWorkspaceMembers, createWorkspace, updateWorkspace, deleteWorkspace, inviteWorkspaceMember, updateWorkspaceMember, removeWorkspaceMember } from './workspaces';
+export type { WorkspaceStructure, WorkspaceStructureProject, WorkspaceStructureTeam } from './workspaces';
 
 export { fetchMyIssues, fetchProjectIssues, createTask, executeTaskPublic, refreshTaskPr, fetchInboxTasks, fetchInboxCount, markInboxRead, markAllInboxRead } from './tasks';
 

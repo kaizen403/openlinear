@@ -50,6 +50,33 @@ const workspaceDetailInclude = {
   },
 } satisfies Prisma.WorkspaceInclude;
 
+const workspaceStructureInclude = {
+  _count: { select: { members: true, projects: true } },
+  members: {
+    include: memberInclude,
+    orderBy: [{ invitedAt: 'asc' }, { id: 'asc' }],
+  },
+  projects: {
+    include: {
+      repository: {
+        select: { id: true, name: true, fullName: true, cloneUrl: true, defaultBranch: true },
+      },
+      teams: {
+        include: {
+          members: {
+            include: memberInclude,
+            orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+          },
+          _count: { select: { members: true, tasks: true } },
+        },
+        orderBy: { createdAt: 'asc' },
+      },
+      _count: { select: { tasks: true } },
+    },
+    orderBy: { updatedAt: 'desc' },
+  },
+} satisfies Prisma.WorkspaceInclude;
+
 const workspaceListFields = [
   'id',
   'name',
@@ -230,6 +257,30 @@ router.post(
     }
   },
 );
+
+router.get('/:id/structure', requireAuth, async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const id = req.params.id as string;
+    const currentMember = await assertWorkspaceRole(id, req.userId!, ['owner', 'admin', 'member', 'viewer']);
+
+    const workspace = await prisma.workspace.findUnique({
+      where: { id },
+      include: workspaceStructureInclude,
+    });
+    if (!workspace) {
+      throw new OwnershipError('workspace', id, 'not_found');
+    }
+
+    res.setHeader('Cache-Control', 'private, max-age=0, must-revalidate');
+    res.json({
+      ...workspace,
+      role: currentMember.role,
+      currentMember: workspace.members.find((member) => member.userId === req.userId!) ?? null,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
 
 router.get('/:id/members', requireAuth, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {

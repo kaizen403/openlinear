@@ -338,9 +338,9 @@ export default function TeamsPage() {
                     </DialogHeader>
                     {createdTeam ? (
                       <div className="space-y-6 mt-4">
-                        <div className="p-4 rounded-sm bg-green-500/10 border border-green-500/20">
-                          <div className="text-sm text-green-600 dark:text-green-400 font-medium mb-2">
-                            Team created successfully!
+                        <div className="p-4 rounded-sm bg-linear-bg-tertiary border border-linear-border">
+                          <div className="text-sm text-linear-text font-medium mb-2">
+                            Team created successfully
                           </div>
                           <div className="text-sm text-linear-text-secondary mb-4">
                             Share this invite code with others to let them join your team.
