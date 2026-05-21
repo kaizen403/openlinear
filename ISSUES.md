@@ -230,6 +230,7 @@ See `.sisyphus/plans/openlinear-issues.md` for full root-cause analysis and file
 - Replaced workspace/project scope pills with a project-only dropdown because workspace is already selected globally in the sidebar.
 - Reworked the project dropdown from a browser/system `<select>` into an OpenLinear-native dropdown menu.
 - Lowercased displayed project names in Home Chat and removed the heavier weight from the empty-state project name.
+- Set the empty-state project-name color to the configured app accent color from Settings.
 - Changed new chat session creation to attach the selected project ID.
 - Updated empty chat suggestions to be project-focused instead of generic integration prompts.
 
@@ -237,7 +238,7 @@ See `.sisyphus/plans/openlinear-issues.md` for full root-cause analysis and file
 - `apps/desktop-ui/app/(app)/page.tsx` — added chat header, project dropdown, new chat button, and project-scoped session creation.
 - `apps/desktop-ui/components/chat/scope-picker.tsx` — replaced scope pills/system select with a custom project dropdown.
 - `apps/desktop-ui/components/chat/chat-composer.tsx` — removed fake/sloppy controls and simplified the composer footer.
-- `apps/desktop-ui/components/chat/chat-empty-state.tsx` — matched project-name weight to surrounding text and rendered the name in lowercase.
+- `apps/desktop-ui/components/chat/chat-empty-state.tsx` — matched project-name weight to surrounding text, rendered the name in lowercase, and set it to the configured accent color.
 - `apps/desktop-ui/components/chat/chat-suggestions.tsx` — replaced generic suggestions with project-native prompts.
 - `ISSUES.md` — recorded this session.
 
@@ -246,6 +247,96 @@ See `.sisyphus/plans/openlinear-issues.md` for full root-cause analysis and file
 
 ### Next steps / blockers
 - Run `pnpm dev-live` and visually inspect the Home Chat header/dropdown in the Tauri shell if further visual tuning is wanted.
+
+## [2026-05-21] — Add ElevenLabs voice dictation to Home Chat
+
+**Status:** Done
+**Agent:** Codex
+
+### What was done
+- Added the official ElevenLabs TypeScript SDK to the sidecar.
+- Replaced the existing Whisper/OpenAI transcription path with ElevenLabs Scribe speech-to-text via `client.speechToText.convert`.
+- Added server-side ElevenLabs STT environment configuration and kept the API key sidecar-only.
+- Added a Home Chat microphone control with recording, transcribing, blocked-mic, and failure states.
+- Added a restrained recording animation and automatic transcript insertion into the chat composer after recording stops.
+- Reverted the custom project-name gradient so the empty-state project name follows the configured app accent color.
+
+### Files changed
+- `apps/sidecar/src/routes/transcribe.ts` — switched `/api/transcribe` to ElevenLabs Scribe and added safer upload/model/timeout handling.
+- `apps/sidecar/package.json` / `pnpm-lock.yaml` — added `@elevenlabs/elevenlabs-js`.
+- `apps/desktop-ui/components/chat/chat-composer.tsx` — added voice recording UI, MediaRecorder capture, transcription flow, and transcript insertion.
+- `apps/desktop-ui/lib/api/chat.ts` — added Home Chat transcription client helper.
+- `apps/desktop-ui/components/chat/chat-empty-state.tsx` — keeps the project name aligned to the configured accent color.
+- `.env.example` — documented ElevenLabs STT configuration.
+- `ISSUES.md` — recorded this session.
+
+### Issues encountered
+- The ElevenLabs SDK exposes `statusCode` as optional on errors, so the sidecar route now normalizes missing SDK statuses to a 502 before returning the shared JSON error envelope.
+
+### Next steps / blockers
+- Run `pnpm dev-live` on a machine with `ELEVENLABS_API_KEY` set and verify microphone permission, record/stop animation, and transcript insertion in the Tauri shell.
+
+## [2026-05-21] — Unify desktop UI accent color and configure Fireworks locally
+
+**Status:** Done
+**Agent:** Codex
+
+### What was done
+- Synced Tailwind `primary`, `accent`, and `linear-accent` color tokens to the accent color configured in Settings instead of leaving shadcn `primary` hardcoded to emerald.
+- Added RGB companion CSS variables so opacity utilities such as `bg-linear-accent/10` and `bg-primary/90` can follow the selected accent reliably.
+- Updated the Settings accent picker and pre-hydration layout script to keep the hex and RGB accent variables in sync.
+- Replaced remaining non-semantic `primary` usages in chat controls, shared button/badge defaults, and chat tool UI with `linear-accent`.
+- Updated usage chart/cost accents and project-selector checkmarks to follow the configured accent; left semantic status/priority greens alone.
+- Added the provided Fireworks key to the ignored local `.env` for chat and brainstorm testing, including Fireworks base URL and Kimi model settings.
+- Fixed chat LLM env fallback so blank `CHAT_LLM_API_KEY` values no longer block fallback to `FIREWORKS_API_KEY`.
+
+### Files changed
+- `apps/desktop-ui/tailwind.config.ts` — maps primary/accent tokens to the runtime accent RGB variables.
+- `apps/desktop-ui/app/globals.css` — added default accent RGB variables.
+- `apps/desktop-ui/app/layout.tsx` — syncs stored accent colors before hydration.
+- `apps/desktop-ui/app/(app)/settings/page.tsx` — writes both hex and RGB accent variables from Settings.
+- `apps/desktop-ui/components/ui/button.tsx` / `apps/desktop-ui/components/ui/badge.tsx` — default interactive variants now use `linear-accent`.
+- `apps/desktop-ui/components/chat/*` — send button, selected project check, user-message border, and tool in-progress state now use the configured accent.
+- `apps/desktop-ui/app/(app)/usage/page.tsx` and `apps/desktop-ui/components/auth/project-selector.tsx` — replaced non-semantic emerald UI accents.
+- `apps/api/src/lib/chat-llm.ts` — added non-empty env fallback selection.
+- `.env` — configured Fireworks locally; file is ignored and not committed.
+- `ISSUES.md` — recorded this session.
+
+### Issues encountered
+- The app had two accent systems: `--linear-accent` from Settings and shadcn `primary/accent` still hardcoded to emerald. The fix makes the shadcn tokens inherit the Settings accent.
+
+### Next steps / blockers
+- Run `pnpm dev-live` and visually confirm a non-emerald accent preset changes the send button, project name, usage chart, and default buttons consistently.
+
+## [2026-05-22] — Validate Fireworks model path and structured generation
+
+**Status:** Done
+**Agent:** Codex
+
+### What was done
+- Tested the originally configured Fireworks Kimi model and confirmed `accounts/fireworks/models/kimi-k2-instruct` is not accessible for the provided key.
+- Listed accessible Fireworks models and switched local chat/brainstorm config to `accounts/fireworks/models/kimi-k2p6`.
+- Verified Fireworks JSON-mode title generation, brainstorm task generation, and OpenAI-style tool calling against the provided key without printing the secret.
+- Added a non-stream JSON completion path for Home Chat title generation so Kimi does not return reasoning text for session names.
+- Updated Home Chat title parsing to accept JSON title responses and fall back safely for older test doubles/providers.
+- Updated sidecar brainstorm generation to use JSON-mode responses for Fireworks/OpenAI-compatible providers, making task/question parsing deterministic.
+- Disabled web-search availability for Fireworks-backed brainstorm because the sidecar is using the OpenAI-compatible Fireworks endpoint, not OpenAI web search.
+
+### Files changed
+- `apps/api/src/lib/chat-llm.ts` — added non-stream JSON completion support and defaulted the Fireworks model to `kimi-k2p6`.
+- `apps/api/src/lib/chat-prompts.ts` — changed the title prompt to request a JSON title object.
+- `apps/api/src/services/chat.ts` — switched auto-title generation to JSON-mode completion when available.
+- `apps/sidecar/src/services/brainstorm.ts` — added JSON-mode question/task generation for Fireworks/OpenAI-compatible providers.
+- `.env.example` — updated the default chat model to the accessible Fireworks Kimi model.
+- `.env` — updated local ignored chat/brainstorm model settings for Fireworks testing.
+- `ISSUES.md` — recorded this session.
+
+### Issues encountered
+- Plain `kimi-k2p6` completions tended to include reasoning text for title prompts; Fireworks JSON mode returned clean structured output.
+- The previously configured Kimi model ID returned a Fireworks 404 for this key.
+
+### Next steps / blockers
+- Run `pnpm dev-live` and perform one authenticated Home Chat message to confirm the visible session title updates to the JSON-generated title.
 
 <!-- 
 AGENTS: Add new entries above this comment. Format:
@@ -267,3 +358,203 @@ AGENTS: Add new entries above this comment. Format:
 ### Next steps / blockers
 - ...
 -->
+
+## [2026-05-22] — Fix Home Chat silent streaming failure
+
+**Status:** Done
+**Agent:** Codex
+
+### What was done
+- Reproduced the Home Chat failure through the authenticated `/api/chat/sessions/:id/messages` stream and confirmed user messages were saving while assistant replies were not visible.
+- Found the running dev stack was stale and still using the inaccessible old Fireworks model config; restarted `pnpm dev-live` cleanly with the current `kimi-k2p6` Fireworks settings.
+- Updated the desktop chat stream client to understand the backend's flat SSE chunk shape for `tool_call_start`, `tool_result`, `assistant_final`, and `error` events.
+- Added visible assistant-side error messages so provider/config failures no longer look like the composer did nothing.
+- Rendered in-flight tool calls while the model is working, so tool-first answers show progress before text starts streaming.
+- Removed the duplicate terminal `done` SSE event from the chat route.
+- Cleared a stale Prisma migrate advisory lock left by the failed startup attempt, then relaunched the Tauri live app.
+- Verified the live stream against real project data; the endpoint loaded the selected project and answered `Memolane` from persisted OpenLinear data.
+
+### Files changed
+- `apps/desktop-ui/lib/api/chat.ts` — aligned chat stream types/error parsing with backend SSE chunks.
+- `apps/desktop-ui/hooks/use-chat-stream.tsx` — normalized stream chunks, surfaced provider failures, and preserved in-flight tool state.
+- `apps/desktop-ui/components/chat/chat-message-list.tsx` — displays active tool calls while streaming.
+- `apps/desktop-ui/app/(app)/page.tsx` — passes active streaming tool calls into the message list.
+- `apps/api/src/routes/chat.ts` — avoids writing a second `done` event after the orchestrator already emitted one.
+- `ISSUES.md` — recorded this session.
+
+### Issues encountered
+- `pnpm dev-live` initially failed because Prisma could not acquire its advisory migration lock; a previous dead connection still held lock `72707369` and was terminated safely.
+- A direct smoke test that piped through `sed` aborted one stream early; reran without truncating and confirmed a clean final response.
+
+### Next steps / blockers
+- Keep the current `pnpm dev-live` session open; sidecar is healthy on `127.0.0.1:3001`, Next is healthy on `127.0.0.1:3000`, and Tauri has launched.
+
+## [2026-05-22] — Fix historical Home Chat tool-call crash
+
+**Status:** Done
+**Agent:** Codex
+
+### What was done
+- Fixed the runtime `name.replace` crash in the Home Chat tool-call card.
+- Normalized historical/persisted tool calls from both the flat UI shape and the OpenAI-compatible nested `function.name` / `function.arguments` shape.
+- Added a defensive fallback label so malformed or old tool-call records render as `Tool` instead of crashing the chat page.
+- Verified the desktop UI typecheck and confirmed the live sidecar and Next dev server are still healthy.
+
+### Files changed
+- `apps/desktop-ui/lib/api/chat.ts` — widened persisted tool-call types to include nested OpenAI-compatible function metadata.
+- `apps/desktop-ui/hooks/use-chat-stream.tsx` — normalized loaded history tool calls before rendering.
+- `apps/desktop-ui/components/chat/tool-call-card.tsx` — made tool-name formatting defensive.
+- `ISSUES.md` — recorded this fix.
+
+### Issues encountered
+- The crash was triggered by historical assistant messages whose `toolCalls` JSON was stored as `{ function: { name, arguments } }`, while the UI expected `{ name, arguments }` directly.
+
+### Next steps / blockers
+- Refresh or reopen the Home Chat page; the dev server is still running and should hot-reload the fix.
+
+## [2026-05-22] — Render Markdown in Home Chat assistant messages
+
+**Status:** Done
+**Agent:** Codex
+
+### What was done
+- Updated Home Chat assistant bubbles to render Markdown instead of showing raw syntax like `**bold**` and pipe tables.
+- Reused the app's existing safe Markdown renderer with GFM support, so assistant messages can show bold, italic, lists, inline code, links, and tables.
+- Kept user messages as plain text so user-entered content is not unexpectedly formatted.
+- Added prompt guidance so the model uses Markdown sparingly for meaningful emphasis rather than decorative asterisks.
+- Verified desktop UI and API typechecks, plus live Next/sidecar health.
+
+### Files changed
+- `apps/desktop-ui/components/chat/chat-message.tsx` — renders assistant messages through `MarkdownView` while leaving user messages plain.
+- `apps/api/src/lib/chat-prompts.ts` — added restrained Markdown guidance for model answers.
+- `ISSUES.md` — recorded this fix.
+
+### Issues encountered
+- None.
+
+### Next steps / blockers
+- Refresh Home Chat if the current page has not hot-reloaded yet; assistant Markdown tables should render as tables.
+
+## [2026-05-22] — Fix aborted Home Chat bulk status updates
+
+**Status:** Done
+**Agent:** Codex
+
+### What was done
+- Added a dedicated `bulk_update_issues` Home Chat tool so commands like “move all issues to completed” update the selected project in one database-backed operation instead of asking the model to loop individual issue moves.
+- Mapped user-facing `completed` wording to the persisted `done` issue status.
+- Compacted historical tool outputs before sending them back to the model, reducing oversized chat context from large issue lists.
+- Fixed chat stream cancellation so normal POST request completion no longer aborts the provider fetch; cancellation now tracks actual client disconnect/response close.
+- Verified the live chat command against Memolane; the model called `bulk_update_issues`, updated 5 remaining issues, and the project now has 15/15 non-archived issues in `done`.
+
+### Files changed
+- `apps/api/src/services/tasks.ts` — added atomic bulk task-status update service with permission checks, broadcasts, and activity logs.
+- `apps/api/src/services/chat-tools/domain.ts` — registered the `bulk_update_issues` tool and completed→done status mapping.
+- `apps/api/src/services/chat-tools/types.ts` — added the new chat tool name.
+- `apps/api/src/lib/chat-prompts.ts` — instructed the model to use bulk updates for many issue status changes.
+- `apps/api/src/services/chat.ts` — compacted large tool history payloads before replaying them to the model.
+- `apps/api/src/routes/chat.ts` — fixed stream abort handling to avoid aborting valid in-flight model calls.
+- `apps/api/src/__tests__/chat.tools.test.ts` — updated registry coverage and added a bulk status update regression test.
+
+### Issues encountered
+- The original failed chat turn saved only the user message and no tool call; the model request was likely being aborted before it could act, and large prior tool history made the next turn more fragile.
+
+### Next steps / blockers
+- None for this command path. API typecheck, API tests, diff check, API health, and Next health all passed.
+
+## [2026-05-22] — Add Home Chat issue archive/delete action
+
+**Status:** Done
+**Agent:** Codex
+
+### What was done
+- Added an `archive_issues` Home Chat tool so delete/remove/clear issue requests can move active issues out of the board instead of refusing.
+- Kept the action aligned with the existing API behavior: deleting active issues archives them first; it does not permanently purge records from the database.
+- Supported archiving all active issues in the selected project, or targeted issues by UUID/identifier.
+- Updated the Home Chat system prompt so the model uses the archive tool for issue delete/remove requests and explains the soft-delete behavior honestly.
+- Added regression coverage for archiving all active project issues through the chat tool registry.
+
+### Files changed
+- `apps/api/src/services/tasks.ts` — added bulk archive service with full-access checks, team role checks, broadcasts, and activity logs.
+- `apps/api/src/services/chat-tools/domain.ts` — registered `archive_issues` and updated tool drift count.
+- `apps/api/src/services/chat-tools/types.ts` — added the new chat tool name.
+- `apps/api/src/lib/chat-prompts.ts` — replaced the previous “no delete tools” instruction with archive/delete guidance.
+- `apps/api/src/services/chat.ts` — compacted archive tool results in model history.
+- `apps/api/src/__tests__/chat.tools.test.ts` — updated registry count and added archive regression coverage.
+
+### Issues encountered
+- Home Chat previously had no delete/archive tool, so the model correctly refused even though the REST API already supports soft-delete via archive.
+
+### Next steps / blockers
+- None. API typecheck, API tests, diff check, API health, and Next health passed.
+
+## [2026-05-22] — Fix Kanban column task scrolling
+
+**Status:** Done
+**Agent:** Codex
+
+### What was done
+- Fixed the board layout so each Kanban column has a bounded height and its task list can scroll independently.
+- Added the missing `min-h-0` and `overflow-hidden` constraints around the board and column containers.
+- Kept column bodies vertically scrollable during drag operations instead of switching them to visible overflow.
+- Matched the loading skeleton layout to the real board so the page does not jump between loading and loaded states.
+
+### Files changed
+- `apps/desktop-ui/components/board/column.tsx` — made the column and task lane shrinkable/scrollable.
+- `apps/desktop-ui/components/board/kanban-board.tsx` — bounded the board/grid container height and prevented vertical overflow leakage.
+- `apps/desktop-ui/components/board/dashboard-loading.tsx` — mirrored the fixed scroll layout in the skeleton state.
+
+### Issues encountered
+- The column body already had `overflow-y-auto`, but parent flex/grid items did not have `min-h-0`, so the child expanded instead of becoming the scroll container.
+
+### Next steps / blockers
+- None. Desktop UI typecheck, diff check, and Next dev server health passed.
+
+## [2026-05-22] — Add generic Home Chat project setup operation
+
+**Status:** Done
+**Agent:** Codex
+
+### What was done
+- Added a generic `setup_project_plan` Home Chat tool so the agent can set a project deadline, create/update labels, and create many labeled issues in one grounded operation.
+- Kept the implementation domain-agnostic: no Gmail/DLP templates or hardcoded project content; the model must still derive the actual task plan from the user's request and tool-visible workspace/project context.
+- Made the project setup service resolve labels by name, validate dates, skip duplicate active issue titles, and return structured created/skipped/failed records.
+- Strengthened Home Chat prompt rules so the model uses the one-shot setup operation for multi-issue setup requests and never claims records changed until a mutating tool returns `ok=true`.
+- Improved LLM request abort/timeout handling so provider aborts are surfaced as structured chat errors instead of raw “operation was aborted” messages, and raised the default provider timeout to 60 seconds.
+- Added regression coverage for the new operation creating labels, assigning colors, setting a deadline, and creating labeled issues.
+
+### Files changed
+- `apps/api/src/services/project-plan.ts` — new generic project setup service for labels, target date, and bulk issue creation.
+- `apps/api/src/services/chat-tools/domain.ts` — registered `setup_project_plan` and added argument coercion for labels/tasks by name.
+- `apps/api/src/services/chat-tools/types.ts` — added the new chat tool name.
+- `apps/api/src/lib/chat-prompts.ts` — taught the agent when to use setup operations and to only report successful mutations after tool success.
+- `apps/api/src/lib/chat-llm.ts` — added structured timeout/abort mapping and a longer default Fireworks request timeout.
+- `.env.example` — updated `CHAT_LLM_TIMEOUT_MS` default documentation to 60000.
+- `apps/api/src/__tests__/chat.tools.test.ts` — updated tool count and added setup operation regression coverage.
+
+### Issues encountered
+- The previous chat flow could get stuck after creating labels because the model had to perform several separate write calls and then continue generating a large plan under the provider timeout.
+- I did not manually create real project tasks during this fix; the goal was to add the capability so Home Chat can do it through its own grounded tool path.
+
+### Next steps / blockers
+- Retry the same Home Chat command or send “Continue” in that chat; it should now prefer the single setup operation instead of the fragile label-by-label flow.
+- API typecheck, full API test suite, targeted chat tool test, and diff check passed.
+
+## [2026-05-22] — Stop local dev services for the day
+
+**Status:** Done
+**Agent:** Codex
+
+### What was done
+- Stopped the local OpenLinear development stack, including the Next desktop UI, API/sidecar process, Tauri sidecar listener, and related pnpm dev-live processes.
+- Stopped the additional local Vite dev service that was listening on port 5173.
+- Verified the usual OpenLinear/local dev ports are no longer listening: 3000, 3001, 3002, 3003, 1455, 45678, and 5173.
+
+### Files changed
+- `ISSUES.md` — recorded service shutdown.
+
+### Issues encountered
+- A Codex multi-auth helper remains listening on an internal localhost port; I left it running because it belongs to the active Codex session rather than the OpenLinear app/dev stack.
+
+### Next steps / blockers
+- Restart tomorrow with `pnpm start` or `pnpm dev-live` when ready.
