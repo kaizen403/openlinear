@@ -1,4 +1,4 @@
 {
-  "model": "google-vertex/claude-haiku-4-5@20251001",
+  "model": "fireworks-ai/accounts/fireworks/models/deepseek-v4-pro",
   "$schema": "https://opencode.ai/config.json"
 }

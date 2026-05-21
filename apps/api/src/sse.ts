@@ -167,6 +167,29 @@ export async function broadcastToTaskById(
   }
 }
 
+export async function broadcastToChatSession(
+  sessionId: string,
+  event: string,
+  data: unknown,
+): Promise<void> {
+  try {
+    const session = await prisma.chatSession.findUnique({
+      where: { id: sessionId },
+      select: { userId: true, workspaceId: true },
+    });
+    if (!session) return;
+
+    const message = formatMessage(event, data);
+    clients.forEach((client) => {
+      if (client.userId === session.userId && client.workspaceIds.includes(session.workspaceId)) {
+        safeWrite(client, message);
+      }
+    });
+  } catch (err) {
+    logger.warn({ err, sessionId, event }, '[SSE] failed to resolve chat session for broadcast');
+  }
+}
+
 export function sendToClient(clientId: string, event: string, data: unknown): boolean {
   const client = clients.get(clientId);
   if (!client) return false;

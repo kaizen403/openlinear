@@ -366,9 +366,9 @@ router.post(
         where: { id: projectId },
         select: {
           id: true,
-          projectTeams: {
+          teams: {
             take: 1,
-            select: { teamId: true },
+            select: { id: true },
           },
         },
       });
@@ -376,7 +376,7 @@ router.post(
       if (!project) {
         throw new OwnershipError('project', projectId, 'not_found');
       }
-      const resolvedTeamId = project.projectTeams[0]?.teamId;
+      const resolvedTeamId = project.teams[0]?.id;
       if (!resolvedTeamId) {
         throw new ValidationError('Project must have a team');
       }
@@ -387,7 +387,7 @@ router.post(
         ? await prisma.label.findMany({
             where: {
               id: { in: labelIds },
-              OR: [{ teamId: resolvedTeamId }, { teamId: null }],
+              projectId,
             },
             select: { id: true },
           })

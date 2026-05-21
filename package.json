@@ -8,6 +8,7 @@
     "dev:web": "./scripts/dev-web.sh",
     "start": "./scripts/start-prod-preview.sh",
     "dev:live": "./scripts/dev-live.sh",
+    "dev-live": "./scripts/dev-live.sh",
     "lint": "turbo run lint",
     "test": "turbo run test",
     "typecheck": "turbo run typecheck",

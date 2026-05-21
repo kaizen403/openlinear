@@ -134,6 +134,13 @@ export async function assertProjectOwned(
   return assertProjectAccess(projectId, userId, 'full');
 }
 
+export async function assertProjectMember(
+  projectId: string,
+  userId: string,
+): Promise<OwnedProject> {
+  return assertProjectAccess(projectId, userId, 'view');
+}
+
 export type TeamRole = 'owner' | 'admin' | 'member';
 
 /**

@@ -3,6 +3,7 @@
 import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from "react"
 import { fetchWorkspaces } from "@/lib/api/workspaces"
 import { useSSESubscription, type SSEEventData, type SSEEventType } from "@/providers/sse-provider"
+import { useAuth } from "@/hooks/use-auth"
 import type { Workspace } from "@/lib/api/types"
 
 interface WorkspaceContextType {
@@ -18,6 +19,7 @@ const WorkspaceContext = createContext<WorkspaceContextType | undefined>(undefin
 const STORAGE_KEY = "openlinear:activeWorkspaceId"
 
 export function WorkspaceProvider({ children }: { children: ReactNode }) {
+  const { isAuthenticated, isLoading: authLoading } = useAuth()
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
   const [activeWorkspace, setActiveWorkspaceState] = useState<Workspace | null>(null)
   const [isLoading, setIsLoading] = useState(true)
@@ -43,6 +45,10 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   }, [loadWorkspaces])
 
   useEffect(() => {
+    if (authLoading || !isAuthenticated) {
+      setIsLoading(!authLoading)
+      return
+    }
     (async () => {
       const data = await loadWorkspaces()
       const savedId = localStorage.getItem(STORAGE_KEY)
@@ -60,7 +66,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       }
       setIsLoading(false)
     })()
-  }, [loadWorkspaces])
+  }, [authLoading, isAuthenticated, loadWorkspaces])
 
   useSSESubscription(useCallback((eventType: SSEEventType, data: SSEEventData) => {
     if (eventType === 'workspace:joined') {

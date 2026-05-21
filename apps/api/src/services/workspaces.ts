@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import { Prisma, prisma, type WorkspaceRole } from '@openlinear/db';
+import { broadcastToWorkspace } from '../sse';
 import { getUserTeamIds } from './team-scope';
 import { OwnershipError } from './ownership';
 
@@ -287,4 +288,75 @@ export async function resolveProjectAccess(
   }
 
   return { reason: 'forbidden', id: project.id, workspaceId: project.workspaceId, teamIds };
+}
+
+const workspaceDetailInclude = {
+  _count: { select: { members: true, projects: true } },
+  projects: {
+    select: {
+      id: true,
+      key: true,
+      name: true,
+      description: true,
+      status: true,
+      color: true,
+      icon: true,
+      updatedAt: true,
+      _count: { select: { tasks: true } },
+    },
+    orderBy: { updatedAt: 'desc' },
+  },
+} satisfies Prisma.WorkspaceInclude;
+
+export async function listWorkspacesForUser(userId: string) {
+  await ensureDefaultWorkspaceForUser(userId);
+  const memberships = await prisma.workspaceMember.findMany({
+    where: { userId },
+    include: {
+      workspace: {
+        include: {
+          _count: { select: { members: true, projects: true } },
+        },
+      },
+    },
+    orderBy: [{ invitedAt: 'asc' }, { id: 'asc' }],
+  });
+
+  return memberships.map(({ workspace, role, invitedAt, joinedAt }) => ({
+    ...workspace,
+    role,
+    invitedAt,
+    joinedAt,
+  }));
+}
+
+export async function getWorkspaceForUser(workspaceId: string, userId: string) {
+  const membership = await assertWorkspaceRole(workspaceId, userId, ['owner', 'admin', 'member', 'viewer']);
+  const workspace = await prisma.workspace.findUnique({
+    where: { id: workspaceId },
+    include: workspaceDetailInclude,
+  });
+  if (!workspace) {
+    throw new OwnershipError('workspace', workspaceId, 'not_found');
+  }
+  return { ...workspace, currentMember: membership };
+}
+
+export async function updateWorkspace(input: {
+  workspaceId: string;
+  userId: string;
+  name?: string;
+}) {
+  await assertWorkspaceRole(input.workspaceId, input.userId, ['owner', 'admin']);
+  const data: Prisma.WorkspaceUpdateInput = {};
+  if (input.name !== undefined) data.name = input.name;
+
+  await prisma.workspace.update({
+    where: { id: input.workspaceId },
+    data,
+  });
+
+  const workspace = await getWorkspaceForUser(input.workspaceId, input.userId);
+  broadcastToWorkspace(input.workspaceId, 'workspace:updated', workspace);
+  return workspace;
 }

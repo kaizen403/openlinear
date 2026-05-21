@@ -40,6 +40,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import {
   updateProject,
   deleteProject,
@@ -532,17 +533,26 @@ function ProjectManageContent() {
                 </div>
                 <div className="space-y-1.5">
                   <Label className="text-xs text-linear-text-tertiary">Color</Label>
-                  <div className="flex gap-1">
-                    {PRESET_COLORS.map((color) => (
-                      <button
-                        key={color}
-                        type="button"
-                        className={`w-6 h-6 rounded-sm transition-all ${newLabelColor === color ? "ring-1 ring-foreground ring-offset-1 ring-offset-background scale-110" : "hover:scale-110"}`}
-                        style={{ backgroundColor: color }}
-                        onClick={() => setNewLabelColor(color)}
-                      />
-                    ))}
-                  </div>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <button type="button" className="h-8 w-10 p-1.5 rounded-sm border border-input bg-transparent hover:bg-linear-bg-tertiary transition-colors">
+                        <div className="w-full h-full rounded-sm" style={{ backgroundColor: newLabelColor }} />
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-2" align="start">
+                      <div className="grid grid-cols-5 gap-1.5">
+                        {PRESET_COLORS.map((color) => (
+                          <button
+                            key={color}
+                            type="button"
+                            className={`w-7 h-7 rounded-sm transition-all ${newLabelColor === color ? "ring-1 ring-foreground ring-offset-1 ring-offset-background" : "hover:scale-110"}`}
+                            style={{ backgroundColor: color }}
+                            onClick={() => setNewLabelColor(color)}
+                          />
+                        ))}
+                      </div>
+                    </PopoverContent>
+                  </Popover>
                 </div>
                 <Button
                   size="sm"
@@ -570,17 +580,26 @@ function ProjectManageContent() {
                     >
                       {editingLabelId === label.id ? (
                         <>
-                          <div className="flex gap-1">
-                            {PRESET_COLORS.map((color) => (
-                              <button
-                                key={color}
-                                type="button"
-                                className={`w-4 h-4 rounded-sm ${editLabelColor === color ? "ring-1 ring-foreground" : ""}`}
-                                style={{ backgroundColor: color }}
-                                onClick={() => setEditLabelColor(color)}
-                              />
-                            ))}
-                          </div>
+                          <Popover>
+                            <PopoverTrigger asChild>
+                              <button type="button" className="h-7 w-9 p-1 rounded-sm border border-input bg-transparent hover:bg-linear-bg-tertiary transition-colors">
+                                <div className="w-full h-full rounded-sm" style={{ backgroundColor: editLabelColor }} />
+                              </button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-auto p-2" align="start">
+                              <div className="grid grid-cols-5 gap-1.5">
+                                {PRESET_COLORS.map((color) => (
+                                  <button
+                                    key={color}
+                                    type="button"
+                                    className={`w-6 h-6 rounded-sm transition-all ${editLabelColor === color ? "ring-1 ring-foreground ring-offset-1 ring-offset-background" : "hover:scale-110"}`}
+                                    style={{ backgroundColor: color }}
+                                    onClick={() => setEditLabelColor(color)}
+                                  />
+                                ))}
+                              </div>
+                            </PopoverContent>
+                          </Popover>
                           <Input
                             value={editLabelName}
                             onChange={(e) => setEditLabelName(e.target.value)}

@@ -48,3 +48,6 @@ export type { PersonalAccessToken, CreatedPersonalAccessToken } from './pats';
 
 export { checkBrainstormAvailability, generateBrainstormQuestions, streamBrainstormTasks, transcribeAudio } from './brainstorm';
 export type { BrainstormTask, BrainstormAvailability } from './brainstorm';
+
+export { fetchChatSessions, createChatSession, fetchChatSession, updateChatSession, archiveChatSession, sendChatMessage } from './chat';
+export type { ChatSession, ChatMessage, ChatChunk, ChatChunkType, ChatMessageRole, ToolCall, SendMessageOptions } from './chat';

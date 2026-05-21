@@ -74,6 +74,25 @@ enum NotificationType {
   @@map("notification_types")
 }
 
+enum ChatMessageRole {
+  system
+  user
+  assistant
+  tool
+
+  @@map("chat_message_roles")
+}
+
+enum ChatToolCallStatus {
+  pending
+  running
+  succeeded
+  failed
+  cancelled
+
+  @@map("chat_tool_call_statuses")
+}
+
 enum ActivityAction {
   task_created
   task_updated
@@ -215,6 +234,9 @@ model User {
   activityLogs  ActivityLog[]
   settings      Settings?
   personalAccessTokens PersonalAccessToken[]
+  chatSessions  ChatSession[]
+  chatMessages  ChatMessage[]
+  chatToolCalls ChatToolCall[]
 
   @@map("users")
 }
@@ -264,6 +286,8 @@ model Workspace {
   updatedAt DateTime          @updatedAt
   members   WorkspaceMember[]
   projects  Project[]
+  chatSessions  ChatSession[]
+  chatToolCalls ChatToolCall[]
 
   @@map("workspaces")
 }
@@ -346,6 +370,8 @@ model Project {
   labels       Label[]
   access       ProjectAccess[]
   activityLogs ActivityLog[]
+  chatSessions ChatSession[]
+  chatToolCalls ChatToolCall[]
 
   @@unique([workspaceId, key])
   @@index([workspaceId])
@@ -382,6 +408,78 @@ model Comment {
 
   @@index([taskId, createdAt])
   @@map("comments")
+}
+
+model ChatSession {
+  id          String        @id @default(uuid())
+  userId      String
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspaceId String
+  workspace   Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  projectId   String?
+  project     Project?      @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  title       String        @default("New chat")
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  archivedAt  DateTime?
+  messages    ChatMessage[]
+  toolCalls   ChatToolCall[]
+
+  @@index([userId, workspaceId, archivedAt, updatedAt])
+  @@index([workspaceId])
+  @@index([projectId])
+  @@map("chat_sessions")
+}
+
+model ChatMessage {
+  id          String          @id @default(uuid())
+  sessionId   String
+  session     ChatSession     @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  userId      String?
+  user        User?           @relation(fields: [userId], references: [id], onDelete: SetNull)
+  role        ChatMessageRole
+  content     String?         @db.Text
+  toolCalls   Json?
+  toolCallId  String?
+  toolName    String?
+  createdAt   DateTime        @default(now())
+  toolCallRows ChatToolCall[]
+
+  @@index([sessionId, createdAt])
+  @@index([userId, createdAt])
+  @@map("chat_messages")
+}
+
+model ChatToolCall {
+  id          String             @id @default(uuid())
+  sessionId   String
+  session     ChatSession        @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  messageId   String?
+  message     ChatMessage?       @relation(fields: [messageId], references: [id], onDelete: SetNull)
+  userId      String?
+  user        User?              @relation(fields: [userId], references: [id], onDelete: SetNull)
+  workspaceId String
+  workspace   Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  projectId   String?
+  project     Project?           @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  toolCallId  String
+  toolName    String
+  input       Json
+  output      Json?
+  status      ChatToolCallStatus @default(pending)
+  startedAt   DateTime           @default(now())
+  endedAt     DateTime?
+  latencyMs   Int?
+  errorCode   String?
+  errorMessage String?
+  createdAt   DateTime           @default(now())
+
+  @@unique([sessionId, toolCallId])
+  @@index([sessionId, createdAt])
+  @@index([toolName, createdAt])
+  @@index([userId, createdAt])
+  @@index([workspaceId, createdAt])
+  @@map("chat_tool_calls")
 }
 
 model AgentRun {

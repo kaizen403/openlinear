@@ -1,0 +1,287 @@
+import { prisma, type ChatMessage, type Prisma } from '@openlinear/db';
+import { logger } from '../logger';
+import { broadcastToChatSession } from '../sse';
+import { ChatLLMError, getChatLLMClient, type ChatLLMMessage, type ChatLLMToolCall } from '../lib/chat-llm';
+import { buildChatSystemPrompt, CHAT_TITLE_PROMPT } from '../lib/chat-prompts';
+import { assertProjectAccess } from './ownership';
+import { assertWorkspaceRole } from './workspaces';
+import { dispatchTool, getOpenAIFunctionSpecs } from './chat-tools';
+import { isRecord, toJsonInput, type JsonObject, type ToolResult } from './chat-tools/types';
+
+export type ChatChunk =
+  | { type: 'user_message'; messageId: string; sessionId: string }
+  | { type: 'assistant_delta'; content: string }
+  | { type: 'tool_call_start'; toolCallId: string; toolName: string; args: JsonObject }
+  | { type: 'tool_result'; toolCallId: string; toolName: string; result: ToolResult }
+  | { type: 'assistant_final'; messageId: string; content: string }
+  | { type: 'done'; sessionId: string }
+  | { type: 'error'; code: string; message: string; details?: unknown };
+
+export interface RunChatTurnInput {
+  sessionId: string;
+  userId: string;
+  userMessage: string;
+  abortSignal?: AbortSignal;
+}
+
+interface AccumulatedToolCall {
+  index: number;
+  id?: string;
+  name?: string;
+  arguments: string;
+}
+
+const MAX_TOOL_ROUNDS = 16;
+const RECENT_MESSAGE_LIMIT = 32;
+
+function parseToolArguments(raw: string): JsonObject {
+  if (!raw.trim()) return {};
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return isRecord(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function toolCallsToLLM(value: Prisma.JsonValue | null): ChatLLMToolCall[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const calls: ChatLLMToolCall[] = [];
+  for (const item of value) {
+    if (!isRecord(item)) continue;
+    const fn = isRecord(item.function) ? item.function : null;
+    if (typeof item.id !== 'string' || !fn || typeof fn.name !== 'string' || typeof fn.arguments !== 'string') continue;
+    calls.push({ id: item.id, type: 'function', function: { name: fn.name, arguments: fn.arguments } });
+  }
+  return calls;
+}
+
+function messageToLLM(message: ChatMessage): ChatLLMMessage | null {
+  if (message.role === 'system') return null;
+  if (message.role === 'tool') {
+    if (!message.toolCallId) return null;
+    return { role: 'tool', tool_call_id: message.toolCallId, content: message.content ?? '' };
+  }
+  if (message.role === 'assistant') {
+    return {
+      role: 'assistant',
+      content: message.content ?? null,
+      tool_calls: toolCallsToLLM(message.toolCalls),
+    };
+  }
+  return { role: 'user', content: message.content ?? '' };
+}
+
+async function loadSessionForTurn(sessionId: string, userId: string) {
+  const session = await prisma.chatSession.findFirst({
+    where: { id: sessionId, userId, archivedAt: null },
+    select: { id: true, userId: true, workspaceId: true, projectId: true, title: true },
+  });
+  if (!session) return null;
+  await assertWorkspaceRole(session.workspaceId, userId, ['owner', 'admin', 'member', 'viewer']);
+  if (session.projectId) await assertProjectAccess(session.projectId, userId, 'view');
+  return session;
+}
+
+async function buildMessages(session: Awaited<ReturnType<typeof loadSessionForTurn>>): Promise<ChatLLMMessage[]> {
+  if (!session) return [];
+  const rows = await prisma.chatMessage.findMany({
+    where: { sessionId: session.id },
+    orderBy: { createdAt: 'desc' },
+    take: RECENT_MESSAGE_LIMIT,
+  });
+  const recent = rows.reverse().map(messageToLLM).filter((message): message is ChatLLMMessage => message !== null);
+  return [
+    { role: 'system', content: buildChatSystemPrompt({ userId: session.userId, workspaceId: session.workspaceId, projectId: session.projectId }) },
+    ...recent,
+  ];
+}
+
+function accumulatedToToolCalls(calls: AccumulatedToolCall[], round: number): ChatLLMToolCall[] {
+  return calls
+    .sort((a, b) => a.index - b.index)
+    .filter((call) => Boolean(call.name))
+    .map((call) => ({
+      id: call.id ?? `tool_${round}_${call.index}`,
+      type: 'function' as const,
+      function: {
+        name: call.name ?? 'unknown',
+        arguments: call.arguments,
+      },
+    }));
+}
+
+async function maybeAutoTitle(input: {
+  sessionId: string;
+  userMessage: string;
+  assistantMessage: string;
+}) {
+  const session = await prisma.chatSession.findUnique({
+    where: { id: input.sessionId },
+    select: { title: true },
+  });
+  if (!session || session.title !== 'New chat') return;
+
+  const userMessageCount = await prisma.chatMessage.count({
+    where: { sessionId: input.sessionId, role: 'user' },
+  });
+  if (userMessageCount !== 1) return;
+
+  void (async () => {
+    try {
+      const client = getChatLLMClient();
+      let title = '';
+      for await (const event of client.streamChatCompletion({
+        messages: [
+          { role: 'system', content: CHAT_TITLE_PROMPT },
+          { role: 'user', content: input.userMessage.slice(0, 2000) },
+          { role: 'assistant', content: input.assistantMessage.slice(0, 2000) },
+        ],
+        toolChoice: 'none',
+        maxTokens: 30,
+      })) {
+        if (event.type === 'delta') title += event.content;
+      }
+      const cleaned = title.replace(/["“”]/g, '').replace(/\s+/g, ' ').trim().slice(0, 60);
+      if (!cleaned) return;
+      const updated = await prisma.chatSession.update({
+        where: { id: input.sessionId },
+        data: { title: cleaned },
+      });
+      await broadcastToChatSession(input.sessionId, 'chat:session:updated', updated);
+    } catch (err) {
+      logger.warn({ err, sessionId: input.sessionId }, '[chat] auto-title failed');
+    }
+  })();
+}
+
+function providerErrorToChunk(error: unknown): ChatChunk {
+  if (error instanceof ChatLLMError) {
+    return { type: 'error', code: error.code, message: error.message };
+  }
+  if (error instanceof Error) {
+    return { type: 'error', code: 'CHAT_TURN_FAILED', message: error.message };
+  }
+  return { type: 'error', code: 'CHAT_TURN_FAILED', message: 'Chat turn failed' };
+}
+
+export async function* runChatTurn(input: RunChatTurnInput): AsyncIterable<ChatChunk> {
+  const session = await loadSessionForTurn(input.sessionId, input.userId);
+  if (!session) {
+    yield { type: 'error', code: 'SESSION_NOT_FOUND', message: 'Chat session not found' };
+    return;
+  }
+
+  const userRow = await prisma.chatMessage.create({
+    data: {
+      sessionId: session.id,
+      userId: input.userId,
+      role: 'user',
+      content: input.userMessage,
+    },
+  });
+  yield { type: 'user_message', messageId: userRow.id, sessionId: session.id };
+
+  const client = getChatLLMClient();
+  const tools = getOpenAIFunctionSpecs();
+  let messages = await buildMessages(session);
+
+  for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
+    if (input.abortSignal?.aborted) {
+      yield { type: 'error', code: 'CLIENT_ABORTED', message: 'Chat request was aborted' };
+      return;
+    }
+
+    let assistantContent = '';
+    const toolCallMap = new Map<number, AccumulatedToolCall>();
+
+    try {
+      for await (const event of client.streamChatCompletion({
+        messages,
+        tools,
+        toolChoice: 'auto',
+        abortSignal: input.abortSignal,
+      })) {
+        if (event.type === 'delta') {
+          assistantContent += event.content;
+          yield { type: 'assistant_delta', content: event.content };
+        } else if (event.type === 'tool_call_delta') {
+          const existing = toolCallMap.get(event.index) ?? { index: event.index, arguments: '' };
+          toolCallMap.set(event.index, {
+            ...existing,
+            id: event.id ?? existing.id,
+            name: event.name ?? existing.name,
+            arguments: existing.arguments + (event.argumentsDelta ?? ''),
+          });
+        }
+      }
+    } catch (error) {
+      if (assistantContent.trim()) {
+        await prisma.chatMessage.create({
+          data: { sessionId: session.id, role: 'assistant', content: assistantContent },
+        });
+      }
+      yield providerErrorToChunk(error);
+      return;
+    }
+
+    const toolCalls = accumulatedToToolCalls(Array.from(toolCallMap.values()), round);
+    if (toolCalls.length === 0) {
+      const assistant = await prisma.chatMessage.create({
+        data: {
+          sessionId: session.id,
+          role: 'assistant',
+          content: assistantContent,
+        },
+      });
+      yield { type: 'assistant_final', messageId: assistant.id, content: assistantContent };
+      yield { type: 'done', sessionId: session.id };
+      await maybeAutoTitle({ sessionId: session.id, userMessage: input.userMessage, assistantMessage: assistantContent });
+      return;
+    }
+
+    const assistantWithTools = await prisma.chatMessage.create({
+      data: {
+        sessionId: session.id,
+        role: 'assistant',
+        content: assistantContent || null,
+        toolCalls: toJsonInput(toolCalls),
+      },
+    });
+
+    messages = [
+      ...messages,
+      { role: 'assistant', content: assistantContent || null, tool_calls: toolCalls },
+    ];
+
+    for (const call of toolCalls) {
+      const args = parseToolArguments(call.function.arguments);
+      yield { type: 'tool_call_start', toolCallId: call.id, toolName: call.function.name, args };
+      const result = await dispatchTool(call.function.name, {
+        userId: input.userId,
+        sessionId: session.id,
+        workspaceId: session.workspaceId,
+        projectId: session.projectId,
+        toolCallId: call.id,
+        messageId: assistantWithTools.id,
+        abortSignal: input.abortSignal,
+      }, args);
+      yield { type: 'tool_result', toolCallId: call.id, toolName: call.function.name, result };
+      const toolMessage = await prisma.chatMessage.create({
+        data: {
+          sessionId: session.id,
+          role: 'tool',
+          content: JSON.stringify(result),
+          toolCallId: call.id,
+          toolName: call.function.name,
+        },
+      });
+      messages = [
+        ...messages,
+        { role: 'tool', tool_call_id: call.id, content: toolMessage.content ?? JSON.stringify(result) },
+      ];
+    }
+  }
+
+  yield { type: 'error', code: 'ROUND_LIMIT', message: 'The chat turn exceeded the safe tool-call round limit' };
+}

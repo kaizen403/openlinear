@@ -308,16 +308,13 @@ describe('Tasks API', () => {
 
   describe('POST /api/tasks/bulk', () => {
     it('creates tasks with sequential gapless identifiers', async () => {
+      const project = await prisma.project.create({
+        data: { name: 'Bulk Project' },
+      });
       const team = await prisma.team.create({
-        data: { name: 'Bulk Team', key: 'BLK' },
+        data: { name: 'Bulk Team', key: 'BLK', projectId: project.id },
       });
       await prisma.teamMember.create({ data: { teamId: team.id, userId: testUserId, role: 'owner' } });
-      const project = await prisma.project.create({
-        data: {
-          name: 'Bulk Project',
-          projectTeams: { create: [{ teamId: team.id }] },
-        },
-      });
 
       const res = await request(app)
         .post('/api/tasks/bulk')
@@ -344,16 +341,13 @@ describe('Tasks API', () => {
     });
 
     it('enforces the 100 task cap before creating anything', async () => {
+      const project = await prisma.project.create({
+        data: { name: 'Bulk Cap Project' },
+      });
       const team = await prisma.team.create({
-        data: { name: 'Bulk Cap Team', key: 'BCP' },
+        data: { name: 'Bulk Cap Team', key: 'BCP', projectId: project.id },
       });
       await prisma.teamMember.create({ data: { teamId: team.id, userId: testUserId, role: 'owner' } });
-      const project = await prisma.project.create({
-        data: {
-          name: 'Bulk Cap Project',
-          projectTeams: { create: [{ teamId: team.id }] },
-        },
-      });
 
       const before = await prisma.task.count({ where: { projectId: project.id } });
       const res = await request(app)
@@ -390,16 +384,13 @@ describe('Tasks API', () => {
         },
       });
       const otherToken = generateToken(otherUser.id, otherUser.username);
+      const project = await prisma.project.create({
+        data: { name: 'Bulk Forbidden Project' },
+      });
       const team = await prisma.team.create({
-        data: { name: 'Bulk Forbidden Team', key: 'BFD' },
+        data: { name: 'Bulk Forbidden Team', key: 'BFD', projectId: project.id },
       });
       await prisma.teamMember.create({ data: { teamId: team.id, userId: testUserId, role: 'owner' } });
-      const project = await prisma.project.create({
-        data: {
-          name: 'Bulk Forbidden Project',
-          projectTeams: { create: [{ teamId: team.id }] },
-        },
-      });
 
       const forbidden = await request(app)
         .post('/api/tasks/bulk')
@@ -412,18 +403,15 @@ describe('Tasks API', () => {
     });
 
     it('partially succeeds when some tasks reference invalid labels', async () => {
+      const project = await prisma.project.create({
+        data: { name: 'Bulk Label Project' },
+      });
       const team = await prisma.team.create({
-        data: { name: 'Bulk Label Team', key: 'BLB' },
+        data: { name: 'Bulk Label Team', key: 'BLB', projectId: project.id },
       });
       await prisma.teamMember.create({ data: { teamId: team.id, userId: testUserId, role: 'owner' } });
-      const project = await prisma.project.create({
-        data: {
-          name: 'Bulk Label Project',
-          projectTeams: { create: [{ teamId: team.id }] },
-        },
-      });
       const label = await prisma.label.create({
-        data: { name: 'phase:1 - Foundation', color: '#3B82F6', teamId: team.id },
+        data: { name: 'phase:1 - Foundation', color: '#3B82F6', projectId: project.id },
       });
 
       const res = await request(app)
@@ -449,16 +437,13 @@ describe('Tasks API', () => {
     });
 
     it('accepts PATs with tasks:write scope', async () => {
+      const project = await prisma.project.create({
+        data: { name: 'Bulk PAT Project' },
+      });
       const team = await prisma.team.create({
-        data: { name: 'Bulk PAT Team', key: 'BPT' },
+        data: { name: 'Bulk PAT Team', key: 'BPT', projectId: project.id },
       });
       await prisma.teamMember.create({ data: { teamId: team.id, userId: testUserId, role: 'owner' } });
-      const project = await prisma.project.create({
-        data: {
-          name: 'Bulk PAT Project',
-          projectTeams: { create: [{ teamId: team.id }] },
-        },
-      });
       const pat = await request(app)
         .post('/api/pats')
         .set('Authorization', `Bearer ${authToken}`)

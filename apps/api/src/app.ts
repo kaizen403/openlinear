@@ -26,6 +26,7 @@ import notificationsRouter from './routes/notifications';
 import activityLogRouter from './routes/activity-log';
 import agentRunsRouter from './routes/agent-runs';
 import usageRouter from './routes/usage';
+import chatRouter from './routes/chat';
 import jwt from 'jsonwebtoken';
 import { clients, SSEClient } from './sse';
 import { logger } from './logger';
@@ -196,6 +197,7 @@ export function createApp(): Application {
   app.use('/api/search', searchRouter);
   app.use('/api/agent-runs', agentRunsRouter);
   app.use('/api/usage', usageRouter);
+  app.use('/api/chat', chatRouter);
 
   app.get('/health', async (req: Request, res: Response) => {
     try {

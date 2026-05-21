@@ -23,6 +23,10 @@ export FRONTEND_URL="http://127.0.0.1:3000"
 REQUIRED_CORS_ORIGINS="http://127.0.0.1:3000,http://localhost:3000,tauri://localhost,https://tauri.localhost"
 export CORS_ORIGIN="${CORS_ORIGIN:+$CORS_ORIGIN,}$REQUIRED_CORS_ORIGINS"
 
+log "Preparing database schema..."
+pnpm --filter @openlinear/db db:generate
+pnpm --filter @openlinear/db db:migrate:deploy
+
 PIDS=()
 cleanup() {
     log "Shutting down..."

@@ -6,6 +6,8 @@ import { SSEProvider } from "@/providers/sse-provider"
 import { TeamsProvider } from "@/providers/teams-provider"
 import { WorkspaceProvider } from "@/hooks/use-workspace"
 import { ProjectProvider } from "@/hooks/use-project"
+import { ChatSessionsProvider } from "@/hooks/use-chat-sessions"
+import { ChatScopeProvider } from "@/hooks/use-chat-scope"
 import { ThemedToaster } from "@/components/themed-toaster"
 import { ThemeMeta } from "@/components/theme-meta"
 import { GlobalQuickCapture } from "@/components/global-quick-capture"
@@ -79,8 +81,12 @@ export default function RootLayout({
               <WorkspaceProvider>
                 <TeamsProvider>
                   <ProjectProvider>
-                    {children}
-                    <GlobalQuickCapture />
+                    <ChatScopeProvider>
+                      <ChatSessionsProvider>
+                        {children}
+                        <GlobalQuickCapture />
+                      </ChatSessionsProvider>
+                    </ChatScopeProvider>
                   </ProjectProvider>
                 </TeamsProvider>
               </WorkspaceProvider>

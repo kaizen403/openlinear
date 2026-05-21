@@ -55,9 +55,9 @@ if [ -n "${DATABASE_URL:-}" ] && echo "$DATABASE_URL" | grep -qE 'localhost|127\
     fi
 fi
 
-log "Syncing database schema..."
+log "Preparing database schema..."
 pnpm --filter @openlinear/db db:generate
-pnpm --filter @openlinear/db db:push
+pnpm --filter @openlinear/db db:migrate:deploy
 
 log "Clearing stale Next.js build cache (.next, out) so CSS/font changes always take effect..."
 rm -rf "$ROOT_DIR/apps/desktop-ui/.next" "$ROOT_DIR/apps/desktop-ui/out"

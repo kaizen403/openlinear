@@ -4,6 +4,7 @@ import { broadcastToProject, broadcastToTaskById } from '../sse';
 import { requireAuth, AuthRequest } from '../middleware/auth';
 import { validateBody, validateQuery, ValidatedRequest } from '../middleware/validate';
 import {
+  assertProjectMember,
   assertTaskOwned,
   OwnershipError,
 } from '../services/ownership';
@@ -19,20 +20,6 @@ import {
 } from '../schemas/labels';
 
 const router: Router = Router();
-
-async function assertProjectMember(projectId: string, userId: string): Promise<void> {
-  const project = await prisma.project.findFirst({
-    where: {
-      id: projectId,
-      workspace: { members: { some: { userId } } },
-      NOT: { access: { some: { userId, permission: 'deny' } } },
-    },
-    select: { id: true },
-  });
-  if (!project) {
-    throw new OwnershipError('project', projectId, 'not_found');
-  }
-}
 
 async function assertLabelAccess(labelId: string, userId: string): Promise<string> {
   const label = await prisma.label.findUnique({

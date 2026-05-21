@@ -142,6 +142,83 @@ See `.sisyphus/plans/openlinear-issues.md` for full root-cause analysis and file
 
 ---
 
+## [2026-05-21] — Implement home chat backend engine
+
+**Status:** Done
+**Agent:** Codex
+
+### What was done
+- Added chat session/message/tool-call persistence with Prisma schema changes, migration SQL, and regenerated Prisma client.
+- Added an OpenAI-compatible, Fireworks-default chat LLM adapter, anti-hallucination system prompts, and automatic session title generation.
+- Added `/api/chat` session CRUD plus SSE message streaming with auth, scope checks, rate limiting, abort handling, and real-time chat broadcast support.
+- Added a service-backed registry of 31 tools over real OpenLinear workspace, project, team, issue, label, member, comment, and search data.
+- Added safe write paths, bulk issue dry-run support, tool-call telemetry, and idempotency keyed by session/tool call.
+- Promoted reusable project membership checks and extracted chat-facing domain services for tasks, projects, teams, labels, members, search, and workspaces.
+- Fixed stale bulk-task code/tests that still referenced the removed `projectTeams` relation and old label team ownership.
+- Added API tests for chat sessions, streaming, tool schemas, orchestration, idempotency, dry-run behavior, and permission-denied paths.
+- Documented chat environment variables and the API chat module.
+
+### Files changed
+- `.env.example` — added chat LLM and rate-limit environment variables.
+- `apps/api/README.md` — documented the Home Chat backend module.
+- `apps/api/src/app.ts` — mounted the chat routes.
+- `apps/api/src/lib/chat-llm.ts` — added provider adapter and test injection hook.
+- `apps/api/src/lib/chat-prompts.ts` — added grounding-focused prompts.
+- `apps/api/src/routes/chat.ts` — added chat API and streaming endpoints.
+- `apps/api/src/routes/labels.ts` — switched to shared project membership guard.
+- `apps/api/src/routes/tasks.ts` — fixed project/team/label validation against current schema.
+- `apps/api/src/schemas/chat.ts` — added chat request validation.
+- `apps/api/src/services/chat.ts` — added chat orchestration and persistence.
+- `apps/api/src/services/chat-tools/` — added the 31-tool registry, schemas, and dispatcher.
+- `apps/api/src/services/{tasks,projects,teams,labels,members,search}.ts` — added chat-facing domain services.
+- `apps/api/src/services/workspaces.ts` — added reusable workspace list/get/update helpers.
+- `apps/api/src/services/ownership.ts` — added reusable project membership assertion.
+- `apps/api/src/sse.ts` — added chat-session broadcast helper.
+- `apps/api/src/__tests__/chat.*.test.ts` — added chat backend coverage.
+- `apps/api/src/__tests__/tasks.test.ts` — updated fixtures for current schema.
+- `packages/db/prisma/schema.prisma` — added chat session, message, and tool-call models/enums.
+- `packages/db/prisma/migrations/20260521000200_chat_sessions/` — added chat persistence migration.
+
+### Issues encountered
+- Local `openlinear_test` was stale and unbaselined for the current Prisma schema; reset only the local test DB and applied migrations before running the API suite.
+- Initial environment restrictions blocked local listener/database setup; after the session continued with full filesystem/network access, tests ran normally.
+- Existing unrelated desktop-ui and sidecar files were already dirty and were left untouched.
+
+### Next steps / blockers
+- Configure production `CHAT_LLM_API_KEY` and run the new migration before enabling Home Chat in production.
+- Wire or verify the desktop-ui Home Chat frontend against `/api/chat` if the parallel frontend changes are intended.
+
+## [2026-05-21] — Fix local startup and GitHub OAuth flow
+
+**Status:** Done
+**Agent:** Codex
+
+### What was done
+- Stopped stale OpenLinear dev processes that were occupying ports 3000, 3001, and 1455.
+- Reconciled Neon Prisma migration drift by marking already-applied physical migrations as applied, then deployed the remaining label-scope migration.
+- Added `pnpm dev-live` as an alias for the existing `pnpm dev:live` workflow.
+- Updated `pnpm start` and `pnpm dev-live` startup scripts to run Prisma migrations instead of `db push`.
+- Verified GitHub OAuth environment shape without printing secrets, completed local desktop OAuth, and confirmed `/api/auth/me` returned the signed-in GitHub user.
+- Added Home Chat LLM compatibility with the existing `FIREWORKS_API_KEY` env var when `CHAT_LLM_API_KEY` is empty.
+- Ran the Tauri app through `pnpm dev-live`, verified API health, authenticated app loading, SSE connection, and chat route activity, then stopped the dev stack.
+
+### Files changed
+- `package.json` — added the `dev-live` script alias.
+- `scripts/dev-live.sh` — added Prisma generate and migration deploy before booting services.
+- `scripts/start-prod-preview.sh` — replaced `db push` with migration deploy for safer startup.
+- `.env.example` — documented Home Chat env vars and Fireworks key fallback.
+- `apps/api/src/lib/chat-llm.ts` — allowed `FIREWORKS_API_KEY` fallback for the chat provider.
+- `ISSUES.md` — recorded the startup and OAuth repair session.
+
+### Issues encountered
+- Neon already had some schema changes physically present but not recorded in `_prisma_migrations`; Prisma deploy initially failed on an existing `teams.project_id` column.
+- A stale API process and old Tauri sidecar were occupying the ports needed by a clean `pnpm dev-live` start.
+- Firefox completed GitHub OAuth but did not automatically hand the deep link to the dev Tauri instance, so the local callback was dispatched from the copied JWT after verifying it looked like a JWT.
+
+### Next steps / blockers
+- Keep using `pnpm dev-live` or `pnpm dev:live`; both now point to the same clean live development script.
+- If the browser does not return to the app automatically, use the callback token fallback on the login screen.
+
 <!-- 
 AGENTS: Add new entries above this comment. Format:
 
