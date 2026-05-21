@@ -90,6 +90,23 @@ const NAV_ITEMS: {
 const DEFAULT_ACCENT = { accent: "#10b981", hover: "#059669" }
 const LEGACY_ACCENTS = new Set(["#1d4ed8", "#1e40af", "#3b82f6", "#2563eb"])
 
+function hexToRgbTriplet(hex: string, fallback: string) {
+  let normalized = hex.replace("#", "").trim()
+  if (normalized.length === 3) {
+    normalized = normalized.split("").map((char) => char + char).join("")
+  }
+  const value = Number.parseInt(normalized, 16)
+  if (!Number.isFinite(value) || normalized.length !== 6) return fallback
+  return `${(value >> 16) & 255} ${(value >> 8) & 255} ${value & 255}`
+}
+
+function applyAccentVariables(accent: string, hover: string) {
+  document.documentElement.style.setProperty("--linear-accent", accent)
+  document.documentElement.style.setProperty("--linear-accent-hover", hover)
+  document.documentElement.style.setProperty("--linear-accent-rgb", hexToRgbTriplet(accent, "16 185 129"))
+  document.documentElement.style.setProperty("--linear-accent-hover-rgb", hexToRgbTriplet(hover, "5 150 105"))
+}
+
 function SettingsContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -174,8 +191,7 @@ function SettingsContent() {
 
   const applyAccentColor = (accent: string, hover: string) => {
     setAccentColor(accent)
-    document.documentElement.style.setProperty("--linear-accent", accent)
-    document.documentElement.style.setProperty("--linear-accent-hover", hover)
+    applyAccentVariables(accent, hover)
     try {
       localStorage.setItem("openlinear-accent", JSON.stringify({ accent, hover }))
     } catch {
@@ -238,8 +254,7 @@ function SettingsContent() {
           localStorage.setItem("openlinear-accent", JSON.stringify({ accent, hover }))
         }
         setAccentColor(accent)
-        document.documentElement.style.setProperty("--linear-accent", accent)
-        document.documentElement.style.setProperty("--linear-accent-hover", hover)
+        applyAccentVariables(accent, hover)
       }
     } catch {
     }

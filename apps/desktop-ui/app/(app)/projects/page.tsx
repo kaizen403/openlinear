@@ -650,7 +650,7 @@ function ProjectsContent() {
                               value="none"
                               checked={formData.sourceType === "none"}
                               onChange={() => setFormData(prev => ({ ...prev, sourceType: "none", repoUrl: "", localPath: "" }))}
-                              className="accent-[hsl(var(--linear-accent))]"
+                              className="accent-[var(--linear-accent)]"
                             />
                             None
                           </label>
@@ -664,7 +664,7 @@ function ProjectsContent() {
                                 setFormData(prev => ({ ...prev, sourceType: "repo", localPath: "" }))
                                 setRepoMode('url')
                               }}
-                              className="accent-[hsl(var(--linear-accent))]"
+                              className="accent-[var(--linear-accent)]"
                             />
                             GitHub Repo
                           </label>
@@ -676,7 +676,7 @@ function ProjectsContent() {
                                 value="local"
                                 checked={formData.sourceType === "local"}
                                 onChange={() => setFormData(prev => ({ ...prev, sourceType: "local", repoUrl: "" }))}
-                                className="accent-[hsl(var(--linear-accent))]"
+                                className="accent-[var(--linear-accent)]"
                               />
                               Local Folder
                             </label>
@@ -1239,7 +1239,7 @@ function ProjectsContent() {
                     value="none"
                     checked={editFormData.sourceType === "none"}
                     onChange={() => setEditFormData(prev => ({ ...prev, sourceType: "none", repoUrl: "", localPath: "" }))}
-                    className="accent-[hsl(var(--linear-accent))]"
+                    className="accent-[var(--linear-accent)]"
                   />
                   None
                 </label>
@@ -1253,7 +1253,7 @@ function ProjectsContent() {
                       setEditFormData(prev => ({ ...prev, sourceType: "repo", localPath: "" }))
                       setEditRepoMode('url')
                     }}
-                    className="accent-[hsl(var(--linear-accent))]"
+                    className="accent-[var(--linear-accent)]"
                   />
                   GitHub Repo
                 </label>
@@ -1265,7 +1265,7 @@ function ProjectsContent() {
                       value="local"
                       checked={editFormData.sourceType === "local"}
                       onChange={() => setEditFormData(prev => ({ ...prev, sourceType: "local", repoUrl: "" }))}
-                      className="accent-[hsl(var(--linear-accent))]"
+                      className="accent-[var(--linear-accent)]"
                     />
                     Local Folder
                   </label>

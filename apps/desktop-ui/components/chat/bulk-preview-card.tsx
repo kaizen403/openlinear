@@ -56,7 +56,7 @@ export function BulkPreviewCard({ issues, onConfirm, onCancel }: BulkPreviewCard
             type="button"
             onClick={() => onConfirm(items)}
             disabled={items.length === 0}
-            className="flex h-6 items-center gap-1 rounded-sm px-2 text-xs bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-30 transition-colors"
+            className="flex h-6 items-center gap-1 rounded-sm px-2 text-xs bg-linear-accent text-white hover:bg-linear-accent-hover disabled:opacity-30 transition-colors"
           >
             <Check className="h-3 w-3" />
             Create all

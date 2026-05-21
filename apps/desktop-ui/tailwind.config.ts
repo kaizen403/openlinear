@@ -37,7 +37,7 @@ const config: Config = {
           foreground: "hsl(var(--popover-foreground))",
         },
         primary: {
-          DEFAULT: "hsl(var(--primary))",
+          DEFAULT: "rgb(var(--linear-accent-rgb) / <alpha-value>)",
           foreground: "hsl(var(--primary-foreground))",
         },
         secondary: {
@@ -49,7 +49,7 @@ const config: Config = {
           foreground: "hsl(var(--muted-foreground))",
         },
         accent: {
-          DEFAULT: "hsl(var(--accent))",
+          DEFAULT: "rgb(var(--linear-accent-rgb) / <alpha-value>)",
           foreground: "hsl(var(--accent-foreground))",
         },
         destructive: {
@@ -69,8 +69,8 @@ const config: Config = {
           text: "#f5f5f5",
           "text-secondary": "#a0a0a0",
           "text-tertiary": "#6a6a6a",
-          accent: "var(--linear-accent)",
-          "accent-hover": "var(--linear-accent-hover)",
+          accent: "rgb(var(--linear-accent-rgb) / <alpha-value>)",
+          "accent-hover": "rgb(var(--linear-accent-hover-rgb) / <alpha-value>)",
         },
       },
       borderRadius: {
