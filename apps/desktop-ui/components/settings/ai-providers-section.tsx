@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useMemo } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -25,6 +25,7 @@ import {
   Plug,
   Cpu,
   Trash2,
+  Star,
 } from "lucide-react"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
@@ -37,6 +38,7 @@ import {
   getModels,
   getModelConfig,
   setModel,
+  removeProviderAuth,
   SetupStatus,
   ProviderAuthMethods,
   ProviderModels,
@@ -414,6 +416,17 @@ function useAIProviders() {
     }
   }, [])
 
+  const handleRemoveProvider = useCallback(async (providerId: string, providerName: string) => {
+    try {
+      await removeProviderAuth(providerId)
+      toast.success(`${providerName} removed successfully`)
+      void fetchProviderStatus()
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to remove provider"
+      toast.error(message)
+    }
+  }, [fetchProviderStatus])
+
   return {
     providersLoading,
     providerSetupStatus,
@@ -438,6 +451,7 @@ function useAIProviders() {
     handleOAuthLogin,
     handleOAuthComplete,
     handleModelSelect,
+    handleRemoveProvider,
     clearOAuthPendingState,
   }
 }
@@ -467,6 +481,7 @@ export function AIProvidersSection() {
     handleOAuthLogin,
     handleOAuthComplete,
     handleModelSelect,
+    handleRemoveProvider,
     clearOAuthPendingState,
   } = useAIProviders()
 
@@ -474,16 +489,81 @@ export function AIProvidersSection() {
 
   const currentProviderId = currentModel?.split("/")[0] ?? null
   const providerQuery = providerSearch.trim().toLowerCase()
+  const providerModelsById = useMemo(
+    () => new Map(providerModelsList.map((provider) => [provider.id, provider])),
+    [providerModelsList],
+  )
+  const favoriteModels = useMemo(
+    () =>
+      providerModelsList
+        .flatMap((provider) =>
+          provider.models
+            .filter((model) => model.favorite)
+            .map((model) => ({
+              provider,
+              model,
+              value: `${provider.id}/${model.id}`,
+            })),
+        )
+        .sort((a, b) =>
+          (a.model.favoriteRank ?? Number.MAX_SAFE_INTEGER) -
+          (b.model.favoriteRank ?? Number.MAX_SAFE_INTEGER),
+        ),
+    [providerModelsList],
+  )
+  const visibleFavoriteModels = useMemo(() => {
+    if (!providerQuery) return favoriteModels
+    return favoriteModels.filter(({ provider, model }) => (
+      provider.name.toLowerCase().includes(providerQuery) ||
+      provider.id.toLowerCase().includes(providerQuery) ||
+      model.name.toLowerCase().includes(providerQuery) ||
+      model.id.toLowerCase().includes(providerQuery)
+    ))
+  }, [favoriteModels, providerQuery])
+  const visibleFavoriteModelGroups = useMemo(() => {
+    const groups = new Map<
+      string,
+      {
+        provider: ProviderModels
+        items: typeof favoriteModels
+      }
+    >()
+
+    visibleFavoriteModels.forEach((item) => {
+      const group = groups.get(item.provider.id)
+      if (group) {
+        group.items.push(item)
+        return
+      }
+
+      groups.set(item.provider.id, {
+        provider: item.provider,
+        items: [item],
+      })
+    })
+
+    return Array.from(groups.values()).sort((a, b) =>
+      a.provider.name.localeCompare(b.provider.name),
+    )
+  }, [favoriteModels, visibleFavoriteModels])
 
   const providersSorted = providerSetupStatus
     ? [...providerSetupStatus.providers]
         .filter((provider) => {
           if (!providerQuery) return true
+          const providerModels = providerModelsById.get(provider.id)?.models ?? []
           return (
             provider.name.toLowerCase().includes(providerQuery) ||
             provider.id.toLowerCase().includes(providerQuery) ||
             provider.selectedModel?.toLowerCase().includes(providerQuery) ||
-            provider.defaultModel?.toLowerCase().includes(providerQuery)
+            provider.defaultModel?.toLowerCase().includes(providerQuery) ||
+            providerModels.some((model) =>
+              model.favorite &&
+              (
+                model.name.toLowerCase().includes(providerQuery) ||
+                model.id.toLowerCase().includes(providerQuery)
+              )
+            )
           )
         })
         .sort((a, b) => {
@@ -501,14 +581,47 @@ export function AIProvidersSection() {
   const totalConnected = providerSetupStatus?.providers.filter((provider) => provider.authenticated).length ?? 0
   const totalModels = providerModelsList.reduce((sum, provider) => sum + provider.models.length, 0)
 
+  const renderFavoriteModel = (item: typeof favoriteModels[number]) => {
+    const active = currentModel === item.value
+
+    return (
+      <button
+        key={item.value}
+        type="button"
+        onClick={() => handleModelSelect(item.value)}
+        disabled={modelSaving || active}
+        className={cn(
+          "group relative aspect-square min-h-[132px] overflow-hidden rounded-md border border-linear-border bg-linear-bg-secondary p-3 text-left transition-colors hover:border-linear-text-tertiary/40 hover:bg-linear-bg-tertiary disabled:cursor-default disabled:opacity-100",
+          active && "border-linear-accent/50 bg-linear-bg-tertiary",
+        )}
+        title={`${item.provider.name}: ${item.model.name || item.model.id}`}
+      >
+        <div className="flex h-full flex-col justify-between gap-3">
+          <div className="flex items-start justify-between gap-2">
+            <Star className="h-3.5 w-3.5 shrink-0 text-linear-text-tertiary transition-colors group-hover:text-linear-text-secondary" />
+            {active && <Check className="h-4 w-4 shrink-0 text-linear-accent" />}
+          </div>
+          <div className="min-w-0">
+            <div className="break-words text-[15px] font-medium leading-tight text-linear-text">
+              {item.model.name || item.model.id}
+            </div>
+            <div className="mt-2 h-px w-8 bg-linear-border" />
+          </div>
+        </div>
+      </button>
+    )
+  }
+
   const renderConnectedProvider = (provider: SetupStatus["providers"][number]) => {
-    const models = providerModelsList.find((item) => item.id === provider.id)?.models ?? []
+    const providerModels = providerModelsById.get(provider.id)
+    const models = providerModels?.models ?? []
     const selectedForProvider =
       currentModel?.startsWith(`${provider.id}/`) && currentModel
         ? currentModel
         : provider.selectedModel
           ? `${provider.id}/${provider.selectedModel}`
           : ""
+    const selectedModel = models.find((model) => `${provider.id}/${model.id}` === selectedForProvider)
 
     return (
       <div
@@ -538,25 +651,40 @@ export function AIProvidersSection() {
             onValueChange={(value) => handleModelSelect(value)}
             disabled={modelSaving}
           >
-            <SelectTrigger className="h-8 w-[200px] shrink-0 border-linear-border bg-linear-bg text-xs text-linear-text">
-              <SelectValue placeholder="Select model" />
+            <SelectTrigger className="h-8 w-[300px] shrink-0 border-linear-border bg-linear-bg text-xs text-linear-text [&>span]:!block [&>span]:!overflow-visible [&>span]:!whitespace-nowrap [&>span]:!text-clip [&>span]:!line-clamp-none">
+              <SelectValue placeholder="Select model">
+                {selectedModel ? (
+                  <span
+                    className="flex items-center gap-2 whitespace-nowrap"
+                    title={selectedModel.name || selectedModel.id}
+                  >
+                    <span>{selectedModel.name || selectedModel.id}</span>
+                  </span>
+                ) : null}
+              </SelectValue>
             </SelectTrigger>
             <SelectContent className="max-h-60 border-linear-border bg-linear-bg-secondary">
               {models.map((model) => (
                 <SelectItem key={model.id} value={`${provider.id}/${model.id}`}>
                   <div className="flex items-center gap-2">
                     <span className="text-sm">{model.name || model.id}</span>
-                    {model.reasoning && (
-                      <span className="rounded bg-linear-accent/10 px-1 py-0.5 text-[10px] text-linear-accent">
-                        reasoning
-                      </span>
-                    )}
                   </div>
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
         )}
+
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          onClick={() => handleRemoveProvider(provider.id, provider.name)}
+          className="h-8 w-8 p-0 text-linear-text-secondary hover:text-red-400"
+          title={`Remove ${provider.name}`}
+        >
+          <Trash2 className="h-4 w-4" />
+        </Button>
       </div>
     )
   }
@@ -776,6 +904,36 @@ export function AIProvidersSection() {
         </Card>
       ) : (
         <div className="space-y-6">
+          {visibleFavoriteModels.length > 0 && (
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <div className="flex h-5 w-5 items-center justify-center rounded-full bg-linear-bg-tertiary">
+                  <Star className="h-3 w-3 text-linear-text-tertiary" />
+                </div>
+                <div className="text-xs font-medium uppercase tracking-wide text-linear-text-tertiary">
+                  Favorite Models
+                </div>
+              </div>
+              <div className="space-y-5">
+                {visibleFavoriteModelGroups.map((group) => (
+                  <div key={group.provider.id} className="space-y-2.5">
+                    <div className="flex items-baseline justify-between gap-3 px-1">
+                      <div className="text-xs font-medium text-linear-text-secondary">
+                        {group.provider.name}
+                      </div>
+                      <div className="text-[11px] text-linear-text-tertiary">
+                        {group.items.length} model{group.items.length === 1 ? "" : "s"}
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-4">
+                      {group.items.map(renderFavoriteModel)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {connectedProviders.length > 0 && (
             <div className="space-y-3">
               <div className="flex items-center gap-2">

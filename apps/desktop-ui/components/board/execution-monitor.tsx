@@ -17,7 +17,7 @@ interface ExecutionMonitorProps {
 }
 
 const statusConfig = {
-  cloning: { icon: GitBranch, label: 'Cloning repository', color: 'text-blue-400' },
+  cloning: { icon: GitBranch, label: 'Cloning repository', color: 'text-linear-accent' },
   executing: { icon: Code, label: 'Running OpenCode', color: 'text-linear-accent' },
   committing: { icon: GitBranch, label: 'Committing changes', color: 'text-yellow-400' },
   creating_pr: { icon: GitPullRequest, label: 'Creating PR', color: 'text-purple-400' },

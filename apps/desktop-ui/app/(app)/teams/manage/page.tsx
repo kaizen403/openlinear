@@ -114,7 +114,7 @@ function TeamDetailPageContent() {
   const [isLoading, setIsLoading] = useState(true)
   const [teamName, setTeamName] = useState("")
   const [teamDescription, setTeamDescription] = useState("")
-  const [teamColor, setTeamColor] = useState("#6366f1")
+  const [teamColor, setTeamColor] = useState("#10b981")
   const [isSavingTeam, setIsSavingTeam] = useState(false)
   const [copiedInviteCode, setCopiedInviteCode] = useState(false)
   const [tasks, setTasks] = useState<Task[]>([])

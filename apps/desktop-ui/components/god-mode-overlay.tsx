@@ -176,7 +176,7 @@ export function GodModeOverlay() {
                   className={cn(
                     "flex h-6 w-6 items-center justify-center rounded-sm transition-colors",
                     webSearchEnabled
-                      ? "text-blue-400 bg-blue-500/10"
+                      ? "text-linear-accent bg-linear-accent/10"
                       : "text-linear-text-tertiary hover:text-linear-text-secondary hover:bg-linear-bg-tertiary"
                   )}
                 >

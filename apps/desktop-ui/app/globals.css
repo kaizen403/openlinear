@@ -94,13 +94,13 @@
     --card-foreground: 0 0% 96%;
     --popover: 0 0% 6%;             /* #0f0f0f = linear-bg-tertiary */
     --popover-foreground: 0 0% 96%;
-    --primary: 217 91% 60%;
+    --primary: 160 84% 39%;
     --primary-foreground: 0 0% 100%;
     --secondary: 0 0% 8%;           /* #141414 */
     --secondary-foreground: 0 0% 96%;
     --muted: 0 0% 8%;               /* #141414 */
     --muted-foreground: 0 0% 42%;   /* #6a6a6a = linear-text-tertiary */
-    --accent: 217 91% 60%;
+    --accent: 160 84% 39%;
     --accent-foreground: 0 0% 100%;
     --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 100%;
@@ -110,8 +110,8 @@
     --radius: 0.125rem;
 
     /* Linear accent – overridden at runtime by the accent-color picker */
-    --linear-accent: #1d4ed8;
-    --linear-accent-hover: #1e40af;
+    --linear-accent: #10b981;
+    --linear-accent-hover: #059669;
   }
 }
 
@@ -122,6 +122,7 @@
 
   html {
     background-color: #111111;
+    font-family: var(--font-sans);
     overscroll-behavior: none;
   }
 

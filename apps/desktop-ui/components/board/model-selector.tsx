@@ -52,13 +52,13 @@ export function ModelSelector() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center gap-2 px-3 py-1.5 min-w-[140px] sm:min-w-0 flex-1 snap-start">
+      <div className="flex items-center gap-2 px-3 py-1.5 min-w-[340px] shrink-0 snap-start">
         <Cpu className="w-3.5 h-3.5 flex-shrink-0 text-linear-text-tertiary" />
         <div className="min-w-0 flex-1">
           <div className="text-[9px] uppercase tracking-[0.14em] text-linear-text-tertiary leading-tight font-medium">
             Model
           </div>
-          <div className="text-[12px] font-medium truncate leading-tight text-linear-text-tertiary flex items-center gap-1.5">
+          <div className="text-[12px] font-medium whitespace-nowrap leading-tight text-linear-text-tertiary flex items-center gap-1.5">
             <Loader2 className="w-3 h-3 animate-spin" /> Loading...
           </div>
         </div>
@@ -67,7 +67,7 @@ export function ModelSelector() {
   }
 
   return (
-    <div className="flex items-center gap-2 px-3 py-1.5 min-w-[140px] sm:min-w-0 flex-1 snap-start">
+    <div className="flex items-center gap-2 px-3 py-1.5 min-w-[340px] shrink-0 snap-start">
       <Cpu className="w-3.5 h-3.5 flex-shrink-0 text-linear-text-secondary" />
       <div className="min-w-0 flex-1">
         <div className="text-[9px] uppercase tracking-[0.14em] text-linear-text-tertiary leading-tight font-medium">
@@ -90,7 +90,10 @@ export function ModelSelector() {
             )}
           >
             <SelectValue placeholder="Select Model">
-              <span className="block leading-tight whitespace-nowrap">
+              <span
+                className="block leading-tight whitespace-nowrap"
+                title={selectedModelObj ? selectedModelObj.name : "Not set"}
+              >
                 {selectedModelObj ? selectedModelObj.name : "Not set"}
               </span>
             </SelectValue>
@@ -157,7 +160,10 @@ export function ModelSelector() {
                           <Check className="w-3.5 h-3.5 text-linear-accent" strokeWidth={2.5} />
                         </div>
 
-                        <span className="flex-1 truncate font-medium">
+                        <span
+                          className="flex-1 truncate font-medium"
+                          title={model.name}
+                        >
                           {model.name}
                         </span>
 

@@ -1384,7 +1384,7 @@ function StepIndicator({ currentStep }: { currentStep: number }) {
           const isCompleted = index < currentStep
 
           return (
-            <>
+            <div key={label} className="contents">
               <div className="flex flex-col items-center shrink-0">
                 <div
                   className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-semibold transition-colors duration-300 ${
@@ -1416,7 +1416,7 @@ function StepIndicator({ currentStep }: { currentStep: number }) {
                   />
                 </div>
               )}
-            </>
+            </div>
           )
         })}
       </div>

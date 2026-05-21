@@ -67,11 +67,11 @@ export default function RootLayout({
       <head>
         <script
           dangerouslySetInnerHTML={{
-            __html: `(function(){try{var d=document.documentElement;var s=localStorage.getItem("openlinear-accent");if(s){var c=JSON.parse(s);d.style.setProperty("--linear-accent",c.accent);d.style.setProperty("--linear-accent-hover",c.hover)}var tauri=!!window.__TAURI_INTERNALS__;var platform=(navigator.platform||navigator.userAgent||"").toLowerCase();var linux=platform.indexOf("linux")!==-1||platform.indexOf("x11")!==-1;d.dataset.openlinearRuntime=tauri?"tauri":"web";d.dataset.openlinearPlatform=linux?"linux":"other";var profile=localStorage.getItem("openlinear-render-profile");d.dataset.openlinearRenderProfile=profile||(tauri&&linux?"fast":"default")}catch(e){}})()`,
+            __html: `(function(){try{var d=document.documentElement;var defaults={accent:"#10b981",hover:"#059669"};var legacy={"#1d4ed8":1,"#1e40af":1,"#3b82f6":1,"#2563eb":1};var s=localStorage.getItem("openlinear-accent");if(s){var c=JSON.parse(s);if(legacy[String(c.accent).toLowerCase()]||legacy[String(c.hover).toLowerCase()]){c=defaults;localStorage.setItem("openlinear-accent",JSON.stringify(c))}d.style.setProperty("--linear-accent",c.accent);d.style.setProperty("--linear-accent-hover",c.hover)}var tauri=!!window.__TAURI_INTERNALS__;var platform=(navigator.platform||navigator.userAgent||"").toLowerCase();var linux=platform.indexOf("linux")!==-1||platform.indexOf("x11")!==-1;d.dataset.openlinearRuntime=tauri?"tauri":"web";d.dataset.openlinearPlatform=linux?"linux":"other";var profile=localStorage.getItem("openlinear-render-profile");d.dataset.openlinearRenderProfile=profile||(tauri&&linux?"fast":"default")}catch(e){}})()`,
           }}
         />
       </head>
-      <body className="font-sans antialiased">
+      <body className="font-ui antialiased">
         <ThemeProvider attribute="class" defaultTheme="dark" enableSystem>
           <ThemeMeta />
           <AuthProvider>

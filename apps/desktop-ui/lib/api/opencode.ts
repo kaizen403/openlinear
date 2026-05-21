@@ -95,6 +95,8 @@ export interface ModelInfo {
   status: string;
   reasoning: boolean;
   toolCall: boolean;
+  favorite?: boolean;
+  favoriteRank?: number | null;
   limit?: { context: number; output: number };
   cost: { input: number; output: number };
 }
@@ -102,8 +104,10 @@ export interface ModelInfo {
 export interface ProviderModels {
   id: string;
   name: string;
+  authenticated?: boolean;
   defaultModel?: string | null;
   selectedModel?: string | null;
+  favoriteModelCount?: number;
   models: ModelInfo[];
 }
 
@@ -129,6 +133,14 @@ export async function setModel(model: string): Promise<void> {
     '/api/opencode/config/model',
     { method: 'POST', body: JSON.stringify({ model }) },
     'Failed to set model',
+  );
+}
+
+export async function removeProviderAuth(providerId: string): Promise<void> {
+  await opencodeFetch<void>(
+    '/api/opencode/auth/remove',
+    { method: 'POST', body: JSON.stringify({ providerId }) },
+    'Failed to remove provider',
   );
 }
 

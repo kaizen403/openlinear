@@ -116,7 +116,7 @@ function ProjectIcon({ type, color }: { type: string | null; color: string }) {
   return (
     <div 
       className="w-7 h-7 rounded-sm flex items-center justify-center flex-shrink-0 border border-linear-border"
-      style={{ backgroundColor: color || '#3b82f6' }}
+      style={{ backgroundColor: color || '#10b981' }}
     >
       {type === "target" && <Target className={iconClass} />}
       {type === "hexagon" && <Hexagon className={iconClass} />}
@@ -419,7 +419,7 @@ function ProjectsContent() {
         status: formData.status,
         teamIds: formData.teamId ? [formData.teamId] : undefined,
         targetDate: formData.targetDate ? new Date(formData.targetDate).toISOString() : undefined,
-        color: "#3b82f6",
+        color: "#10b981",
         repoUrl: formData.sourceType === "repo" ? formData.repoUrl.trim() : undefined,
         localPath: formData.sourceType === "local" && isDesktopApp ? formData.localPath.trim() : undefined,
       })

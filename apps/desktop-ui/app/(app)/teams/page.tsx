@@ -64,13 +64,13 @@ export default function TeamsPage() {
   const [teamDialogMode, setTeamDialogMode] = useState<TeamDialogMode>("create")
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
   const [editTeam, setEditTeam] = useState<Team | null>(null)
-  const [editFormData, setEditFormData] = useState({ name: "", description: "", color: "#6366f1" })
+  const [editFormData, setEditFormData] = useState({ name: "", description: "", color: "#10b981" })
   const [filterText, setFilterText] = useState("")
   const [formData, setFormData] = useState({
     name: "",
     key: "",
     description: "",
-    color: "#6366f1",
+    color: "#10b981",
   })
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [createdTeam, setCreatedTeam] = useState<Team | null>(null)
@@ -140,7 +140,7 @@ export default function TeamsPage() {
         color: formData.color,
       })
       setCreatedTeam(team)
-      setFormData({ name: "", key: "", description: "", color: "#6366f1" })
+      setFormData({ name: "", key: "", description: "", color: "#10b981" })
       loadTeams()
     } catch (error) {
       const message = describeApiError(error, "Could not reach OpenLinear server. Check your connection and try again.")
@@ -226,7 +226,7 @@ export default function TeamsPage() {
       })
       setIsEditDialogOpen(false)
       setEditTeam(null)
-      setEditFormData({ name: "", description: "", color: "#6366f1" })
+      setEditFormData({ name: "", description: "", color: "#10b981" })
       loadTeams()
     } catch (error) {
       const message = describeApiError(error, "Could not reach OpenLinear server. Check your connection and try again.")

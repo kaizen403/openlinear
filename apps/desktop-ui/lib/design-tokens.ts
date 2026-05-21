@@ -50,10 +50,10 @@ export const STATUS_COLORS: Readonly<Record<StatusKey, ColorTriad>> = {
     dot: "bg-muted-foreground",
   },
   in_progress: {
-    bg: "bg-blue-500/10",
-    text: "text-blue-400",
-    border: "border-blue-500/30",
-    dot: "bg-blue-400",
+    bg: "bg-linear-accent/10",
+    text: "text-linear-accent",
+    border: "border-linear-accent/30",
+    dot: "bg-linear-accent",
   },
   done: {
     bg: "bg-green-500/10",
@@ -74,10 +74,10 @@ export const STATUS_COLORS: Readonly<Record<StatusKey, ColorTriad>> = {
     dot: "bg-red-400",
   },
   cloning: {
-    bg: "bg-blue-500/10",
-    text: "text-blue-400",
-    border: "border-blue-500/30",
-    dot: "bg-blue-400",
+    bg: "bg-linear-accent/10",
+    text: "text-linear-accent",
+    border: "border-linear-accent/30",
+    dot: "bg-linear-accent",
   },
   executing: {
     bg: "bg-linear-accent/10",
@@ -107,10 +107,10 @@ export const PRIORITY_COLORS: Readonly<Record<PriorityKey, ColorTriad>> = {
     dot: "bg-muted-foreground",
   },
   medium: {
-    bg: "bg-sky-500/10",
-    text: "text-sky-400",
-    border: "border-sky-500/30",
-    dot: "bg-sky-400",
+    bg: "bg-linear-accent/10",
+    text: "text-linear-accent",
+    border: "border-linear-accent/30",
+    dot: "bg-linear-accent",
   },
   high: {
     bg: "bg-amber-500/10",

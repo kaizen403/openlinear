@@ -50,6 +50,7 @@ import { useTheme } from "next-themes"
 import { toast } from "sonner"
 import { DatabaseSettings } from "@/components/desktop/database-settings"
 import { AIProvidersSection } from "@/components/settings/ai-providers-section"
+import { PersonalAccessTokensSection } from "@/components/settings/personal-access-tokens-section"
 import { getActiveRepository, setActiveRepositoryBaseBranch } from "@/lib/api"
 import { apiFetch } from "@/lib/api/fetch"
 import { startLogin, updateEmail } from "@/lib/api"
@@ -82,6 +83,9 @@ const NAV_ITEMS: {
   { id: "api-keys", label: "API Keys", icon: Key },
   { id: "database", label: "Database", icon: Database },
 ]
+
+const DEFAULT_ACCENT = { accent: "#10b981", hover: "#059669" }
+const LEGACY_ACCENTS = new Set(["#1d4ed8", "#1e40af", "#3b82f6", "#2563eb"])
 
 function SettingsContent() {
   const searchParams = useSearchParams()
@@ -135,7 +139,7 @@ function SettingsContent() {
   const [sessionTimeout, setSessionTimeout] = useState("4h")
 
   const ACCENT_PRESETS = [
-    { name: "Blue", accent: "#3b82f6", hover: "#2563eb" },
+    { name: "Emerald", accent: DEFAULT_ACCENT.accent, hover: DEFAULT_ACCENT.hover },
     { name: "Purple", accent: "#8b5cf6", hover: "#7c3aed" },
     { name: "Green", accent: "#22c55e", hover: "#16a34a" },
     { name: "Orange", accent: "#f97316", hover: "#ea580c" },
@@ -145,7 +149,7 @@ function SettingsContent() {
     { name: "Yellow", accent: "#eab308", hover: "#ca8a04" },
   ] as const
 
-  const [accentColor, setAccentColor] = useState("#3b82f6")
+  const [accentColor, setAccentColor] = useState(DEFAULT_ACCENT.accent)
 
   const applyAccentColor = (accent: string, hover: string) => {
     setAccentColor(accent)
@@ -206,7 +210,12 @@ function SettingsContent() {
     try {
       const stored = localStorage.getItem("openlinear-accent")
       if (stored) {
-        const { accent, hover } = JSON.parse(stored)
+        let { accent, hover } = JSON.parse(stored)
+        if (LEGACY_ACCENTS.has(String(accent).toLowerCase()) || LEGACY_ACCENTS.has(String(hover).toLowerCase())) {
+          accent = DEFAULT_ACCENT.accent
+          hover = DEFAULT_ACCENT.hover
+          localStorage.setItem("openlinear-accent", JSON.stringify({ accent, hover }))
+        }
         setAccentColor(accent)
         document.documentElement.style.setProperty("--linear-accent", accent)
         document.documentElement.style.setProperty("--linear-accent-hover", hover)
@@ -1019,46 +1028,7 @@ function SettingsContent() {
     </div>
   )
 
-  const renderApiKeys = () => (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-lg font-semibold text-linear-text">API Keys</h2>
-        <p className="text-sm text-linear-text-tertiary mt-1">
-          Manage API keys and integrations for your workspace.
-        </p>
-      </div>
-
-      <Card className="bg-linear-bg-secondary border-linear-border">
-        <CardHeader>
-          <CardTitle className="text-linear-text">
-            Personal API Key
-          </CardTitle>
-          <CardDescription className="text-linear-text-secondary">
-            Use this key to authenticate API requests.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <EmptyState
-            icon={Key}
-            size="compact"
-            title="No API keys yet"
-            description="Generate one when this feature ships. For now, the desktop app authenticates via your GitHub session."
-          />
-        </CardContent>
-      </Card>
-
-      <Card className="bg-linear-bg-secondary border-linear-border">
-        <CardHeader>
-          <CardTitle className="text-linear-text">Webhooks</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex items-center justify-center py-8 text-linear-text-tertiary">
-            <p className="text-sm">Webhooks coming soon</p>
-          </div>
-        </CardContent>
-      </Card>
-    </div>
-  )
+  const renderApiKeys = () => <PersonalAccessTokensSection />
 
   const renderDatabase = () => (
     <div className="space-y-6">

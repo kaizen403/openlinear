@@ -98,8 +98,8 @@ const TYPE_META: Record<NotificationType, {
   assignment: {
     label: 'Assigned',
     Icon: UserPlus,
-    color: 'text-blue-400',
-    bg: 'bg-blue-400/10',
+    color: 'text-linear-accent',
+    bg: 'bg-linear-accent/10',
   },
   status_change: {
     label: 'Status',

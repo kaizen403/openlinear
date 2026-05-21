@@ -191,7 +191,7 @@ export default function UsagePage() {
                 label="Total runs"
                 value={summary.totalRuns.toLocaleString()}
                 sublabel={`avg ${formatUsd(summary.avgCostPerRun)} / run`}
-                accent="bg-blue-500/10 text-blue-400"
+                accent="bg-linear-accent/10 text-linear-accent"
               />
               <StatCard
                 icon={Coins}
