@@ -65,6 +65,25 @@ ${formatContextForPrompt(ctx)}
 Given the user's goal, generate 3-5 specific clarifying questions that reference actual files, patterns, or architectural decisions visible in the codebase. The questions should help determine scope, approach, and constraints. Return ONLY a JSON array of question strings. No other text.`;
 }
 
+function buildJsonQuestionsPrompt(ctx: CodebaseContext): string {
+  return `${buildProQuestionsPrompt(ctx)}
+
+For JSON-mode providers, return exactly one JSON object:
+{"questions":["question 1","question 2","question 3"]}
+No markdown. No explanation.`;
+}
+
+function buildJsonTasksPrompt(ctx: CodebaseContext, taskCount: number, mode: BrainstormMode): string {
+  const base = mode === 'pro'
+    ? buildProTasksPrompt(ctx, taskCount)
+    : buildBasicTasksPrompt(ctx, taskCount);
+  return `${base}
+
+For JSON-mode providers, return exactly one JSON object:
+{"tasks":[{"title":"...","description":"...","priority":"high|medium|low"}]}
+No markdown. No explanation.`;
+}
+
 function getProvider(): string {
   return process.env.BRAINSTORM_PROVIDER || 'openai';
 }
@@ -84,6 +103,12 @@ function createOpenAIClient(): OpenAI {
     apiKey: process.env.BRAINSTORM_API_KEY,
     ...(process.env.BRAINSTORM_BASE_URL && { baseURL: process.env.BRAINSTORM_BASE_URL }),
   });
+}
+
+function supportsOpenAIJsonMode(): boolean {
+  const provider = getProvider();
+  const baseUrl = process.env.BRAINSTORM_BASE_URL?.toLowerCase() ?? '';
+  return provider === 'openai' && (baseUrl.includes('fireworks.ai') || !baseUrl);
 }
 
 function createAnthropicClient(): Anthropic {
@@ -111,10 +136,11 @@ export function checkBrainstormAvailability(): {
   }
   const provider = getProvider();
   const proAvailable = Boolean(process.env.BRAINSTORM_PRO_MODEL || process.env.BRAINSTORM_API_KEY);
+  const baseUrl = process.env.BRAINSTORM_BASE_URL?.toLowerCase() ?? '';
   return {
     available: true,
     provider,
-    webSearchAvailable: provider === 'openai',
+    webSearchAvailable: provider === 'openai' && !baseUrl.includes('fireworks.ai'),
     proAvailable,
   };
 }
@@ -126,7 +152,9 @@ export async function generateQuestions(
 ): Promise<string[]> {
   const provider = getProvider();
   const model = getModel('pro');
-  const systemPrompt = buildProQuestionsPrompt(codebaseContext);
+  const systemPrompt = supportsOpenAIJsonMode()
+    ? buildJsonQuestionsPrompt(codebaseContext)
+    : buildProQuestionsPrompt(codebaseContext);
 
   if (provider === 'anthropic') {
     const client = createAnthropicClient();
@@ -154,11 +182,17 @@ export async function generateQuestions(
       { role: 'system', content: systemPrompt },
       { role: 'user', content: prompt },
     ],
+    ...(supportsOpenAIJsonMode() ? { response_format: { type: 'json_object' as const } } : {}),
     ...(webSearch && { web_search_options: { search_context_size: 'medium' as const } }),
   });
 
   const content = completion.choices[0]?.message?.content || '[]';
-  return JSON.parse(content) as string[];
+  const parsed = JSON.parse(content) as unknown;
+  if (Array.isArray(parsed)) return parsed.filter((item): item is string => typeof item === 'string');
+  if (isObject(parsed) && Array.isArray(parsed.questions)) {
+    return parsed.questions.filter((item): item is string => typeof item === 'string');
+  }
+  return [];
 }
 
 export async function* generateTasks(
@@ -171,8 +205,9 @@ export async function* generateTasks(
 ): AsyncGenerator<BrainstormTask> {
   const provider = getProvider();
   const model = getModel(mode);
-  const systemPrompt =
-    mode === 'pro'
+  const systemPrompt = supportsOpenAIJsonMode()
+    ? buildJsonTasksPrompt(codebaseContext, taskCount, mode)
+    : mode === 'pro'
       ? buildProTasksPrompt(codebaseContext, taskCount)
       : buildBasicTasksPrompt(codebaseContext, taskCount);
 
@@ -207,6 +242,27 @@ export async function* generateTasks(
     }
   } else {
     const client = createOpenAIClient();
+    if (supportsOpenAIJsonMode()) {
+      const completion = await client.chat.completions.create({
+        model,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userContent },
+        ],
+        temperature: 0,
+        max_tokens: 4096,
+        response_format: { type: 'json_object' },
+      });
+      const content = completion.choices[0]?.message?.content ?? '{}';
+      const parsed = JSON.parse(content) as unknown;
+      const tasks = isObject(parsed) && Array.isArray(parsed.tasks) ? parsed.tasks : [];
+      for (const item of tasks) {
+        const task = normalizeTask(item);
+        if (task) yield task;
+      }
+      return;
+    }
+
     const completion = await client.chat.completions.create({
       model,
       stream: true,
@@ -258,5 +314,25 @@ function tryParseTask(line: string): BrainstormTask | null {
     return null;
   }
 
+  return null;
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function normalizeTask(value: unknown): BrainstormTask | null {
+  if (!isObject(value)) return null;
+  if (
+    typeof value.title === 'string' &&
+    typeof value.description === 'string' &&
+    (value.priority === 'low' || value.priority === 'medium' || value.priority === 'high')
+  ) {
+    return {
+      title: value.title,
+      description: value.description,
+      priority: value.priority,
+    };
+  }
   return null;
 }
