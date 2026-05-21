@@ -213,8 +213,27 @@ model User {
   notifyActions Notification[] @relation("notificationActor")
   activityLogs  ActivityLog[]
   settings      Settings?
+  personalAccessTokens PersonalAccessToken[]
 
   @@map("users")
+}
+
+model PersonalAccessToken {
+  id          String    @id @default(uuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name        String
+  tokenHash   String    @unique
+  tokenPrefix String
+  scopes      String[]  @default(["*"])
+  lastUsedAt  DateTime?
+  expiresAt   DateTime?
+  createdAt   DateTime  @default(now())
+  revokedAt   DateTime?
+
+  @@index([userId])
+  @@index([tokenHash])
+  @@map("personal_access_tokens")
 }
 
 model Repository {
