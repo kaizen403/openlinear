@@ -7,31 +7,21 @@ import { useTheme } from "next-themes"
 import {
     Home, Inbox, Layers, Settings,
     PanelLeftClose, LogOut, Archive, Brain, BarChart3,
-    ChevronRight, ChevronDown, CircleDot, Hexagon, MoreHorizontal, Pencil, Trash2, Plus,
-    ChevronsUpDown, Building2,
+    ChevronRight, ChevronDown, Hexagon, Plus,
+    ChevronsUpDown, Building2, Users, FolderKanban,
     User as UserIcon, Sun, Moon, Monitor
 } from "lucide-react"
-import { ProjectSelector } from "@/components/auth/project-selector"
+
 import { useAuth } from "@/hooks/use-auth"
 import { useProject } from "@/hooks/use-project"
 import { useWorkspace } from "@/hooks/use-workspace"
 import { cn } from "@/lib/utils"
 import { BRAND_COLORS } from "@/lib/design-tokens"
-import { deleteTeam, apiFetch, type Team } from "@/lib/api"
+import { apiFetch } from "@/lib/api"
 import { getApiUrl, getAuthToken } from "@/lib/api/client"
-import { useTeams } from "@/providers/teams-provider"
+
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import {
-    AlertDialog,
-    AlertDialogAction,
-    AlertDialogCancel,
-    AlertDialogContent,
-    AlertDialogDescription,
-    AlertDialogFooter,
-    AlertDialogHeader,
-    AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
-import { buttonVariants } from "@/components/ui/button"
+
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import {
     DropdownMenu,
@@ -64,96 +54,6 @@ interface SidebarProps {
     open: boolean
     onClose: () => void
     width: number
-}
-
-function TeamSection({ team, pathname, searchParams, onDelete }: { team: Team; pathname: string; searchParams: URLSearchParams; onDelete: (teamId: string, teamName: string) => void }) {
-    const [expanded, setExpanded] = useState(true)
-    const [menuOpen, setMenuOpen] = useState(false)
-    const teamId = searchParams.get("teamId")
-
-    const isIssuesActive = pathname === "/teams/issues" && searchParams.get("id") === team.id
-    const isManageActive = pathname === "/teams/manage" && searchParams.get("id") === team.id
-
-    return (
-        <div className="group/team">
-            <div className="flex items-center">
-                <button
-                    onClick={() => setExpanded(!expanded)}
-                    className="flex items-center gap-2 flex-1 min-w-0 px-3 py-1.5 rounded-sm text-[13px] font-medium text-linear-text-secondary hover:text-linear-text hover:bg-linear-bg-tertiary/50 transition-colors"
-                >
-                    {expanded ? (
-                        <ChevronDown className="w-3 h-3 flex-shrink-0 text-linear-text-tertiary" />
-                    ) : (
-                        <ChevronRight className="w-3 h-3 flex-shrink-0 text-linear-text-tertiary" />
-                    )}
-                    {(() => {
-                        const owner = team.members?.find(m => m.role === 'owner')
-                        const avatarUrl = owner?.user?.avatarUrl
-                        const fallbackChar = owner?.user?.username?.charAt(0)?.toUpperCase() || team.name.charAt(0).toUpperCase()
-                        return avatarUrl ? (
-                            <img src={avatarUrl} alt="" className="w-4 h-4 rounded-full flex-shrink-0 object-cover" />
-                        ) : (
-                            <div
-                                className="w-4 h-4 rounded-full flex items-center justify-center flex-shrink-0"
-                                style={{ backgroundColor: `${team.color}25` }}
-                            >
-                                <span className="text-[9px] font-bold" style={{ color: team.color }}>
-                                    {fallbackChar}
-                                </span>
-                            </div>
-                        )
-                    })()}
-                    <span className="truncate">{team.name}</span>
-                </button>
-                <Popover open={menuOpen} onOpenChange={setMenuOpen}>
-                    <PopoverTrigger asChild>
-                        <button
-                            className="opacity-0 group-hover/team:opacity-100 p-1 mr-2 rounded hover:bg-linear-bg-tertiary transition-all text-linear-text-tertiary hover:text-linear-text"
-                            title="Team options"
-                        >
-                            <MoreHorizontal className="w-3 h-3" />
-                        </button>
-                    </PopoverTrigger>
-                    <PopoverContent align="start" side="bottom" className="w-36 p-1 bg-linear-bg-secondary border-linear-border">
-                        <Link
-                            href={`/teams/manage?id=${team.id}`}
-                            onClick={() => setMenuOpen(false)}
-                            className="flex items-center gap-2 px-2 py-1.5 rounded-sm text-sm text-linear-text-secondary hover:text-linear-text hover:bg-linear-bg-tertiary transition-colors w-full"
-                        >
-                            <Pencil className="w-3.5 h-3.5" />
-                            Edit
-                        </Link>
-                        <button
-                            onClick={() => { setMenuOpen(false); onDelete(team.id, team.name) }}
-                            className="flex items-center gap-2 px-2 py-1.5 rounded-sm text-sm text-destructive hover:bg-destructive/10 transition-colors w-full"
-                        >
-                            <Trash2 className="w-3.5 h-3.5" />
-                            Delete
-                        </button>
-                    </PopoverContent>
-                </Popover>
-            </div>
-
-            {expanded && (
-                <div className="ml-3 pl-3 border-l border-linear-border mt-0.5 space-y-0.5">
-                    <Link
-                        href={`/teams/issues?id=${team.id}&name=${encodeURIComponent(team.name)}`}
-                        className={subNavItemClass(isIssuesActive)}
-                    >
-                        <CircleDot className="w-3.5 h-3.5 flex-shrink-0" />
-                        <span>Issues</span>
-                    </Link>
-                    <Link
-                        href={`/teams/manage?id=${team.id}`}
-                        className={subNavItemClass(isManageActive)}
-                    >
-                        <Settings className="w-3.5 h-3.5 flex-shrink-0" />
-                        <span>Manage</span>
-                    </Link>
-                </div>
-            )}
-        </div>
-    )
 }
 
 function WorkspaceSwitcher() {
@@ -221,45 +121,76 @@ function WorkspaceSwitcher() {
     )
 }
 
-function ProjectDropdown() {
-    const { activeProject, projects, setActiveProject, isLoading } = useProject()
-    const [isOpen, setIsOpen] = useState(false)
+function ProjectSection({ project, pathname, searchParams, isActive, onSelect }: {
+    project: { id: string; name: string };
+    pathname: string;
+    searchParams: URLSearchParams;
+    isActive: boolean;
+    onSelect: () => void;
+}) {
+    const [expanded, setExpanded] = useState(isActive)
 
-    if (isLoading || projects.length === 0) return null
+    useEffect(() => {
+        if (isActive) setExpanded(true)
+    }, [isActive])
+
+    const isIssuesActive = isActive && (pathname === "/" || pathname === "")
+    const isTeamsActive = (pathname === "/teams" || pathname === "/teams/issues" || pathname === "/teams/manage") && searchParams.get("projectId") === project.id
+    const isSettingsActive = pathname === "/projects/manage" && searchParams.get("id") === project.id
 
     return (
-        <div className="px-3 pb-2 border-b border-linear-border">
-            <Popover open={isOpen} onOpenChange={setIsOpen}>
-                <PopoverTrigger asChild>
-                    <button className="flex items-center gap-2 w-full px-2 py-1.5 rounded-sm text-sm hover:bg-linear-bg-tertiary transition-colors">
-                        <Hexagon className="w-3.5 h-3.5 text-linear-text-tertiary flex-shrink-0" />
-                        <span className="flex-1 text-left truncate text-linear-text-secondary">
-                            {activeProject?.name || "Select project"}
-                        </span>
-                        <ChevronsUpDown className="w-3.5 h-3.5 text-linear-text-tertiary flex-shrink-0" />
-                    </button>
-                </PopoverTrigger>
-                <PopoverContent align="start" className="w-56 p-1" sideOffset={4}>
-                    <div className="px-2 py-1.5 text-[11px] font-medium text-linear-text-tertiary uppercase tracking-wide">
-                        Projects
-                    </div>
-                    {projects.map((project) => (
-                        <button
-                            key={project.id}
-                            onClick={() => { setActiveProject(project); setIsOpen(false) }}
-                            className={cn(
-                                "flex items-center gap-2 w-full px-2 py-1.5 rounded-sm text-sm transition-colors text-left",
-                                project.id === activeProject?.id
-                                    ? "bg-linear-bg-tertiary text-linear-text"
-                                    : "text-linear-text-secondary hover:bg-linear-bg-tertiary"
-                            )}
-                        >
-                            <Hexagon className="w-3.5 h-3.5 flex-shrink-0" />
-                            <span className="truncate">{project.name}</span>
-                        </button>
-                    ))}
-                </PopoverContent>
-            </Popover>
+        <div>
+            <div className="flex items-center group">
+                <button
+                    onClick={() => setExpanded(!expanded)}
+                    className="p-0.5 rounded hover:bg-linear-bg-tertiary transition-colors text-linear-text-tertiary"
+                >
+                    {expanded ? (
+                        <ChevronDown className="w-3 h-3" />
+                    ) : (
+                        <ChevronRight className="w-3 h-3" />
+                    )}
+                </button>
+                <button
+                    onClick={onSelect}
+                    className={cn(
+                        "flex items-center gap-2 flex-1 px-2 py-1 rounded-sm text-sm font-medium transition-all duration-200 text-left",
+                        isActive
+                            ? "text-linear-text"
+                            : "text-linear-text-secondary hover:text-linear-text"
+                    )}
+                >
+                    <Hexagon className="w-3.5 h-3.5 flex-shrink-0" />
+                    <span className="truncate">{project.name}</span>
+                </button>
+            </div>
+
+            {expanded && (
+                <div className="ml-3 pl-3 border-l border-linear-border mt-0.5 space-y-0.5">
+                    <Link
+                        href="/"
+                        onClick={onSelect}
+                        className={subNavItemClass(isIssuesActive)}
+                    >
+                        <FolderKanban className="w-3.5 h-3.5 flex-shrink-0" />
+                        <span>Issues</span>
+                    </Link>
+                    <Link
+                        href={`/teams?projectId=${project.id}`}
+                        className={subNavItemClass(isTeamsActive)}
+                    >
+                        <Users className="w-3.5 h-3.5 flex-shrink-0" />
+                        <span>Teams</span>
+                    </Link>
+                    <Link
+                        href={`/projects/manage?id=${project.id}`}
+                        className={subNavItemClass(isSettingsActive)}
+                    >
+                        <Settings className="w-3.5 h-3.5 flex-shrink-0" />
+                        <span>Settings</span>
+                    </Link>
+                </div>
+            )}
         </div>
     )
 }
@@ -269,13 +200,8 @@ export function Sidebar({ open, onClose, width }: SidebarProps) {
     const searchParams = useSearchParams()
     const router = useRouter()
     const { user, isAuthenticated, isLoading, logout } = useAuth()
-    const { teams, reload: reloadTeams } = useTeams()
-    const { activeProject } = useProject()
+    const { activeProject, projects, setActiveProject } = useProject()
     const { setTheme } = useTheme()
-
-    const projectTeams = activeProject
-        ? teams.filter(t => t.projectId === activeProject.id)
-        : teams
     const [isTauri, setIsTauri] = useState(false)
     const [unreadCount, setUnreadCount] = useState<number>(0)
     const [isFullscreen, setIsFullscreen] = useState(false)
@@ -337,31 +263,6 @@ export function Sidebar({ open, onClose, width }: SidebarProps) {
             es.close()
         }
     }, [eventSourceToken])
-
-    const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null)
-    const [isDeletingTeam, setIsDeletingTeam] = useState(false)
-
-    const handleDeleteTeam = useCallback((teamId: string, teamName: string) => {
-        setDeleteTarget({ id: teamId, name: teamName })
-    }, [])
-
-    const confirmDeleteTeam = useCallback(async () => {
-        if (!deleteTarget) return
-        const { id: teamId } = deleteTarget
-        try {
-            setIsDeletingTeam(true)
-            await deleteTeam(teamId)
-            void reloadTeams()
-            if (searchParams.get("teamId") === teamId || (pathname === "/teams/manage" && searchParams.get("id") === teamId)) {
-                router.push('/')
-            }
-            setDeleteTarget(null)
-        } catch (error) {
-            console.error("Failed to delete team:", error)
-        } finally {
-            setIsDeletingTeam(false)
-        }
-    }, [deleteTarget, reloadTeams, searchParams, pathname, router])
 
     const handleClose = async () => {
         const { getCurrentWindow } = await import('@tauri-apps/api/window')
@@ -433,7 +334,6 @@ export function Sidebar({ open, onClose, width }: SidebarProps) {
             </div>
 
             <WorkspaceSwitcher />
-            <ProjectDropdown />
 
             <nav className="flex-1 overflow-y-auto py-2 min-w-0">
                 <div className="px-3 space-y-0.5">
@@ -460,35 +360,36 @@ export function Sidebar({ open, onClose, width }: SidebarProps) {
                     <div className="mt-4 px-3">
                     <div className="flex items-center justify-between px-3 mb-1">
                         <span className="text-xs font-semibold uppercase tracking-wider text-linear-text-tertiary">
-                            Teams
+                            Projects
                         </span>
                         <Link
-                            href="/teams"
+                            href="/projects"
                             className="p-0.5 rounded hover:bg-linear-bg-tertiary transition-colors text-linear-text-tertiary hover:text-linear-text"
-                            title="Manage all teams"
+                            title="Manage all projects"
                         >
                             <Settings className="w-3.5 h-3.5" />
                         </Link>
                     </div>
-                    {projectTeams.length > 0 ? (
+                    {projects.length > 0 ? (
                         <div className="space-y-0.5">
-                            {projectTeams.map(team => (
-                                <TeamSection
-                                    key={team.id}
-                                    team={team}
+                            {projects.map(project => (
+                                <ProjectSection
+                                    key={project.id}
+                                    project={project}
                                     pathname={pathname}
                                     searchParams={searchParams}
-                                    onDelete={handleDeleteTeam}
+                                    isActive={activeProject?.id === project.id}
+                                    onSelect={() => setActiveProject(project)}
                                 />
                             ))}
                         </div>
                     ) : (
                         <Link
-                            href="/teams"
+                            href="/projects"
                             className="flex items-center gap-2 px-3 py-1.5 rounded-sm text-[13px] text-linear-text-tertiary hover:text-linear-text hover:bg-linear-bg-tertiary/50 transition-colors"
                         >
                             <Plus className="w-3.5 h-3.5" />
-                            <span>Create a team</span>
+                            <span>Create a project</span>
                         </Link>
                     )}
                 </div>
@@ -642,27 +543,6 @@ export function Sidebar({ open, onClose, width }: SidebarProps) {
                 )}
             </div>
             </div>
-
-            <AlertDialog open={deleteTarget !== null} onOpenChange={(open) => { if (!open) setDeleteTarget(null) }}>
-                <AlertDialogContent>
-                    <AlertDialogHeader>
-                        <AlertDialogTitle>Delete team</AlertDialogTitle>
-                        <AlertDialogDescription>
-                            Delete &ldquo;{deleteTarget?.name}&rdquo;? This action cannot be undone.
-                        </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                        <AlertDialogCancel disabled={isDeletingTeam}>Cancel</AlertDialogCancel>
-                        <AlertDialogAction
-                            onClick={(e) => { e.preventDefault(); void confirmDeleteTeam() }}
-                            disabled={isDeletingTeam}
-                            className={cn(buttonVariants({ variant: "destructive" }))}
-                        >
-                            {isDeletingTeam ? "Deleting..." : "Delete"}
-                        </AlertDialogAction>
-                    </AlertDialogFooter>
-                </AlertDialogContent>
-            </AlertDialog>
         </aside>
     )
 }
