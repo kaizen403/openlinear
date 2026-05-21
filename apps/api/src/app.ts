@@ -13,6 +13,7 @@ import { randomUUID } from 'node:crypto';
 import labelRoutes from './routes/labels';
 import tasksRouter from './routes/tasks';
 import settingsRouter from './routes/settings';
+import patsRouter from './routes/pats';
 import authRouter from './routes/auth';
 import reposRouter from './routes/repos';
 import teamsRouter from './routes/teams';
@@ -33,6 +34,7 @@ import { isValidationError, isHttpError } from './errors';
 import { buildErrorEnvelope } from './lib/http';
 import { Prisma, prisma } from '@openlinear/db';
 import { getUserTeamIds } from './services/team-scope';
+import { requireAuth } from './middleware/auth';
 
 function addLoopbackAliases(allowed: Set<string>, origin: string) {
   allowed.add(origin);
@@ -183,6 +185,7 @@ export function createApp(): Application {
   app.use('/api/labels', labelRoutes);
   app.use('/api/tasks', tasksRouter);
   app.use('/api/settings', settingsRouter);
+  app.use('/api/pats', requireAuth, patsRouter);
   app.use('/api/teams', teamsRouter);
   app.use('/api/projects', projectsRouter);
   app.use('/api/workspaces', workspacesRouter);

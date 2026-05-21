@@ -20,6 +20,21 @@ export const createTaskBodySchema = z
     path: ['teamId'],
   });
 
+const bulkTaskInputSchema = z.object({
+  title: z.string().min(1).max(500),
+  description: z.string().max(10000).optional(),
+  priority: PriorityEnum.optional().default('medium'),
+  status: StatusEnum.optional().default('todo'),
+  labelIds: z.array(z.string().uuid()).optional().default([]),
+  parentId: z.string().uuid().optional(),
+  dueDate: z.string().datetime().optional(),
+});
+
+export const bulkCreateTasksSchema = z.object({
+  projectId: z.string().uuid(),
+  tasks: z.array(bulkTaskInputSchema).min(1).max(100),
+});
+
 export const updateTaskBodySchema = z.object({
   title: z.string().min(1).optional(),
   description: z.string().nullable().optional(),
@@ -46,5 +61,6 @@ export const listTasksQuerySchema = z.object({
 });
 
 export type CreateTaskBody = z.infer<typeof createTaskBodySchema>;
+export type BulkCreateTasksBody = z.infer<typeof bulkCreateTasksSchema>;
 export type UpdateTaskBody = z.infer<typeof updateTaskBodySchema>;
 export type ListTasksQuery = z.infer<typeof listTasksQuerySchema>;

@@ -17,6 +17,7 @@ describe('Tasks API', () => {
   let testTeamId: string;
 
   beforeAll(async () => {
+    await prisma.personalAccessToken.deleteMany({});
     await prisma.projectAccess.deleteMany({});
     await prisma.taskLabel.deleteMany({});
     await prisma.task.updateMany({ where: { teamId: { not: null } }, data: { teamId: null, projectId: null } });
@@ -52,6 +53,7 @@ describe('Tasks API', () => {
   }, 30000);
 
   afterAll(async () => {
+    await prisma.personalAccessToken.deleteMany({});
     await prisma.projectAccess.deleteMany({});
     await prisma.taskLabel.deleteMany({});
     await prisma.task.updateMany({ where: { teamId: { not: null } }, data: { teamId: null, projectId: null } });
@@ -288,6 +290,178 @@ describe('Tasks API', () => {
 
       expect(res.status).toBe(400);
       expect(res.body.error.code).toBe('VALIDATION_ERROR');
+    });
+  });
+
+  describe('POST /api/tasks/bulk', () => {
+    it('creates tasks with sequential gapless identifiers', async () => {
+      const team = await prisma.team.create({
+        data: { name: 'Bulk Team', key: 'BLK' },
+      });
+      await prisma.teamMember.create({ data: { teamId: team.id, userId: testUserId, role: 'owner' } });
+      const project = await prisma.project.create({
+        data: {
+          name: 'Bulk Project',
+          projectTeams: { create: [{ teamId: team.id }] },
+        },
+      });
+
+      const res = await request(app)
+        .post('/api/tasks/bulk')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({
+          projectId: project.id,
+          tasks: Array.from({ length: 5 }, (_, index) => ({
+            title: `Bulk task ${index + 1}`,
+          })),
+        });
+
+      expect(res.status).toBe(201);
+      expect(res.body.failed).toEqual([]);
+      expect(res.body.created.map((task: { identifier: string }) => task.identifier)).toEqual([
+        'BLK-1',
+        'BLK-2',
+        'BLK-3',
+        'BLK-4',
+        'BLK-5',
+      ]);
+
+      const updatedTeam = await prisma.team.findUnique({ where: { id: team.id } });
+      expect(updatedTeam?.nextIssueNumber).toBe(6);
+    });
+
+    it('enforces the 100 task cap before creating anything', async () => {
+      const team = await prisma.team.create({
+        data: { name: 'Bulk Cap Team', key: 'BCP' },
+      });
+      await prisma.teamMember.create({ data: { teamId: team.id, userId: testUserId, role: 'owner' } });
+      const project = await prisma.project.create({
+        data: {
+          name: 'Bulk Cap Project',
+          projectTeams: { create: [{ teamId: team.id }] },
+        },
+      });
+
+      const before = await prisma.task.count({ where: { projectId: project.id } });
+      const res = await request(app)
+        .post('/api/tasks/bulk')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({
+          projectId: project.id,
+          tasks: Array.from({ length: 101 }, (_, index) => ({
+            title: `Too many ${index + 1}`,
+          })),
+        });
+
+      expect(res.status).toBe(400);
+      await expect(prisma.task.count({ where: { projectId: project.id } })).resolves.toBe(before);
+    });
+
+    it('returns 404 for an invalid project and 403 for inaccessible projects', async () => {
+      const missing = await request(app)
+        .post('/api/tasks/bulk')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({
+          projectId: '00000000-0000-0000-0000-000000000000',
+          tasks: [{ title: 'No project' }],
+        });
+      expect(missing.status).toBe(404);
+
+      const otherUser = await prisma.user.upsert({
+        where: { githubId: '777780' },
+        update: {},
+        create: {
+          githubId: '777780',
+          username: 'bulkforbidden',
+          email: 'bulkforbidden@example.com',
+        },
+      });
+      const otherToken = generateToken(otherUser.id, otherUser.username);
+      const team = await prisma.team.create({
+        data: { name: 'Bulk Forbidden Team', key: 'BFD' },
+      });
+      await prisma.teamMember.create({ data: { teamId: team.id, userId: testUserId, role: 'owner' } });
+      const project = await prisma.project.create({
+        data: {
+          name: 'Bulk Forbidden Project',
+          projectTeams: { create: [{ teamId: team.id }] },
+        },
+      });
+
+      const forbidden = await request(app)
+        .post('/api/tasks/bulk')
+        .set('Authorization', `Bearer ${otherToken}`)
+        .send({
+          projectId: project.id,
+          tasks: [{ title: 'Forbidden' }],
+        });
+      expect(forbidden.status).toBe(403);
+    });
+
+    it('partially succeeds when some tasks reference invalid labels', async () => {
+      const team = await prisma.team.create({
+        data: { name: 'Bulk Label Team', key: 'BLB' },
+      });
+      await prisma.teamMember.create({ data: { teamId: team.id, userId: testUserId, role: 'owner' } });
+      const project = await prisma.project.create({
+        data: {
+          name: 'Bulk Label Project',
+          projectTeams: { create: [{ teamId: team.id }] },
+        },
+      });
+      const label = await prisma.label.create({
+        data: { name: 'phase:1 - Foundation', color: '#3B82F6', teamId: team.id },
+      });
+
+      const res = await request(app)
+        .post('/api/tasks/bulk')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({
+          projectId: project.id,
+          tasks: [
+            { title: 'Valid labelled task', labelIds: [label.id] },
+            { title: 'Invalid labelled task', labelIds: ['00000000-0000-0000-0000-000000000000'] },
+          ],
+        });
+
+      expect(res.status).toBe(201);
+      expect(res.body.created).toHaveLength(1);
+      expect(res.body.created[0].labels).toEqual([
+        expect.objectContaining({ id: label.id, name: label.name }),
+      ]);
+      expect(res.body.failed).toEqual([
+        { index: 1, error: 'Invalid labelIds: 00000000-0000-0000-0000-000000000000' },
+      ]);
+      await expect(prisma.task.count({ where: { projectId: project.id } })).resolves.toBe(1);
+    });
+
+    it('accepts PATs with tasks:write scope', async () => {
+      const team = await prisma.team.create({
+        data: { name: 'Bulk PAT Team', key: 'BPT' },
+      });
+      await prisma.teamMember.create({ data: { teamId: team.id, userId: testUserId, role: 'owner' } });
+      const project = await prisma.project.create({
+        data: {
+          name: 'Bulk PAT Project',
+          projectTeams: { create: [{ teamId: team.id }] },
+        },
+      });
+      const pat = await request(app)
+        .post('/api/pats')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ name: 'Bulk writer', scopes: ['tasks:write'] });
+
+      const res = await request(app)
+        .post('/api/tasks/bulk')
+        .set('Authorization', `Bearer ${pat.body.token}`)
+        .send({
+          projectId: project.id,
+          tasks: [{ title: 'PAT-created task' }],
+        });
+
+      expect(res.status).toBe(201);
+      expect(res.body.created).toHaveLength(1);
+      expect(res.body.created[0].title).toBe('PAT-created task');
     });
   });
 

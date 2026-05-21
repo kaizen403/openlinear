@@ -317,19 +317,9 @@ router.get('/github/callback', async (req: Request, res: Response) => {
   }
 });
 
-router.get('/me', async (req: Request, res: Response) => {
-  const authHeader = req.headers.authorization;
-
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    res.status(401).json(buildErrorEnvelope('UNAUTHORIZED', 'Authentication required'));
-    return;
-  }
-
-  const token = authHeader.substring(7);
-
+router.get('/me', requireAuth, async (req: AuthRequest, res: Response) => {
   try {
-    const decoded = jwt.verify(token, getJwtSecret()) as { userId: string };
-    const user = await getUserById(decoded.userId);
+    const user = await getUserById(req.userId!);
 
     if (!user) {
       res.status(401).json(buildErrorEnvelope('USER_NOT_FOUND', 'User not found'));
@@ -342,7 +332,7 @@ router.get('/me', async (req: Request, res: Response) => {
       githubLinked: Boolean(user.accessToken),
     });
   } catch {
-    res.status(401).json(buildErrorEnvelope('UNAUTHORIZED', 'Invalid token'));
+    res.status(500).json(buildErrorEnvelope('USER_LOOKUP_FAILED', 'Failed to load current user'));
   }
 });
 

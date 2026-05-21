@@ -1,6 +1,10 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { buildErrorEnvelope } from '../lib/http';
+import {
+  isPersonalAccessToken,
+  validatePersonalAccessToken,
+} from '../services/pats';
 
 function getJwtSecret(): string {
   const secret = process.env.JWT_SECRET;
@@ -28,37 +32,84 @@ function decodeToken(token: string): { userId: string; username: string } | null
 export interface AuthRequest extends Request {
   userId?: string;
   username?: string;
+  authSource?: 'jwt' | 'pat';
+  patId?: string;
+  patScopes?: string[];
 }
 
-export function optionalAuth(req: AuthRequest, _res: Response, next: NextFunction) {
-  const authHeader = req.headers.authorization;
+async function authenticateBearer(
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction,
+  options: { optional: boolean; requiredScopes?: string[] },
+) {
+  try {
+    const authHeader = req.headers.authorization;
 
-  if (authHeader?.startsWith('Bearer ')) {
-    const claims = decodeToken(authHeader.substring(7));
-    if (claims) {
-      req.userId = claims.userId;
-      req.username = claims.username;
+    if (!authHeader?.startsWith('Bearer ')) {
+      if (options.optional) {
+        next();
+        return;
+      }
+      res.status(401).json(buildErrorEnvelope('UNAUTHORIZED', 'Authentication required'));
+      return;
     }
-  }
 
-  next();
+    const token = authHeader.substring(7);
+
+    if (isPersonalAccessToken(token)) {
+      const result = await validatePersonalAccessToken(token, options.requiredScopes);
+
+      if (result === 'insufficient_scope') {
+        res.status(403).json(buildErrorEnvelope('INSUFFICIENT_SCOPE', 'Personal access token lacks required scope'));
+        return;
+      }
+
+      if (result === 'invalid') {
+        res.status(401).json(buildErrorEnvelope('UNAUTHORIZED', 'Invalid token'));
+        return;
+      }
+
+      req.userId = result.userId;
+      req.authSource = 'pat';
+      req.patId = result.tokenId;
+      req.patScopes = result.scopes;
+      next();
+      return;
+    }
+
+    const claims = decodeToken(token);
+    if (!claims) {
+      res.status(401).json(buildErrorEnvelope('UNAUTHORIZED', 'Invalid token'));
+      return;
+    }
+
+    req.userId = claims.userId;
+    req.username = claims.username;
+    req.authSource = 'jwt';
+    next();
+  } catch (error) {
+    next(error);
+  }
 }
 
-export function requireAuth(req: AuthRequest, res: Response, next: NextFunction) {
-  const authHeader = req.headers.authorization;
+export function optionalAuth(req: AuthRequest, res: Response, next: NextFunction) {
+  void authenticateBearer(req, res, next, { optional: true });
+}
 
-  if (!authHeader?.startsWith('Bearer ')) {
-    res.status(401).json(buildErrorEnvelope('UNAUTHORIZED', 'Authentication required'));
-    return;
+export function requireAuth(req: AuthRequest, res: Response, next: NextFunction): void;
+export function requireAuth(requiredScopes: string[]): (req: AuthRequest, res: Response, next: NextFunction) => void;
+export function requireAuth(
+  reqOrScopes: AuthRequest | string[],
+  res?: Response,
+  next?: NextFunction,
+): void | ((req: AuthRequest, res: Response, next: NextFunction) => void) {
+  if (Array.isArray(reqOrScopes)) {
+    const requiredScopes = reqOrScopes;
+    return (req: AuthRequest, res: Response, next: NextFunction) => {
+      void authenticateBearer(req, res, next, { optional: false, requiredScopes });
+    };
   }
 
-  const claims = decodeToken(authHeader.substring(7));
-  if (!claims) {
-    res.status(401).json(buildErrorEnvelope('UNAUTHORIZED', 'Invalid token'));
-    return;
-  }
-
-  req.userId = claims.userId;
-  req.username = claims.username;
-  next();
+  void authenticateBearer(reqOrScopes, res!, next!, { optional: false });
 }

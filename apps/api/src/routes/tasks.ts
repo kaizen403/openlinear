@@ -1,6 +1,6 @@
 import { Router, Response, NextFunction } from 'express';
 import { Prisma, prisma } from '@openlinear/db';
-import { broadcastToTask, broadcastToTeam, broadcastToUser } from '../sse';
+import { broadcastToProject, broadcastToTask, broadcastToTeam, broadcastToUser } from '../sse';
 import { requireAuth, AuthRequest } from '../middleware/auth';
 import { validateBody, validateQuery, ValidatedRequest } from '../middleware/validate';
 import { getUserTeamIds } from '../services/team-scope';
@@ -18,9 +18,11 @@ import { logActivity } from '../services/activity';
 import { createNotification } from './notifications';
 import {
   createTaskBodySchema,
+  bulkCreateTasksSchema,
   updateTaskBodySchema,
   listTasksQuerySchema,
   CreateTaskBody,
+  BulkCreateTasksBody,
   UpdateTaskBody,
   ListTasksQuery,
 } from '../schemas/tasks';
@@ -335,6 +337,147 @@ router.post(
       }
 
       res.status(201).json(transformedTask);
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+router.post(
+  '/bulk',
+  requireAuth(['tasks:write']),
+  validateBody(bulkCreateTasksSchema),
+  async (req: AuthRequest & ValidatedRequest<BulkCreateTasksBody>, res: Response, next: NextFunction) => {
+    try {
+      const { projectId, tasks } = req.validBody!;
+      await assertProjectAccess(projectId, req.userId!, 'full');
+
+      const project = await prisma.project.findUnique({
+        where: { id: projectId },
+        select: {
+          id: true,
+          projectTeams: {
+            take: 1,
+            select: { teamId: true },
+          },
+        },
+      });
+
+      if (!project) {
+        throw new OwnershipError('project', projectId, 'not_found');
+      }
+      const resolvedTeamId = project.projectTeams[0]?.teamId;
+      if (!resolvedTeamId) {
+        throw new ValidationError('Project must have a team');
+      }
+      await assertTeamRole(resolvedTeamId, req.userId!, ['owner', 'admin', 'member']);
+
+      const labelIds = [...new Set(tasks.flatMap((task) => task.labelIds))];
+      const labels = labelIds.length
+        ? await prisma.label.findMany({
+            where: {
+              id: { in: labelIds },
+              OR: [{ teamId: resolvedTeamId }, { teamId: null }],
+            },
+            select: { id: true },
+          })
+        : [];
+      const validLabelIds = new Set(labels.map((label) => label.id));
+
+      const parentIds = [...new Set(tasks.map((task) => task.parentId).filter((id): id is string => Boolean(id)))];
+      const parentTasks = parentIds.length
+        ? await prisma.task.findMany({
+            where: {
+              id: { in: parentIds },
+              OR: [
+                { projectId },
+                { teamId: resolvedTeamId },
+              ],
+            },
+            select: { id: true },
+          })
+        : [];
+      const validParentIds = new Set(parentTasks.map((task) => task.id));
+
+      const failed: Array<{ index: number; error: string }> = [];
+      const validTasks = tasks
+        .map((task, index) => ({ task, index }))
+        .filter(({ task, index }) => {
+          const invalidLabels = task.labelIds.filter((labelId) => !validLabelIds.has(labelId));
+          if (invalidLabels.length > 0) {
+            failed.push({ index, error: `Invalid labelIds: ${invalidLabels.join(', ')}` });
+            return false;
+          }
+          if (task.parentId && !validParentIds.has(task.parentId)) {
+            failed.push({ index, error: 'parentId must reference an existing accessible task' });
+            return false;
+          }
+          return true;
+        });
+
+      const created: TaskWithLabels[] = validTasks.length
+        ? await prisma.$transaction(async (tx) => {
+            const team = await tx.team.update({
+              where: { id: resolvedTeamId },
+              data: { nextIssueNumber: { increment: validTasks.length } },
+              select: { key: true, nextIssueNumber: true },
+            });
+            const startNumber = team.nextIssueNumber - validTasks.length;
+
+            const createdTasks: TaskWithLabels[] = [];
+            for (let i = 0; i < validTasks.length; i += 1) {
+              const { task } = validTasks[i];
+              const number = startNumber + i;
+              const createdTask = await tx.task.create({
+                data: {
+                  title: task.title,
+                  description: task.description,
+                  priority: task.priority,
+                  status: task.status,
+                  teamId: resolvedTeamId,
+                  projectId,
+                  parentId: task.parentId,
+                  number,
+                  identifier: `${team.key}-${number}`,
+                  dueDate: task.dueDate ? new Date(task.dueDate) : undefined,
+                  creatorId: req.userId!,
+                  labels: task.labelIds.length
+                    ? { create: task.labelIds.map((labelId) => ({ labelId })) }
+                    : undefined,
+                },
+                include: taskInclude,
+              });
+              createdTasks.push(createdTask);
+            }
+            return createdTasks;
+          }, { timeout: 15000, maxWait: 5000 })
+        : [];
+
+      const transformedTasks = created.map(flattenLabels);
+      const taskIds = transformedTasks.map((task) => task.id);
+      await broadcastToProject(projectId, 'tasks:bulk-created', {
+        type: 'tasks:bulk-created',
+        projectId,
+        count: transformedTasks.length,
+        taskIds,
+      });
+
+      await Promise.all(created.map((task) => logActivity({
+        taskId: task.id,
+        projectId: task.projectId,
+        teamId: task.teamId,
+        userId: req.userId!,
+        action: 'task_created',
+        payload: {
+          title: task.title,
+          status: task.status,
+          priority: task.priority,
+          identifier: task.identifier,
+          source: 'bulk',
+        },
+      })));
+
+      res.status(201).json({ created: transformedTasks, failed });
     } catch (error) {
       next(error);
     }
