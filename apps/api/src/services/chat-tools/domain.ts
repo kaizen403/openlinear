@@ -2,9 +2,10 @@ import { type Priority, type ProjectPermission, type ProjectStatus, type Status,
 import { ValidationError } from '../../errors';
 import { createLabel, listLabels, updateLabel } from '../labels';
 import { resolveUserByHandle, inviteWorkspaceMember, listWorkspaceMembers, changeWorkspaceMemberRole } from '../members';
+import { setupProjectPlan } from '../project-plan';
 import { createProject, getProject, grantProjectAccess, listProjectAccess, listProjects, updateProject } from '../projects';
 import { searchWorkspaceData } from '../search';
-import { addComment, bulkCreateTasks, createTask, getTask, listComments, listTasks, updateTask } from '../tasks';
+import { addComment, bulkArchiveTasks, bulkCreateTasks, bulkUpdateTaskStatus, createTask, getTask, listComments, listTasks, updateTask } from '../tasks';
 import { changeTeamMemberRole, createTeam, getTeam, inviteTeamMember, listTeamMembers, listTeams, updateTeam } from '../teams';
 import { getWorkspaceForUser, listWorkspacesForUser, updateWorkspace } from '../workspaces';
 import {
@@ -40,6 +41,7 @@ function priorityArg(args: JsonObject, key: string): Priority | undefined {
 
 function statusArg(args: JsonObject, key: string): Status | undefined {
   const value = args[key];
+  if (value === 'completed') return 'done';
   return hasValue(statusValues, value) ? value : undefined;
 }
 
@@ -100,6 +102,30 @@ function bulkItems(args: JsonObject) {
     parentId: stringArg(item, 'parentId'),
     dueDate: nullableStringArg(item, 'dueDate'),
   })).filter((item) => item.title.trim().length > 0);
+}
+
+function planLabels(args: JsonObject) {
+  return (objectArrayArg(args, 'labels') ?? [])
+    .map((item) => ({
+      name: stringArg(item, 'name') ?? '',
+      color: stringArg(item, 'color'),
+      priority: numberArg(item, 'priority'),
+    }))
+    .filter((item) => item.name.trim().length > 0);
+}
+
+function planTasks(args: JsonObject) {
+  return (objectArrayArg(args, 'tasks') ?? [])
+    .map((item) => ({
+      title: stringArg(item, 'title') ?? '',
+      description: nullableStringArg(item, 'description'),
+      priority: priorityArg(item, 'priority'),
+      status: statusArg(item, 'status'),
+      labelNames: stringArrayArg(item, 'labelNames') ?? stringArrayArg(item, 'labels') ?? [],
+      parentId: stringArg(item, 'parentId'),
+      dueDate: nullableStringArg(item, 'dueDate'),
+    }))
+    .filter((item) => item.title.trim().length > 0);
 }
 
 const idProp = { type: 'string', description: 'OpenLinear UUID/id from a previous tool result.' };
@@ -276,6 +302,39 @@ export const CHAT_DOMAIN_TOOLS: ChatTool[] = [
     },
   },
   {
+    name: 'bulk_update_issues',
+    description: 'Update many issues in one project at once. Use this for requests like "move all issues to completed"; completed means status=done.',
+    mutating: true,
+    parameters: objectParameters({ projectId: projectIdProp, status: { type: 'string', enum: [...statusValues] }, issueIds: { type: 'array', items: { type: 'string' }, description: 'Optional issue/task ids. Omit to update all non-archived issues in the selected project.' } }, ['status']),
+    handler: async (ctx, args) => {
+      const projectId = scopedProjectId(ctx, args);
+      const status = statusArg(args, 'status');
+      if (!projectId) return missing('projectId');
+      if (!status) return missing('status');
+      return ok('Issues updated', await bulkUpdateTaskStatus({ userId: ctx.userId, projectId, status, taskIds: stringArrayArg(args, 'issueIds') }));
+    },
+  },
+  {
+    name: 'archive_issues',
+    description: 'Archive/delete/remove existing issues from the active project view. In OpenLinear, deleting active issues means archiving them; this is not a permanent purge. Omit ids/identifiers to archive all non-archived issues in the selected project.',
+    mutating: true,
+    parameters: objectParameters({
+      projectId: projectIdProp,
+      issueIds: { type: 'array', items: { type: 'string' }, description: 'Optional issue/task UUIDs. Omit with issueIdentifiers to archive all active issues in the selected project.' },
+      issueIdentifiers: { type: 'array', items: { type: 'string' }, description: 'Optional human issue identifiers such as TEAM1-12. Omit with issueIds to archive all active issues in the selected project.' },
+    }, []),
+    handler: async (ctx, args) => {
+      const projectId = scopedProjectId(ctx, args);
+      if (!projectId) return missing('projectId');
+      return ok('Issues archived', await bulkArchiveTasks({
+        userId: ctx.userId,
+        projectId,
+        taskIds: stringArrayArg(args, 'issueIds'),
+        identifiers: stringArrayArg(args, 'issueIdentifiers'),
+      }));
+    },
+  },
+  {
     name: 'comment_on_issue',
     description: 'Add a comment to an issue/task.',
     mutating: true,
@@ -299,6 +358,60 @@ export const CHAT_DOMAIN_TOOLS: ChatTool[] = [
       const items = bulkItems(args);
       if (items.length === 0) return missing('items');
       return ok(boolArg(args, 'dryRun') === false ? 'Issues created' : 'Issue preview generated', await bulkCreateTasks({ userId: ctx.userId, projectId, dryRun: boolArg(args, 'dryRun') ?? true, tasks: items }));
+    },
+  },
+  {
+    name: 'setup_project_plan',
+    description: 'One-shot project setup operation. Use this instead of separate label/project/bulk-create calls when a user asks to create many issues/tasks and also mentions labels, label colors, or a deadline. It can create/update labels, set project targetDate, and create issues with labels by label name in one operation.',
+    mutating: true,
+    parameters: objectParameters({
+      projectId: projectIdProp,
+      dryRun: { type: 'boolean', default: false, description: 'Use true only when the user asks for a preview. Use false when the user explicitly asks to create/add the issues.' },
+      targetDate: { type: ['string', 'null'], description: 'Optional project deadline as an ISO datetime. For relative dates, compute the exact ISO datetime before calling.' },
+      labels: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            name: { type: 'string' },
+            color: { type: 'string', description: 'Hex color such as #3b82f6.' },
+            priority: { type: 'number', default: 0 },
+          },
+          required: ['name'],
+          additionalProperties: false,
+        },
+      },
+      tasks: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            title: { type: 'string' },
+            description: { type: ['string', 'null'], description: 'Proper description with implementation steps and acceptance checks.' },
+            priority: { type: 'string', enum: [...priorityValues] },
+            status: { type: 'string', enum: [...statusValues] },
+            labelNames: { type: 'array', items: { type: 'string' }, description: 'Names of labels to attach, resolved after labels are created/updated.' },
+            dueDate: { type: ['string', 'null'] },
+            parentId: { type: 'string' },
+          },
+          required: ['title'],
+          additionalProperties: false,
+        },
+      },
+    }, ['tasks']),
+    handler: async (ctx, args) => {
+      const projectId = scopedProjectId(ctx, args);
+      if (!projectId) return missing('projectId');
+      const tasks = planTasks(args);
+      if (tasks.length === 0) return missing('tasks');
+      return ok(boolArg(args, 'dryRun') ? 'Project plan preview generated' : 'Project plan created', await setupProjectPlan({
+        userId: ctx.userId,
+        projectId,
+        labels: planLabels(args),
+        targetDate: nullableStringArg(args, 'targetDate'),
+        tasks,
+        dryRun: boolArg(args, 'dryRun') ?? false,
+      }));
     },
   },
   {
@@ -452,7 +565,7 @@ export const CHAT_DOMAIN_TOOLS: ChatTool[] = [
 ];
 
 export function assertNoToolShapeDrift(): void {
-  if (CHAT_DOMAIN_TOOLS.length !== 31) {
-    throw new ValidationError(`Expected 31 chat tools, found ${CHAT_DOMAIN_TOOLS.length}`);
+  if (CHAT_DOMAIN_TOOLS.length !== 34) {
+    throw new ValidationError(`Expected 34 chat tools, found ${CHAT_DOMAIN_TOOLS.length}`);
   }
 }
