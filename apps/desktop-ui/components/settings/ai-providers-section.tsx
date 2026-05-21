@@ -21,7 +21,6 @@ import {
   ExternalLink,
   Loader2,
   ChevronDown,
-  KeyRound,
   Plug,
   Cpu,
   Trash2,
@@ -40,6 +39,7 @@ import {
   setModel,
   removeProviderAuth,
   SetupStatus,
+  ProviderAuthMethod,
   ProviderAuthMethods,
   ProviderModels,
 } from "@/lib/api/opencode"
@@ -54,6 +54,25 @@ type ProviderInputState = {
 
 const OAUTH_CALLBACK_STORAGE_KEY = "opencode-oauth-callback"
 const OAUTH_PENDING_STORAGE_KEY = "opencode-oauth-pending"
+const CODEX_PROVIDER_ID = "openai"
+
+type OAuthMethodOption = {
+  index: number
+  label: string
+}
+
+function getOAuthMethodOptions(authMethods: ProviderAuthMethod[]): OAuthMethodOption[] {
+  return authMethods.reduce<OAuthMethodOption[]>((methods, method, index) => {
+    if (method.type !== "oauth") return methods
+
+    methods.push({
+      index,
+      label: method.label?.trim() || "OAuth",
+    })
+
+    return methods
+  }, [])
+}
 
 function useAIProviders() {
   const [providersLoading, setProvidersLoading] = useState(false)
@@ -120,6 +139,9 @@ function useAIProviders() {
   }, [])
 
   const clearOAuthPendingState = useCallback((providerId: string) => {
+    setOauthWaitingProvider((waitingProvider) =>
+      waitingProvider === providerId ? null : waitingProvider
+    )
     setOauthCallbackInputs((prev) => {
       const next = { ...prev }
       delete next[providerId]
@@ -580,6 +602,14 @@ export function AIProvidersSection() {
   const totalProviders = providerSetupStatus?.providers.length ?? 0
   const totalConnected = providerSetupStatus?.providers.filter((provider) => provider.authenticated).length ?? 0
   const totalModels = providerModelsList.reduce((sum, provider) => sum + provider.models.length, 0)
+  const codexProvider = providerSetupStatus?.providers.find((provider) => provider.id === CODEX_PROVIDER_ID)
+  const codexOAuthMethods = getOAuthMethodOptions(
+    providerAuthMethodsMap[CODEX_PROVIDER_ID] || codexProvider?.authMethods || [],
+  )
+  const codexModelCount =
+    providerModelsById.get(CODEX_PROVIDER_ID)?.models.length ||
+    codexProvider?.modelCount ||
+    0
 
   const renderFavoriteModel = (item: typeof favoriteModels[number]) => {
     const active = currentModel === item.value
@@ -591,23 +621,16 @@ export function AIProvidersSection() {
         onClick={() => handleModelSelect(item.value)}
         disabled={modelSaving || active}
         className={cn(
-          "group relative aspect-square min-h-[132px] overflow-hidden rounded-md border border-linear-border bg-linear-bg-secondary p-3 text-left transition-colors hover:border-linear-text-tertiary/40 hover:bg-linear-bg-tertiary disabled:cursor-default disabled:opacity-100",
-          active && "border-linear-accent/50 bg-linear-bg-tertiary",
+          "group flex min-h-11 w-full items-center gap-2 rounded-sm px-1 py-1.5 text-left transition-colors hover:bg-linear-bg-secondary disabled:cursor-default disabled:opacity-100",
+          active && "bg-linear-bg-secondary",
         )}
         title={`${item.provider.name}: ${item.model.name || item.model.id}`}
       >
-        <div className="flex h-full flex-col justify-between gap-3">
-          <div className="flex items-start justify-between gap-2">
-            <Star className="h-3.5 w-3.5 shrink-0 text-linear-text-tertiary transition-colors group-hover:text-linear-text-secondary" />
-            {active && <Check className="h-4 w-4 shrink-0 text-linear-accent" />}
-          </div>
-          <div className="min-w-0">
-            <div className="break-words text-[15px] font-medium leading-tight text-linear-text">
-              {item.model.name || item.model.id}
-            </div>
-            <div className="mt-2 h-px w-8 bg-linear-border" />
-          </div>
+        <Star className="h-3.5 w-3.5 shrink-0 text-linear-text-tertiary transition-colors group-hover:text-linear-text-secondary" />
+        <div className="min-w-0 flex-1 break-words text-sm font-medium leading-tight text-linear-text">
+          {item.model.name || item.model.id}
         </div>
+        {active && <Check className="h-4 w-4 shrink-0 text-linear-text-secondary" />}
       </button>
     )
   }
@@ -689,13 +712,155 @@ export function AIProvidersSection() {
     )
   }
 
+  const renderOAuthCallbackCompletion = (providerId: string) => (
+    <>
+      <p className="text-xs text-linear-text-tertiary">
+        {oauthInstructionsByProvider[providerId] ||
+          "Waiting for OAuth callback. Paste the full callback URL or code below if needed."}
+      </p>
+      <Input
+        type="text"
+        placeholder="Paste callback URL or code"
+        value={oauthCallbackInputs[providerId] || ""}
+        onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+          setOauthCallbackInputs((prev) => ({
+            ...prev,
+            [providerId]: e.target.value,
+          }))
+        }
+        className="h-9 border-linear-border bg-linear-bg text-linear-text placeholder:text-linear-text-tertiary focus-visible:ring-linear-accent"
+      />
+      <div className="flex flex-wrap items-center gap-2">
+        <Button
+          type="button"
+          size="sm"
+          onClick={() => handleOAuthComplete(providerId)}
+          disabled={
+            oauthCompletingProvider === providerId ||
+            !oauthCallbackInputs[providerId]?.trim()
+          }
+          className="h-9 bg-linear-accent px-4 text-white hover:bg-linear-accent-hover"
+        >
+          {oauthCompletingProvider === providerId ? (
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          ) : (
+            <Check className="mr-2 h-4 w-4" />
+          )}
+          Complete OAuth
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          onClick={() => clearOAuthPendingState(providerId)}
+          className="h-9 border-linear-border text-linear-text-secondary"
+        >
+          Cancel
+        </Button>
+      </div>
+    </>
+  )
+
+  const renderOAuthMethodActions = (
+    providerId: string,
+    methods: OAuthMethodOption[],
+    getLabel: (method: OAuthMethodOption) => string,
+  ) => (
+    <div className="flex flex-wrap items-center gap-2">
+      {methods.map((method) => (
+        <Button
+          key={`${providerId}-${method.index}`}
+          type="button"
+          size="sm"
+          variant="outline"
+          onClick={() => handleOAuthLogin(providerId, method.index)}
+          disabled={oauthLoadingProvider === providerId}
+          className="h-9 gap-2 border-linear-border text-linear-text hover:bg-linear-bg-tertiary"
+        >
+          {oauthLoadingProvider === providerId ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <ExternalLink className="h-3.5 w-3.5" />
+          )}
+          {getLabel(method)}
+        </Button>
+      ))}
+    </div>
+  )
+
+  const renderCodexConnectionCard = () => {
+    const isWaiting = oauthWaitingProvider === CODEX_PROVIDER_ID
+
+    return (
+      <Card className="border-linear-border bg-linear-bg-secondary">
+        <CardContent className="flex flex-col gap-4 p-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="flex min-w-0 gap-3">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center text-linear-text">
+                <img
+                  src="/brand/openai-mark.svg"
+                  alt=""
+                  aria-hidden="true"
+                  className="h-6 w-6"
+                />
+              </div>
+              <div className="min-w-0">
+                <h3 className="text-base font-semibold text-linear-text">
+                  Connect to Codex
+                </h3>
+                <p className="mt-1 text-sm text-linear-text-secondary">
+                  Use the Codex login methods that OpenCode reports for this machine.
+                </p>
+              </div>
+            </div>
+
+            {codexProvider?.authenticated && (
+              <div className="flex shrink-0 items-center gap-2 text-xs text-linear-text-tertiary">
+                <span className="h-1.5 w-1.5 rounded-full bg-linear-text-secondary" />
+                OpenAI auth available
+              </div>
+            )}
+          </div>
+
+          {providersLoading && !providerSetupStatus ? (
+            <div className="flex items-center gap-2 text-sm text-linear-text-tertiary">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Loading Codex connection...
+            </div>
+          ) : codexProvider?.authenticated ? (
+            <p className="text-sm text-linear-text-secondary">
+              {codexModelCount} Codex-backed model{codexModelCount === 1 ? "" : "s"} available in the connected providers list.
+            </p>
+          ) : codexOAuthMethods.length > 0 ? (
+            <div className="flex flex-col gap-2">
+              {isWaiting
+                ? renderOAuthCallbackCompletion(CODEX_PROVIDER_ID)
+                : renderOAuthMethodActions(
+                    CODEX_PROVIDER_ID,
+                    codexOAuthMethods,
+                    (method) => `Connect with ${method.label}`,
+                  )}
+            </div>
+          ) : (
+            <div className="flex items-start gap-2 rounded-sm border border-linear-border bg-linear-bg px-3 py-2 text-sm text-linear-text-secondary">
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-linear-text-tertiary" />
+              <span>
+                Codex connection is unavailable until OpenCode reports OpenAI OAuth login methods.
+              </span>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    )
+  }
+
   const renderProviderSetup = (providerId: string) => {
     const provider = providerSetupStatus?.providers.find((p) => p.id === providerId)
     if (!provider) return null
 
     const authMethods = providerAuthMethodsMap[provider.id] || []
-    const hasOAuth = authMethods.some((item) => item.type === "oauth")
-    const oauthMethodIndex = authMethods.findIndex((item) => item.type === "oauth")
+    const oauthMethods = getOAuthMethodOptions(authMethods)
+    const hasOAuth = oauthMethods.length > 0
     const showApiKey = authMethods.length === 0 || authMethods.some((item) => item.type === "api")
     const isWaiting = oauthWaitingProvider === provider.id
 
@@ -722,70 +887,16 @@ export function AIProvidersSection() {
         {hasOAuth && (
           <div className="space-y-2">
             {isWaiting ? (
-              <>
-                <p className="text-xs text-linear-text-tertiary">
-                  {oauthInstructionsByProvider[provider.id] ||
-                    "Waiting for OAuth callback. Paste the full callback URL or code below if needed."}
-                </p>
-                <Input
-                  type="text"
-                  placeholder="Paste callback URL or code"
-                  value={oauthCallbackInputs[provider.id] || ""}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                    setOauthCallbackInputs((prev) => ({
-                      ...prev,
-                      [provider.id]: e.target.value,
-                    }))
-                  }
-                  className="h-9 border-linear-border bg-linear-bg text-linear-text placeholder:text-linear-text-tertiary focus-visible:ring-linear-accent"
-                />
-                <div className="flex items-center gap-2">
-                  <Button
-                    type="button"
-                    size="sm"
-                    onClick={() => handleOAuthComplete(provider.id)}
-                    disabled={
-                      oauthCompletingProvider === provider.id ||
-                      !oauthCallbackInputs[provider.id]?.trim()
-                    }
-                    className="h-9 bg-linear-accent px-4 text-white hover:bg-linear-accent-hover"
-                  >
-                    {oauthCompletingProvider === provider.id ? (
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    ) : (
-                      <Check className="mr-2 h-4 w-4" />
-                    )}
-                    Complete OAuth
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    onClick={() => clearOAuthPendingState(provider.id)}
-                    className="h-9 border-linear-border text-linear-text-secondary"
-                  >
-                    Cancel
-                  </Button>
-                </div>
-              </>
+              renderOAuthCallbackCompletion(provider.id)
             ) : (
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                onClick={() =>
-                  handleOAuthLogin(provider.id, oauthMethodIndex >= 0 ? oauthMethodIndex : undefined)
-                }
-                disabled={oauthLoadingProvider === provider.id}
-                className="h-9 gap-2 border-linear-border text-linear-text hover:bg-linear-bg-tertiary"
-              >
-                {oauthLoadingProvider === provider.id ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <ExternalLink className="h-3.5 w-3.5" />
-                )}
-                Login with {provider.name}
-              </Button>
+              renderOAuthMethodActions(
+                provider.id,
+                oauthMethods,
+                (method) =>
+                  oauthMethods.length === 1
+                    ? `Login with ${provider.name}`
+                    : `Login with ${provider.name}: ${method.label}`,
+              )
             )}
           </div>
         )}
@@ -872,6 +983,8 @@ export function AIProvidersSection() {
         </Button>
       </div>
 
+      {renderCodexConnectionCard()}
+
       <div className="relative">
         <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-linear-text-tertiary" />
         <Input
@@ -925,7 +1038,7 @@ export function AIProvidersSection() {
                         {group.items.length} model{group.items.length === 1 ? "" : "s"}
                       </div>
                     </div>
-                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-4">
+                    <div className="grid gap-x-6 gap-y-1 sm:grid-cols-2 xl:grid-cols-3">
                       {group.items.map(renderFavoriteModel)}
                     </div>
                   </div>

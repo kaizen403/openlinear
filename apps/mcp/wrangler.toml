@@ -4,13 +4,9 @@ compatibility_date = "2026-05-21"
 compatibility_flags = ["nodejs_compat", "enable_nodejs_http_server_modules"]
 workers_dev = true
 
-# Custom domain: uncomment once openlinear.tech zone is added to this CF account.
-# To add: Cloudflare Dashboard → Add Site → openlinear.tech → update nameservers.
-# Then re-run `wrangler deploy` and the domain will be provisioned automatically.
-#
-# [[routes]]
-# pattern = "mcp.openlinear.tech"
-# custom_domain = true
+[[routes]]
+pattern = "mcp.openlinear.tech"
+custom_domain = true
 
 [vars]
-OPENLINEAR_API_URL = "https://72bb-61-95-158-116.ngrok-free.app"
+OPENLINEAR_API_URL = "https://openlinear.tech"
