@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { X, ChevronDown, Tag } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
@@ -29,23 +29,33 @@ interface LabelPickerProps {
 
 import { apiFetch, ApiError } from "@/lib/api/fetch"
 
+let labelsCache: Label[] | null = null
+let labelsRequest: Promise<Label[]> | null = null
+
+async function loadLabels(): Promise<Label[]> {
+  if (labelsCache) return labelsCache
+  labelsRequest ??= apiFetch<Label[]>('/api/labels')
+    .then((data) => {
+      labelsCache = [...data].sort((a, b) => a.priority - b.priority)
+      return labelsCache
+    })
+    .finally(() => {
+      labelsRequest = null
+    })
+  return labelsRequest
+}
+
 export function LabelPicker({ selectedIds, onChange, triggerClassName }: LabelPickerProps) {
-  const [labels, setLabels] = useState<Label[]>([])
-  const [loading, setLoading] = useState(true)
+  const [labels, setLabels] = useState<Label[]>(labelsCache ?? [])
+  const [loading, setLoading] = useState(false)
   const [open, setOpen] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
 
-  useEffect(() => {
-    fetchLabels()
-  }, [])
-
-  const fetchLabels = async () => {
+  const fetchLabels = useCallback(async () => {
     try {
       setLoading(true)
       setLoadError(null)
-      const data = await apiFetch<Label[]>('/api/labels')
-      const sortedLabels = [...data].sort((a, b) => a.priority - b.priority)
-      setLabels(sortedLabels)
+      setLabels(await loadLabels())
     } catch (err) {
       const msg =
         err instanceof ApiError
@@ -58,7 +68,13 @@ export function LabelPicker({ selectedIds, onChange, triggerClassName }: LabelPi
     } finally {
       setLoading(false)
     }
-  }
+  }, [])
+
+  useEffect(() => {
+    if (open && labelsCache === null && labels.length === 0 && !loading && !loadError) {
+      void fetchLabels()
+    }
+  }, [fetchLabels, labels.length, loadError, loading, open])
 
   const toggleLabel = (labelId: string) => {
     if (selectedIds.includes(labelId)) {

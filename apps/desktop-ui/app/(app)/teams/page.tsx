@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
-import { useRouter } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import {
   Search,
   Plus,
@@ -34,9 +34,26 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { buttonVariants } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
-import { fetchTeams, createTeam, deleteTeam, updateTeam, joinTeam, ApiError, type Team } from "@/lib/api"
+import {
+  fetchTeams,
+  createTeam,
+  deleteTeam,
+  updateTeam,
+  joinTeam,
+  fetchProjects,
+  ApiError,
+  type Team,
+  type Project,
+} from "@/lib/api"
 import { useSSESubscription } from "@/providers/sse-provider"
 import { toast } from "sonner"
 import { EmptyState } from "@/components/empty-state"
@@ -58,6 +75,8 @@ type TeamDialogMode = "create" | "join"
 
 export default function TeamsPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const filterProjectId = searchParams.get("projectId") ?? undefined
   const [teams, setTeams] = useState<Team[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
@@ -69,9 +88,12 @@ export default function TeamsPage() {
   const [formData, setFormData] = useState({
     name: "",
     key: "",
+    projectId: "",
     description: "",
     color: "#6366f1",
   })
+  const [projects, setProjects] = useState<Project[]>([])
+  const [isLoadingProjects, setIsLoadingProjects] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [createdTeam, setCreatedTeam] = useState<Team | null>(null)
   const [joinCode, setJoinCode] = useState("")
@@ -86,22 +108,40 @@ export default function TeamsPage() {
   const loadTeams = useCallback(async () => {
     try {
       setIsLoading(true)
-      const data = await fetchTeams()
+      const data = await fetchTeams({ projectId: filterProjectId })
       setTeams(data)
     } catch (error) {
       toast.error(`Failed to load teams: ${describeApiError(error, "Could not reach OpenLinear server.")}`)
     } finally {
       setIsLoading(false)
     }
-  }, [])
+  }, [filterProjectId])
 
   useEffect(() => {
     loadTeams()
   }, [loadTeams])
 
+  const loadProjects = useCallback(async () => {
+    try {
+      setIsLoadingProjects(true)
+      const data = await fetchProjects({ fields: ['id', 'name'] })
+      setProjects(data)
+      setFormData((current) =>
+        current.projectId || data.length === 0 ? current : { ...current, projectId: data[0].id },
+      )
+    } catch (error) {
+      toast.error(`Failed to load projects: ${describeApiError(error, "Could not reach OpenLinear server.")}`)
+    } finally {
+      setIsLoadingProjects(false)
+    }
+  }, [])
+
   useSSESubscription((eventType) => {
     if (['team:created', 'team:updated', 'team:deleted'].includes(eventType)) {
       loadTeams()
+    }
+    if (['project:created', 'project:updated', 'project:deleted'].includes(eventType)) {
+      loadProjects()
     }
   })
 
@@ -128,7 +168,7 @@ export default function TeamsPage() {
 
   const handleCreateTeam = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!formData.name.trim() || !formData.key.trim()) return
+    if (!formData.name.trim() || !formData.key.trim() || !formData.projectId) return
 
     try {
       setIsSubmitting(true)
@@ -136,11 +176,18 @@ export default function TeamsPage() {
       const team = await createTeam({
         name: formData.name,
         key: formData.key.toUpperCase(),
+        projectId: formData.projectId,
         description: formData.description || undefined,
         color: formData.color,
       })
       setCreatedTeam(team)
-      setFormData({ name: "", key: "", description: "", color: "#6366f1" })
+      setFormData({
+        name: "",
+        key: "",
+        projectId: projects[0]?.id ?? "",
+        description: "",
+        color: "#6366f1",
+      })
       loadTeams()
     } catch (error) {
       const message = describeApiError(error, "Could not reach OpenLinear server. Check your connection and try again.")
@@ -182,6 +229,9 @@ export default function TeamsPage() {
     setJoinCode("")
     setJoinError("")
     setTeamDialogMode("create")
+    if (projects.length === 0) {
+      loadProjects()
+    }
     setIsDialogOpen(true)
   }
 
@@ -352,6 +402,32 @@ export default function TeamsPage() {
                         <p className="text-xs text-linear-text-tertiary">A short unique identifier for your team</p>
                       </div>
                       <div className="space-y-2">
+                        <Label className="text-linear-text-secondary">Project</Label>
+                        <Select
+                          value={formData.projectId}
+                          onValueChange={(projectId) => setFormData({ ...formData, projectId })}
+                          disabled={isLoadingProjects || projects.length === 0}
+                        >
+                          <SelectTrigger className="bg-linear-bg-tertiary border-linear-border text-linear-text">
+                            <SelectValue
+                              placeholder={isLoadingProjects ? "Loading projects..." : "Select a project"}
+                            />
+                          </SelectTrigger>
+                          <SelectContent className="bg-linear-bg-secondary border-linear-border">
+                            {projects.map((project) => (
+                              <SelectItem key={project.id} value={project.id}>
+                                {project.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        {projects.length === 0 && !isLoadingProjects && (
+                          <p className="text-xs text-linear-text-tertiary">
+                            Create a project before adding a team.
+                          </p>
+                        )}
+                      </div>
+                      <div className="space-y-2">
                         <Label htmlFor="description" className="text-linear-text-secondary">Description</Label>
                         <Input
                           id="description"
@@ -385,7 +461,7 @@ export default function TeamsPage() {
                         </Button>
                         <Button
                           type="submit"
-                          disabled={isSubmitting || !formData.name.trim() || !formData.key.trim()}
+                          disabled={isSubmitting || !formData.name.trim() || !formData.key.trim() || !formData.projectId}
                           className="bg-linear-accent hover:bg-linear-accent-hover text-white"
                         >
                           {isSubmitting ? "Creating..." : "Create team"}

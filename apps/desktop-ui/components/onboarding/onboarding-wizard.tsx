@@ -1059,6 +1059,7 @@ export function OnboardingWizard({ teams, onComplete, onCancel }: OnboardingWiza
       const created = await createTeam({
         name: teamName.trim(),
         key,
+        projectId: createdProjectId,
         private: false,
       })
 

@@ -9,7 +9,7 @@ import { TaskFormDialog } from "@/components/task-form"
 import { useAuth } from "@/hooks/use-auth"
 import { useProject } from "@/hooks/use-project"
 import { useWorkspace } from "@/hooks/use-workspace"
-import { fetchTeams, Team } from "@/lib/api"
+import { useTeams } from "@/providers/teams-provider"
 import { OnboardingWizard } from "@/components/onboarding/onboarding-wizard"
 import { Skeleton } from "@/components/ui/skeleton"
 
@@ -54,18 +54,13 @@ function HomeContent() {
 
   const [isTaskFormOpen, setIsTaskFormOpen] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
-  const { isAuthenticated, isLoading, user } = useAuth()
+  const { isAuthenticated, isLoading } = useAuth()
   const { activeProject, projects, isLoading: isProjectsLoading, refreshProjects } = useProject()
   const { refreshWorkspaces } = useWorkspace()
+  const { teams } = useTeams()
   const router = useRouter()
-  const [teams, setTeams] = useState<Team[]>([])
   const [searchQuery, setSearchQuery] = useState("")
   const [isMobileSearchOpen, setIsMobileSearchOpen] = useState(false)
-
-  useEffect(() => {
-    if (!isAuthenticated) return
-    fetchTeams().then(setTeams).catch(() => setTeams([]))
-  }, [isAuthenticated])
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {

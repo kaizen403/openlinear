@@ -47,10 +47,15 @@ import {
   createProject,
   updateProject,
   deleteProject,
+  fetchGitHubRepos,
+  startLogin,
+  ApiError,
   type Project,
   type Team,
+  type GitHubRepo,
 } from "@/lib/api"
 import { useSSESubscription } from "@/providers/sse-provider"
+import { useWorkspace } from "@/hooks/use-workspace"
 import { toast } from "sonner"
 import { EmptyState } from "@/components/empty-state"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -106,6 +111,23 @@ const statusOptions = [
   { value: "cancelled", label: "Cancelled" },
 ] as const
 
+const PROJECT_LIST_FIELDS = [
+  'id',
+  'workspaceId',
+  'key',
+  'name',
+  'description',
+  'status',
+  'color',
+  'icon',
+  'targetDate',
+  'repoUrl',
+  'localPath',
+  'repositoryId',
+  'teams',
+  '_count',
+] as const
+
 function ProjectIcon({ type, color }: { type: string | null; color: string }) {
   const iconClass = "w-3.5 h-3.5 text-linear-text-secondary"
   return (
@@ -157,6 +179,8 @@ function formatDate(dateString: string | null): string {
 function ProjectsContent() {
   const searchParams = useSearchParams()
   const router = useRouter()
+  const { activeWorkspace, isLoading: isWorkspaceLoading } = useWorkspace()
+  const activeWorkspaceId = activeWorkspace?.id
   const filterTeamId = searchParams.get("teamId") || undefined
   const editProjectId = searchParams.get("editProjectId")
   const [activeTab, setActiveTab] = useState("all")
@@ -284,8 +308,17 @@ function ProjectsContent() {
   }, [isDesktopApp])
 
   const loadProjects = useCallback(async () => {
+    if (isWorkspaceLoading) return
+    if (!activeWorkspaceId) {
+      setProjects([])
+      return
+    }
     try {
-      const data = await fetchProjects({ teamId: filterTeamId })
+      const data = await fetchProjects({
+        teamId: filterTeamId,
+        workspaceId: activeWorkspaceId,
+        fields: [...PROJECT_LIST_FIELDS],
+      })
       setProjects(data)
     } catch (error) {
       const { toastMessage } = mapErrorToForm(
@@ -294,14 +327,15 @@ function ProjectsContent() {
       )
       toast.error(`Failed to load projects: ${toastMessage}`)
     }
-  }, [filterTeamId])
+  }, [activeWorkspaceId, filterTeamId, isWorkspaceLoading])
 
   useEffect(() => {
+    if (isWorkspaceLoading) return
     setIsLoading(true)
     Promise.all([loadProjects()]).finally(() => {
       setIsLoading(false)
     })
-  }, [loadProjects])
+  }, [isWorkspaceLoading, loadProjects])
 
   useEffect(() => {
     if (!editProjectId) return
@@ -390,6 +424,7 @@ function ProjectsContent() {
     try {
       await createProject({
         name: formData.name.trim(),
+        workspaceId: activeWorkspaceId,
         description: formData.description.trim() || undefined,
         status: formData.status,
         targetDate: formData.targetDate ? new Date(formData.targetDate).toISOString() : undefined,

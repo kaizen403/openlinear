@@ -86,6 +86,49 @@ const projectListFields = [
   '_count',
 ] as const;
 
+const projectScalarFields = new Set<string>([
+  'id',
+  'workspaceId',
+  'key',
+  'name',
+  'description',
+  'status',
+  'color',
+  'icon',
+  'startDate',
+  'targetDate',
+  'leadId',
+  'repositoryId',
+  'localPath',
+  'repoUrl',
+  'createdAt',
+  'updatedAt',
+]);
+
+function buildProjectSelect(fields: string[]): Prisma.ProjectSelect {
+  const select: Prisma.ProjectSelect = {};
+  for (const field of fields) {
+    if (projectScalarFields.has(field)) {
+      (select as Record<string, unknown>)[field] = true;
+      continue;
+    }
+    if (field === 'teams') {
+      select.teams = true;
+    } else if (field === 'repository') {
+      select.repository = {
+        select: { id: true, name: true, fullName: true, cloneUrl: true, defaultBranch: true },
+      };
+    } else if (field === 'workspace') {
+      select.workspace = {
+        select: { id: true, name: true, slug: true, plan: true },
+      };
+    } else if (field === '_count') {
+      select._count = { select: { tasks: true } };
+    }
+  }
+  return select;
+}
+
 function applyProjectFields(project: ProjectWithInclude, fields: string[] | null): ProjectWithInclude | Record<string, unknown> {
   if (!fields) return project;
   return pickFields(project as unknown as Record<string, unknown>, fields);
@@ -117,14 +160,21 @@ async function buildAccessibleProjectsWhere(
   userId: string,
   filters: { teamId?: string; workspaceId?: string },
 ): Promise<Prisma.ProjectWhereInput> {
-  const teamIds = await getUserTeamIds(userId);
-  const and: Prisma.ProjectWhereInput[] = [buildProjectAccessWhere(userId, teamIds)];
+  const and: Prisma.ProjectWhereInput[] = [];
+
+  if (filters.workspaceId) {
+    and.push(
+      { workspaceId: filters.workspaceId },
+      { workspace: { members: { some: { userId } } } },
+      { NOT: { access: { some: { userId, permission: 'deny' } } } },
+    );
+  } else {
+    const teamIds = await getUserTeamIds(userId);
+    and.push(buildProjectAccessWhere(userId, teamIds));
+  }
 
   if (filters.teamId) {
     and.push({ teams: { some: { id: filters.teamId } } });
-  }
-  if (filters.workspaceId) {
-    and.push({ workspaceId: filters.workspaceId });
   }
 
   return { AND: and };
@@ -145,13 +195,19 @@ router.get(
       }
 
       const where = await buildAccessibleProjectsWhere(req.userId, { teamId, workspaceId });
-      const projects = await prisma.project.findMany({
-        where,
-        include: projectInclude,
-        orderBy: { createdAt: 'desc' },
-      });
+      const projects = fields
+        ? await prisma.project.findMany({
+            where,
+            select: buildProjectSelect(fields),
+            orderBy: { createdAt: 'desc' },
+          })
+        : await prisma.project.findMany({
+            where,
+            include: projectInclude,
+            orderBy: { createdAt: 'desc' },
+          });
 
-      res.json(projects.map((project) => applyProjectFields(project, fields)));
+      res.json(fields ? projects : projects.map((project) => applyProjectFields(project, fields)));
     } catch (error) {
       next(error);
     }

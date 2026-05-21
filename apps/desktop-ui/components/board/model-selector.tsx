@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useCallback } from "react"
 import { Cpu, Loader2, Check, ChevronDown, Sparkles } from "lucide-react"
 import {
   Select,
@@ -13,28 +13,50 @@ import {
 import { getModels, getModelConfig, setModel, type ProviderModels } from "@/lib/api/opencode"
 import { cn } from "@/lib/utils"
 
+let modelSelectorCache: { modelsList: ProviderModels[]; currentModel: string | null } | null = null
+let modelSelectorRequest: Promise<{ modelsList: ProviderModels[]; currentModel: string | null }> | null = null
+
+async function loadModelSelectorData(): Promise<{ modelsList: ProviderModels[]; currentModel: string | null }> {
+  if (modelSelectorCache) return modelSelectorCache
+  modelSelectorRequest ??= Promise.all([
+    getModels(),
+    getModelConfig(),
+  ])
+    .then(([modelsData, configData]) => {
+      modelSelectorCache = {
+        modelsList: modelsData.providers || [],
+        currentModel: configData.model,
+      }
+      return modelSelectorCache
+    })
+    .finally(() => {
+      modelSelectorRequest = null
+    })
+  return modelSelectorRequest
+}
+
 export function ModelSelector() {
-  const [modelsList, setModelsList] = useState<ProviderModels[]>([])
-  const [currentModel, setCurrentModel] = useState<string | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
+  const [modelsList, setModelsList] = useState<ProviderModels[]>(modelSelectorCache?.modelsList ?? [])
+  const [currentModel, setCurrentModel] = useState<string | null>(modelSelectorCache?.currentModel ?? null)
+  const [isLoading, setIsLoading] = useState(false)
   const [isOpen, setIsOpen] = useState(false)
 
-  useEffect(() => {
-    const load = async () => {
-      try {
-        const [modelsData, configData] = await Promise.all([
-          getModels(),
-          getModelConfig()
-        ])
-        setModelsList(modelsData.providers || [])
-        setCurrentModel(configData.model)
-      } catch (err) {
-        console.error("Failed to load models:", err)
-      } finally {
-        setIsLoading(false)
-      }
+  const load = useCallback(async () => {
+    if (modelSelectorCache) {
+      setModelsList(modelSelectorCache.modelsList)
+      setCurrentModel(modelSelectorCache.currentModel)
+      return
     }
-    load()
+    setIsLoading(true)
+    try {
+      const data = await loadModelSelectorData()
+      setModelsList(data.modelsList)
+      setCurrentModel(data.currentModel)
+    } catch (err) {
+      console.error("Failed to load models:", err)
+    } finally {
+      setIsLoading(false)
+    }
   }, [])
 
   const handleSelect = useCallback(async (val: string) => {
@@ -47,24 +69,13 @@ export function ModelSelector() {
     }
   }, [])
 
+  const handleOpenChange = useCallback((open: boolean) => {
+    setIsOpen(open)
+    if (open) void load()
+  }, [load])
+
   const allModels = modelsList.flatMap(p => p.models.map(m => ({ ...m, provider: p.id, providerName: p.name })))
   const selectedModelObj = allModels.find(m => `${m.provider}/${m.id}` === currentModel)
-
-  if (isLoading) {
-    return (
-      <div className="flex items-center gap-2 px-3 py-1.5 min-w-[140px] sm:min-w-0 flex-1 snap-start">
-        <Cpu className="w-3.5 h-3.5 flex-shrink-0 text-linear-text-tertiary" />
-        <div className="min-w-0 flex-1">
-          <div className="text-[9px] uppercase tracking-[0.14em] text-linear-text-tertiary leading-tight font-medium">
-            Model
-          </div>
-          <div className="text-[12px] font-medium truncate leading-tight text-linear-text-tertiary flex items-center gap-1.5">
-            <Loader2 className="w-3 h-3 animate-spin" /> Loading...
-          </div>
-        </div>
-      </div>
-    )
-  }
 
   return (
     <div className="flex items-center gap-2 px-3 py-1.5 min-w-[140px] sm:min-w-0 flex-1 snap-start">
@@ -77,7 +88,7 @@ export function ModelSelector() {
           value={currentModel || ""}
           onValueChange={handleSelect}
           open={isOpen}
-          onOpenChange={setIsOpen}
+          onOpenChange={handleOpenChange}
         >
           <SelectTrigger
             className={cn(
@@ -119,7 +130,16 @@ export function ModelSelector() {
             </div>
 
             <div className="py-1">
-              {modelsList.map((provider, providerIndex) => (
+              {isLoading ? (
+                <div className="flex items-center gap-2 px-3 py-2 text-[13px] text-linear-text-tertiary">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  Loading models...
+                </div>
+              ) : modelsList.length === 0 ? (
+                <div className="px-3 py-2 text-[13px] text-linear-text-tertiary">
+                  No models available
+                </div>
+              ) : modelsList.map((provider, providerIndex) => (
                 <div key={provider.id}>
                   {providerIndex > 0 && (
                     <SelectSeparator className="bg-[#2a2a2a] my-1" />

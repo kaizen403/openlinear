@@ -1,8 +1,13 @@
 import { apiFetch } from './fetch';
 import type { Team, TeamMember } from './types';
 
-export async function fetchTeams(): Promise<Team[]> {
-  return apiFetch<Team[]>('/api/teams');
+export async function fetchTeams(filters?: { projectId?: string; workspaceId?: string; fields?: string[] }): Promise<Team[]> {
+  const params = new URLSearchParams();
+  if (filters?.projectId) params.set('projectId', filters.projectId);
+  if (filters?.workspaceId) params.set('workspaceId', filters.workspaceId);
+  if (filters?.fields?.length) params.set('fields', filters.fields.join(','));
+  const qs = params.toString();
+  return apiFetch<Team[]>(`/api/teams${qs ? `?${qs}` : ''}`);
 }
 
 export async function fetchTeam(id: string): Promise<Team> {
@@ -12,6 +17,7 @@ export async function fetchTeam(id: string): Promise<Team> {
 export async function createTeam(data: {
   name: string;
   key: string;
+  projectId: string;
   description?: string;
   color?: string;
   icon?: string;

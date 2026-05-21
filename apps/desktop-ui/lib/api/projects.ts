@@ -1,10 +1,11 @@
 import { apiFetch } from './fetch';
 import type { Project, ProjectAccess, ProjectPermission } from './types';
 
-export async function fetchProjects(filters?: { teamId?: string; workspaceId?: string }): Promise<Project[]> {
+export async function fetchProjects(filters?: { teamId?: string; workspaceId?: string; fields?: string[] }): Promise<Project[]> {
   const params = new URLSearchParams();
   if (filters?.teamId) params.set('teamId', filters.teamId);
   if (filters?.workspaceId) params.set('workspaceId', filters.workspaceId);
+  if (filters?.fields?.length) params.set('fields', filters.fields.join(','));
   const qs = params.toString();
   return apiFetch<Project[]>(`/api/projects${qs ? `?${qs}` : ''}`);
 }

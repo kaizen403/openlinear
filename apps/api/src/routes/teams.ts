@@ -66,11 +66,46 @@ const teamListFields = [
 
 const teamMemberFields = ['id', 'teamId', 'userId', 'role', 'sortOrder', 'createdAt', 'user'] as const;
 
+const teamScalarFields = new Set<string>([
+  'id',
+  'name',
+  'key',
+  'description',
+  'color',
+  'icon',
+  'private',
+  'inviteCode',
+  'nextIssueNumber',
+  'projectId',
+  'createdAt',
+  'updatedAt',
+]);
+
 type TeamMemberWithUser = Prisma.TeamMemberGetPayload<{ include: typeof memberInclude }>;
 
 function generateInviteCode(key: string): string {
   const random = crypto.randomBytes(4).toString('hex').toUpperCase();
   return `${key}-${random}`;
+}
+
+function buildTeamSelect(fields: string[]): Prisma.TeamSelect {
+  const select: Prisma.TeamSelect = {};
+  for (const field of fields) {
+    if (teamScalarFields.has(field)) {
+      (select as Record<string, unknown>)[field] = true;
+      continue;
+    }
+    if (field === 'members') {
+      select.members = { include: memberInclude };
+    } else if (field === 'project') {
+      select.project = {
+        select: { id: true, name: true, status: true, color: true, icon: true },
+      };
+    } else if (field === '_count') {
+      select._count = { select: { members: true } };
+    }
+  }
+  return select;
 }
 
 function teamMemberToRecord(member: TeamMemberWithUser): Record<string, unknown> {
@@ -126,16 +161,24 @@ router.get('/', optionalAuth, async (req: AuthRequest, res: Response, next: Next
 
     const fields = parseFields(req.query.fields, teamListFields);
     const projectId = req.query.projectId as string | undefined;
+    const workspaceId = req.query.workspaceId as string | undefined;
     const where: Prisma.TeamWhereInput = {
       members: { some: { userId: req.userId } },
       ...(projectId ? { projectId } : {}),
+      ...(workspaceId ? { project: { workspaceId } } : {}),
     };
-    const teams = await prisma.team.findMany({
-      where,
-      include: teamFullInclude,
-      orderBy: { createdAt: 'asc' },
-    });
-    res.json(teams.map((team) => pickFields({ ...team }, fields)));
+    const teams = fields
+      ? await prisma.team.findMany({
+          where,
+          select: buildTeamSelect(fields),
+          orderBy: { createdAt: 'asc' },
+        })
+      : await prisma.team.findMany({
+          where,
+          include: teamFullInclude,
+          orderBy: { createdAt: 'asc' },
+        });
+    res.json(fields ? teams : teams.map((team) => pickFields({ ...team }, fields)));
   } catch (error) {
     next(error);
   }

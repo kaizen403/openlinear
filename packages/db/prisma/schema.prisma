@@ -144,6 +144,7 @@ model Task {
 
   @@unique([teamId, number])
   @@index([teamId, archived])
+  @@index([projectId, archived, createdAt])
   @@index([projectId])
   @@index([status])
   @@index([assigneeId])
@@ -298,6 +299,7 @@ model TeamMember {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([teamId, userId])
+  @@index([userId])
   @@map("team_members")
 }
 
