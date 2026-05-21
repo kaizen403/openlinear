@@ -30,7 +30,7 @@ function HomeContent() {
   const { workspaces, activeWorkspace, isLoading: isWorkspacesLoading, refreshWorkspaces } = useWorkspace()
   const { teams } = useTeams()
   const { sessions, activeSessionId, setActiveSessionId, createSession } = useChatSessions()
-  const { messages, status, streamingContent, send, stop, reset, loadHistory } = useChatStream()
+  const { messages, status, streamingContent, activeToolCalls, send, stop, reset, loadHistory } = useChatStream()
   const router = useRouter()
 
   useEffect(() => {
@@ -121,7 +121,12 @@ function HomeContent() {
       </header>
       {hasMessages ? (
         <>
-          <ChatMessageList messages={messages} streamingContent={streamingContent} className="flex-1" />
+          <ChatMessageList
+            messages={messages}
+            streamingContent={streamingContent}
+            activeToolCalls={activeToolCalls}
+            className="flex-1"
+          />
           <div className="shrink-0 border-t border-linear-border bg-linear-bg px-4 py-3">
             <div className="max-w-3xl mx-auto">
               <ChatComposer

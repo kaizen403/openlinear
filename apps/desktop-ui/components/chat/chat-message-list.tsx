@@ -8,15 +8,16 @@ import type { StreamingMessage } from "@/hooks/use-chat-stream";
 interface ChatMessageListProps {
   messages: StreamingMessage[];
   streamingContent?: string;
+  activeToolCalls?: StreamingMessage["toolCalls"];
   className?: string;
 }
 
-export function ChatMessageList({ messages, streamingContent, className }: ChatMessageListProps) {
+export function ChatMessageList({ messages, streamingContent, activeToolCalls = [], className }: ChatMessageListProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages.length, streamingContent]);
+  }, [messages.length, streamingContent, activeToolCalls.length]);
 
   if (messages.length === 0) return null;
 
@@ -26,9 +27,9 @@ export function ChatMessageList({ messages, streamingContent, className }: ChatM
         {messages.map((msg, i) => (
           <ChatMessage key={i} message={msg} />
         ))}
-        {streamingContent && (
+        {(streamingContent || activeToolCalls.length > 0) && (
           <ChatMessage
-            message={{ role: "assistant", content: streamingContent, toolCalls: [], createdAt: new Date().toISOString() }}
+            message={{ role: "assistant", content: streamingContent || "", toolCalls: activeToolCalls, createdAt: new Date().toISOString() }}
             isStreaming
           />
         )}
