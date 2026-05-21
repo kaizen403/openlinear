@@ -1,7 +1,7 @@
 "use client";
 
 import { cn } from "@/lib/utils";
-import { Cloud, LayoutGrid } from "lucide-react";
+import { ListChecks, Search, Sparkles, TrendingUp } from "lucide-react";
 
 interface ChatSuggestionsProps {
   onSelect: (text: string) => void;
@@ -9,20 +9,20 @@ interface ChatSuggestionsProps {
 
 const SUGGESTIONS = [
   {
-    icon: Cloud,
-    text: "Create tasks for the next sprint and assign them to the team",
+    icon: TrendingUp,
+    text: "Summarize this project's current status and blockers",
   },
   {
-    icon: Cloud,
-    text: "Show all high priority issues that are unassigned",
+    icon: Search,
+    text: "Show open high priority issues in this project",
   },
   {
-    icon: Cloud,
-    text: "Summarize project status and recent activity",
+    icon: ListChecks,
+    text: "Create a focused task list for the next implementation pass",
   },
   {
-    icon: LayoutGrid,
-    text: "Connect your favorite apps and integrations",
+    icon: Sparkles,
+    text: "Find stale or unclear tasks that need better specs",
   },
 ];
 

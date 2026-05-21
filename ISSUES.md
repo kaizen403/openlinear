@@ -219,6 +219,34 @@ See `.sisyphus/plans/openlinear-issues.md` for full root-cause analysis and file
 - Keep using `pnpm dev-live` or `pnpm dev:live`; both now point to the same clean live development script.
 - If the browser does not return to the app automatically, use the callback token fallback on the login screen.
 
+## [2026-05-21] — Refine home chat project scope UI
+
+**Status:** Done
+**Agent:** Codex
+
+### What was done
+- Removed generic AI controls from the Home Chat composer: model chip, effort chip, permission badge, and voice/file-style controls.
+- Added a top-right New chat action to the Home Chat header.
+- Replaced workspace/project scope pills with a project-only dropdown because workspace is already selected globally in the sidebar.
+- Reworked the project dropdown from a browser/system `<select>` into an OpenLinear-native dropdown menu.
+- Lowercased displayed project names in Home Chat and removed the heavier weight from the empty-state project name.
+- Changed new chat session creation to attach the selected project ID.
+- Updated empty chat suggestions to be project-focused instead of generic integration prompts.
+
+### Files changed
+- `apps/desktop-ui/app/(app)/page.tsx` — added chat header, project dropdown, new chat button, and project-scoped session creation.
+- `apps/desktop-ui/components/chat/scope-picker.tsx` — replaced scope pills/system select with a custom project dropdown.
+- `apps/desktop-ui/components/chat/chat-composer.tsx` — removed fake/sloppy controls and simplified the composer footer.
+- `apps/desktop-ui/components/chat/chat-empty-state.tsx` — matched project-name weight to surrounding text and rendered the name in lowercase.
+- `apps/desktop-ui/components/chat/chat-suggestions.tsx` — replaced generic suggestions with project-native prompts.
+- `ISSUES.md` — recorded this session.
+
+### Issues encountered
+- The first project dropdown pass used a browser `<select>`, which felt too system-native for the app; replaced it with the app's dropdown UI.
+
+### Next steps / blockers
+- Run `pnpm dev-live` and visually inspect the Home Chat header/dropdown in the Tauri shell if further visual tuning is wanted.
+
 <!-- 
 AGENTS: Add new entries above this comment. Format:
 

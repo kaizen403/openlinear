@@ -1,50 +1,71 @@
 "use client";
 
 import { cn } from "@/lib/utils";
-import { Globe, FolderKanban } from "lucide-react";
-import { useWorkspace } from "@/hooks/use-workspace";
+import { Check, ChevronDown, FolderKanban } from "lucide-react";
 import { useProject } from "@/hooks/use-project";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 interface ScopePickerProps {
-  scope: "workspace" | "project";
-  onScopeChange: (scope: "workspace" | "project") => void;
   className?: string;
 }
 
-export function ScopePicker({ scope, onScopeChange, className }: ScopePickerProps) {
-  const { activeWorkspace } = useWorkspace();
-  const { activeProject } = useProject();
+export function ScopePicker({ className }: ScopePickerProps) {
+  const { activeProject, projects, setActiveProject } = useProject();
+  const activeProjectName = activeProject?.name.toLowerCase();
 
   return (
-    <div className={cn("flex items-center gap-1", className)}>
-      <button
-        type="button"
-        onClick={() => onScopeChange("workspace")}
-        className={cn(
-          "flex items-center gap-1 rounded-sm px-2 py-0.5 text-[11px] transition-colors",
-          scope === "workspace"
-            ? "bg-linear-bg-tertiary text-linear-text"
-            : "text-linear-text-tertiary hover:text-linear-text-secondary"
-        )}
-      >
-        <Globe className="h-3 w-3" />
-        {activeWorkspace?.name || "Workspace"}
-      </button>
-      {activeProject && (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
         <button
           type="button"
-          onClick={() => onScopeChange("project")}
           className={cn(
-            "flex items-center gap-1 rounded-sm px-2 py-0.5 text-[11px] transition-colors",
-            scope === "project"
-              ? "bg-linear-bg-tertiary text-linear-text"
-              : "text-linear-text-tertiary hover:text-linear-text-secondary"
+            "inline-flex h-8 min-w-[180px] max-w-[280px] items-center gap-2 rounded-sm border border-linear-border bg-linear-bg-secondary px-2.5 text-xs text-linear-text shadow-sm outline-none transition-colors hover:border-linear-border-hover hover:bg-linear-bg-tertiary focus:border-linear-border-hover",
+            className
           )}
+          aria-label="Select project for chat"
         >
-          <FolderKanban className="h-3 w-3" />
-          {activeProject.name}
+          <FolderKanban className="h-3.5 w-3.5 shrink-0 text-linear-text-tertiary" />
+          <span className="min-w-0 flex-1 truncate text-left">
+            {activeProjectName ?? "select project"}
+          </span>
+          <ChevronDown className="h-3.5 w-3.5 shrink-0 text-linear-text-tertiary" />
         </button>
-      )}
-    </div>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        align="end"
+        sideOffset={6}
+        className="w-[280px] max-h-[320px] overflow-y-auto border-linear-border bg-linear-bg-secondary p-1 shadow-elevation"
+      >
+        <DropdownMenuLabel className="px-2 py-1.5 text-[10px] font-medium uppercase tracking-wider text-linear-text-tertiary">
+          Project
+        </DropdownMenuLabel>
+        {projects.map((project) => {
+          const selected = project.id === activeProject?.id;
+          return (
+            <DropdownMenuItem
+              key={project.id}
+              onSelect={() => setActiveProject(project)}
+              className={cn(
+                "min-h-8 cursor-default gap-2 rounded-sm px-2 py-1.5 text-xs text-linear-text focus:bg-linear-bg-tertiary focus:text-linear-text",
+                selected && "bg-linear-bg-tertiary"
+              )}
+            >
+              <span
+                className="h-2 w-2 shrink-0 rounded-full border border-linear-border"
+                style={{ backgroundColor: project.color || "transparent" }}
+              />
+              <span className="min-w-0 flex-1 truncate">{project.name.toLowerCase()}</span>
+              {selected && <Check className="h-3.5 w-3.5 text-primary" />}
+            </DropdownMenuItem>
+          );
+        })}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
