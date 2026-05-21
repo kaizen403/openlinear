@@ -1,4 +1,6 @@
 import { Router, Response } from 'express';
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { AuthRequest, requireAuth } from '@openlinear/api/middleware';
 import {
   getOpenCodeStatus,
@@ -17,6 +19,10 @@ type ConfigPayload = Record<string, any> & {
   model?: string | null;
   small_model?: string | null;
   provider?: Record<string, any>;
+};
+type ModelRef = {
+  providerId: string;
+  modelId: string;
 };
 
 function resolveOauthMethodIndex(
@@ -53,20 +59,90 @@ function getModelId(modelKey: string, model: Record<string, any>): string {
   return typeof model.id === 'string' && model.id.length > 0 ? model.id : modelKey;
 }
 
-function normalizeModel(providerId: string, modelKey: string, model: Record<string, any>) {
+function normalizeModel(
+  providerId: string,
+  modelKey: string,
+  model: Record<string, any>,
+  favoriteRankByModel = new Map<string, number>(),
+) {
+  const id = getModelId(modelKey, model);
+  const favoriteRank =
+    favoriteRankByModel.get(`${providerId}/${id}`) ??
+    favoriteRankByModel.get(`${providerId}/${modelKey}`) ??
+    null;
+
   return {
-    id: getModelId(modelKey, model),
+    id,
     provider: model.provider || model.providerID || providerId,
-    name: model.name || getModelId(modelKey, model),
+    name: model.name || id,
     status: model.status || 'active',
     reasoning: Boolean(model.reasoning ?? model.capabilities?.reasoning),
     toolCall: Boolean(model.tool_call ?? model.capabilities?.toolcall),
+    favorite: favoriteRank !== null,
+    favoriteRank,
     limit: model.limit,
     cost: {
       input: model.cost?.input ?? 0,
       output: model.cost?.output ?? 0,
     },
   };
+}
+
+function getOpenCodeModelStatePaths(): string[] {
+  const home = process.env.HOME || process.env.USERPROFILE;
+  const candidates = [
+    process.env.OPENCODE_STATE_DIR ? join(process.env.OPENCODE_STATE_DIR, 'model.json') : null,
+    process.env.XDG_STATE_HOME ? join(process.env.XDG_STATE_HOME, 'opencode', 'model.json') : null,
+    home ? join(home, '.local', 'state', 'opencode', 'model.json') : null,
+    // OpenCode currently uses XDG state on macOS/Linux; these keep the reader
+    // tolerant of older installs or platform-specific packagers.
+    home ? join(home, '.local', 'share', 'opencode', 'model.json') : null,
+    process.platform === 'darwin' && home
+      ? join(home, 'Library', 'Application Support', 'opencode', 'model.json')
+      : null,
+  ];
+
+  return [...new Set(candidates.filter((candidate): candidate is string => Boolean(candidate)))];
+}
+
+function normalizeModelRefs(value: unknown): ModelRef[] {
+  if (!Array.isArray(value)) return [];
+
+  const refs: ModelRef[] = [];
+  const seen = new Set<string>();
+  for (const item of value) {
+    if (!item || typeof item !== 'object') continue;
+
+    const record = item as Record<string, unknown>;
+    const providerId = record.providerID ?? record.providerId ?? record.provider;
+    const modelId = record.modelID ?? record.modelId ?? record.model;
+    if (typeof providerId !== 'string' || typeof modelId !== 'string') continue;
+    if (!providerId || !modelId) continue;
+
+    const key = `${providerId}/${modelId}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    refs.push({ providerId, modelId });
+  }
+
+  return refs;
+}
+
+async function readFavoriteModelRefs(): Promise<ModelRef[]> {
+  for (const filePath of getOpenCodeModelStatePaths()) {
+    try {
+      const raw = await readFile(filePath, 'utf8');
+      const data = JSON.parse(raw) as Record<string, unknown>;
+      return normalizeModelRefs(data.favorite);
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === 'ENOENT' || code === 'ENOTDIR') continue;
+      console.warn(`[OpenCode] Failed to read model favorites from ${filePath}:`, err);
+      return [];
+    }
+  }
+
+  return [];
 }
 
 function providerModelEntries(provider: Record<string, any>): Array<[string, Record<string, any>]> {
@@ -162,6 +238,25 @@ router.get('/providers/auth', requireAuth, async (req: AuthRequest, res: Respons
     res.json(auth.data);
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : 'Failed to get provider auth methods' });
+  }
+});
+
+router.post('/auth/remove', requireAuth, async (req: AuthRequest, res: Response) => {
+  try {
+    const { providerId } = req.body;
+    if (!providerId || typeof providerId !== 'string') {
+      res.status(400).json({ error: 'providerId is required' });
+      return;
+    }
+
+    const client = await getClientForUser(req.userId!);
+    // TypeScript resolves the wrong Auth type in the generated SDK d.ts,
+    // but the runtime method is correct (DELETE /auth/{providerID}).
+    await (client.auth as any).remove({ path: { providerID: providerId } });
+
+    res.json({ success: true, providerId });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : 'Failed to remove provider' });
   }
 });
 
@@ -270,9 +365,10 @@ router.post('/auth/oauth/callback', requireAuth, async (req: AuthRequest, res: R
 router.get('/models', requireAuth, async (req: AuthRequest, res: Response) => {
   try {
     const client = await getClientForUser(req.userId!);
-    const [providerList, config] = await Promise.all([
+    const [providerList, config, favoriteModels] = await Promise.all([
       client.provider.list(),
       client.config.get().catch(() => ({ data: {} as ConfigPayload })),
+      readFavoriteModelRefs(),
     ]);
 
     const payload = providerList.data as ProviderListPayload;
@@ -284,6 +380,10 @@ router.get('/models', requireAuth, async (req: AuthRequest, res: Response) => {
     const currentConfig = (config.data ?? {}) as ConfigPayload;
     const currentModel = typeof currentConfig.model === 'string' ? currentConfig.model : null;
     const connectedSet = new Set(payload.connected ?? []);
+    const favoriteProviderSet = new Set(favoriteModels.map((model) => model.providerId));
+    const favoriteRankByModel = new Map(
+      favoriteModels.map((model, index) => [`${model.providerId}/${model.modelId}`, index]),
+    );
 
     const providers = (payload.all as Array<Record<string, any>>)
       .map((provider): Record<string, any> => ({
@@ -294,6 +394,7 @@ router.get('/models', requireAuth, async (req: AuthRequest, res: Response) => {
       .filter((provider) => (
         provider.authenticated ||
         currentModel?.startsWith(`${provider.id}/`) ||
+        favoriteProviderSet.has(provider.id) ||
         provider.source === 'config' ||
         provider.source === 'custom'
       ))
@@ -305,11 +406,17 @@ router.get('/models', requireAuth, async (req: AuthRequest, res: Response) => {
           : null;
 
         const modelsList = providerModelEntries(provider)
-          .map(([modelKey, model]) => normalizeModel(provider.id, modelKey, model))
+          .map(([modelKey, model]) => normalizeModel(provider.id, modelKey, model, favoriteRankByModel))
           .sort((a, b) => {
             const aSelected = a.id === selectedModel ? 1 : 0;
             const bSelected = b.id === selectedModel ? 1 : 0;
             if (aSelected !== bSelected) return bSelected - aSelected;
+            const aFavorite = a.favorite ? 1 : 0;
+            const bFavorite = b.favorite ? 1 : 0;
+            if (aFavorite !== bFavorite) return bFavorite - aFavorite;
+            if (a.favoriteRank !== b.favoriteRank) {
+              return (a.favoriteRank ?? Number.MAX_SAFE_INTEGER) - (b.favoriteRank ?? Number.MAX_SAFE_INTEGER);
+            }
             const aDefault = a.id === defaultModel ? 1 : 0;
             const bDefault = b.id === defaultModel ? 1 : 0;
             if (aDefault !== bDefault) return bDefault - aDefault;
@@ -319,8 +426,10 @@ router.get('/models', requireAuth, async (req: AuthRequest, res: Response) => {
         return {
           id: provider.id,
           name: provider.name || provider.id,
+          authenticated: provider.authenticated,
           defaultModel,
           selectedModel,
+          favoriteModelCount: modelsList.filter((model) => model.favorite).length,
           models: modelsList,
         };
       });

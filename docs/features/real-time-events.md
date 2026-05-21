@@ -22,6 +22,7 @@ Initial event on connection:
 | Event | Payload | Trigger |
 |-------|---------|---------|
 | `task:created` | full task object | Task created via API or brainstorm insert |
+| `tasks:bulk-created` | `{ type, projectId, count, taskIds }` | Tasks created through the bulk task endpoint |
 | `task:updated` | full task object | Any task field changed (status, labels, priority, etc.) |
 | `task:deleted` | `{ id }` | Task archived |
 

@@ -21,6 +21,7 @@ Complete documentation for every feature in OpenLinear.
 ## Integrations
 
 - [OpenCode Integration](opencode-integration.md) -- host-based AI agent integration
+- [MCP Integration](mcp-integration.md) -- PAT-authenticated MCP tools for projects and plan expansion
 - [GitHub Integration](github-integration.md) -- OAuth, repository management, PR creation
 
 ## Configuration

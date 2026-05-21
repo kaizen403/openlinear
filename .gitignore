@@ -19,3 +19,4 @@ package-lock.json
 apps/desktop/src-tauri/binaries/opencode-*
 apps/intro-video/build/
 .cache/
+apps/mcp/.dev.vars

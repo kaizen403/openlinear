@@ -13,7 +13,8 @@ openlinear/
       src/
         routes/       REST endpoints (auth, tasks, labels, settings, teams, projects, inbox, repos)
         services/     Business logic (github, team-scope)
-        middleware/   Auth middleware (JWT verification)
+        middleware/   Auth middleware (JWT and PAT verification)
+    mcp/              Cloudflare Worker that exposes OpenLinear MCP tools
     sidecar/          Local execution sidecar (bundled in Tauri desktop app)
       src/
         routes/       Execution routes (execute, cancel, opencode, batches, brainstorm, transcribe)
@@ -71,6 +72,7 @@ The cloud API (`apps/api`) is an Express server deployed at openlinear.tech. It 
 
 **Cloud API routes:**
 - `/api/auth` -- username/password registration and login, GitHub OAuth
+- `/api/pats` -- personal access token management for MCP and API integrations
 - `/api/repos` -- repository management
 - `/api/tasks` -- task CRUD (no execution endpoints)
 - `/api/labels` -- label CRUD and task-label associations
@@ -93,9 +95,22 @@ The sidecar imports the shared Express app via `@openlinear/api/app`, SSE utilit
 
 ### Authentication
 
-Two middleware functions:
-- `optionalAuth`: extracts `userId` from JWT if present, continues either way
-- `requireAuth`: rejects request with 401 if no valid JWT
+Two middleware functions handle Bearer JWTs and PATs:
+- `optionalAuth`: extracts `userId` from a valid token when present
+- `requireAuth`: rejects missing or invalid tokens and can enforce PAT scopes
+
+The bulk task endpoint enforces `tasks:write` for PAT callers. JWT callers use
+their authenticated session permissions.
+
+## MCP Worker
+
+The MCP Worker (`apps/mcp`) exposes stateless Streamable HTTP at `/mcp`. Each
+request carries a PAT, and the worker forwards tool calls to the cloud API for
+workspace, project, label, and task operations. The bulk plan tool creates a
+project and expands phase tasks through `POST /api/tasks/bulk`.
+
+See [MCP Integration](mcp-integration.md) for connection details and tool
+behavior.
 
 ## Real-Time Communication
 

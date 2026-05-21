@@ -2,7 +2,8 @@
 
 Base URL: `http://localhost:3001` (configurable via `API_PORT`)
 
-All request/response bodies are JSON. Authentication uses Bearer JWT tokens where noted.
+All request/response bodies are JSON. Authentication uses Bearer JWT tokens or
+personal access tokens where noted.
 
 ---
 
@@ -33,6 +34,32 @@ Handles OAuth callback. Exchanges code for token, creates/updates user, redirect
 
 ### `POST /api/auth/logout`
 Returns `{ success: true }`. Client should clear the stored JWT.
+
+### Personal Access Tokens
+
+PATs are intended for MCP clients and API integrations. The API stores token
+hashes and returns the raw token only at creation time.
+
+#### `GET /api/pats`
+**Auth: required**. List PAT metadata for the authenticated user.
+
+#### `POST /api/pats`
+**Auth: required**. Create a PAT.
+
+Body:
+```json
+{
+  "name": "MCP client",
+  "scopes": ["*"],
+  "expiresAt": "2026-12-31T23:59:59.000Z"
+}
+```
+
+`scopes` and `expiresAt` are optional. When omitted, scopes default to `["*"]`.
+The response includes the raw token once.
+
+#### `DELETE /api/pats/:id`
+**Auth: required**. Revoke a PAT owned by the authenticated user.
 
 ---
 
@@ -91,6 +118,55 @@ Body:
   "projectId": "uuid"
 }
 ```
+
+### `POST /api/tasks/bulk`
+**Auth: required**. Create up to 100 tasks in one team-backed project. PAT
+requests must satisfy the `tasks:write` scope check.
+
+Body:
+```json
+{
+  "projectId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+  "tasks": [
+    {
+      "title": "Add MCP docs",
+      "description": "Document PAT auth and plan creation",
+      "priority": "medium",
+      "status": "todo",
+      "labelIds": ["bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"],
+      "parentId": "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+      "dueDate": "2026-06-01T12:00:00.000Z"
+    },
+    {
+      "title": "Add MCP smoke test",
+      "labelIds": ["11111111-1111-4111-8111-111111111111"]
+    }
+  ]
+}
+```
+
+The response separates created tasks from per-item failures:
+
+```json
+{
+  "created": [
+    {
+      "id": "33333333-3333-4333-8333-333333333333",
+      "title": "Add MCP docs",
+      "identifier": "DOC-42"
+    }
+  ],
+  "failed": [
+    {
+      "index": 1,
+      "error": "Invalid labelIds: 11111111-1111-4111-8111-111111111111"
+    }
+  ]
+}
+```
+
+Invalid label IDs or inaccessible parent IDs fail only those task inputs. Schema
+validation errors reject the full request.
 
 ### `GET /api/tasks/:id`
 Get a single task with labels, team, and project.

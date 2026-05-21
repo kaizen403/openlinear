@@ -21,6 +21,24 @@ Execution behavior is configured through the Settings page. Settings are stored 
 
 The PATCH endpoint validates all fields with Zod and requires at least one field in the body.
 
+## Personal Access Tokens
+
+Settings also includes an API Keys section for personal access tokens (PATs).
+PATs authenticate MCP clients and API integrations without exposing the desktop
+session JWT.
+
+OpenLinear shows a new token once and stores only its hash. The token list keeps
+metadata such as prefix, scopes, creation time, expiration time, last use, and
+revocation status.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/pats` | List PAT metadata for the authenticated user |
+| `POST` | `/api/pats` | Create a PAT and return the token once |
+| `DELETE` | `/api/pats/:id` | Revoke a PAT |
+
+See [MCP Integration](mcp-integration.md) for the MCP connection flow.
+
 ## Real-Time Updates
 
 When settings are updated, a `settings:updated` SSE event is broadcast to all connected clients. The UI picks up the new values without requiring a refresh.
