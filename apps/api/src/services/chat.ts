@@ -56,11 +56,86 @@ function toolCallsToLLM(value: Prisma.JsonValue | null): ChatLLMToolCall[] | und
   return calls;
 }
 
+function compactTaskRecord(value: unknown): JsonObject | null {
+  if (!isRecord(value)) return null;
+  const compact: JsonObject = {};
+  for (const key of ['id', 'identifier', 'title', 'status', 'priority', 'teamId', 'projectId', 'assigneeId', 'parentId', 'dueDate']) {
+    const item = value[key];
+    if (typeof item === 'string' || typeof item === 'number' || typeof item === 'boolean' || item === null) {
+      compact[key] = item;
+    }
+  }
+  return Object.keys(compact).length > 0 ? compact : null;
+}
+
+function compactArray(value: unknown, limit = 100): unknown[] | null {
+  if (!Array.isArray(value)) return null;
+  return value.slice(0, limit).map((item) => compactTaskRecord(item) ?? item);
+}
+
+function compactToolData(data: unknown): unknown {
+  if (Array.isArray(data)) return compactArray(data);
+  if (!isRecord(data)) return data;
+
+  if (Array.isArray(data.data)) {
+    return {
+      data: compactArray(data.data),
+      ...(data.nextCursor !== undefined ? { nextCursor: data.nextCursor } : {}),
+    };
+  }
+  if (Array.isArray(data.tasks)) {
+    return {
+      ...Object.fromEntries(
+        ['id', 'key', 'name', 'status', 'workspaceId', 'targetDate']
+          .map((key) => [key, data[key]])
+          .filter(([, value]) => value !== undefined),
+      ),
+      tasks: compactArray(data.tasks),
+      ...('_count' in data ? { _count: data._count } : {}),
+    };
+  }
+  if (Array.isArray(data.preview)) {
+    return { ...data, preview: compactArray(data.preview) };
+  }
+  if (Array.isArray(data.created)) {
+    return { ...data, created: compactArray(data.created) };
+  }
+  if (Array.isArray(data.updated)) {
+    return {
+      ...data,
+      updated: compactArray(data.updated),
+      already: compactArray(data.already),
+    };
+  }
+  if (Array.isArray(data.archived)) {
+    return { ...data, archived: compactArray(data.archived) };
+  }
+  return data;
+}
+
+function compactToolContent(raw: string): string {
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!isRecord(parsed)) return raw.slice(0, 8000);
+    const compact = {
+      ok: parsed.ok,
+      code: parsed.code,
+      message: parsed.message,
+      ...(parsed.data !== undefined ? { data: compactToolData(parsed.data) } : {}),
+      ...(parsed.details !== undefined ? { details: parsed.details } : {}),
+    };
+    const serialized = JSON.stringify(compact);
+    return serialized.length > 8000 ? `${serialized.slice(0, 8000)}…` : serialized;
+  } catch {
+    return raw.length > 8000 ? `${raw.slice(0, 8000)}…` : raw;
+  }
+}
+
 function messageToLLM(message: ChatMessage): ChatLLMMessage | null {
   if (message.role === 'system') return null;
   if (message.role === 'tool') {
     if (!message.toolCallId) return null;
-    return { role: 'tool', tool_call_id: message.toolCallId, content: message.content ?? '' };
+    return { role: 'tool', tool_call_id: message.toolCallId, content: compactToolContent(message.content ?? '') };
   }
   if (message.role === 'assistant') {
     return {
@@ -130,19 +205,31 @@ async function maybeAutoTitle(input: {
   void (async () => {
     try {
       const client = getChatLLMClient();
-      let title = '';
-      for await (const event of client.streamChatCompletion({
-        messages: [
-          { role: 'system', content: CHAT_TITLE_PROMPT },
-          { role: 'user', content: input.userMessage.slice(0, 2000) },
-          { role: 'assistant', content: input.assistantMessage.slice(0, 2000) },
-        ],
-        toolChoice: 'none',
-        maxTokens: 30,
-      })) {
-        if (event.type === 'delta') title += event.content;
+      const titleMessages: ChatLLMMessage[] = [
+        { role: 'system', content: CHAT_TITLE_PROMPT },
+        { role: 'user', content: `User message:\n${input.userMessage.slice(0, 2000)}\n\nAssistant answer:\n${input.assistantMessage.slice(0, 2000)}` },
+      ];
+
+      let rawTitle = '';
+      if (client.completeChatCompletion) {
+        rawTitle = await client.completeChatCompletion({
+          messages: titleMessages,
+          toolChoice: 'none',
+          maxTokens: 80,
+          json: true,
+        });
+      } else {
+        for await (const event of client.streamChatCompletion({
+          messages: titleMessages,
+          toolChoice: 'none',
+          maxTokens: 60,
+        })) {
+          if (event.type === 'delta') rawTitle += event.content;
+        }
       }
-      const cleaned = title.replace(/["“”]/g, '').replace(/\s+/g, ' ').trim().slice(0, 60);
+
+      const parsed = parseTitleResponse(rawTitle);
+      const cleaned = parsed.replace(/["“”]/g, '').replace(/\s+/g, ' ').trim().slice(0, 60);
       if (!cleaned) return;
       const updated = await prisma.chatSession.update({
         where: { id: input.sessionId },
@@ -153,6 +240,24 @@ async function maybeAutoTitle(input: {
       logger.warn({ err, sessionId: input.sessionId }, '[chat] auto-title failed');
     }
   })();
+}
+
+function parseTitleResponse(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) return '';
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    if (isRecord(parsed) && typeof parsed.title === 'string') {
+      return parsed.title;
+    }
+  } catch {
+    // Fall through to plain text cleanup for test doubles and older providers.
+  }
+  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fenced?.[1]) return parseTitleResponse(fenced[1]);
+  const titleMatch = trimmed.match(/"title"\s*:\s*"([^"]+)"/i);
+  if (titleMatch?.[1]) return titleMatch[1];
+  return trimmed.split('\n').map((line) => line.trim()).filter(Boolean).at(-1) ?? '';
 }
 
 function providerErrorToChunk(error: unknown): ChatChunk {
