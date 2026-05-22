@@ -2,6 +2,8 @@ export type {
   User,
   Repository,
   GitHubRepo,
+  GitHubBranch,
+  GitHubBranchesResponse,
   GitHubRepoFilter,
   GitHubReposResponse,
   GitHubRepoSort,
@@ -32,7 +34,7 @@ export {
   verifyCallbackToken,
 } from './auth';
 
-export { fetchUserRepositories, fetchGitHubRepos, importRepo, activateRepository, getActiveRepository, setActiveRepositoryBaseBranch, addRepoByUrl, getActivePublicRepository, activatePublicRepository } from './repos';
+export { fetchUserRepositories, fetchGitHubRepos, fetchGitHubBranches, importRepo, activateRepository, getActiveRepository, setActiveRepositoryBaseBranch, addRepoByUrl, getActivePublicRepository, activatePublicRepository } from './repos';
 
 export { fetchTeams, fetchTeam, createTeam, updateTeam, deleteTeam, addTeamMember, removeTeamMember, updateTeamMember, joinTeam } from './teams';
 

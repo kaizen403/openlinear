@@ -85,6 +85,15 @@ export interface GitHubRepo {
   fork?: boolean;
 }
 
+export interface GitHubBranch {
+  name: string;
+  commit?: {
+    sha: string;
+    url: string;
+  };
+  protected?: boolean;
+}
+
 export type GitHubRepoSort = 'pushed' | 'name' | 'stars';
 export type GitHubRepoFilter = 'all' | 'owned' | 'private' | 'public' | 'no_forks';
 
@@ -92,6 +101,10 @@ export interface GitHubReposResponse {
   repos: GitHubRepo[];
   hasMore: boolean;
   totalCount: number;
+}
+
+export interface GitHubBranchesResponse {
+  branches: GitHubBranch[];
 }
 
 export interface PublicRepository {

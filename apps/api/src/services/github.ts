@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { prisma, decryptToken, encryptToken } from '@openlinear/db';
 
 export function decryptUserAccessToken(stored: string | null | undefined): string | null {
@@ -49,6 +50,15 @@ export interface GitHubRepo {
   fork?: boolean;
 }
 
+export interface GitHubBranch {
+  name: string;
+  commit?: {
+    sha: string;
+    url: string;
+  };
+  protected?: boolean;
+}
+
 export type GitHubRepoSort = 'pushed' | 'name' | 'stars';
 export type GitHubRepoFilter = 'all' | 'owned' | 'private' | 'public' | 'no_forks';
 
@@ -69,7 +79,12 @@ export interface GitHubReposResult {
 }
 
 const GITHUB_REPO_CACHE_TTL_MS = 60_000;
+const GITHUB_BRANCH_CACHE_TTL_MS = 60_000;
+const GITHUB_ORG_CACHE_TTL_MS = 5 * 60_000;
+const MAX_ORG_SEARCH_SCOPES = 5;
 const githubRepoCache = new Map<string, { expiresAt: number; result: GitHubReposResult }>();
+const githubBranchCache = new Map<string, { expiresAt: number; branches: GitHubBranch[] }>();
+const githubOrgCache = new Map<string, { expiresAt: number; orgLogins: string[] }>();
 
 function getGitHubHeaders(accessToken: string) {
   return {
@@ -115,6 +130,14 @@ function getCacheKey(options: GetGitHubReposOptions): string {
     filter: options.filter,
     q: options.q?.trim() || '',
   });
+}
+
+function getAccessTokenCacheKey(accessToken: string): string {
+  return createHash('sha256').update(accessToken).digest('hex');
+}
+
+function getBranchCacheKey(accessToken: string, owner: string, repo: string): string {
+  return `${getAccessTokenCacheKey(accessToken)}:${owner.trim().toLowerCase()}/${repo.trim().toLowerCase()}`;
 }
 
 function sortRepos(repos: GitHubRepo[], sort: GitHubRepoSort): GitHubRepo[] {
@@ -180,6 +203,36 @@ export async function fetchPublicRepo(owner: string, repo: string): Promise<GitH
   }
 
   return (await response.json()) as GitHubRepo;
+}
+
+export async function getGitHubBranches(
+  accessToken: string,
+  owner: string,
+  repo: string,
+): Promise<GitHubBranch[]> {
+  const cacheKey = getBranchCacheKey(accessToken, owner, repo);
+  const now = Date.now();
+  const cached = githubBranchCache.get(cacheKey);
+  if (cached && cached.expiresAt > now) return cached.branches;
+
+  const encodedOwner = encodeURIComponent(owner);
+  const encodedRepo = encodeURIComponent(repo);
+  const response = await fetch(
+    `https://api.github.com/repos/${encodedOwner}/${encodedRepo}/branches?per_page=100`,
+    { headers: getGitHubHeaders(accessToken) },
+  );
+
+  if (!response.ok) {
+    throw new Error(await getGitHubErrorMessage(response, `Failed to fetch branches for ${owner}/${repo}`));
+  }
+
+  const branches = (await response.json()) as GitHubBranch[];
+  const filteredBranches = branches.filter((branch) => typeof branch.name === 'string' && branch.name.trim().length > 0);
+  githubBranchCache.set(cacheKey, {
+    expiresAt: now + GITHUB_BRANCH_CACHE_TTL_MS,
+    branches: filteredBranches,
+  });
+  return filteredBranches;
 }
 
 export async function addRepositoryByUrl(url: string): Promise<{
@@ -358,6 +411,11 @@ function buildRepoSearchQuery(
 }
 
 async function getGitHubOrgLogins(accessToken: string): Promise<string[]> {
+  const now = Date.now();
+  const cacheKey = getAccessTokenCacheKey(accessToken);
+  const cached = githubOrgCache.get(cacheKey);
+  if (cached && cached.expiresAt > now) return cached.orgLogins;
+
   const response = await fetch('https://api.github.com/user/orgs?per_page=100', {
     headers: getGitHubHeaders(accessToken),
   });
@@ -367,7 +425,12 @@ async function getGitHubOrgLogins(accessToken: string): Promise<string[]> {
   }
 
   const data = (await response.json()) as GitHubOrg[];
-  return data.map((org) => org.login).filter(Boolean);
+  const orgLogins = data.map((org) => org.login).filter(Boolean);
+  githubOrgCache.set(cacheKey, {
+    expiresAt: now + GITHUB_ORG_CACHE_TTL_MS,
+    orgLogins,
+  });
+  return orgLogins;
 }
 
 async function searchGitHubRepoScope(
@@ -424,7 +487,9 @@ async function searchGitHubRepos(
   accessToken: string,
   options: GetGitHubReposOptions,
 ): Promise<GitHubReposResult> {
-  const orgLogins = options.filter === 'owned' ? [] : await getGitHubOrgLogins(accessToken);
+  const orgLogins = options.filter === 'owned'
+    ? []
+    : (await getGitHubOrgLogins(accessToken)).slice(0, MAX_ORG_SEARCH_SCOPES);
   const scopes: Array<{ type: 'user' | 'org'; login: string }> = [
     { type: 'user', login: options.username },
     ...orgLogins.map((login) => ({ type: 'org' as const, login })),

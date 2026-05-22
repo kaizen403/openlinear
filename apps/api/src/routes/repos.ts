@@ -13,6 +13,7 @@ import {
 } from '../schemas/repos';
 import {
   getGitHubRepos,
+  getGitHubBranches,
   addRepository,
   setActiveRepository,
   getActiveRepository,
@@ -152,6 +153,35 @@ router.get('/github', requireAuth, async (req: AuthRequest, res: Response, next:
       `[repos/github] user=${user.username} page=${queryOptions.page} perPage=${queryOptions.perPage} filter=${queryOptions.filter} sort=${queryOptions.sort} q=${queryOptions.q ?? ''} returned=${repos.repos.length} hasMore=${repos.hasMore} total=${repos.totalCount} in ${elapsed}ms`,
     );
     res.json(repos);
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/github/:owner/:repo/branches', requireAuth, async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: req.userId! },
+      select: { accessToken: true },
+    });
+
+    if (!user?.accessToken) {
+      return next(
+        new HttpError(403, 'GITHUB_NOT_LINKED', 'GitHub account not linked. Please sign in with GitHub first.'),
+      );
+    }
+
+    const accessToken = decryptUserAccessToken(user.accessToken);
+    if (!accessToken) {
+      return next(
+        new HttpError(500, 'GITHUB_TOKEN_DECRYPT_FAILED', 'Stored GitHub token could not be decrypted'),
+      );
+    }
+
+    const owner = req.params.owner as string;
+    const repo = req.params.repo as string;
+    const branches = await getGitHubBranches(accessToken, owner, repo);
+    res.json({ branches });
   } catch (err) {
     next(err);
   }

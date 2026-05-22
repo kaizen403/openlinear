@@ -1,5 +1,7 @@
 import { apiFetch, AuthExpiredError } from './fetch';
+import { getAuthToken } from './client';
 import type {
+  GitHubBranchesResponse,
   GitHubRepo,
   GitHubRepoFilter,
   GitHubReposResponse,
@@ -7,6 +9,13 @@ import type {
   PublicRepository,
   Repository,
 } from './types';
+
+const GITHUB_BRANCH_CACHE_TTL_MS = 60_000;
+const githubBranchCache = new Map<string, { expiresAt: number; result: GitHubBranchesResponse }>();
+
+function getBranchCacheKey(owner: string, repo: string): string {
+  return `${getAuthToken() ?? 'anonymous'}:${owner.trim().toLowerCase()}/${repo.trim().toLowerCase()}`;
+}
 
 export async function fetchUserRepositories(): Promise<Repository[]> {
   return apiFetch<Repository[]>('/api/repos');
@@ -18,6 +27,7 @@ export async function fetchGitHubRepos(options: {
   sort?: GitHubRepoSort;
   filter?: GitHubRepoFilter;
   q?: string;
+  signal?: AbortSignal;
 } = {}): Promise<GitHubReposResponse> {
   const params = new URLSearchParams();
   params.set('page', String(options.page ?? 1));
@@ -27,6 +37,8 @@ export async function fetchGitHubRepos(options: {
   if (options.q?.trim()) params.set('q', options.q.trim());
 
   const controller = new AbortController();
+  const abortFromCaller = () => controller.abort();
+  options.signal?.addEventListener('abort', abortFromCaller, { once: true });
   const timeoutId = window.setTimeout(() => controller.abort(), 20_000);
   const t0 = performance.now();
   try {
@@ -47,6 +59,7 @@ export async function fetchGitHubRepos(options: {
     throw err;
   } finally {
     window.clearTimeout(timeoutId);
+    options.signal?.removeEventListener('abort', abortFromCaller);
   }
 }
 
@@ -55,6 +68,42 @@ export async function importRepo(repo: GitHubRepo): Promise<Repository> {
     method: 'POST',
     body: JSON.stringify({ repo }),
   });
+}
+
+export async function fetchGitHubBranches(
+  owner: string,
+  repo: string,
+  options: { signal?: AbortSignal } = {},
+): Promise<GitHubBranchesResponse> {
+  const cacheKey = getBranchCacheKey(owner, repo);
+  const cached = githubBranchCache.get(cacheKey);
+  const now = Date.now();
+  if (cached && cached.expiresAt > now) return cached.result;
+
+  const controller = new AbortController();
+  const abortFromCaller = () => controller.abort();
+  options.signal?.addEventListener('abort', abortFromCaller, { once: true });
+  const timeoutId = window.setTimeout(() => controller.abort(), 10_000);
+
+  try {
+    const result = await apiFetch<GitHubBranchesResponse>(
+      `/api/repos/github/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/branches`,
+      { signal: controller.signal },
+    );
+    githubBranchCache.set(cacheKey, {
+      expiresAt: now + GITHUB_BRANCH_CACHE_TTL_MS,
+      result,
+    });
+    return result;
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      throw err;
+    }
+    throw err;
+  } finally {
+    window.clearTimeout(timeoutId);
+    options.signal?.removeEventListener('abort', abortFromCaller);
+  }
 }
 
 export async function activateRepository(projectId: string): Promise<Repository> {
