@@ -41,6 +41,7 @@ export interface StreamChatCompletionInput {
 export interface ChatLLMClient {
   readonly model: string;
   streamChatCompletion(input: StreamChatCompletionInput): AsyncIterable<ChatLLMEvent>;
+  completeChatCompletion?(input: StreamChatCompletionInput & { json?: boolean }): Promise<string>;
 }
 
 export class ChatLLMError extends Error {
@@ -61,6 +62,10 @@ function getEnvNumber(name: string, fallback: number): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+function firstNonEmpty(...values: Array<string | undefined>): string | undefined {
+  return values.find((value) => value !== undefined && value.trim().length > 0);
+}
+
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, unknown>
@@ -79,9 +84,13 @@ function numberValue(value: unknown): number | undefined {
   return typeof value === 'number' ? value : undefined;
 }
 
-function buildAbortSignal(timeoutMs: number, parent?: AbortSignal): AbortSignal {
+function buildAbortSignal(timeoutMs: number, parent?: AbortSignal): { signal: AbortSignal; didTimeout: () => boolean } {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  let timedOut = false;
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
   timeout.unref?.();
 
   if (parent) {
@@ -90,7 +99,19 @@ function buildAbortSignal(timeoutMs: number, parent?: AbortSignal): AbortSignal 
   }
 
   controller.signal.addEventListener('abort', () => clearTimeout(timeout), { once: true });
-  return controller.signal;
+  return { signal: controller.signal, didTimeout: () => timedOut };
+}
+
+function isAbortLikeError(error: unknown): boolean {
+  return error instanceof Error && (error.name === 'AbortError' || error.message.toLowerCase().includes('aborted'));
+}
+
+function toRequestError(error: unknown, timeout: { didTimeout: () => boolean }, parent?: AbortSignal): ChatLLMError {
+  if (error instanceof ChatLLMError) return error;
+  if (parent?.aborted) return new ChatLLMError('CLIENT_ABORTED', 'Chat request was aborted by the client', 499);
+  if (timeout.didTimeout()) return new ChatLLMError('LLM_TIMEOUT', 'The model request timed out before it returned a response', 504);
+  if (isAbortLikeError(error)) return new ChatLLMError('LLM_REQUEST_ABORTED', 'The model request was aborted before it returned a response', 502);
+  return new ChatLLMError('LLM_REQUEST_FAILED', error instanceof Error ? error.message : 'Model request failed');
 }
 
 export class OpenAICompatibleChatLLM implements ChatLLMClient {
@@ -100,10 +121,53 @@ export class OpenAICompatibleChatLLM implements ChatLLMClient {
   private readonly timeoutMs: number;
 
   constructor(options: { baseUrl?: string; apiKey?: string; model?: string; timeoutMs?: number } = {}) {
-    this.baseUrl = (options.baseUrl ?? process.env.CHAT_LLM_BASE_URL ?? 'https://api.fireworks.ai/inference/v1').replace(/\/$/, '');
-    this.apiKey = options.apiKey ?? process.env.CHAT_LLM_API_KEY ?? process.env.FIREWORKS_API_KEY ?? '';
-    this.model = options.model ?? process.env.CHAT_LLM_MODEL ?? 'accounts/fireworks/models/kimi-k2-instruct';
-    this.timeoutMs = options.timeoutMs ?? getEnvNumber('CHAT_LLM_TIMEOUT_MS', 30000);
+    this.baseUrl = (firstNonEmpty(options.baseUrl, process.env.CHAT_LLM_BASE_URL) ?? 'https://api.fireworks.ai/inference/v1').replace(/\/$/, '');
+    this.apiKey = firstNonEmpty(options.apiKey, process.env.CHAT_LLM_API_KEY, process.env.FIREWORKS_API_KEY) ?? '';
+    this.model = firstNonEmpty(options.model, process.env.CHAT_LLM_MODEL) ?? 'accounts/fireworks/models/kimi-k2p6';
+    this.timeoutMs = options.timeoutMs ?? getEnvNumber('CHAT_LLM_TIMEOUT_MS', 60000);
+  }
+
+  async completeChatCompletion(input: StreamChatCompletionInput & { json?: boolean }): Promise<string> {
+    if (!this.apiKey) {
+      throw new ChatLLMError('LLM_NOT_CONFIGURED', 'Chat LLM API key is not configured', 500);
+    }
+
+    const timeout = buildAbortSignal(this.timeoutMs, input.abortSignal);
+    let response: Response;
+    try {
+      response = await fetch(`${this.baseUrl}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${this.apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: this.model,
+          messages: input.messages,
+          tools: input.tools,
+          tool_choice: input.toolChoice ?? (input.tools?.length ? 'auto' : 'none'),
+          temperature: 0,
+          max_tokens: input.maxTokens,
+          ...(input.json ? { response_format: { type: 'json_object' } } : {}),
+        }),
+        signal: timeout.signal,
+      });
+    } catch (error) {
+      throw toRequestError(error, timeout, input.abortSignal);
+    }
+
+    if (!response.ok) {
+      const text = await response.text().catch(() => '');
+      const safeMessage = text.slice(0, 300).replace(/Bearer\s+[A-Za-z0-9._-]+/g, 'Bearer [REDACTED]');
+      throw new ChatLLMError('LLM_REQUEST_FAILED', safeMessage || `Provider returned HTTP ${response.status}`, response.status);
+    }
+
+    const payload = asRecord(await response.json().catch((error: unknown) => {
+      throw toRequestError(error, timeout, input.abortSignal);
+    }));
+    const choice = asRecord(asArray(payload?.choices)[0]);
+    const message = asRecord(choice?.message);
+    return stringValue(message?.content) ?? '';
   }
 
   async *streamChatCompletion(input: StreamChatCompletionInput): AsyncIterable<ChatLLMEvent> {
@@ -111,23 +175,29 @@ export class OpenAICompatibleChatLLM implements ChatLLMClient {
       throw new ChatLLMError('LLM_NOT_CONFIGURED', 'Chat LLM API key is not configured', 500);
     }
 
-    const response = await fetch(`${this.baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${this.apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: this.model,
-        messages: input.messages,
-        tools: input.tools,
-        tool_choice: input.toolChoice ?? (input.tools?.length ? 'auto' : 'none'),
-        temperature: 0.1,
-        max_tokens: input.maxTokens,
-        stream: true,
-      }),
-      signal: buildAbortSignal(this.timeoutMs, input.abortSignal),
-    });
+    const timeout = buildAbortSignal(this.timeoutMs, input.abortSignal);
+    let response: Response;
+    try {
+      response = await fetch(`${this.baseUrl}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${this.apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: this.model,
+          messages: input.messages,
+          tools: input.tools,
+          tool_choice: input.toolChoice ?? (input.tools?.length ? 'auto' : 'none'),
+          temperature: 0.1,
+          max_tokens: input.maxTokens,
+          stream: true,
+        }),
+        signal: timeout.signal,
+      });
+    } catch (error) {
+      throw toRequestError(error, timeout, input.abortSignal);
+    }
 
     if (!response.ok) {
       const text = await response.text().catch(() => '');
@@ -141,53 +211,57 @@ export class OpenAICompatibleChatLLM implements ChatLLMClient {
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const frames = buffer.split('\n\n');
-      buffer = frames.pop() ?? '';
-      for (const frame of frames) {
-        const dataLines = frame
-          .split('\n')
-          .map((line) => line.trim())
-          .filter((line) => line.startsWith('data:'))
-          .map((line) => line.slice(5).trim());
-        for (const data of dataLines) {
-          if (!data || data === '[DONE]') continue;
-          const parsed = asRecord(JSON.parse(data));
-          if (!parsed) continue;
-          const choice = asRecord(asArray(parsed.choices)[0]);
-          if (!choice) continue;
-          const finishReason = stringValue(choice.finish_reason);
-          const delta = asRecord(choice.delta);
-          if (delta) {
-            const content = stringValue(delta.content);
-            if (content) yield { type: 'delta', content };
-            for (const rawToolCall of asArray(delta.tool_calls)) {
-              const toolCall = asRecord(rawToolCall);
-              if (!toolCall) continue;
-              const fn = asRecord(toolCall.function);
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const frames = buffer.split('\n\n');
+        buffer = frames.pop() ?? '';
+        for (const frame of frames) {
+          const dataLines = frame
+            .split('\n')
+            .map((line) => line.trim())
+            .filter((line) => line.startsWith('data:'))
+            .map((line) => line.slice(5).trim());
+          for (const data of dataLines) {
+            if (!data || data === '[DONE]') continue;
+            const parsed = asRecord(JSON.parse(data));
+            if (!parsed) continue;
+            const choice = asRecord(asArray(parsed.choices)[0]);
+            if (!choice) continue;
+            const finishReason = stringValue(choice.finish_reason);
+            const delta = asRecord(choice.delta);
+            if (delta) {
+              const content = stringValue(delta.content);
+              if (content) yield { type: 'delta', content };
+              for (const rawToolCall of asArray(delta.tool_calls)) {
+                const toolCall = asRecord(rawToolCall);
+                if (!toolCall) continue;
+                const fn = asRecord(toolCall.function);
+                yield {
+                  type: 'tool_call_delta',
+                  index: numberValue(toolCall.index) ?? 0,
+                  id: stringValue(toolCall.id),
+                  name: fn ? stringValue(fn.name) : undefined,
+                  argumentsDelta: fn ? stringValue(fn.arguments) : undefined,
+                };
+              }
+            }
+            if (finishReason) {
+              const usage = asRecord(parsed.usage);
               yield {
-                type: 'tool_call_delta',
-                index: numberValue(toolCall.index) ?? 0,
-                id: stringValue(toolCall.id),
-                name: fn ? stringValue(fn.name) : undefined,
-                argumentsDelta: fn ? stringValue(fn.arguments) : undefined,
+                type: 'done',
+                finishReason,
+                inputTokens: usage ? numberValue(usage.prompt_tokens) : undefined,
+                outputTokens: usage ? numberValue(usage.completion_tokens) : undefined,
               };
             }
           }
-          if (finishReason) {
-            const usage = asRecord(parsed.usage);
-            yield {
-              type: 'done',
-              finishReason,
-              inputTokens: usage ? numberValue(usage.prompt_tokens) : undefined,
-              outputTokens: usage ? numberValue(usage.completion_tokens) : undefined,
-            };
-          }
         }
       }
+    } catch (error) {
+      throw toRequestError(error, timeout, input.abortSignal);
     }
   }
 }

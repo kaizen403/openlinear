@@ -61,7 +61,7 @@ export function ScopePicker({ className }: ScopePickerProps) {
                 style={{ backgroundColor: project.color || "transparent" }}
               />
               <span className="min-w-0 flex-1 truncate">{project.name.toLowerCase()}</span>
-              {selected && <Check className="h-3.5 w-3.5 text-primary" />}
+              {selected && <Check className="h-3.5 w-3.5 text-linear-accent" />}
             </DropdownMenuItem>
           );
         })}

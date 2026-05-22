@@ -11,13 +11,14 @@ interface ToolCallCardProps {
 
 const STATUS_ICON = {
   pending: <Loader2 className="h-3 w-3 animate-spin text-linear-text-tertiary" />,
-  in_progress: <Loader2 className="h-3 w-3 animate-spin text-primary" />,
+  in_progress: <Loader2 className="h-3 w-3 animate-spin text-linear-accent" />,
   completed: <Check className="h-3 w-3 text-green-400" />,
   error: <AlertCircle className="h-3 w-3 text-destructive" />,
 } as const;
 
-function formatToolName(name: string): string {
-  return name.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+function formatToolName(name?: string | null): string {
+  const safeName = name?.trim() || "tool";
+  return safeName.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 export function ToolCallCard({ toolCall }: ToolCallCardProps) {

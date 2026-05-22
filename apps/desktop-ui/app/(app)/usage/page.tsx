@@ -184,7 +184,7 @@ export default function UsagePage() {
                 label="Total cost"
                 value={formatUsd(summary.totalCostUsd)}
                 sublabel="last 30 days"
-                accent="bg-emerald-500/10 text-emerald-400"
+                accent="bg-linear-accent/10 text-linear-accent"
               />
               <StatCard
                 icon={Activity}
@@ -219,8 +219,8 @@ export default function UsagePage() {
                   <AreaChart data={summary.daily} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
                     <defs>
                       <linearGradient id="costGradient" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="#10b981" stopOpacity={0.4} />
-                        <stop offset="100%" stopColor="#10b981" stopOpacity={0} />
+                        <stop offset="0%" stopColor="var(--linear-accent)" stopOpacity={0.4} />
+                        <stop offset="100%" stopColor="var(--linear-accent)" stopOpacity={0} />
                       </linearGradient>
                     </defs>
                     <CartesianGrid stroke="rgba(255,255,255,0.04)" vertical={false} />
@@ -245,7 +245,7 @@ export default function UsagePage() {
                     <Area
                       type="monotone"
                       dataKey="costUsd"
-                      stroke="#10b981"
+                      stroke="var(--linear-accent)"
                       strokeWidth={2}
                       fill="url(#costGradient)"
                     />
@@ -331,7 +331,7 @@ export default function UsagePage() {
                             <td className="px-4 py-2.5 text-right font-mono text-linear-text-secondary">
                               {row.runs}
                             </td>
-                            <td className="px-4 py-2.5 text-right font-mono text-emerald-400">
+                            <td className="px-4 py-2.5 text-right font-mono text-linear-accent">
                               {formatUsd(row.totalCostUsd)}
                             </td>
                             <td className="px-4 py-2.5 text-right font-mono text-linear-text-tertiary hidden md:table-cell">

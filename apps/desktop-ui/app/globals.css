@@ -110,8 +110,10 @@
     --radius: 0.125rem;
 
     /* Linear accent – overridden at runtime by the accent-color picker */
-    --linear-accent: #059669;
-    --linear-accent-hover: #047857;
+    --linear-accent: #10b981;
+    --linear-accent-hover: #059669;
+    --linear-accent-rgb: 16 185 129;
+    --linear-accent-hover-rgb: 5 150 105;
   }
 }
 

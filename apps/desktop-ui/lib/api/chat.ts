@@ -29,12 +29,27 @@ export interface ChatMessage {
 }
 
 export interface ToolCall {
-  id: string;
-  name: string;
-  arguments: string;
+  id?: string;
+  name?: string;
+  arguments?: string;
+  function?: {
+    name?: string;
+    arguments?: string;
+  };
+}
+
+export interface ChatToolResult {
+  ok?: boolean;
+  data?: unknown;
+  error?: {
+    code?: string;
+    message?: string;
+    details?: unknown;
+  };
 }
 
 export type ChatChunkType =
+  | 'user_message'
   | 'assistant_delta'
   | 'tool_call_start'
   | 'tool_result'
@@ -44,16 +59,27 @@ export type ChatChunkType =
 
 export interface ChatChunk {
   type: ChatChunkType;
+  /** Persisted user message marker */
+  messageId?: string;
+  sessionId?: string;
   /** Text delta for assistant_delta */
   content?: string;
-  /** Tool call metadata for tool_call_start */
+  /** Legacy/nested tool call metadata for tool_call_start */
   toolCall?: { id: string; name: string; arguments: string };
-  /** Tool result for tool_result */
+  /** Backend stream shape for tool_call_start */
+  toolCallId?: string;
+  toolName?: string;
+  args?: Record<string, unknown>;
+  /** Legacy/nested tool result for tool_result */
   toolResult?: { toolCallId: string; name: string; content: string; isError?: boolean };
-  /** Final assembled message for assistant_final */
-  message?: ChatMessage;
-  /** Error info for error chunks */
+  /** Backend stream shape for tool_result */
+  result?: ChatToolResult;
+  /** Final assembled assistant message, or flat backend error text on error chunks */
+  message?: ChatMessage | string;
+  /** Error info for error chunks — backend may send either nested or flat */
   error?: { code: string; message: string };
+  code?: string;
+  details?: unknown;
   /** Usage stats for done chunks */
   usage?: { inputTokens: number; outputTokens: number; totalTokens: number };
 }
@@ -87,6 +113,17 @@ export async function updateChatSession(sessionId: string, data: { title?: strin
 
 export async function archiveChatSession(sessionId: string): Promise<void> {
   await apiFetch(`/api/chat/sessions/${sessionId}`, { method: 'DELETE' });
+}
+
+// ─── Voice Transcription ────────────────────────────────────────────────────
+
+export async function transcribeChatAudio(audioBlob: Blob): Promise<{ text: string }> {
+  return apiFetch<{ text: string }>('/api/transcribe', {
+    method: 'POST',
+    sidecar: true,
+    headers: { 'Content-Type': audioBlob.type || 'audio/webm' },
+    body: audioBlob,
+  });
 }
 
 // ─── Streaming Message Send ──────────────────────────────────────────────────
@@ -160,7 +197,8 @@ export async function sendChatMessage({ sessionId, content, signal, onChunk, onE
             return;
           }
           if (chunk.type === 'error') {
-            onError?.(new Error(chunk.error?.message || 'Stream error'));
+            const flatMessage = typeof chunk.message === 'string' ? chunk.message : undefined;
+            onError?.(new Error(chunk.error?.message || flatMessage || 'Stream error'));
             return;
           }
         } catch {

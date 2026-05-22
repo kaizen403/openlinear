@@ -38,7 +38,7 @@ function ColumnComponent({
   isAnyDragging,
 }: ColumnProps) {
   return (
-    <div className="flex flex-col h-full border-r border-linear-border last:border-r-0 w-[90vw] sm:w-[72vw] flex-none md:w-full md:flex-auto snap-start bg-gradient-to-b from-linear-bg-secondary to-transparent">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden border-r border-linear-border last:border-r-0 w-[90vw] sm:w-[72vw] flex-none md:w-full md:flex-auto snap-start bg-gradient-to-b from-linear-bg-secondary to-transparent">
       <div className="flex items-center justify-between px-3 sm:px-4 py-2.5 sm:py-3 backdrop-blur-sm bg-linear-bg-secondary border-b border-linear-border gap-2 flex-nowrap min-h-11 flex-shrink-0">
         <div className="flex items-center gap-2 min-w-0 flex-shrink overflow-hidden">
           <h3 className="text-linear-text-tertiary text-xs font-medium uppercase tracking-wider truncate">{title}</h3>
@@ -85,8 +85,8 @@ function ColumnComponent({
         ref={innerRef}
         {...droppableProps}
         className={cn(
-          "flex-1 p-2.5 sm:p-3",
-          isAnyDragging ? "overflow-y-visible" : "overflow-y-auto",
+          "flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-2.5 sm:p-3 overscroll-contain",
+          isAnyDragging && "scroll-pb-24",
           "space-y-3",
           isDraggingOver && "bg-linear-bg-secondary border border-dashed border-linear-border rounded-sm backdrop-blur-sm"
         )}

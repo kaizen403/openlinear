@@ -37,7 +37,7 @@ const config: Config = {
           foreground: "hsl(var(--popover-foreground))",
         },
         primary: {
-          DEFAULT: "hsl(var(--primary))",
+          DEFAULT: "rgb(var(--linear-accent-rgb) / <alpha-value>)",
           foreground: "hsl(var(--primary-foreground))",
         },
         secondary: {
@@ -49,7 +49,7 @@ const config: Config = {
           foreground: "hsl(var(--muted-foreground))",
         },
         accent: {
-          DEFAULT: "hsl(var(--accent))",
+          DEFAULT: "rgb(var(--linear-accent-rgb) / <alpha-value>)",
           foreground: "hsl(var(--accent-foreground))",
         },
         destructive: {
@@ -61,16 +61,16 @@ const config: Config = {
         ring: "hsl(var(--ring))",
         // Linear-specific colors
         linear: {
-          bg: "#0a0a0a",
-          "bg-secondary": "#0d0d0d",
-          "bg-tertiary": "#080808",
-          border: "#1f1f1f",
-          "border-hover": "#2a2a2a",
-          text: "#e6e6e6",
-          "text-secondary": "#8a8a8a",
-          "text-tertiary": "#595959",
-          accent: "var(--linear-accent)",
-          "accent-hover": "var(--linear-accent-hover)",
+          bg: "#111111",
+          "bg-secondary": "#141414",
+          "bg-tertiary": "#0f0f0f",
+          border: "#2a2a2a",
+          "border-hover": "#3a3a3a",
+          text: "#f5f5f5",
+          "text-secondary": "#a0a0a0",
+          "text-tertiary": "#6a6a6a",
+          accent: "rgb(var(--linear-accent-rgb) / <alpha-value>)",
+          "accent-hover": "rgb(var(--linear-accent-hover-rgb) / <alpha-value>)",
         },
       },
       borderRadius: {

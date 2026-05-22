@@ -90,7 +90,7 @@ export function ProjectSelector() {
                   <GitBranch className="w-4 h-4 text-linear-text-secondary" />
                   <span className="flex-1 truncate">{project.fullName}</span>
                   {project.isActive && (
-                    <Check className="w-4 h-4 text-green-500" />
+                    <Check className="w-4 h-4 text-linear-accent" />
                   )}
                 </button>
               ))}
@@ -127,7 +127,7 @@ export function ProjectSelector() {
                       )}
                     </div>
                     {isImported ? (
-                      <Check className="w-4 h-4 text-green-500" />
+                      <Check className="w-4 h-4 text-linear-accent" />
                     ) : (
                       <Button
                         size="sm"

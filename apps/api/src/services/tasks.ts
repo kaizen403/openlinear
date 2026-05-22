@@ -361,6 +361,178 @@ export async function updateTask(input: {
   return transformed;
 }
 
+export async function bulkUpdateTaskStatus(input: {
+  userId: string;
+  projectId: string;
+  status: Status;
+  taskIds?: string[];
+}) {
+  await assertProjectAccess(input.projectId, input.userId, 'full');
+
+  const requestedIds = [...new Set(input.taskIds ?? [])];
+  const tasks = await prisma.task.findMany({
+    where: {
+      projectId: input.projectId,
+      archived: false,
+      ...(requestedIds.length ? { id: { in: requestedIds } } : {}),
+    },
+    select: {
+      id: true,
+      identifier: true,
+      title: true,
+      status: true,
+      teamId: true,
+      projectId: true,
+    },
+    orderBy: [{ number: 'asc' }, { createdAt: 'asc' }],
+  });
+
+  const foundIds = new Set(tasks.map((task) => task.id));
+  const failed = requestedIds
+    .filter((id) => !foundIds.has(id))
+    .map((id) => ({ id, error: 'Issue was not found in the selected project' }));
+
+  const teamIds = [...new Set(tasks.map((task) => task.teamId).filter((id): id is string => Boolean(id)))];
+  await Promise.all(teamIds.map((teamId) => assertTeamRole(teamId, input.userId, ['owner', 'admin', 'member'])));
+
+  const already = tasks
+    .filter((task) => task.status === input.status)
+    .map((task) => ({ id: task.id, identifier: task.identifier, title: task.title, status: task.status }));
+  const toUpdate = tasks.filter((task) => task.status !== input.status);
+
+  const updated = toUpdate.length
+    ? await prisma.$transaction(async (tx) => {
+        const resetExecution = ['done', 'cancelled', 'todo'].includes(input.status);
+        await tx.task.updateMany({
+          where: { id: { in: toUpdate.map((task) => task.id) } },
+          data: {
+            status: input.status,
+            ...(resetExecution
+              ? {
+                  sessionId: null,
+                  executionStartedAt: null,
+                  executionPausedAt: null,
+                  executionElapsedMs: 0,
+                  executionProgress: null,
+                }
+              : {}),
+          },
+        });
+        return tx.task.findMany({
+          where: { id: { in: toUpdate.map((task) => task.id) } },
+          include: taskInclude,
+          orderBy: [{ number: 'asc' }, { createdAt: 'asc' }],
+        });
+      }, { timeout: 15000, maxWait: 5000 })
+    : [];
+
+  const transformed = updated.map(flattenTaskLabels);
+  for (const task of transformed) {
+    broadcastToTask('task:updated', task);
+  }
+
+  const previousById = new Map(toUpdate.map((task) => [task.id, task.status]));
+  await Promise.all(updated.map((task) => logActivity({
+    taskId: task.id,
+    projectId: task.projectId,
+    teamId: task.teamId,
+    userId: input.userId,
+    action: 'task_status_changed',
+    payload: { from: previousById.get(task.id), to: task.status, title: task.title, source: 'chat_bulk' },
+  })));
+
+  return {
+    updated: transformed,
+    already,
+    failed,
+    status: input.status,
+  };
+}
+
+export async function bulkArchiveTasks(input: {
+  userId: string;
+  projectId: string;
+  taskIds?: string[];
+  identifiers?: string[];
+}) {
+  await assertProjectAccess(input.projectId, input.userId, 'full');
+
+  const requestedIds = [...new Set((input.taskIds ?? []).map((id) => id.trim()).filter(Boolean))];
+  const requestedIdentifiers = [...new Set((input.identifiers ?? []).map((identifier) => identifier.trim()).filter(Boolean))];
+  const scopedRequests: Prisma.TaskWhereInput[] = [];
+  if (requestedIds.length > 0) scopedRequests.push({ id: { in: requestedIds } });
+  if (requestedIdentifiers.length > 0) scopedRequests.push({ identifier: { in: requestedIdentifiers, mode: 'insensitive' } });
+
+  const tasks = await prisma.task.findMany({
+    where: {
+      projectId: input.projectId,
+      archived: false,
+      ...(scopedRequests.length > 0 ? { OR: scopedRequests } : {}),
+    },
+    select: {
+      id: true,
+      identifier: true,
+      title: true,
+      status: true,
+      teamId: true,
+      projectId: true,
+      creatorId: true,
+    },
+    orderBy: [{ number: 'asc' }, { createdAt: 'asc' }],
+  });
+
+  const foundIds = new Set(tasks.map((task) => task.id));
+  const foundIdentifiers = new Set(tasks.map((task) => task.identifier?.toLowerCase()).filter((identifier): identifier is string => Boolean(identifier)));
+  const failed = [
+    ...requestedIds
+      .filter((id) => !foundIds.has(id))
+      .map((id) => ({ id, error: 'Issue was not found in the selected project' })),
+    ...requestedIdentifiers
+      .filter((identifier) => !foundIdentifiers.has(identifier.toLowerCase()))
+      .map((identifier) => ({ identifier, error: 'Issue was not found in the selected project' })),
+  ];
+
+  const teamIds = [...new Set(tasks.map((task) => task.teamId).filter((id): id is string => Boolean(id)))];
+  await Promise.all(teamIds.map((teamId) => assertTeamRole(teamId, input.userId, ['owner', 'admin', 'member'])));
+
+  if (tasks.length > 0) {
+    await prisma.task.updateMany({
+      where: { id: { in: tasks.map((task) => task.id) } },
+      data: { archived: true },
+    });
+  }
+
+  for (const task of tasks) {
+    if (task.teamId) {
+      broadcastToTeam(task.teamId, 'task:deleted', { id: task.id });
+    } else if (task.creatorId) {
+      broadcastToUser(task.creatorId, 'task:deleted', { id: task.id });
+    } else {
+      broadcastToUser(input.userId, 'task:deleted', { id: task.id });
+    }
+  }
+
+  await Promise.all(tasks.map((task) => logActivity({
+    taskId: task.id,
+    projectId: task.projectId,
+    teamId: task.teamId,
+    userId: input.userId,
+    action: 'task_archived',
+    payload: { id: task.id, identifier: task.identifier, title: task.title, source: 'chat_bulk' },
+  })));
+
+  return {
+    archived: tasks.map((task) => ({
+      id: task.id,
+      identifier: task.identifier,
+      title: task.title,
+      status: task.status,
+    })),
+    failed,
+    count: tasks.length,
+  };
+}
+
 export async function bulkCreateTasks(input: {
   userId: string;
   projectId: string;

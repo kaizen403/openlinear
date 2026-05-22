@@ -193,8 +193,10 @@ router.post(
       const abort = () => {
         if (!finished) abortController.abort();
       };
-      req.on('close', abort);
+      req.on('aborted', abort);
       req.on('error', abort);
+      res.on('close', abort);
+      res.on('error', abort);
 
       res.setHeader('Content-Type', 'text/event-stream');
       res.setHeader('Cache-Control', 'no-cache');
@@ -202,6 +204,7 @@ router.post(
       res.setHeader('X-Accel-Buffering', 'no');
       res.flushHeaders();
 
+      let wroteDone = false;
       for await (const chunk of runChatTurn({
         sessionId: id,
         userId: req.userId!,
@@ -209,11 +212,14 @@ router.post(
         abortSignal: abortController.signal,
       })) {
         if (res.writableEnded) break;
+        if (chunk.type === 'done') wroteDone = true;
         writeChunk(res, chunk);
       }
 
       finished = true;
-      res.write('event: done\ndata: {"type":"done"}\n\n');
+      if (!wroteDone) {
+        res.write('event: done\ndata: {"type":"done"}\n\n');
+      }
       res.end();
     } catch (error) {
       if (res.headersSent) {
