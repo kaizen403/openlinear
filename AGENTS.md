@@ -20,12 +20,16 @@ AI-powered project management that writes code. Users manage tasks on a kanban b
 │   ├── api/                     ← Express 5.2.1 REST API, port 3001
 │   ├── desktop-ui/              ← Next.js 16 web/desktop UI, port 3000
 │   ├── desktop/                 ← Tauri v2 (Rust shell wrapping desktop-ui)
-│   ├── sidecar/                 ← Express 5.2.1 AI execution engine, port 3003
-│   ├── mcp/                     ← Cloudflare Worker MCP server (apps/mcp/)
-│   └── landing/                 ← Next.js 16 marketing site, port 3002
+│   ├── sidecar/                 ← Express 5.2.1 AI execution engine, port 3003 (env: `API_PORT`)
+│   ├── mcp/                     ← Cloudflare Worker MCP server
+│   ├── mcp-docs/                ← Next.js documentation site for MCP tools
+│   ├── landing/                 ← Next.js 16 marketing site, port 3002
+│   └── intro-video/             ← Intro video generation app
 ├── packages/
 │   ├── db/                      ← Prisma 7.4.0 + Postgres schema
+│   ├── execution-core/          ← Shared execution logic (batch, state, types)
 │   ├── types/                   ← Shared TypeScript types
+│   ├── openlinear/              ← Shared utilities and helpers
 │   └── openlinear-cli/          ← CLI package
 ├── scripts/deploy.sh            ← VPS deploy script (PM2 + git pull)
 ├── .github/workflows/deploy.yml ← CI: typecheck → build → test → SSH deploy
@@ -56,6 +60,8 @@ AI-powered project management that writes code. Users manage tasks on a kanban b
 pnpm --filter @openlinear/api dev          # API on :3001
 pnpm --filter @openlinear/desktop-ui dev   # UI on :3000
 pnpm --filter @openlinear/sidecar dev      # Sidecar on :3003
+pnpm dev-live                              # Alias for pnpm dev:live — starts API + UI + sidecar
+pnpm start                                 # Production preview with static export
 
 # Type check (run before marking any work done)
 pnpm --filter @openlinear/api typecheck
@@ -106,6 +112,9 @@ Two auth methods co-exist in `apps/api/src/middleware/auth.ts`:
 | `Comment` | `comments` | Threaded comments on tasks |
 | `AgentRun` | `agent_runs` | Execution history per task |
 | `Notification` | `notifications` | Inbox events |
+| `ChatSession` | `chat_sessions` | Home Chat sessions with project scope |
+| `ChatMessage` | `chat_messages` | Messages within a chat session (user/assistant/tool) |
+| `ChatToolCall` | `chat_tool_calls` | Persisted tool calls from assistant turns |
 
 **No Phase/Sprint/Milestone model exists.** Phases are represented as Labels with the naming convention `phase:N — Name`.
 
@@ -124,8 +133,9 @@ All routes under `/api/` prefix. Auth required unless noted.
 | `/api/workspaces` | `workspaces.ts` | CRUD + member management |
 | `/api/labels` | `labels.ts` | CRUD |
 | `/api/pats` | `pats.ts` | PAT create/list/revoke |
+| `/api/chat` | `chat.ts` | Home Chat session CRUD + SSE message streaming |
 | `/api/brainstorm` | (sidecar) | AI task generation, streams NDJSON |
-| `/api/events` | (app.ts:217) | SSE real-time stream (`?token=<jwt>`) |
+| `/api/events` | (app.ts:222) | SSE real-time stream (`?token=<jwt>`) |
 | `/api/inbox` | `inbox.ts` | Done/cancelled task feed |
 
 ---
@@ -136,7 +146,7 @@ All routes under `/api/` prefix. Auth required unless noted.
 
 Stateless Cloudflare Worker. Creates a fresh `NodeStreamableHTTPServerTransport` per POST request.
 
-**7 registered tools:**
+**8 registered tools:**
 | Tool | Purpose |
 |---|---|
 | `openlinear_list_workspaces` | List all workspaces for authenticated user |
@@ -173,7 +183,7 @@ Key files:
 | Service | URL | Status |
 |---|---|---|
 | MCP Worker | `https://mcp.openlinear.tech` | ✅ Live (Cloudflare Worker) |
-| API + Web UI | `https://openlinear.tech` | ⏳ Not deployed yet (Azure planned) |
+| API + Web UI | `https://openlinear.tech` | ✅ Done |
 | Database | Neon (Postgres, `ap-southeast-1`) | ✅ Live |
 | Docs | `https://mintlify.com` (kaizen403/docs) | ✅ Pushed |
 
@@ -189,6 +199,11 @@ ep-muddy-butterfly-a1ano1t9-pooler.ap-southeast-1.aws.neon.tech/neondb
 2. Run `cd apps/mcp && wrangler deploy`
 3. Update GitHub Actions workflow for Azure deployment (current workflow uses SSH + PM2 which is VPS-style)
 
+**API deployment notes:**
+- Production API runs on Azure Container Apps (`api.openlinear.tech`)
+- MCP Worker redeployed pointing to `api.openlinear.tech`
+- Current `.github/workflows/deploy.yml` uses SSH + PM2 (VPS-style) for the droplet
+
 ---
 
 ## Code Conventions
@@ -197,7 +212,7 @@ ep-muddy-butterfly-a1ano1t9-pooler.ap-southeast-1.aws.neon.tech/neondb
 - **Zod schemas** for all request validation in `apps/api/src/schemas/`
 - **Vitest** for tests in `apps/api/src/__tests__/` — run before marking work done
 - **Prisma transactions** for multi-row writes — see `POST /api/tasks/bulk` as example
-- **SSE events** for real-time — event types in `apps/api/src/app.ts:217-309`
+- **SSE events** for real-time — event types in `apps/api/src/app.ts:222-314`
 - **Error format:** `{ error: string, code: string, details?: object }` — never raw stack traces
 
 ---
