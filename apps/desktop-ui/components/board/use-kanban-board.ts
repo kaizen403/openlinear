@@ -11,12 +11,20 @@ import { apiFetch, ApiError, NetworkError } from "@/lib/api/fetch"
 import { getSetupStatus, OpenCodeUnavailableError } from "@/lib/api/opencode"
 import {
   appendExecutionLog,
+  clearExecutionProgress,
   getExecutionProgress,
   hasExecutionLogs,
   replaceExecutionLogs,
   setExecutionProgress,
 } from "@/lib/execution-state-store"
 import type { BatchMode } from "./batch-mode"
+import {
+  applyBoardStatusChange,
+  getLockedBatchTaskIds,
+  moveBoardTask,
+  replaceOptimisticTask,
+  upsertBoardTask,
+} from "./board-state"
 
 export const COLUMNS = [
   { id: 'todo', title: 'All Issues', status: 'todo' as const },
@@ -103,6 +111,7 @@ export interface UseKanbanBoardReturn {
   selectAllVisible: () => void
   clearSelection: () => void
   handleInlineCreateTask: (status: Task['status'], title: string) => Promise<void>
+  handleTaskCreated: (task: Task) => void
   handleBulkDelete: () => Promise<void>
   handleBulkChangeStatus: (status: Task['status']) => Promise<void>
   fetchTasks: (options?: {
@@ -135,11 +144,21 @@ export function useKanbanBoard({ projectId, teamId, projects = [], searchQuery =
   // and the second click on Execute is ignored. Cleared on success or failure.
   const [startingExecuteIds, setStartingExecuteIds] = useState<Set<string>>(new Set())
   const [taskDeletionMode, setTaskDeletionMode] = useState<"archive" | "delete">("archive")
+  const tasksRef = useRef(tasks)
+  const selectedTaskIdRef = useRef(selectedTaskId)
+  const taskDeletionModeRef = useRef(taskDeletionMode)
   const lastSelectedIdRef = useRef<string | null>(null)
   const { isAuthenticated, activeRepository, refreshActiveRepository } = useAuth()
 
-  const batchTaskIds = activeBatch?.tasks.map(t => t.taskId) ?? []
+  const lockedBatchTaskIds = useMemo(() => getLockedBatchTaskIds(activeBatch), [activeBatch])
+  const batchTaskIds = useMemo(() => Array.from(lockedBatchTaskIds), [lockedBatchTaskIds])
   const completedBatchTaskIds = completedBatch?.taskIds ?? []
+  const batchTaskIdsRef = useRef(batchTaskIds)
+
+  tasksRef.current = tasks
+  selectedTaskIdRef.current = selectedTaskId
+  taskDeletionModeRef.current = taskDeletionMode
+  batchTaskIdsRef.current = batchTaskIds
 
   const addStartingExecute = useCallback((taskId: string) => {
     setStartingExecuteIds(prev => {
@@ -185,13 +204,16 @@ export function useKanbanBoard({ projectId, teamId, projects = [], searchQuery =
   }, [clearColumnSelection])
 
   const toggleTaskSelect = useCallback((taskId: string, modifiers?: { shift?: boolean; meta?: boolean }) => {
-    if (batchTaskIds.includes(taskId)) return
+    const currentBatchTaskIds = batchTaskIdsRef.current
+    const currentTasks = tasksRef.current
+
+    if (currentBatchTaskIds.includes(taskId)) return
     setSelectedTaskId(null)
 
     if (modifiers?.shift && lastSelectedIdRef.current) {
       const orderedIds: string[] = []
       for (const col of COLUMNS) {
-        for (const t of tasks) {
+        for (const t of currentTasks) {
           if (t.status === col.status) orderedIds.push(t.id)
         }
       }
@@ -203,7 +225,7 @@ export function useKanbanBoard({ projectId, teamId, projects = [], searchQuery =
           const next = new Set(prev)
           for (let i = from; i <= to; i++) {
             const id = orderedIds[i]
-            if (id && !batchTaskIds.includes(id)) next.add(id)
+            if (id && !currentBatchTaskIds.includes(id)) next.add(id)
           }
           return next
         })
@@ -219,7 +241,7 @@ export function useKanbanBoard({ projectId, teamId, projects = [], searchQuery =
       return next
     })
     lastSelectedIdRef.current = taskId
-  }, [batchTaskIds, tasks])
+  }, [])
 
   const toggleColumnSelectAll = useCallback((status: Task['status']) => {
     setSelectedTaskId(null)
@@ -259,14 +281,9 @@ export function useKanbanBoard({ projectId, teamId, projects = [], searchQuery =
         clearColumnSelection('in_progress')
         changed = true
       }
-      if (completedBatchTaskIds.length > 0 && next.has('done')) {
-        next.delete('done')
-        clearColumnSelection('done')
-        changed = true
-      }
       return changed ? next : prev
     })
-  }, [batchTaskIds.length, completedBatchTaskIds.length, clearColumnSelection])
+  }, [batchTaskIds.length, clearColumnSelection])
 
   const handleBatchExecute = async (mode: BatchMode) => {
     // Only In Progress tasks may be executed in a batch. Mixed selections
@@ -469,7 +486,7 @@ export function useKanbanBoard({ projectId, teamId, projects = [], searchQuery =
     let shouldStopLoading = showLoading
 
     try {
-      const params = new URLSearchParams()
+      const params = new URLSearchParams({ pageSize: "200" })
       if (projectId) params.set('projectId', projectId)
       if (teamId) params.set('teamId', teamId)
       const qs = params.toString()
@@ -546,13 +563,24 @@ export function useKanbanBoard({ projectId, teamId, projects = [], searchQuery =
             identifier: data.identifier ?? null,
             number: data.number ?? null,
             dueDate: data.dueDate ?? null,
+            teamId: taskTeamId ?? null,
+            projectId: taskProjectId ?? null,
           }
-          setTasks((prev) => [...prev, newTask])
+          setTasks((prev) => upsertBoardTask(prev, newTask))
+        }
+        break
+
+      case 'tasks:bulk-created':
+        if (!projectId || data.projectId === projectId) {
+          fetchTasks({ silent: true })
         }
         break
 
       case 'task:updated':
         if (data.id) {
+          if (data.status && data.status !== 'in_progress') {
+            clearExecutionProgress(data.id)
+          }
           setTasks((prev) =>
             prev.map((task) =>
               task.id === data.id
@@ -582,7 +610,15 @@ export function useKanbanBoard({ projectId, teamId, projects = [], searchQuery =
 
       case 'task:deleted':
         if (data.id) {
+          clearExecutionProgress(data.id)
           setTasks((prev) => prev.filter((task) => task.id !== data.id))
+          setSelectedTaskIds((prev) => {
+            if (!prev.has(data.id!)) return prev
+            const next = new Set(prev)
+            next.delete(data.id!)
+            return next
+          })
+          setSelectedTaskId((prev) => (prev === data.id ? null : prev))
         }
         break
 
@@ -751,6 +787,7 @@ export function useKanbanBoard({ projectId, teamId, projects = [], searchQuery =
   const updateTaskStatus = async (
     taskIds: string | string[],
     newStatus: Task['status'],
+    options: { destinationIndex?: number } = {},
   ) => {
     const ids = Array.isArray(taskIds) ? taskIds : [taskIds]
     if (ids.length === 0) return
@@ -759,19 +796,28 @@ export function useKanbanBoard({ projectId, teamId, projects = [], searchQuery =
     setTasks((prev) => {
       snapshot = prev
       const idSet = new Set(ids)
+      if (ids.length === 1 && options.destinationIndex !== undefined) {
+        return moveBoardTask(prev, ids[0]!, newStatus, options.destinationIndex)
+      }
       return prev.map((task) =>
-        idSet.has(task.id) ? { ...task, status: newStatus } : task,
+        idSet.has(task.id) ? applyBoardStatusChange(task, newStatus) : task,
       )
     })
+    if (newStatus !== 'in_progress') {
+      ids.forEach(clearExecutionProgress)
+    }
 
     try {
-      await Promise.all(
+      const updatedTasks = await Promise.all(
         ids.map((id) =>
-          apiFetch(`/api/tasks/${id}`, {
+          apiFetch<Task>(`/api/tasks/${id}`, {
             method: 'PATCH',
             body: JSON.stringify({ status: newStatus }),
           }),
         ),
+      )
+      setTasks((prev) =>
+        updatedTasks.reduce((next, task) => upsertBoardTask(next, task), prev),
       )
     } catch (err) {
       setTasks(snapshot)
@@ -823,7 +869,7 @@ export function useKanbanBoard({ projectId, teamId, projects = [], searchQuery =
       dueDate: null,
     }
 
-    setTasks(prev => [...prev, optimistic])
+    setTasks(prev => [optimistic, ...prev])
 
     try {
       const created = await apiFetch<Task>('/api/tasks', {
@@ -835,7 +881,7 @@ export function useKanbanBoard({ projectId, teamId, projects = [], searchQuery =
           teamId: teamId || undefined,
         }),
       })
-      setTasks(prev => prev.map(t => (t.id === tempId ? created : t)))
+      setTasks(prev => replaceOptimisticTask(prev, tempId, created))
     } catch (err) {
       setTasks(prev => prev.filter(t => t.id !== tempId))
       const msg = err instanceof Error ? err.message : 'Failed to create task'
@@ -843,6 +889,10 @@ export function useKanbanBoard({ projectId, teamId, projects = [], searchQuery =
       toast.error(msg)
     }
   }, [projectId, teamId])
+
+  const handleTaskCreated = useCallback((task: Task) => {
+    setTasks((prev) => upsertBoardTask(prev, task))
+  }, [])
 
   const handleBulkDelete = useCallback(async () => {
     const ids = Array.from(selectedTaskIds).filter(id => !batchTaskIds.includes(id))
@@ -913,7 +963,7 @@ export function useKanbanBoard({ projectId, teamId, projects = [], searchQuery =
       return
     }
 
-    await updateTaskStatus(draggableId, newStatus)
+    await updateTaskStatus(draggableId, newStatus, { destinationIndex: destination.index })
   }
 
   const handleExecute = async (taskId: string) => {
@@ -1026,12 +1076,12 @@ export function useKanbanBoard({ projectId, teamId, projects = [], searchQuery =
     setSelectedTaskId(null)
   }
 
-  const handleDelete = async (taskId: string) => {
-    const previousTasks = tasks
-    const previousSelectedTaskId = selectedTaskId
+  const handleDelete = useCallback(async (taskId: string) => {
+    const previousTasks = tasksRef.current
+    const previousSelectedTaskId = selectedTaskIdRef.current
     setTasks((prev) => prev.filter((t) => t.id !== taskId))
     setSelectedTaskId(null)
-    const permanent = taskDeletionMode === "delete"
+    const permanent = taskDeletionModeRef.current === "delete"
     try {
       await apiFetch(`/api/tasks/${taskId}${permanent ? "?permanent=true" : ""}`, { method: 'DELETE' })
     } catch (err) {
@@ -1041,7 +1091,7 @@ export function useKanbanBoard({ projectId, teamId, projects = [], searchQuery =
       console.error('Error deleting task:', err)
       toast.error(msg)
     }
-  }
+  }, [])
 
   const handleUpdateTask = async (taskId: string, data: { title?: string; description?: string | null }) => {
     try {
@@ -1131,6 +1181,7 @@ export function useKanbanBoard({ projectId, teamId, projects = [], searchQuery =
     selectAllVisible,
     clearSelection,
     handleInlineCreateTask,
+    handleTaskCreated,
     handleBulkDelete,
     handleBulkChangeStatus,
     fetchTasks,

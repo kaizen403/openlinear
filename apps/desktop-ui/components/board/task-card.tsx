@@ -25,6 +25,7 @@ interface TaskCardProps {
   isBatchTask?: boolean
   isCompletedBatchTask?: boolean
   isDragging?: boolean
+  suppressExecutionProgress?: boolean
 }
 
 function formatDueDate(dateStr: string): { text: string; isOverdue: boolean } {
@@ -63,10 +64,23 @@ const LiveDuration = memo(function LiveDuration({ startedAt }: { startedAt: stri
   return <>{formatDuration(ms)}</>
 })
 
-function TaskCardComponent({ task, onExecute, onCancel, onDelete, deletionMode, onMoveToInProgress, onTaskClick, executionProgress, selected, onToggleSelect, selectionMode, isBatchTask, isCompletedBatchTask, isDragging }: TaskCardProps) {
+function TaskCardComponent({ task, onExecute, onCancel, onDelete, deletionMode, onMoveToInProgress, onTaskClick, executionProgress, selected, onToggleSelect, selectionMode, isBatchTask, isCompletedBatchTask, isDragging, suppressExecutionProgress }: TaskCardProps) {
   const [cancelling, setCancelling] = useState(false)
   const liveProgress = useExecutionProgress(task.id)
-  const currentProgress = executionProgress ?? liveProgress
+  const currentProgress = suppressExecutionProgress ? undefined : (executionProgress ?? liveProgress)
+  const progressForTask = currentProgress?.taskId === task.id ? currentProgress : undefined
+  const progressIsActive = progressForTask
+    ? ['cloning', 'executing', 'committing', 'creating_pr'].includes(progressForTask.status)
+    : false
+  const progressIsTerminal = progressForTask
+    ? ['done', 'cancelled', 'error'].includes(progressForTask.status)
+    : false
+  const cardProgress =
+    task.status === 'in_progress'
+      ? progressForTask
+      : (task.status === 'done' || task.status === 'cancelled') && progressIsTerminal
+        ? progressForTask
+        : undefined
 
   useEffect(() => {
     if (task.status !== 'in_progress') {
@@ -117,9 +131,13 @@ function TaskCardComponent({ task, onExecute, onCancel, onDelete, deletionMode, 
     }
   }
 
-  const cardProgress = currentProgress?.taskId === task.id ? currentProgress : undefined
-  const isActiveProgress = cardProgress ? ['cloning', 'executing', 'committing', 'creating_pr'].includes(cardProgress.status) : false
+  const isActiveProgress = task.status === 'in_progress' && !!cardProgress && progressIsActive
   const prLink = !isActiveProgress ? (cardProgress?.prUrl || task.prUrl) : null
+  const showLiveDuration = isActiveProgress && !!task.executionStartedAt && !task.executionPausedAt
+  const showStoredDuration =
+    !showLiveDuration &&
+    (task.status === 'in_progress' || task.status === 'done' || task.status === 'cancelled') &&
+    (task.executionElapsedMs ?? 0) > 0
 
   return (
     <Card
@@ -253,13 +271,10 @@ function TaskCardComponent({ task, onExecute, onCancel, onDelete, deletionMode, 
                 </span>
               )
             })()}
-            {((task.status === 'in_progress' && task.executionStartedAt && !task.executionPausedAt) ||
-              (task.status === 'in_progress' && task.executionPausedAt && (task.executionElapsedMs ?? 0) > 0) ||
-              ((task.status === 'done' || task.status === 'cancelled') && (task.executionElapsedMs ?? 0) > 0)
-            ) && (
+            {(showLiveDuration || showStoredDuration) && (
               <span className="text-[11px] text-linear-text-tertiary flex items-center gap-1 whitespace-nowrap tabular-nums">
                 <Clock className="w-3 h-3 flex-shrink-0" />
-                {task.status === 'in_progress' && task.executionStartedAt && !task.executionPausedAt ? (
+                {showLiveDuration && task.executionStartedAt ? (
                   <LiveDuration startedAt={task.executionStartedAt} />
                 ) : (
                   formatDuration(task.executionElapsedMs)
@@ -352,6 +367,8 @@ export const TaskCard = memo(TaskCardComponent, (prev, next) => {
     prev.selectionMode === next.selectionMode &&
     prev.isDragging === next.isDragging &&
     prev.isBatchTask === next.isBatchTask &&
-    prev.isCompletedBatchTask === next.isCompletedBatchTask
+    prev.isCompletedBatchTask === next.isCompletedBatchTask &&
+    prev.suppressExecutionProgress === next.suppressExecutionProgress &&
+    prev.deletionMode === next.deletionMode
   )
 })

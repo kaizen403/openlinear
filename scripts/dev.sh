@@ -3,16 +3,34 @@ set -e
 
 cd "$(dirname "$0")/.."
 
-# Skip docker if DATABASE_URL points to a remote host (not localhost)
-if grep -q 'localhost\|127\.0\.0\.1' .env 2>/dev/null; then
-  if ! docker ps --format '{{.Names}}' | grep -q 'openlinear-db'; then
-    echo "[dev] Starting database..."
-    docker compose up -d
-    sleep 2
-  fi
-else
-  echo "[dev] Using remote database, skipping docker..."
+if [ -f .env ]; then
+  set -a
+  # shellcheck disable=SC1091
+  source .env
+  set +a
 fi
+
+ensure_database() {
+  if [ -z "${DATABASE_URL:-}" ]; then
+    export DATABASE_URL="postgresql://openlinear:openlinear@localhost:5432/openlinear"
+  fi
+
+  if echo "$DATABASE_URL" | grep -qE 'localhost|127\.0\.0\.1'; then
+    if ! command -v docker >/dev/null 2>&1; then
+      echo "[dev] Local DATABASE_URL requires Postgres. Install/start Postgres or Docker."
+      exit 1
+    fi
+    if ! docker ps --format '{{.Names}}' | grep -qx 'openlinear-db'; then
+      echo "[dev] Starting Postgres database container only..."
+      docker compose up -d postgres
+      sleep 2
+    fi
+  else
+    echo "[dev] Using configured remote database; skipping Docker."
+  fi
+}
+
+ensure_database
 
 echo "[dev] Seeding test tasks..."
 pnpm db:seed

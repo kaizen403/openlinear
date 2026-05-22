@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest"
-import type { Task } from "../../types/task"
-import type { ActiveBatch } from "./use-kanban-board"
 import {
+  applyBoardStatusChange,
   getLockedBatchTaskIds,
+  moveBoardTask,
   replaceOptimisticTask,
   upsertBoardTask,
 } from "./board-state"
 
-function task(id: string, status: Task["status"] = "todo"): Task {
+function task(id, status = "todo") {
   return {
     id,
     title: `Task ${id}`,
@@ -32,7 +32,7 @@ function task(id: string, status: Task["status"] = "todo"): Task {
   }
 }
 
-function batch(status: string): ActiveBatch {
+function batch(status) {
   return {
     id: "batch-1",
     status,
@@ -68,5 +68,48 @@ describe("board task state", () => {
     expect(getLockedBatchTaskIds(batch("running"))).toEqual(new Set(["task-1", "task-2"]))
     expect(getLockedBatchTaskIds(batch("completed"))).toEqual(new Set())
     expect(getLockedBatchTaskIds(null)).toEqual(new Set())
+  })
+
+  it("moves a dragged task into the requested column position", () => {
+    const todoOne = task("todo-1", "todo")
+    const todoTwo = task("todo-2", "todo")
+    const doneOne = task("done-1", "done")
+
+    const next = moveBoardTask([todoOne, todoTwo, doneOne], doneOne.id, "todo", 1)
+
+    expect(next.map((candidate) => candidate.id)).toEqual(["todo-1", "done-1", "todo-2"])
+    expect(next[1].status).toBe("todo")
+  })
+
+  it("reorders a task inside its current column", () => {
+    const first = task("task-1", "todo")
+    const second = task("task-2", "todo")
+    const third = task("task-3", "todo")
+
+    const next = moveBoardTask([first, second, third], third.id, "todo", 0)
+
+    expect(next.map((candidate) => candidate.id)).toEqual(["task-3", "task-1", "task-2"])
+  })
+
+  it("clears runtime execution state when a task is manually moved out of in progress", () => {
+    const runningTask = {
+      ...task("task-1", "in_progress"),
+      sessionId: "session-1",
+      executionStartedAt: "2026-05-22T00:00:00.000Z",
+      executionPausedAt: null,
+      executionElapsedMs: 12_000,
+      executionProgress: 50,
+      batchId: "batch-1",
+    }
+
+    expect(applyBoardStatusChange(runningTask, "todo")).toMatchObject({
+      status: "todo",
+      sessionId: null,
+      executionStartedAt: null,
+      executionPausedAt: null,
+      executionElapsedMs: 0,
+      executionProgress: null,
+      batchId: null,
+    })
   })
 })

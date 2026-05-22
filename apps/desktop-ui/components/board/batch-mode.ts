@@ -12,3 +12,20 @@ export function formatBatchMode(mode: string | null | undefined): string {
       return 'Batch'
   }
 }
+
+export function formatBatchExecutionMode(mode: string | null | undefined): string {
+  switch (mode) {
+    case 'parallel':
+      return 'Parallel Execution'
+    case 'queue':
+      return 'Queue Execution'
+    case 'combined':
+      return 'Combined Execution'
+    default:
+      return 'Batch Execution'
+  }
+}
+
+export function getBatchActivityId(batchId: string): string {
+  return `batch:${batchId}`
+}

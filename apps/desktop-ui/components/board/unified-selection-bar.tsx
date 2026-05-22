@@ -7,7 +7,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { Play, ListOrdered, ArrowRight, X, Archive, ChevronDown, MoveRight, Layers } from "lucide-react"
+import { Play, ListOrdered, ArrowRight, X, Archive, ChevronDown, MoveRight, Layers, Trash2 } from "lucide-react"
 import { Task } from "@/types/task"
 
 export interface SelectionBuckets {
@@ -29,6 +29,7 @@ interface UnifiedSelectionBarProps {
   onChangeStatus: (status: Task['status']) => void
   onArchive: () => void
   onClear: () => void
+  deletionMode?: "archive" | "delete"
 }
 
 const STATUS_LABELS: Record<Task['status'], string> = {
@@ -50,6 +51,7 @@ export function UnifiedSelectionBar({
   onChangeStatus,
   onArchive,
   onClear,
+  deletionMode = "archive",
 }: UnifiedSelectionBarProps) {
   if (selectedCount === 0) return null
 
@@ -178,8 +180,14 @@ export function UnifiedSelectionBar({
         onClick={onArchive}
         className="h-8 border-linear-border text-linear-text hover:bg-red-500/10 hover:text-red-300 hover:border-red-500/30 gap-1.5"
       >
-        <Archive className="w-3.5 h-3.5" />
-        <span className="hidden sm:inline">Archive</span>
+        {deletionMode === "delete" ? (
+          <Trash2 className="w-3.5 h-3.5" />
+        ) : (
+          <Archive className="w-3.5 h-3.5" />
+        )}
+        <span className="hidden sm:inline">
+          {deletionMode === "delete" ? "Delete" : "Archive"}
+        </span>
       </Button>
 
       <Button

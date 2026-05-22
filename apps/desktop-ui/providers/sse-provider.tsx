@@ -50,6 +50,7 @@ export type SSEEventType =
   | 'task:created'
   | 'task:updated'
   | 'task:deleted'
+  | 'tasks:bulk-created'
   | 'label:created'
   | 'label:updated'
   | 'label:deleted'
@@ -101,6 +102,7 @@ const ALL_EVENT_TYPES: SSEEventType[] = [
   'task:created',
   'task:updated',
   'task:deleted',
+  'tasks:bulk-created',
   'label:created',
   'label:updated',
   'label:deleted',

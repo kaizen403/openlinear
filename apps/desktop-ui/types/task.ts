@@ -31,6 +31,7 @@ export interface Task {
   assignee?: { id: string; username: string; avatarUrl: string | null } | null
   creator?: { id: string; username: string; avatarUrl: string | null } | null
   teamId?: string | null
+  projectId?: string | null
 }
 
 export interface ExecutionProgress {

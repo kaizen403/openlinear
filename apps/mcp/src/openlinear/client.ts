@@ -37,9 +37,12 @@ export class OpenLinearClient {
     return this.request("GET", "/api/workspaces");
   }
 
-  listProjects(params?: { workspaceId?: string }) {
-    const qs = params?.workspaceId ? `?workspaceId=${encodeURIComponent(params.workspaceId)}` : "";
-    return this.request("GET", `/api/projects${qs}`);
+  listProjects(params?: { workspaceId?: string; teamId?: string }) {
+    const qs = new URLSearchParams();
+    if (params?.workspaceId) qs.set("workspaceId", params.workspaceId);
+    if (params?.teamId) qs.set("teamId", params.teamId);
+    const query = qs.toString();
+    return this.request("GET", `/api/projects${query ? `?${query}` : ""}`);
   }
 
   createProject(data: unknown) {
@@ -48,6 +51,18 @@ export class OpenLinearClient {
 
   getProject(id: string) {
     return this.request("GET", `/api/projects/${encodeURIComponent(id)}`);
+  }
+
+  listTeams(params?: { workspaceId?: string; projectId?: string }) {
+    const qs = new URLSearchParams();
+    if (params?.workspaceId) qs.set("workspaceId", params.workspaceId);
+    if (params?.projectId) qs.set("projectId", params.projectId);
+    const query = qs.toString();
+    return this.request("GET", `/api/teams${query ? `?${query}` : ""}`);
+  }
+
+  createTeam(data: unknown) {
+    return this.request<{ id: string; key: string; name: string }>("POST", "/api/teams", data);
   }
 
   createTask(data: unknown) {
@@ -70,8 +85,8 @@ export class OpenLinearClient {
     return this.request<{ id: string; name: string }>("POST", "/api/labels", data);
   }
 
-  listLabels(params?: { teamId?: string }) {
-    const qs = params?.teamId ? `?teamId=${encodeURIComponent(params.teamId)}` : "";
-    return this.request("GET", `/api/labels${qs}`);
+  listLabels(params: { projectId: string }) {
+    const qs = new URLSearchParams({ projectId: params.projectId });
+    return this.request("GET", `/api/labels?${qs.toString()}`);
   }
 }

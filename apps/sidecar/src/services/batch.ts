@@ -11,6 +11,12 @@ import { execFileAsync } from './execution/exec';
 import { hasCommittableChanges, stageCommittableChanges } from './execution/git';
 import { broadcastProgress } from './execution/state';
 import { getExecutionSettings } from './execution-settings';
+import {
+  batchActivityId,
+  batchIdFromActivityId,
+  formatExecutionMode,
+  getInitialBatchLaunchIndexes,
+} from './batch-mode';
 
 const activeBatches = new Map<string, BatchState>();
 const sessionToBatch = new Map<string, { batchId: string; taskIds: string[] }>();
@@ -99,6 +105,15 @@ function broadcastBatchProgress(
   data?: Record<string, unknown>,
 ): void {
   for (const taskId of taskIds) {
+    const batchId = batchIdFromActivityId(taskId);
+    if (batchId) {
+      const batch = activeBatches.get(batchId);
+      if (batch?.userId) {
+        console.log(`[Batch] ${batchId.slice(0, 8)} → ${status}: ${message}`);
+        broadcastToUser(batch.userId, 'execution:progress', { taskId, status, message, ...data });
+      }
+      continue;
+    }
     broadcastProgress(taskId, status, message, data);
   }
 }
@@ -230,13 +245,10 @@ export async function startBatch(batchId: string): Promise<void> {
       console.error(`[Batch] Unhandled combined batch launch failure for ${batch.id.slice(0, 8)}:`, error);
       await handleCombinedBatchComplete(batch.id, false, errorMsg);
     });
-  } else if (batch.mode === 'parallel') {
-    const count = Math.min(batch.settings.maxConcurrent, batch.tasks.length);
-    for (let i = 0; i < count; i++) {
-      launchTask(batch, i);
-    }
   } else {
-    launchTask(batch, 0);
+    for (const taskIndex of getInitialBatchLaunchIndexes(batch.mode, batch.tasks.length)) {
+      launchTask(batch, taskIndex);
+    }
   }
 }
 
@@ -312,8 +324,9 @@ async function startTask(batch: BatchState, taskIndex: number): Promise<void> {
       executionProgress: 0,
     });
 
-    emitBatchLog(task.taskId, 'info', `Batch task started in ${batch.mode} mode`);
-    broadcastBatchProgress([task.taskId], 'executing', `Batch task started in ${batch.mode} mode`);
+    const modeLabel = formatExecutionMode(batch.mode);
+    emitBatchLog(task.taskId, 'info', `${modeLabel} started for this issue`);
+    broadcastBatchProgress([task.taskId], 'executing', `${modeLabel} started for this issue`);
 
     subscribeToTaskEvents(client, sessionId, batch.id, task.taskId);
 
@@ -430,6 +443,7 @@ async function startCombinedBatch(batch: BatchState): Promise<void> {
 
   const startedAt = new Date();
   const taskIds = batch.tasks.map(task => task.taskId);
+  const activityId = batchActivityId(batch.id);
   sessionToBatch.set(sessionId, { batchId: batch.id, taskIds });
 
   for (const task of batch.tasks) {
@@ -440,24 +454,24 @@ async function startCombinedBatch(batch: BatchState): Promise<void> {
     task.sessionId = sessionId;
 
     broadcastBatchEvent('batch:task:started', batch.id, { taskId: task.taskId, title: task.title });
-    emitBatchLog(task.taskId, 'info', `Combined batch task started with ${batch.tasks.length} selected tasks`);
     await updateTaskInDb(task.taskId, 'in_progress', {
       executionStartedAt: startedAt,
       executionProgress: 0,
     });
   }
 
+  emitBatchLog(activityId, 'info', `Combined Execution started for ${batch.tasks.length} selected issues`);
   broadcastBatchProgress(
-    taskIds,
+    [activityId],
     'executing',
-    `Combined execution started for ${batch.tasks.length} selected tasks`,
+    `Combined Execution started for ${batch.tasks.length} selected issues`,
   );
 
   subscribeToSessionEvents({
     client,
     sessionId,
     batchId: batch.id,
-    taskIds,
+    taskIds: [activityId],
     onComplete: (success, error) => handleCombinedBatchComplete(batch.id, success, error),
   });
 
@@ -477,6 +491,15 @@ function emitBatchLog(taskId: string, type: 'info' | 'agent' | 'tool' | 'error' 
     batchTaskLogs.set(taskId, []);
   }
   batchTaskLogs.get(taskId)!.push(entry);
+
+  const batchId = batchIdFromActivityId(taskId);
+  if (batchId) {
+    const batch = activeBatches.get(batchId);
+    if (batch?.userId) {
+      broadcastToUser(batch.userId, 'execution:log', { taskId, entry });
+    }
+    return;
+  }
 
   broadcastToTaskById(taskId, 'execution:log', { taskId, entry }).catch((error: unknown) => {
     console.error(`[Batch] Failed to broadcast log for task ${taskId.slice(0, 8)}:`, error);
@@ -966,13 +989,14 @@ async function handleCombinedBatchComplete(
   let completionSucceeded = success;
   let completionError = error;
   const sessionId = batch.tasks.find(task => task.sessionId)?.sessionId ?? null;
+  const activityId = batchActivityId(batch.id);
 
   try {
     if (completionSucceeded) {
       broadcastBatchProgress(
-        batch.tasks.map(task => task.taskId),
+        [activityId],
         'committing',
-        'Committing combined batch changes...',
+        'Committing Combined Execution changes...',
       );
       const worktreePath = batch.tasks.find(task => task.worktreePath)?.worktreePath;
       if (!worktreePath) {
@@ -1004,17 +1028,16 @@ async function handleCombinedBatchComplete(
     }
 
     if (completionSucceeded) {
+      emitBatchLog(activityId, 'success', 'Combined Execution completed');
       for (const task of batch.tasks) {
         task.status = 'completed';
         task.completedAt = completedAt;
         broadcastBatchEvent('batch:task:completed', batchId, { taskId: task.taskId });
-        emitBatchLog(task.taskId, 'success', 'Combined batch task completed');
         await updateTaskInDb(task.taskId, 'done', {
           executionElapsedMs: elapsedMs,
           executionProgress: 100,
-          outcome: 'Completed via combined batch execution',
+          outcome: 'Completed via Combined Execution',
         });
-        await persistBatchTaskLogs(task.taskId);
       }
 
       if (sessionId) {
@@ -1028,19 +1051,18 @@ async function handleCombinedBatchComplete(
     batch.status = 'failed';
     batch.completedAt = completedAt;
     const failure = completionError || 'Unknown error';
+    emitBatchLog(activityId, 'error', `Combined Execution failed: ${failure}`);
+    broadcastBatchProgress([activityId], 'error', failure);
 
     for (const task of batch.tasks) {
       task.status = 'failed';
       task.error = failure;
       task.completedAt = completedAt;
       broadcastBatchEvent('batch:task:failed', batchId, { taskId: task.taskId, error: failure });
-      emitBatchLog(task.taskId, 'error', `Combined batch failed: ${failure}`);
       await updateTaskInDb(task.taskId, 'todo', {
         executionElapsedMs: elapsedMs,
         outcome: `Failed: ${failure}`,
       });
-      broadcastBatchProgress([task.taskId], 'error', failure);
-      await persistBatchTaskLogs(task.taskId);
     }
 
     if (sessionId) {
@@ -1054,6 +1076,8 @@ async function handleCombinedBatchComplete(
       console.error(`[Batch] Cleanup failed for combined batch ${batchId.slice(0, 8)}:`, cleanupError);
     }
   } finally {
+    cleanupDeltaBuffer(activityId);
+    batchTaskLogs.delete(activityId);
     for (const task of batch.tasks) {
       cleanupDeltaBuffer(task.taskId);
       completingBatchTasks.delete(completionKey(batchId, task.taskId));
@@ -1152,7 +1176,7 @@ async function finalizeBatch(batchId: string): Promise<void> {
         const completedTaskIds = batch.tasks
           .filter(t => t.status === 'completed')
           .map(t => t.taskId);
-        broadcastBatchProgress(completedTaskIds, 'creating_pr', 'Creating batch pull request...');
+        broadcastBatchProgress(completedTaskIds, 'creating_pr', `Creating ${formatExecutionMode(batch.mode)} pull request...`);
 
         const proj = await prisma.repository.findUnique({ where: { id: batch.projectId } });
         if (proj) {
@@ -1160,8 +1184,8 @@ async function finalizeBatch(batchId: string): Promise<void> {
 
           const completedTasks = batch.tasks.filter(t => t.status === 'completed');
           const taskTitles = completedTasks.map(t => `- ${t.title}`).join('\n');
-          const prTitle = `Batch: ${completedTasks.length} tasks`;
-          const prBody = `Automated batch PR by OpenLinear\n\n## Tasks\n${taskTitles}`;
+          const prTitle = `${formatExecutionMode(batch.mode)}: ${completedTasks.length} issues`;
+          const prBody = `Automated ${formatExecutionMode(batch.mode)} PR by OpenLinear\n\n## Issues\n${taskTitles}`;
 
           const [owner, repo] = proj.fullName.split('/');
           const compareUrl = `https://github.com/${owner}/${repo}/compare/${targetBranch}...${batch.batchBranch}`;
@@ -1209,12 +1233,12 @@ async function finalizeBatch(batchId: string): Promise<void> {
         for (const taskId of completedTaskIds) {
           await updateTaskInDb(taskId, 'done', { prUrl: batch.prUrl });
         }
-        broadcastBatchProgress(completedTaskIds, 'done', 'Batch pull request ready', { prUrl: batch.prUrl });
+        broadcastBatchProgress(completedTaskIds, 'done', `${formatExecutionMode(batch.mode)} pull request ready`, { prUrl: batch.prUrl });
       } else {
         broadcastBatchProgress(
           batch.tasks.filter(t => t.status === 'completed').map(t => t.taskId),
           'done',
-          'Batch completed',
+          `${formatExecutionMode(batch.mode)} completed`,
         );
       }
 
@@ -1266,17 +1290,15 @@ async function finalizeCombinedBatch(batchId: string): Promise<void> {
 
     if (proj) {
       try {
-        const completedTaskIds = batch.tasks
-          .filter(t => t.status === 'completed')
-          .map(t => t.taskId);
-        broadcastBatchProgress(completedTaskIds, 'creating_pr', 'Creating combined pull request...');
+        const activityId = batchActivityId(batch.id);
+        broadcastBatchProgress([activityId], 'creating_pr', 'Creating Combined Execution pull request...');
 
         await pushBranch(batch.projectId, batch.batchBranch, proj.cloneUrl, batch.accessToken);
 
         const completedTasks = batch.tasks.filter(t => t.status === 'completed');
         const taskTitles = completedTasks.map(t => `- ${t.title}`).join('\n');
-        const prTitle = `Combined batch: ${completedTasks.length} tasks`;
-        const prBody = `Automated combined batch PR by OpenLinear\n\n## Tasks\n${taskTitles}`;
+        const prTitle = `Combined Execution: ${completedTasks.length} issues`;
+        const prBody = `Automated Combined Execution PR by OpenLinear\n\n## Issues\n${taskTitles}`;
 
         const [owner, repo] = proj.fullName.split('/');
         const compareUrl = `https://github.com/${owner}/${repo}/compare/${targetBranch}...${batch.batchBranch}`;
@@ -1316,6 +1338,7 @@ async function finalizeCombinedBatch(batchId: string): Promise<void> {
 
     batch.status = 'completed';
     batch.completedAt = new Date();
+    const activityId = batchActivityId(batch.id);
 
     if (batch.prUrl) {
       const completedTaskIds = batch.tasks
@@ -1324,12 +1347,12 @@ async function finalizeCombinedBatch(batchId: string): Promise<void> {
       for (const taskId of completedTaskIds) {
         await updateTaskInDb(taskId, 'done', { prUrl: batch.prUrl });
       }
-      broadcastBatchProgress(completedTaskIds, 'done', 'Combined pull request ready', { prUrl: batch.prUrl });
+      broadcastBatchProgress([activityId], 'done', 'Combined Execution pull request ready', { prUrl: batch.prUrl });
     } else {
       broadcastBatchProgress(
-        batch.tasks.filter(t => t.status === 'completed').map(t => t.taskId),
+        [activityId],
         'done',
-        'Combined batch completed',
+        'Combined Execution completed',
       );
     }
 
@@ -1345,8 +1368,11 @@ async function finalizeCombinedBatch(batchId: string): Promise<void> {
     console.error(`[Batch] Combined finalization failed for batch ${batchId.slice(0, 8)}:`, error);
     batch.status = 'failed';
     batch.completedAt = new Date();
+    broadcastBatchProgress([batchActivityId(batch.id)], 'error', errorMsg);
     broadcastBatchEvent('batch:failed', batchId, { error: errorMsg });
   } finally {
+    cleanupDeltaBuffer(batchActivityId(batch.id));
+    batchTaskLogs.delete(batchActivityId(batch.id));
     for (const task of batch.tasks) {
       cleanupDeltaBuffer(task.taskId);
       completingBatchTasks.delete(completionKey(batchId, task.taskId));
@@ -1362,6 +1388,11 @@ export async function cancelBatch(batchId: string): Promise<void> {
   }
 
   batch.status = 'cancelled';
+  const combinedActivityId = batch.mode === 'combined' ? batchActivityId(batch.id) : null;
+  if (combinedActivityId) {
+    emitBatchLog(combinedActivityId, 'info', 'Combined Execution cancelled');
+    broadcastBatchProgress([combinedActivityId], 'cancelled', 'Combined Execution cancelled');
+  }
 
   const abortedSessionIds = new Set<string>();
   for (const task of batch.tasks) {
@@ -1380,12 +1411,16 @@ export async function cancelBatch(batchId: string): Promise<void> {
       cleanupDeltaBuffer(task.taskId);
       completingBatchTasks.delete(completionKey(batchId, task.taskId));
       sessionToBatch.delete(task.sessionId);
-      broadcastBatchProgress([task.taskId], 'cancelled', 'Batch execution cancelled');
+      if (!combinedActivityId) {
+        broadcastBatchProgress([task.taskId], 'cancelled', `${formatExecutionMode(batch.mode)} cancelled`);
+      }
     } else if (task.status === 'queued') {
       task.status = 'cancelled';
       cleanupDeltaBuffer(task.taskId);
       completingBatchTasks.delete(completionKey(batchId, task.taskId));
-      broadcastBatchProgress([task.taskId], 'cancelled', 'Batch execution cancelled');
+      if (!combinedActivityId) {
+        broadcastBatchProgress([task.taskId], 'cancelled', `${formatExecutionMode(batch.mode)} cancelled`);
+      }
     }
   }
 
@@ -1418,7 +1453,7 @@ export async function cancelTask(batchId: string, taskId: string): Promise<void>
   task.completedAt = new Date();
   cleanupDeltaBuffer(taskId);
   completingBatchTasks.delete(completionKey(batchId, taskId));
-  broadcastBatchProgress([taskId], 'cancelled', 'Batch task cancelled');
+  broadcastBatchProgress([taskId], 'cancelled', `${formatExecutionMode(batch.mode)} task cancelled`);
 
   if (task.sessionId && task.worktreePath && batch.userId) {
     try {

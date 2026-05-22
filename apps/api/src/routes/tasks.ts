@@ -546,6 +546,7 @@ router.patch(
         data.executionPausedAt = null;
         data.executionElapsedMs = 0;
         data.executionProgress = null;
+        data.batchId = null;
       }
 
       if (projectId !== undefined) {
@@ -679,6 +680,14 @@ router.delete('/:id', requireAuth, async (req: AuthRequest, res: Response, next:
     });
 
     if (permanent) {
+      await logActivity({
+        taskId: id,
+        projectId: owned.projectId,
+        teamId: fullTask?.teamId ?? owned.teamId ?? null,
+        userId: req.userId!,
+        action: 'task_deleted',
+        payload: { id },
+      });
       await prisma.task.delete({ where: { id } });
     } else {
       await prisma.task.update({
@@ -697,14 +706,16 @@ router.delete('/:id', requireAuth, async (req: AuthRequest, res: Response, next:
       broadcastToUser(req.userId!, 'task:deleted', { id });
     }
 
-    await logActivity({
-      taskId: id,
-      projectId: owned.projectId,
-      teamId,
-      userId: req.userId!,
-      action: permanent ? 'task_deleted' : 'task_archived',
-      payload: { id },
-    });
+    if (!permanent) {
+      await logActivity({
+        taskId: id,
+        projectId: owned.projectId,
+        teamId,
+        userId: req.userId!,
+        action: 'task_archived',
+        payload: { id },
+      });
+    }
 
     res.status(204).send();
   } catch (error) {

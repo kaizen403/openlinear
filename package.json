@@ -12,11 +12,11 @@
     "lint": "turbo run lint",
     "test": "turbo run test",
     "typecheck": "turbo run typecheck",
-    "db:push": "pnpm --filter db db:push",
+    "db:push": "pnpm --filter @openlinear/db db:push",
     "db:migrate": "pnpm --filter @openlinear/db db:migrate",
     "db:migrate:deploy": "pnpm --filter @openlinear/db db:migrate:deploy",
     "db:seed": "pnpm --filter @openlinear/api exec tsx ../../packages/db/prisma/seed.ts",
-    "db:studio": "pnpm --filter db db:studio",
+    "db:studio": "pnpm --filter @openlinear/db db:studio",
     "build:sidecar": "./scripts/build-sidecar.sh",
     "build:desktop": "pnpm --filter @openlinear/desktop tauri build"
   },

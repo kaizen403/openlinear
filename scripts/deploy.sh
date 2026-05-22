@@ -90,36 +90,7 @@ pnpm install --frozen-lockfile
 export NODE_ENV="${_saved_node_env}"
 ok "Dependencies installed"
 
-# ── Database ─────────────────────────────────────────────────────
-step "Starting database..."
-docker start openlinear-db 2>/dev/null \
-    || docker run --detach --name openlinear-db \
-        -e POSTGRES_DB=openlinear \
-        -e POSTGRES_USER=openlinear \
-        -e POSTGRES_PASSWORD=openlinear \
-        -p 5432:5432 \
-        -v postgres_data:/var/lib/postgresql/data \
-        --restart unless-stopped \
-        postgres:16-alpine 2>/dev/null \
-    || true
-ok "PostgreSQL start requested"
-
-step "Waiting for database..."
-for i in $(seq 1 30); do
-    if docker exec openlinear-db pg_isready -U openlinear -d openlinear &>/dev/null \
-       || pg_isready -h localhost -p 5432 -U openlinear &>/dev/null 2>&1; then
-        ok "Database ready"
-        break
-    fi
-    if [ "$i" -eq 30 ]; then
-        fail "Database failed to start after 30s"
-    fi
-    sleep 1
-done
-
 # Source root .env to get DATABASE_URL (Neon) and other production vars.
-# This MUST happen before the fallback below, otherwise every deploy
-# overwrites packages/db/.env with the local Docker URL.
 if [ -f .env ]; then
     set -a
     # shellcheck disable=SC1091
@@ -127,10 +98,43 @@ if [ -f .env ]; then
     set +a
 fi
 
-# Fallback only if .env didn't provide DATABASE_URL (shouldn't happen in prod)
-export DATABASE_URL="${DATABASE_URL:-postgresql://openlinear:openlinear@localhost:5432/openlinear}"
+if [ -z "${DATABASE_URL:-}" ]; then
+    export DATABASE_URL="postgresql://openlinear:openlinear@localhost:5432/openlinear"
+fi
+
+if echo "$DATABASE_URL" | grep -qE 'localhost|127\.0\.0\.1'; then
+    step "Starting Postgres database container only..."
+    docker start openlinear-db 2>/dev/null \
+        || docker run --detach --name openlinear-db \
+            -e POSTGRES_DB=openlinear \
+            -e POSTGRES_USER=openlinear \
+            -e POSTGRES_PASSWORD=openlinear \
+            -p 5432:5432 \
+            -v postgres_data:/var/lib/postgresql/data \
+            --restart unless-stopped \
+            postgres:16-alpine 2>/dev/null \
+        || true
+
+    step "Waiting for database..."
+    for i in $(seq 1 30); do
+        if docker exec openlinear-db pg_isready -U openlinear -d openlinear &>/dev/null \
+           || pg_isready -h localhost -p 5432 -U openlinear &>/dev/null 2>&1; then
+            ok "Database ready"
+            break
+        fi
+        if [ "$i" -eq 30 ]; then
+            fail "Database failed to start after 30s"
+        fi
+        sleep 1
+    done
+else
+    step "Using configured remote database"
+    node -e 'const u=new URL(process.env.DATABASE_URL); console.log(`  host=${u.hostname} db=${u.pathname.slice(1)}`)'
+    ok "Skipping Docker"
+fi
+
 # packages/db/.env is gitignored so it doesn't exist on the droplet.
-# Prisma reads .env from the schema directory — write it so prisma db push can find it.
+# Prisma reads .env from the schema directory — write it so prisma can find it.
 echo "DATABASE_URL=${DATABASE_URL}" > packages/db/.env
 
 step "Generating Prisma client..."

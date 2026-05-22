@@ -16,6 +16,28 @@ if [ -f .env ]; then
     done < .env
 fi
 
+ensure_database() {
+    if [ -z "${DATABASE_URL:-}" ]; then
+        export DATABASE_URL="postgresql://openlinear:openlinear@localhost:5432/openlinear"
+    fi
+
+    if echo "$DATABASE_URL" | grep -qE 'localhost|127\.0\.0\.1'; then
+        if ! command -v docker >/dev/null 2>&1; then
+            echo "[dev-live] Local DATABASE_URL requires Postgres. Install/start Postgres or Docker."
+            exit 1
+        fi
+        if ! docker ps --format '{{.Names}}' | grep -qx 'openlinear-db'; then
+            log "Starting Postgres database container only..."
+            docker compose up -d postgres
+            sleep 2
+        fi
+    else
+        log "Using configured remote database; skipping Docker."
+    fi
+}
+
+ensure_database
+
 export API_PORT="${API_PORT:-3001}"
 export OPENLINEAR_ALLOW_SHARED_OPENCODE="${OPENLINEAR_ALLOW_SHARED_OPENCODE:-1}"
 export NEXT_PUBLIC_API_URL="http://127.0.0.1:$API_PORT"

@@ -9,14 +9,15 @@ export function registerProjectTools(server: McpServer, client: OpenLinearClient
   server.registerTool(
     "openlinear_list_projects",
     {
-      description: "List OpenLinear projects. Omit workspaceId to use all accessible projects.",
+      description: "List OpenLinear projects. Optionally filter by workspaceId or teamId.",
       inputSchema: z.object({
-        workspaceId: z.string().uuid().optional(),
+        workspaceId: z.string().min(1).optional(),
+        teamId: z.string().uuid().optional(),
       }),
     },
-    async ({ workspaceId }) => {
+    async ({ workspaceId, teamId }) => {
       try {
-        return textResult(await client.listProjects({ workspaceId }));
+        return textResult(await client.listProjects({ workspaceId, teamId }));
       } catch (error) {
         return errorResult(error);
       }
@@ -30,8 +31,8 @@ export function registerProjectTools(server: McpServer, client: OpenLinearClient
       inputSchema: z.object({
         name: z.string().min(1).max(100),
         description: z.string().max(1000).optional(),
-        key: z.string().regex(/^[A-Z0-9]{2,12}$/).optional(),
-        workspaceId: z.string().uuid().optional(),
+        key: z.string().trim().min(2).max(12).regex(/^[A-Za-z][A-Za-z0-9]*$/).optional(),
+        workspaceId: z.string().min(1).optional(),
         teamIds: z.array(z.string().uuid()).min(1).max(1).optional(),
         status: projectStatus.optional(),
       }),

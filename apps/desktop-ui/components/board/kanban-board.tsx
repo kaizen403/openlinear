@@ -19,7 +19,7 @@ import { useKanbanBoard, COLUMNS, KanbanBoardProps, isTaskActivelyExecuting } fr
 import { InProgressBatchGroup } from "./in-progress-batch-group"
 import { DoneColumnContent } from "./done-column-content"
 import { ModelSelector } from "./model-selector"
-import { formatBatchMode } from "./batch-mode"
+import { formatBatchExecutionMode } from "./batch-mode"
 import { useRouter } from "next/navigation"
 
 interface ProjectConfigPanelProps {
@@ -78,7 +78,7 @@ function ProjectConfigPanel({ selectedProject, activeRepository, tasks, selected
     {
       icon: Play,
       label: 'Workflow',
-      value: activeBatch ? `${formatBatchMode(activeBatch.mode)} mode` : 'Idle',
+      value: activeBatch ? formatBatchExecutionMode(activeBatch.mode) : 'Idle',
       status: activeBatch ? 'active' : 'neutral',
     },
     {
@@ -161,12 +161,10 @@ export function KanbanBoard(props: KanbanBoardProps) {
     selectingColumns,
     activeBatch,
     setActiveBatch,
-    completedBatch,
     canExecute,
     activeRepository,
     selectedProject,
     batchTaskIds,
-    completedBatchTaskIds,
     selectedTask,
     startingExecuteIds,
     isSelectedTaskExecuting,
@@ -190,6 +188,7 @@ export function KanbanBoard(props: KanbanBoardProps) {
     selectAllVisible,
     clearSelection,
     handleInlineCreateTask,
+    handleTaskCreated,
     handleBulkDelete,
     handleBulkChangeStatus,
     fetchTasks,
@@ -327,8 +326,7 @@ export function KanbanBoard(props: KanbanBoardProps) {
           {COLUMNS.map((column) => {
             const columnTasks = getTasksByStatus(column.status)
             const hasParallelGroup =
-              (column.status === 'in_progress' && batchTaskIds.length > 0) ||
-              (column.status === 'done' && completedBatchTaskIds.length > 0)
+              column.status === 'in_progress' && batchTaskIds.length > 0
             const selectionActive = !hasParallelGroup && selectingColumns.has(column.id)
             return (
               <Droppable key={column.id} droppableId={column.id}>
@@ -392,12 +390,6 @@ export function KanbanBoard(props: KanbanBoardProps) {
                         return (
                           <DoneColumnContent
                             columnTasks={columnTasks}
-                            completedBatch={completedBatch}
-                            selectedTaskIds={selectedTaskIds}
-                            onDelete={handleDelete}
-                            deletionMode={taskDeletionMode}
-                            onTaskClick={handleTaskClick}
-                            onToggleSelect={toggleTaskSelect}
                             renderTask={renderTask}
                           />
                         )
@@ -416,7 +408,7 @@ export function KanbanBoard(props: KanbanBoardProps) {
         <TaskFormDialog
           open={isTaskFormOpen}
           onOpenChange={setIsTaskFormOpen}
-          onSuccess={() => fetchTasks({ silent: true })}
+          onSuccess={handleTaskCreated}
           defaultStatus={defaultStatus}
           defaultProjectId={props.projectId}
           projects={props.projects}
@@ -460,6 +452,7 @@ export function KanbanBoard(props: KanbanBoardProps) {
               onChangeStatus={handleBulkChangeStatus}
               onArchive={handleBulkDelete}
               onClear={clearSelection}
+              deletionMode={taskDeletionMode}
             />
           )
         })()}

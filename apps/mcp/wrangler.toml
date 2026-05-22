@@ -9,4 +9,4 @@ pattern = "mcp.openlinear.tech"
 custom_domain = true
 
 [vars]
-OPENLINEAR_API_URL = "https://openlinear.tech"
+OPENLINEAR_API_URL = "https://api.openlinear.tech"

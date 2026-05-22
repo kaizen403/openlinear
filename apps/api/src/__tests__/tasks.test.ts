@@ -524,6 +524,7 @@ describe('Tasks API', () => {
           executionPausedAt: new Date(),
           executionElapsedMs: 42_000,
           executionProgress: 65,
+          batchId: 'batch-123',
         },
       });
 
@@ -539,6 +540,7 @@ describe('Tasks API', () => {
       expect(res.body.executionPausedAt).toBeNull();
       expect(res.body.executionElapsedMs).toBe(0);
       expect(res.body.executionProgress).toBeNull();
+      expect(res.body.batchId).toBeNull();
     });
 
     it('returns 404 for non-existent task', async () => {
@@ -566,6 +568,19 @@ describe('Tasks API', () => {
       const archived = await prisma.task.findUnique({ where: { id: task.id } });
       expect(archived).not.toBeNull();
       expect(archived!.archived).toBe(true);
+    });
+
+    it('permanently deletes a task when requested', async () => {
+      const task = await prisma.task.create({
+        data: { title: 'Delete Permanently', priority: 'medium', teamId: testTeamId },
+      });
+
+      const res = await request(app)
+        .delete(`/api/tasks/${task.id}?permanent=true`)
+        .set('Authorization', `Bearer ${authToken}`);
+
+      expect(res.status).toBe(204);
+      await expect(prisma.task.findUnique({ where: { id: task.id } })).resolves.toBeNull();
     });
 
     it('returns 404 for non-existent task', async () => {

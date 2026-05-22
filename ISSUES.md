@@ -49,6 +49,31 @@
 ### Next steps / blockers
 - Manually verify browser and headless/device-style Codex OAuth methods on a machine where OpenCode reports both `openai` OAuth options.
 
+## [2026-05-22] — MCP compatibility and landing page updates
+
+**Status:** Done
+**Agent:** Claude (OpenCode)
+
+### What was done
+- Fixed `openlinear_bulk_create_plan` MCP tool to auto-resolve or create a team when `teamId` is omitted, preventing bulk task creation failures.
+- Updated MCP docs in `kaizen403/docs` repo to reflect the current 12-tool surface, project-scoped labels, and optional teamId behavior.
+- Added MCP integration node to the landing page orbit visual and updated integration description text.
+- Added a direct "MCP docs →" button linking to `https://docs.openlinear.tech/integrations/mcp`.
+- Deployed updated MCP worker to `mcp.openlinear.tech` with auto-team fallback.
+
+### Files changed
+- `apps/mcp/src/mcp/tools/plan.ts` — auto-team resolution logic
+- `apps/landing/components/integrations-section.tsx` — MCP node, updated text, MCP docs CTA
+- `kaizen403/docs/integrations/mcp.mdx` — updated tool list, auto-team docs, project-scoped labels
+
+### Issues encountered
+- PAT smoke-test token invalidated in production DB; needs fresh PAT for live e2e testing.
+
+### Next steps / blockers
+- Generate new PAT via Settings → API Keys and run a full `bulk_create_plan` end-to-end test.
+
+---
+
 ## Active / Known Issues
 
 | # | Issue | Status |
@@ -57,7 +82,9 @@
 | 12 | Remove duplicate "Add Task" button at bottom of Kanban columns | ⏳ Planned |
 | 13 | Remove blue accent focus outline from input elements | ⏳ Planned |
 | 17 | Add "+" button and "Add More Projects" hint to project selector | ⏳ Planned |
-| — | API not deployed — `openlinear.tech` still serves landing page only | ⏳ Blocked (Azure deployment planned) |
+| — | API deployed to `api.openlinear.tech` via Azure Container Apps | ✅ Done |
+| — | MCP redeployed to `mcp.openlinear.tech` pointing to `api.openlinear.tech` | ✅ Done |
+| — | MCP `bulk_create_plan` auto-team fallback when `teamId` omitted | ✅ Done (deployed) |
 
 ---
 
@@ -618,3 +645,154 @@ AGENTS: Add new entries above this comment. Format:
 
 ### Next steps / blockers
 - Restart tomorrow with `pnpm start` or `pnpm dev-live` when ready.
+
+## [2026-05-22] — Repair Kanban board task creation and selection flow
+
+**Status:** Done
+**Agent:** Codex
+
+### What was done
+- Fixed board-local task insertion so tasks created from column buttons appear immediately in the right filtered view instead of waiting for an unrelated refresh.
+- Added shared board state helpers for task upsert/deduplication, optimistic task replacement, and active batch lock detection.
+- Dedupe SSE-created tasks and optimistic creates by id so a task does not appear twice after realtime events arrive.
+- Added support for `tasks:bulk-created` SSE events so generated queues can refresh the board consistently.
+- Made selection/delete callbacks read current state through refs so memoized task cards do not use stale task lists or deletion mode.
+- Removed the completed-batch wrapper from the Done column so finished batch tasks behave like normal draggable/selectable/archiveable cards.
+- Fixed permanent delete activity logging so the delete audit row is written before the task row is removed.
+- Added regression coverage for task upsert, optimistic replacement, and locked batch task ids.
+
+### Files changed
+- `apps/desktop-ui/components/board/board-state.ts` — new board state helpers for upsert, optimistic replacement, and batch lock detection.
+- `apps/desktop-ui/components/board/board-state.test.mjs` — regression coverage for the new helper behavior.
+- `apps/desktop-ui/components/board/board-state.test.ts` — removed the TS Vitest file so desktop `tsc` does not require Vitest globals.
+- `apps/desktop-ui/components/board/use-kanban-board.ts` — repaired create/SSE/delete/selection state flow and active batch locking.
+- `apps/desktop-ui/components/board/kanban-board.tsx` — wired task form creation into board state and aligned selection bar deletion mode.
+- `apps/desktop-ui/components/board/done-column-content.tsx` — simplified Done column rendering by deleting the completed-batch drag wrapper.
+- `apps/desktop-ui/components/board/unified-selection-bar.tsx` — labels bulk remove as Archive or Delete based on user setting.
+- `apps/desktop-ui/components/board/task-card.tsx` — included deletion mode in memo comparison.
+- `apps/desktop-ui/components/task-form.tsx` — returns the created task to callers instead of only triggering a blind refresh.
+- `apps/desktop-ui/providers/sse-provider.tsx` — registered `tasks:bulk-created`.
+- `apps/desktop-ui/types/task.ts` — added optional `projectId` for board task events.
+- `apps/api/src/routes/tasks.ts` — logs permanent delete activity before deleting the task.
+- `apps/api/src/__tests__/tasks.test.ts` — added permanent-delete regression coverage.
+
+### Issues encountered
+- `pnpm --filter @openlinear/api test -- tasks.test.ts` is blocked before tests run because the current local database is missing the `teams.project_id` column expected by Prisma.
+- The sidecar dev smoke path is blocked by missing package `@elevenlabs/elevenlabs-js` imported from `apps/sidecar/src/routes/transcribe.ts`; the plain API server is healthy on port 3001.
+
+### Next steps / blockers
+- Sync the local test database schema before relying on the full API task test suite.
+- Either add/install the ElevenLabs dependency or make the transcribe route lazy/optional before using the sidecar dev server.
+
+## [2026-05-22] — Clear Kanban verification environment blockers
+
+**Status:** Done
+**Agent:** Codex
+
+### What was done
+- Restored the already-declared `@elevenlabs/elevenlabs-js` package into `node_modules` with `pnpm install`.
+- Synced the local `openlinear_test` database to the current Prisma migrations, including the `teams.project_id` migration that had blocked `tasks.test.ts`.
+- Fixed root database helper scripts so `pnpm db:push` and `pnpm db:studio` target the real `@openlinear/db` workspace package.
+- Verified the sidecar starts successfully on port 3003 and returns a healthy `/health` response.
+- Re-ran the previously blocked task API test and the full API test suite.
+
+### Files changed
+- `package.json` — corrected root `db:push` and `db:studio` workspace filters.
+- `ISSUES.md` — recorded the blocker cleanup.
+
+### Issues encountered
+- `prisma db push` refused to continue without data-loss acknowledgement because the local test DB was behind several migrations; I applied the missing team-project migration and then deployed the remaining migrations normally.
+- Sidecar startup runs its recovery sweep; during the smoke test it marked one stale orphan in-progress task as cancelled, which is the sidecar's boot-time recovery behavior.
+
+### Next steps / blockers
+- None for these blockers. API tests and sidecar health now pass locally.
+
+## [2026-05-22] — Align batch execution modes with board activity display
+
+**Status:** Done
+**Agent:** Codex
+
+### What was done
+- Made Parallel Execution launch every selected issue at once instead of limiting the first wave by `maxBatchSize`.
+- Routed Combined Execution activity to one virtual batch activity stream (`batch:<id>`) instead of broadcasting identical progress/log events to every selected issue.
+- Kept per-issue activity for Parallel Execution and only the currently running issue in Queue Execution.
+- Updated the board progress panel to use explicit labels: Parallel Execution, Queue Execution, and Combined Execution.
+- Added queue step numbering, parallel lane numbering, and combined issue numbering in the In Progress grouped card.
+- Added a combined activity/log preview in the top batch progress panel so combined mode has one visible activity surface.
+- Suppressed stale per-card activity for queued queue items and all combined items.
+- Added regression coverage for batch mode labels and combined batch activity ids.
+
+### Files changed
+- `apps/sidecar/src/services/batch.ts` — corrected parallel launch semantics and combined batch-level activity/log routing.
+- `apps/desktop-ui/components/board/batch-mode.ts` — added explicit execution labels and virtual batch activity id helper.
+- `apps/desktop-ui/components/board/batch-mode.test.mjs` — covered execution labels and batch activity ids.
+- `apps/desktop-ui/components/board/batch-progress.tsx` — made the top progress panel mode-aware and added combined log preview.
+- `apps/desktop-ui/components/board/in-progress-batch-group.tsx` — added mode headings, queue/parallel numbering, and per-item status markers.
+- `apps/desktop-ui/components/board/task-card.tsx` — allowed batch groups to suppress per-card activity where mode semantics require it.
+- `apps/desktop-ui/components/board/kanban-board.tsx` — showed explicit execution mode names in board workflow metadata.
+
+### Issues encountered
+- The previous Combined Execution path reused task-scoped execution events, which made every selected issue card show the same activity. That was the root cause of duplicated combined activity.
+- An old sidecar smoke process was still holding port 3003; I cleaned it up and reran the smoke on clean ports.
+- `apps/api/Dockerfile` is dirty in the worktree but unrelated to this execution-mode pass, so I left it untouched.
+
+### Next steps / blockers
+- None. Desktop helper tests, desktop typecheck, sidecar typecheck, API typecheck, MCP typecheck, full API tests, diff check, and sidecar health smoke passed.
+
+## [2026-05-22] — Stabilize board dragging, stale execution state, and startup preview
+
+**Status:** Done
+**Agent:** Codex
+
+### What was done
+- Reworked single-card drag state updates so dropping a Done card back into All Issues preserves the destination order instead of appending and overlapping stale rendered cards.
+- Cleared live execution progress when tasks leave In Progress or are deleted, including API-side cleanup of session, elapsed timer, progress, and batch linkage on manual terminal/todo transitions.
+- Restricted card timers/activity to real active In Progress execution so Done/All Issues cards do not keep running stale timers after being moved.
+- Added regression coverage for same-column reorder, cross-column insertion order, and execution state cleanup when moving out of In Progress.
+- Repaired `pnpm start` production preview by serving the static export on the requested port with a local Node server, avoiding `serve` random-port fallback, making shutdown idempotent, cleaning stale OpenLinear-owned ports, retrying transient Prisma migrate locks, and running the sidecar without `tsx watch`.
+- Fixed sidecar graceful shutdown so already-closed servers do not surface noisy `ERR_SERVER_NOT_RUNNING` failures.
+
+### Files changed
+- `apps/desktop-ui/components/board/board-state.ts` — added status-change and ordered drag-move helpers.
+- `apps/desktop-ui/components/board/board-state.test.mjs` — added drag ordering and stale execution cleanup regressions.
+- `apps/desktop-ui/components/board/use-kanban-board.ts` — wired ordered drag destination updates and live progress cleanup.
+- `apps/desktop-ui/components/board/task-card.tsx` — stopped stale timers/activity from rendering outside active execution states.
+- `apps/desktop-ui/lib/execution-state-store.ts` — added execution progress removal support.
+- `apps/api/src/routes/tasks.ts` — clears execution and batch state when tasks are manually moved out of active execution.
+- `apps/api/src/__tests__/tasks.test.ts` — covers API-side execution state cleanup.
+- `scripts/start-prod-preview.sh` — made startup, port handling, migration retry, static serving, and shutdown robust.
+- `scripts/serve-static.mjs` — added exact-port static export server.
+- `apps/sidecar/package.json` — added one-shot dev command for preview startup.
+- `apps/sidecar/src/index.ts` — hardened graceful shutdown.
+
+### Issues encountered
+- Real multi-issue agent execution was not run end-to-end because it would launch external agent work and mutate task execution state; helper tests and sidecar service tests cover the execution-mode logic.
+
+### Next steps / blockers
+- None for the pnpm startup path. API Docker image verification is intentionally out of scope for local `pnpm start` / `pnpm dev` usage.
+
+## [2026-05-22] — Keep Docker scoped to Postgres for pnpm flows
+
+**Status:** Done
+**Agent:** Codex
+
+### What was done
+- Reverted the API Dockerfile change from this task so API image build work is no longer part of the current fix.
+- Kept Docker usage in `pnpm dev`, `pnpm dev:web`, `pnpm dev-live`, `pnpm start`, and live deploy scoped to the Postgres database only.
+- Changed local database startup to use the explicit `postgres` compose service instead of an unconstrained compose startup.
+- Left API, sidecar, UI, static preview, and Tauri startup as direct `pnpm`/Node processes.
+- Remote `DATABASE_URL` flows now skip Docker entirely.
+
+### Files changed
+- `scripts/dev.sh` — starts only the Postgres container when `DATABASE_URL` is local.
+- `scripts/dev-web.sh` — starts only the Postgres container when `DATABASE_URL` is local.
+- `scripts/dev-live.sh` — starts only the Postgres container when `DATABASE_URL` is local.
+- `scripts/start-prod-preview.sh` — keeps preview runtime on pnpm/Node while allowing DB-only Docker fallback.
+- `scripts/deploy.sh` — starts or skips only the database container based on `DATABASE_URL`.
+- `ISSUES.md` — corrected the previous Docker verification note.
+
+### Issues encountered
+- No API/UI Docker build was run. That is intentional for this task because it is slow and unrelated to the reported pnpm startup and board behavior.
+
+### Next steps / blockers
+- None for Docker scope. Use Docker only for local Postgres; do not use Docker to run the API/UI for these pnpm workflows.

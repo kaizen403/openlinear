@@ -30,6 +30,7 @@ export function IntegrationsSection() {
             <IntegrationNode icon={Github} top="20%" left="20%" />
             <IntegrationNode text="GPT" top="15%" left="35%" color="bg-emerald-400" />
             <IntegrationNode text="C" top="10%" left="55%" color="bg-orange-400" />
+            <IntegrationNode text="MCP" top="25%" left="75%" color="bg-violet-400" />
             <IntegrationNode text="OC" top="30%" left="80%" color="bg-cyan-400" />
             <IntegrationNode text="aws" top="65%" left="85%" />
             <IntegrationNode text="Py" top="85%" left="60%" color="bg-yellow-500" />
@@ -48,17 +49,25 @@ export function IntegrationsSection() {
             </h2>
             
             <p className="text-[17px] text-white/50 leading-relaxed mb-8">
-              GitHub OAuth for repo access and PR creation. OpenAI, Anthropic, and local LLMs via the OpenCode SDK. Bring your own API keys, run agents on your machine.
+              GitHub OAuth for repo access and PR creation. MCP server for any AI agent to plan projects, create phases, and ship tasks directly into your board. OpenAI, Anthropic, and local LLMs via the OpenCode SDK. Bring your own API keys, run agents on your machine.
               <br /><br />
               No proxy in the middle. No data leaves your stack unless you say so.
             </p>
 
-            <a
-              href="/docs"
-              className="inline-flex items-center px-6 py-3 rounded-full bg-transparent border border-white/20 text-white hover:bg-white/[0.03] hover:border-white/30 transition-all text-sm font-medium"
-            >
-              Read more about connectors →
-            </a>
+            <div className="flex flex-wrap gap-3">
+              <a
+                href="/docs"
+                className="inline-flex items-center px-6 py-3 rounded-full bg-transparent border border-white/20 text-white hover:bg-white/[0.03] hover:border-white/30 transition-all text-sm font-medium"
+              >
+                Read more about connectors →
+              </a>
+              <a
+                href="https://docs.openlinear.tech/integrations/mcp"
+                className="inline-flex items-center px-6 py-3 rounded-full bg-violet-500/10 border border-violet-500/30 text-violet-300 hover:bg-violet-500/20 hover:border-violet-500/50 transition-all text-sm font-medium"
+              >
+                MCP docs →
+              </a>
+            </div>
           </div>
         </div>
       </div>

@@ -1,9 +1,11 @@
 import { McpServer } from "@modelcontextprotocol/server";
 import { OpenLinearClient } from "../openlinear/client";
 import { registerIssueTools } from "./tools/issues";
+import { registerLabelTools } from "./tools/labels";
 import { registerPhaseTools } from "./tools/phases";
 import { registerPlanTools } from "./tools/plan";
 import { registerProjectTools } from "./tools/projects";
+import { registerTeamTools } from "./tools/teams";
 import { registerWorkspaceTools } from "./tools/workspaces";
 
 interface McpServerOptions {
@@ -19,7 +21,7 @@ export function createMcpServer(opts: McpServerOptions): McpServer {
     },
     {
       instructions:
-        "Use OpenLinear tools to list workspaces/projects and create projects, phase labels, and issues. Prefer openlinear_bulk_create_plan when the user asks to turn a multi-phase plan into dashboard issues.",
+        "Use OpenLinear tools to list workspaces, projects, teams, labels, and create project-scoped phase labels and issues. Prefer openlinear_bulk_create_plan when the user asks to turn a multi-phase plan into dashboard issues.",
     },
   );
 
@@ -27,6 +29,8 @@ export function createMcpServer(opts: McpServerOptions): McpServer {
 
   registerWorkspaceTools(server, client);
   registerProjectTools(server, client);
+  registerTeamTools(server, client);
+  registerLabelTools(server, client);
   registerPhaseTools(server, client);
   registerIssueTools(server, client);
   registerPlanTools(server, client);

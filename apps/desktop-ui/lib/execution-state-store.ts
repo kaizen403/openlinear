@@ -105,6 +105,12 @@ export function setExecutionProgress(progress: ExecutionProgress) {
   scheduleNotification("progress", progress.taskId)
 }
 
+export function clearExecutionProgress(taskId: string) {
+  if (!progressByTaskId.has(taskId)) return
+  progressByTaskId.delete(taskId)
+  scheduleNotification("progress", taskId)
+}
+
 export function useExecutionLogs(taskId: string | null | undefined) {
   const subscribe = useCallback(
     (listener: Listener) => {

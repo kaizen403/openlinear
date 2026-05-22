@@ -1,4 +1,5 @@
 import express from 'express';
+import type { Server } from 'node:http';
 import { prisma } from '@openlinear/db';
 import { logger } from '@openlinear/api/logger';
 import { createSidecarApp } from './app';
@@ -39,6 +40,22 @@ function printOpenCodeSingleTenantBanner() {
   logger.warn('[Sidecar] OpenCode runs in single-tenant mode — see docs/limitations.md');
 }
 
+function closeServer(server: Server, name: string): Promise<void> {
+  return new Promise((resolve) => {
+    if (!server.listening) {
+      resolve();
+      return;
+    }
+
+    server.close((err?: Error & { code?: string }) => {
+      if (err && err.code !== 'ERR_SERVER_NOT_RUNNING') {
+        logger.error({ err }, `[Sidecar] ${name}.close error`);
+      }
+      resolve();
+    });
+  });
+}
+
 async function start() {
   await loadDotenvIfPresent();
   const app = createSidecarApp();
@@ -72,7 +89,7 @@ async function start() {
   const shutdown = (signal: NodeJS.Signals) => {
     if (shuttingDown) return;
     shuttingDown = true;
-    logger.info({ signal }, '[Sidecar] SIGTERM received, draining...');
+    logger.info({ signal }, '[Sidecar] shutdown received, draining...');
 
     const forceExit = setTimeout(() => {
       logger.fatal('[Sidecar] graceful shutdown timed out — forcing exit');
@@ -80,9 +97,9 @@ async function start() {
     }, 10_000);
     forceExit.unref();
 
-    interceptServer.close();
-    server.close(async (err) => {
-      if (err) logger.error({ err }, '[Sidecar] server.close error');
+    void (async () => {
+      await closeServer(interceptServer, 'oauth interceptor');
+      await closeServer(server, 'server');
       try {
         await prisma.$disconnect();
         logger.info('[Sidecar] prisma disconnected');
@@ -90,7 +107,11 @@ async function start() {
         logger.error({ err: disconnectErr }, '[Sidecar] prisma disconnect failed');
       }
       clearTimeout(forceExit);
-      process.exit(err ? 1 : 0);
+      process.exit(0);
+    })().catch((err: unknown) => {
+      logger.error({ err }, '[Sidecar] graceful shutdown failed');
+      clearTimeout(forceExit);
+      process.exit(1);
     });
   };
 

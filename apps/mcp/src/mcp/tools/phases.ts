@@ -24,18 +24,18 @@ export function registerPhaseTools(server: McpServer, client: OpenLinearClient) 
   server.registerTool(
     "openlinear_create_phase",
     {
-      description: "Create a phase label using the OpenLinear naming convention phase:N — Name.",
+      description: "Create a project-scoped phase label using the OpenLinear naming convention phase:N — Name.",
       inputSchema: z.object({
-        teamId: z.string().uuid(),
+        projectId: z.string().uuid(),
         phaseNumber: z.number().int().min(1).max(100),
-        name: z.string().min(1).max(100),
+        name: z.string().min(1).max(40),
         color: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional(),
       }),
     },
-    async ({ teamId, phaseNumber, name, color }) => {
+    async ({ projectId, phaseNumber, name, color }) => {
       try {
         return textResult(await client.createLabel({
-          teamId,
+          projectId,
           name: phaseLabelName(phaseNumber, name),
           color: color ?? DEFAULT_PHASE_COLORS[(phaseNumber - 1) % DEFAULT_PHASE_COLORS.length],
         }));

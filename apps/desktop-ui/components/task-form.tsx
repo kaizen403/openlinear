@@ -35,6 +35,7 @@ import { TaskFormModelSelector } from "@/components/task-form-model-selector"
 import { Project } from "@/lib/api"
 import { useTeams } from "@/providers/teams-provider"
 import { useProject } from "@/hooks/use-project"
+import type { Task } from "@/types/task"
 
 const getFormSchema = (hasProjects: boolean) => z.object({
   title: z.string().min(1, "Title is required"),
@@ -52,7 +53,7 @@ type FormValues = z.infer<ReturnType<typeof getFormSchema>>
 interface TaskFormDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  onSuccess?: () => void
+  onSuccess?: (task: Task) => void
   defaultStatus?: "todo" | "in_progress" | "done" | "cancelled"
   defaultProjectId?: string | null
   projects?: Project[]
@@ -116,7 +117,7 @@ export function TaskFormDialog({
     try {
       setIsSubmitting(true)
 
-      await apiFetch('/api/tasks', {
+      const created = await apiFetch<Task>('/api/tasks', {
         method: "POST",
         body: JSON.stringify({
           title: values.title,
@@ -132,7 +133,7 @@ export function TaskFormDialog({
 
       onOpenChange(false)
       resetAfterClose()
-      onSuccess?.()
+      onSuccess?.(created)
     } catch (error) {
       if (error instanceof ApiError) {
         toast.error(error.message)
