@@ -32,6 +32,8 @@ export interface Task {
   creator?: { id: string; username: string; avatarUrl: string | null } | null
   teamId?: string | null
   projectId?: string | null
+  model?: string | null
+  archived?: boolean
 }
 
 export interface ExecutionProgress {

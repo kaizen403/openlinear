@@ -34,6 +34,14 @@ export interface SSEEventData {
   identifier?: string | null
   number?: number | null
   dueDate?: string | null
+  teamId?: string | null
+  projectId?: string | null
+  assigneeId?: string | null
+  creatorId?: string | null
+  assignee?: { id: string; username: string; avatarUrl: string | null } | null
+  creator?: { id: string; username: string; avatarUrl: string | null } | null
+  model?: string | null
+  archived?: boolean
   taskId?: string
   mode?: string
   tasks?: Array<{

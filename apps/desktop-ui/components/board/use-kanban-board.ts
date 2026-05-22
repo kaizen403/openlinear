@@ -176,15 +176,54 @@ export function useKanbanBoard({ projectId, teamId, projects = [], searchQuery =
     })
   }, [])
 
+  const deferredSearchQuery = useDeferredValue(searchQuery)
+  const filteredTasks = useMemo(() => {
+    const q = deferredSearchQuery.trim().toLowerCase()
+    if (q.length < 1) return tasks
+    return tasks.filter((task) => {
+      const title = (task.title || "").toLowerCase()
+      const identifier = (task.identifier || "").toLowerCase()
+      return title.includes(q) || identifier.includes(q)
+    })
+  }, [tasks, deferredSearchQuery])
+
+  const filteredTasksRef = useRef(filteredTasks)
+  filteredTasksRef.current = filteredTasks
+
+  const clearSelection = useCallback(() => {
+    setSelectedTaskIds(new Set())
+    setSelectingColumns(new Set())
+    lastSelectedIdRef.current = null
+  }, [])
+
+  useEffect(() => {
+    clearSelection()
+    setSelectedTaskId(null)
+  }, [projectId, teamId, deferredSearchQuery, clearSelection])
+
+  const getFullDestinationIndex = useCallback((taskId: string, status: Task['status'], visibleIndex: number) => {
+    const visibleDestinationTasks = filteredTasksRef.current.filter(
+      (task) => task.status === status && task.id !== taskId,
+    )
+    const targetTask = visibleDestinationTasks[visibleIndex]
+    if (!targetTask) {
+      return tasksRef.current.filter((task) => task.status === status && task.id !== taskId).length
+    }
+
+    return tasksRef.current
+      .filter((task) => task.status === status && task.id !== taskId)
+      .findIndex((task) => task.id === targetTask.id)
+  }, [])
+
   const clearColumnSelection = useCallback((status: Task['status']) => {
     setSelectedTaskIds(prev => {
       const next = new Set(prev)
-      tasks
+      filteredTasks
         .filter(task => task.status === status)
         .forEach(task => next.delete(task.id))
       return next
     })
-  }, [tasks])
+  }, [filteredTasks])
 
   const toggleColumnSelection = useCallback((columnId: string) => {
     setSelectedTaskId(null)
@@ -245,7 +284,7 @@ export function useKanbanBoard({ projectId, teamId, projects = [], searchQuery =
 
   const toggleColumnSelectAll = useCallback((status: Task['status']) => {
     setSelectedTaskId(null)
-    const columnTasks = tasks.filter(task => task.status === status)
+    const columnTasks = filteredTasks.filter(task => task.status === status)
     const columnTaskIds = columnTasks.map(task => task.id)
     const allSelected = columnTaskIds.every(id => selectedTaskIds.has(id))
     
@@ -262,13 +301,7 @@ export function useKanbanBoard({ projectId, teamId, projects = [], searchQuery =
       }
       return next
     })
-  }, [tasks, selectedTaskIds, batchTaskIds])
-
-  const clearSelection = () => {
-    setSelectedTaskIds(new Set())
-    setSelectingColumns(new Set())
-    lastSelectedIdRef.current = null
-  }
+  }, [filteredTasks, selectedTaskIds, batchTaskIds])
 
   const selectionActive = selectedTaskIds.size > 0
 
@@ -534,8 +567,8 @@ export function useKanbanBoard({ projectId, teamId, projects = [], searchQuery =
     switch (eventType) {
       case 'task:created':
         if (data.id && data.title && data.status) {
-          const taskProjectId = (data as unknown as { projectId?: string }).projectId
-          const taskTeamId = (data as unknown as { teamId?: string }).teamId
+          const taskProjectId = data.projectId
+          const taskTeamId = data.teamId
           if (projectId && taskProjectId !== projectId) {
             break
           }
@@ -565,6 +598,12 @@ export function useKanbanBoard({ projectId, teamId, projects = [], searchQuery =
             dueDate: data.dueDate ?? null,
             teamId: taskTeamId ?? null,
             projectId: taskProjectId ?? null,
+            assigneeId: data.assigneeId ?? null,
+            creatorId: data.creatorId ?? null,
+            assignee: data.assignee ?? null,
+            creator: data.creator ?? null,
+            model: data.model ?? null,
+            archived: data.archived ?? false,
           }
           setTasks((prev) => upsertBoardTask(prev, newTask))
         }
@@ -581,30 +620,62 @@ export function useKanbanBoard({ projectId, teamId, projects = [], searchQuery =
           if (data.status && data.status !== 'in_progress') {
             clearExecutionProgress(data.id)
           }
-          setTasks((prev) =>
-            prev.map((task) =>
-              task.id === data.id
-                ? {
-                    ...task,
-                    ...(data.title && { title: data.title }),
-                    ...(data.description !== undefined && { description: data.description }),
-                    ...(data.priority && { priority: data.priority }),
-                    ...(data.status && { status: data.status }),
-                    ...(data.sessionId !== undefined && { sessionId: data.sessionId }),
-                    ...(data.updatedAt && { updatedAt: data.updatedAt }),
-                    ...(data.labels && { labels: data.labels }),
-                    ...(data.executionStartedAt !== undefined && { executionStartedAt: data.executionStartedAt }),
-                    ...(data.executionPausedAt !== undefined && { executionPausedAt: data.executionPausedAt }),
-                    ...(data.executionElapsedMs !== undefined && { executionElapsedMs: data.executionElapsedMs }),
-                    ...(data.executionProgress !== undefined && { executionProgress: data.executionProgress }),
-                    ...(data.prUrl !== undefined && { prUrl: data.prUrl }),
-                    ...(data.outcome !== undefined && { outcome: data.outcome }),
-                    ...(data.batchId !== undefined && { batchId: data.batchId }),
-                    ...(data.dueDate !== undefined && { dueDate: data.dueDate }),
-                  }
-                : task
-            )
-          )
+          const movedOutOfScope =
+            data.archived === true ||
+            (projectId !== undefined && projectId !== null && data.projectId !== undefined && data.projectId !== projectId) ||
+            (teamId !== undefined && teamId !== null && data.teamId !== undefined && data.teamId !== teamId)
+
+          if (movedOutOfScope) {
+            setTasks((prev) => prev.filter((task) => task.id !== data.id))
+            setSelectedTaskId((prev) => (prev === data.id ? null : prev))
+            setSelectedTaskIds((prev) => {
+              if (!prev.has(data.id!)) return prev
+              const next = new Set(prev)
+              next.delete(data.id!)
+              return next
+            })
+            if (lastSelectedIdRef.current === data.id) {
+              lastSelectedIdRef.current = null
+            }
+            break
+          }
+
+          setTasks((prev) => {
+            const existing = prev.find((task) => task.id === data.id)
+            if (!existing) return prev
+
+            const updated: Task = {
+              ...existing,
+              ...(data.title !== undefined && { title: data.title }),
+              ...(data.description !== undefined && { description: data.description }),
+              ...(data.priority !== undefined && { priority: data.priority }),
+              ...(data.status !== undefined && { status: data.status }),
+              ...(data.sessionId !== undefined && { sessionId: data.sessionId }),
+              ...(data.updatedAt !== undefined && { updatedAt: data.updatedAt }),
+              ...(data.labels !== undefined && { labels: data.labels }),
+              ...(data.executionStartedAt !== undefined && { executionStartedAt: data.executionStartedAt }),
+              ...(data.executionPausedAt !== undefined && { executionPausedAt: data.executionPausedAt }),
+              ...(data.executionElapsedMs !== undefined && { executionElapsedMs: data.executionElapsedMs }),
+              ...(data.executionProgress !== undefined && { executionProgress: data.executionProgress }),
+              ...(data.prUrl !== undefined && { prUrl: data.prUrl }),
+              ...(data.outcome !== undefined && { outcome: data.outcome }),
+              ...(data.batchId !== undefined && { batchId: data.batchId }),
+              ...(data.dueDate !== undefined && { dueDate: data.dueDate }),
+              ...(data.inboxRead !== undefined && { inboxRead: data.inboxRead }),
+              ...(data.identifier !== undefined && { identifier: data.identifier }),
+              ...(data.number !== undefined && { number: data.number }),
+              ...(data.teamId !== undefined && { teamId: data.teamId }),
+              ...(data.projectId !== undefined && { projectId: data.projectId }),
+              ...(data.assigneeId !== undefined && { assigneeId: data.assigneeId }),
+              ...(data.creatorId !== undefined && { creatorId: data.creatorId }),
+              ...(data.assignee !== undefined && { assignee: data.assignee }),
+              ...(data.creator !== undefined && { creator: data.creator }),
+              ...(data.model !== undefined && { model: data.model }),
+              ...(data.archived !== undefined && { archived: data.archived }),
+            }
+
+            return upsertBoardTask(prev, updated)
+          })
         }
         break
 
@@ -619,6 +690,9 @@ export function useKanbanBoard({ projectId, teamId, projects = [], searchQuery =
             return next
           })
           setSelectedTaskId((prev) => (prev === data.id ? null : prev))
+          if (lastSelectedIdRef.current === data.id) {
+            lastSelectedIdRef.current = null
+          }
         }
         break
 
@@ -803,7 +877,8 @@ export function useKanbanBoard({ projectId, teamId, projects = [], searchQuery =
       snapshot = prev
       const idSet = new Set(ids)
       if (ids.length === 1 && options.destinationIndex !== undefined) {
-        return moveBoardTask(prev, ids[0]!, newStatus, options.destinationIndex)
+        const destinationIndex = getFullDestinationIndex(ids[0]!, newStatus, options.destinationIndex)
+        return moveBoardTask(prev, ids[0]!, newStatus, destinationIndex)
       }
       return prev.map((task) =>
         idSet.has(task.id) ? applyBoardStatusChange(task, newStatus) : task,
@@ -873,6 +948,10 @@ export function useKanbanBoard({ projectId, teamId, projects = [], searchQuery =
       identifier: null,
       number: null,
       dueDate: null,
+      projectId: projectId ?? null,
+      teamId: teamId ?? null,
+      model: null,
+      archived: false,
     }
 
     setTasks(prev => [optimistic, ...prev])
@@ -1120,17 +1199,6 @@ export function useKanbanBoard({ projectId, teamId, projects = [], searchQuery =
     startingExecuteIds,
     selectedTaskId,
   )
-
-  const deferredSearchQuery = useDeferredValue(searchQuery)
-  const filteredTasks = useMemo(() => {
-    const q = deferredSearchQuery.trim().toLowerCase()
-    if (q.length < 1) return tasks
-    return tasks.filter((task) => {
-      const title = (task.title || "").toLowerCase()
-      const identifier = (task.identifier || "").toLowerCase()
-      return title.includes(q) || identifier.includes(q)
-    })
-  }, [tasks, deferredSearchQuery])
 
   const getTasksByStatus = (status: Task['status']) => {
     return filteredTasks.filter((task) => task.status === status)
