@@ -5,6 +5,134 @@
 
 ---
 
+## [2026-05-23] — Stabilize onboarding repository list and branch refresh
+
+**Status:** Done
+**Agent:** Sisyphus (OpenCode)
+
+### What was done
+- Fixed the onboarding repository list so the virtualizer gets an explicit viewport height instead of relying on child layout through containment.
+- Cleared stale branch suggestions immediately when the selected repository changes or while the debounced branch request is pending.
+
+### Files changed
+- `apps/desktop-ui/components/onboarding/onboarding-wizard.tsx` — explicit repo-list viewport height and stale branch-name clearing.
+- `ISSUES.md` — recorded this follow-up fix.
+
+### Issues encountered
+- The previous containment fix made rows visible but still left the virtualized viewport dependent on unstable layout behavior.
+
+### Next steps / blockers
+- Manually verify repeated Load more clicks, deep scrolling, and switching between repositories with different branch sets.
+
+---
+
+## [2026-05-23] — Fix onboarding repository list visibility regression
+
+**Status:** Done
+**Agent:** Sisyphus (OpenCode)
+
+### What was done
+- Fixed the onboarding GitHub repository picker regression where repositories loaded but the virtualized list area collapsed, leaving only the Load more button visible.
+- Replaced strict size containment on the repository scroll container with content containment so virtual rows can size the viewport while preserving render isolation.
+
+### Files changed
+- `apps/desktop-ui/components/onboarding/onboarding-wizard.tsx` — changed repo-list container containment from `strict` to `content`.
+- `ISSUES.md` — recorded this regression fix.
+
+### Issues encountered
+- Morph edit quota was exhausted, so the fix used a native patch.
+
+### Next steps / blockers
+- Manually verify the onboarding repository list renders rows and Load more appends visible repositories.
+
+---
+
+## [2026-05-23] — Improve onboarding GitHub repository picker performance
+
+**Status:** Done
+**Agent:** Sisyphus (OpenCode)
+
+### What was done
+- Reduced onboarding repo-picker render work by using fixed-height virtual rows, lower overscan, stable item keys, CSS containment, and a stable repo-select callback.
+- Added cancellation for overlapping GitHub repo-list requests so stale searches/filter changes stop doing useless work.
+- Debounced branch lookups and added abortable, timed frontend branch fetches with a short client-side cache.
+- Cached GitHub branch lists and organization membership server-side, and capped repository search fan-out to the first five org scopes.
+- Added tests for branch caching and capped organization search behavior.
+
+### Files changed
+- `apps/desktop-ui/components/onboarding/onboarding-wizard.tsx` — optimized repo virtual list rendering and debounced/cancelled branch loading.
+- `apps/desktop-ui/lib/api/repos.ts` — added abort support for repo fetches and cached/timeout branch fetches.
+- `apps/api/src/services/github.ts` — added token-scoped branch cache, org cache, and org search fan-out cap.
+- `apps/api/src/__tests__/repos.test.ts` — added branch cache and org search cap coverage.
+- `ISSUES.md` — recorded this session.
+
+### Issues encountered
+- Morph edit quota was exhausted, so edits used native patches.
+- The first cache test reused a consumed `Response` body; fixed by returning a fresh mocked response per fetch.
+
+### Next steps / blockers
+- Manually verify onboarding with a GitHub account that belongs to multiple orgs and has many repositories.
+
+---
+
+## [2026-05-23] — Fetch real onboarding repository branches
+
+**Status:** Done
+**Agent:** Sisyphus (OpenCode)
+
+### What was done
+- Replaced the hardcoded onboarding default-branch chips with branches fetched from GitHub for the selected repository.
+- Added an authenticated API route and GitHub service helper for repository branch listing.
+- Wired the desktop API client and onboarding wizard to load branches for GitHub, HTTPS, and SSH repo inputs.
+- Added backend tests covering branch service behavior and the authenticated branch route.
+
+### Files changed
+- `apps/api/src/services/github.ts` — added `GitHubBranch` and `getGitHubBranches()`.
+- `apps/api/src/routes/repos.ts` — added `GET /api/repos/github/:owner/:repo/branches`.
+- `apps/api/src/__tests__/repos.test.ts` — added route and service branch-fetch tests.
+- `apps/desktop-ui/lib/api/types.ts` — added branch response types.
+- `apps/desktop-ui/lib/api/repos.ts` — added `fetchGitHubBranches()`.
+- `apps/desktop-ui/lib/api/index.ts` — exported branch types and client helper.
+- `apps/desktop-ui/components/onboarding/onboarding-wizard.tsx` — loads and renders actual branch chips with loading/error states.
+- `ISSUES.md` — recorded this session.
+
+### Issues encountered
+- Morph edit quota was exhausted, so edits used native patches.
+
+### Next steps / blockers
+- Manually verify onboarding against a linked GitHub account with repositories that have multiple branches.
+
+---
+
+## [2026-05-23] — Harden Kanban board drag/drop and selection logic
+
+**Status:** Done
+**Agent:** Sisyphus (OpenCode)
+
+### What was done
+- Audited the Kanban board, drag/drop flow, SSE task updates, selection state, and task API expectations.
+- Fixed filtered drag/drop so destination indexes from visible search results map back to the full column order before optimistic movement.
+- Made column selection actions operate on visible filtered tasks and clear stale selection when project, team, or search scope changes.
+- Hardened task SSE handling so archived or moved-out-of-scope tasks are removed, and task metadata such as project, team, assignee, creator, identifier, number, inbox state, model, and archived state stays current.
+- Prevented dragging temp, selected, batch-locked, starting, or actively executing tasks.
+- Extended frontend task/SSE types with board-relevant metadata returned by the API.
+
+### Files changed
+- `apps/desktop-ui/components/board/use-kanban-board.ts` — filtered index mapping, scoped selection cleanup, richer SSE updates, delete-anchor cleanup, and optimistic task metadata.
+- `apps/desktop-ui/components/board/kanban-board.tsx` — drag disabling for execution, batch, selection, and optimistic-task states.
+- `apps/desktop-ui/types/task.ts` — added optional `model` and `archived` metadata.
+- `apps/desktop-ui/providers/sse-provider.tsx` — typed task metadata emitted in SSE payloads.
+- `ISSUES.md` — recorded this session.
+
+### Issues encountered
+- Morph edit quota was exhausted mid-session, so remaining edits used native patches.
+- Existing board diagnostics still report unrelated hints in `batch-progress.tsx` and `dashboard-loading.tsx`.
+
+### Next steps / blockers
+- Manually smoke-test drag/drop while searching, column select-all while searching, project switching with selected tasks, and drag attempts on executing tasks.
+
+---
+
 ## [2026-05-21] — Refine Codex provider presentation
 
 **Status:** Done
@@ -800,3 +928,93 @@ AGENTS: Add new entries above this comment. Format:
 
 ### Next steps / blockers
 - None. Sidecar tests, sidecar typecheck, sidecar build, execution-core tests, execution-core typecheck, and diff whitespace checks passed.
+
+---
+
+## [2026-05-23] — Neon DB dev/prod branch separation and reset
+
+**Status:** Done
+**Agent:** Sisyphus (OpenCode)
+
+### What was done
+- Reset the Neon development branch to match production.
+- Verified the dev branch has its own compute endpoint separate from prod.
+- Applied all 12 Prisma migrations to the dev branch (it was missing `_prisma_migrations` tracking after the reset).
+- Regenerated the Prisma client against the dev branch.
+- Confirmed API typecheck passes with the dev DATABASE_URL.
+- Updated `.env` with dev connection string and `.env.production` with prod connection string.
+- Created `docs/database-setup.md` documenting branch IDs, endpoints, connection commands, and reset workflow.
+
+### Files changed
+- `.env` — updated DATABASE_URL to dev branch pooled endpoint.
+- `.env.production` — updated DATABASE_URL to prod branch pooled endpoint.
+- `docs/database-setup.md` — new documentation for Neon branch management.
+
+### Issues encountered
+- The `neonctl branches reset` command initially hung because `--parent` flag was required; added it.
+- `prisma migrate deploy` had to be used after reset because `_prisma_migrations` table was lost during branch reset.
+- The `db:push` and `db:studio` root scripts in `package.json` were targeting the wrong workspace filter; fixed in a previous session.
+
+### Next steps / blockers
+- None. Dev branch is ready. Use `pnpm dev-live` to start local development against the dev Neon database.
+
+---
+
+## [2026-05-23] — Complete sidecar 100% coverage plan
+
+**Status:** Done
+**Agent:** Codex
+
+### What was done
+- Finished `.sisyphus/plans/sidecar-100-coverage.md` for `apps/sidecar`.
+- Expanded sidecar tests from the previous workflow coverage to 189 passing tests.
+- Added missing edge-path coverage across execution routes, delta buffering, execution settings, git credentials, agent-run persistence, git helpers, recovery, state cleanup, lifecycle setup/cancel paths, worktree cleanup/merge paths, OpenCode host management, and event stream handling.
+- Added sidecar entrypoint coverage and a Vitest config that enforces 100% coverage thresholds while excluding only the pure execution re-export barrel.
+- Simplified a few private execution helpers where earlier defensive branches were unreachable through their callers.
+
+### Files changed
+- `apps/sidecar/vitest.config.ts` — 100% coverage thresholds and coverage exclusion for the pure execution re-export barrel.
+- `apps/sidecar/src/index.ts` — exported entrypoint helpers for direct tests and added a test-only autostart opt-out while preserving default startup behavior.
+- `apps/sidecar/src/index.test.mjs` — entrypoint startup, shutdown, dotenv, recovery, guard, and fatal-path coverage.
+- `apps/sidecar/src/routes/execution.test.mjs` — refresh/cancel/log route edge coverage.
+- `apps/sidecar/src/services/**/*.test.mjs` — expanded service coverage, including new `opencode.test.mjs`.
+- `apps/sidecar/src/services/delta-buffer.ts` — simplified private buffer timer assumptions.
+- `apps/sidecar/src/services/execution/events.ts` — simplified private completion/background handling and covered event edge paths.
+- `apps/sidecar/src/services/execution/lifecycle.ts` — simplified post-validation user/project assumptions.
+- `apps/sidecar/src/services/opencode.ts` — covered process manager edge paths and annotated unreachable restart/race callbacks.
+- `.sisyphus/plans/sidecar-100-coverage.md` — recorded completion status and final coverage evidence.
+
+### Issues encountered
+- V8 branch coverage reports private race/catch callbacks precisely; a few unreachable process/error callbacks use narrow `v8 ignore` blocks.
+- `src/index.ts` needed a narrow V8 ignore for the packaged-snapshot `import.meta.dirname` fallback because Vitest always provides `import.meta.dirname`.
+- Existing dirty/deleted files outside this sidecar coverage work predated the task; they were left untouched per repository protocol and are not sidecar coverage blockers.
+
+### Next steps / blockers
+- None. `npx vitest run --coverage`, sidecar typecheck, and sidecar build all pass.
+
+---
+
+## [2026-05-23] — Resolve sidecar coverage risk cleanup
+
+**Status:** Done
+**Agent:** Codex
+
+### What was done
+- Removed the explicit `src/index.ts` exclusion from sidecar coverage configuration.
+- Added `src/index.test.mjs` so the sidecar entrypoint appears in the coverage report at 100%.
+- Added 100% coverage thresholds to make regressions fail `npx vitest run --coverage`.
+- Confirmed the sidecar coverage report shows 100% statements, branches, functions, and lines across 17 test files and 189 tests.
+- Left only `src/services/execution/index.ts` excluded because it is a pure re-export barrel with no runtime logic.
+
+### Files changed
+- `apps/sidecar/vitest.config.ts` — narrowed coverage exclusion to the pure execution barrel and added 100% thresholds.
+- `apps/sidecar/src/index.ts` — exported existing helpers/start and added test-controlled autostart opt-out.
+- `apps/sidecar/src/index.test.mjs` — added entrypoint coverage.
+- `.sisyphus/plans/sidecar-100-coverage.md` — marked the plan complete with final coverage evidence.
+- `ISSUES.md` — corrected the sidecar coverage log and recorded this risk cleanup.
+
+### Issues encountered
+- None in sidecar verification.
+
+### Next steps / blockers
+- None for the sidecar coverage task.
