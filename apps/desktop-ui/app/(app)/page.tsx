@@ -78,7 +78,7 @@ function HomeContent() {
           <h1 className="text-lg font-semibold truncate">Dashboard</h1>
           <div className="flex-1 h-full" data-tauri-drag-region />
         </header>
-        <div className="flex-1 flex items-center justify-center p-6">
+        <div className="flex-1 flex items-start justify-center p-6 overflow-y-auto">
           <OnboardingWizard
             teams={teams}
             onComplete={() => {

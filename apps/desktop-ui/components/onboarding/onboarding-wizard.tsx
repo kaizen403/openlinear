@@ -34,6 +34,7 @@ import {
   createWorkspace,
   ApiError,
   createTeam,
+  fetchGitHubBranches,
   fetchGitHubRepos,
   importRepo,
   type GitHubRepo,
@@ -154,6 +155,13 @@ function deriveProjectNameFromUrl(url: string): string {
   return match?.[1] || ""
 }
 
+function parseGitHubRepoSlug(value: string): { owner: string; repo: string } | null {
+  const trimmed = value.trim().replace(/\.git$/, "")
+  const match = trimmed.match(/(?:github\.com[:/])?([^/:\s]+)\/([^/:\s]+)$/)
+  if (!match) return null
+  return { owner: match[1], repo: match[2] }
+}
+
 function getRepoUrl(repo: GitHubRepo): string {
   return repo.html_url || `https://github.com/${repo.full_name}`
 }
@@ -169,15 +177,13 @@ function hasRepoSelection(draft: RepoDraft): boolean {
   return false
 }
 
-function getDefaultBranchSuggestions(draft: RepoDraft): string[] {
+function getDefaultBranchSuggestions(draft: RepoDraft, branchNames: string[]): string[] {
   return Array.from(
     new Set(
       [
-        draft.defaultBranch,
         draft.selectedRepo?.default_branch,
-        "main",
-        "develop",
-        "master",
+        ...branchNames,
+        branchNames.includes(draft.defaultBranch) ? draft.defaultBranch : undefined,
       ]
         .map((branch) => branch?.trim())
         .filter(Boolean) as string[],
@@ -308,7 +314,7 @@ const RepoItem = memo(function RepoItem({
     <button
       type="button"
       onClick={() => onSelect(repo)}
-      className={`w-full h-[90px] flex items-start gap-3 px-3 py-3 rounded-sm text-left transition-colors overflow-hidden ${
+      className={`w-full h-[96px] overflow-hidden flex items-start gap-3 px-3 py-3 rounded-sm text-left transition-colors ${
         isSelected
           ? "bg-linear-accent/10 border border-linear-accent/40"
           : "hover:bg-linear-bg-tertiary border border-transparent"
@@ -326,7 +332,7 @@ const RepoItem = memo(function RepoItem({
         </div>
       )}
 
-      <div className="flex-1 min-w-0 space-y-1">
+      <div className="flex-1 min-w-0 space-y-0.5">
         <div className="flex items-center gap-1.5 min-w-0">
           <span className="text-sm font-medium text-linear-text truncate">{repo.name}</span>
           {repo.private ? (
@@ -338,9 +344,9 @@ const RepoItem = memo(function RepoItem({
         </div>
         <div className="text-xs text-linear-text-tertiary truncate">{owner} / {repo.name}</div>
         {repo.description && (
-          <p className="text-xs text-linear-text-secondary line-clamp-1">{repo.description}</p>
+          <p className="text-xs text-linear-text-secondary line-clamp-1 leading-4">{repo.description}</p>
         )}
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-linear-text-tertiary">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-linear-text-tertiary leading-4">
           <span className="inline-flex items-center gap-1">
             <GitBranch className="w-3 h-3" />
             {repo.default_branch || "main"}
@@ -367,7 +373,7 @@ const RepoItem = memo(function RepoItem({
   )
 })
 
-function GitHubRepoList({
+const GitHubRepoList = memo(function GitHubRepoList({
   selectedRepo,
   onSelectRepo,
 }: {
@@ -388,20 +394,38 @@ function GitHubRepoList({
   const debouncedSearch = useDebouncedValue(search, 300)
   const scrollParentRef = useRef<HTMLDivElement>(null)
   const requestIdRef = useRef(0)
+  const repoRequestControllerRef = useRef<AbortController | null>(null)
 
   const hasGitHub = Boolean(user?.githubLinked ?? user?.githubId)
+
+  const getItemKey = useCallback(
+    (index: number) => repos[index]?.id ?? `repo-${index}`,
+    [repos],
+  )
+
+  const handleSelectRepo = useCallback(
+    (repo: GitHubRepo) => {
+      onSelectRepo(selectedRepo?.id === repo.id ? null : repo)
+    },
+    [onSelectRepo, selectedRepo?.id],
+  )
 
   const rowVirtualizer = useVirtualizer({
     count: repos.length,
     getScrollElement: () => scrollParentRef.current,
-    estimateSize: () => 98,
-    overscan: 8,
+    estimateSize: () => 96,
+    getItemKey,
+    overscan: 5,
   })
+  const repoListHeight = Math.min(rowVirtualizer.getTotalSize(), 440)
 
   const loadRepos = useCallback(
     async (nextPage: number, replace: boolean) => {
       if (!hasGitHub) return
       const requestId = ++requestIdRef.current
+      repoRequestControllerRef.current?.abort()
+      const controller = new AbortController()
+      repoRequestControllerRef.current = controller
 
       setError(null)
       if (replace) {
@@ -417,6 +441,7 @@ function GitHubRepoList({
           sort,
           filter,
           q: debouncedSearch || undefined,
+          signal: controller.signal,
         })
 
         if (requestId !== requestIdRef.current) return
@@ -427,9 +452,13 @@ function GitHubRepoList({
         setHasMore(result.hasMore ?? false)
         setTotalCount(result.totalCount ?? 0)
       } catch {
+        if (controller.signal.aborted) return
         if (requestId !== requestIdRef.current) return
         setError("Failed to load repositories")
       } finally {
+        if (repoRequestControllerRef.current === controller) {
+          repoRequestControllerRef.current = null
+        }
         if (requestId === requestIdRef.current) {
           setIsLoadingRepos(false)
           setIsLoadingMore(false)
@@ -438,6 +467,14 @@ function GitHubRepoList({
     },
     [debouncedSearch, filter, hasGitHub, sort],
   )
+
+  useEffect(() => {
+    return () => {
+      requestIdRef.current += 1
+      repoRequestControllerRef.current?.abort()
+      repoRequestControllerRef.current = null
+    }
+  }, [])
 
   useEffect(() => {
     loadRepos(1, true)
@@ -461,8 +498,11 @@ function GitHubRepoList({
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search repositories..."
-            className="pl-9 h-8 bg-linear-bg-tertiary border-linear-border text-sm"
+            className="pl-9 pr-8 h-8 bg-linear-bg-tertiary border-linear-border text-sm"
           />
+          {search !== debouncedSearch && (
+            <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 animate-spin text-linear-text-tertiary" />
+          )}
         </div>
         <select
           value={filter}
@@ -498,7 +538,8 @@ function GitHubRepoList({
         <>
           <div
             ref={scrollParentRef}
-            className="max-h-[320px] overflow-y-auto border border-linear-border rounded-sm"
+            className="overflow-y-auto border border-linear-border rounded-sm"
+            style={{ height: `${repoListHeight}px` }}
           >
             <div
               style={{ height: `${rowVirtualizer.getTotalSize()}px`, position: "relative" }}
@@ -508,7 +549,8 @@ function GitHubRepoList({
                 if (!repo) return null
                 return (
                   <div
-                    key={repo.id}
+                    key={virtualRow.key}
+                    data-index={virtualRow.index}
                     style={{
                       position: "absolute",
                       top: 0,
@@ -521,7 +563,7 @@ function GitHubRepoList({
                     <RepoItem
                       repo={repo}
                       isSelected={selectedRepo?.id === repo.id}
-                      onSelect={(r) => onSelectRepo(selectedRepo?.id === r.id ? null : r)}
+                      onSelect={handleSelectRepo}
                     />
                   </div>
                 )
@@ -543,7 +585,7 @@ function GitHubRepoList({
       )}
     </div>
   )
-}
+})
 
 // ─── Step 2: Project (with optional repo) ───────────────────────────────────
 
@@ -566,7 +608,80 @@ function ProjectStep({
 }) {
   const [showRepo, setShowRepo] = useState(() => hasRepoSelection(repoDraft))
   const [activeTab, setActiveTab] = useState<ProjectTab>(repoDraft.source)
-  const suggestions = useMemo(() => getDefaultBranchSuggestions(repoDraft), [repoDraft])
+  const [branchNames, setBranchNames] = useState<string[]>([])
+  const [isLoadingBranches, setIsLoadingBranches] = useState(false)
+  const [branchError, setBranchError] = useState<string | null>(null)
+  const suggestions = useMemo(
+    () => getDefaultBranchSuggestions(repoDraft, branchNames),
+    [branchNames, repoDraft.defaultBranch, repoDraft.selectedRepo?.default_branch],
+  )
+
+  const branchRepo = useMemo(() => {
+    if (repoDraft.source === "github" && repoDraft.selectedRepo) {
+      return parseGitHubRepoSlug(repoDraft.selectedRepo.full_name)
+    }
+    if (repoDraft.source === "link") {
+      return parseGitHubRepoSlug(repoDraft.repoUrl)
+    }
+    if (repoDraft.source === "ssh") {
+      return parseGitHubRepoSlug(repoDraft.sshUrl)
+    }
+    return null
+  }, [repoDraft.repoUrl, repoDraft.selectedRepo, repoDraft.source, repoDraft.sshUrl])
+
+  const branchRepoKey = branchRepo ? `${branchRepo.owner}/${branchRepo.repo}` : ""
+  const debouncedBranchRepoKey = useDebouncedValue(branchRepoKey, 400)
+  const debouncedBranchRepo = useMemo(() => {
+    if (!debouncedBranchRepoKey) return null
+    const [owner, repo] = debouncedBranchRepoKey.split("/")
+    if (!owner || !repo) return null
+    return { owner, repo }
+  }, [debouncedBranchRepoKey])
+
+  useEffect(() => {
+    if (!showRepo || !branchRepoKey) {
+      setBranchNames([])
+      setBranchError(null)
+      setIsLoadingBranches(false)
+      return
+    }
+
+    if (branchRepoKey !== debouncedBranchRepoKey || !debouncedBranchRepo) {
+      setBranchNames([])
+      setIsLoadingBranches(true)
+      setBranchError(null)
+      return
+    }
+
+    let cancelled = false
+    const controller = new AbortController()
+    setBranchNames([])
+    setIsLoadingBranches(true)
+    setBranchError(null)
+
+    fetchGitHubBranches(debouncedBranchRepo.owner, debouncedBranchRepo.repo, {
+      signal: controller.signal,
+    })
+      .then((result) => {
+        if (cancelled) return
+        const names = result.branches.map((branch) => branch.name).filter(Boolean)
+        setBranchNames(names)
+      })
+      .catch((err) => {
+        if (cancelled || (err instanceof DOMException && err.name === "AbortError")) return
+        setBranchNames([])
+        const message = err instanceof Error ? err.message : "Could not load repository branches"
+        setBranchError(message)
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoadingBranches(false)
+      })
+
+    return () => {
+      cancelled = true
+      controller.abort()
+    }
+  }, [branchRepoKey, debouncedBranchRepo, debouncedBranchRepoKey, showRepo])
 
   const canCreate = projectName.trim().length > 0
 
@@ -752,6 +867,12 @@ function ProjectStep({
                   className="bg-linear-bg-tertiary border-linear-border text-linear-text h-9"
                 />
                 <div className="flex flex-wrap gap-1.5">
+                  {isLoadingBranches && (
+                    <span className="inline-flex items-center gap-1 rounded-sm border border-linear-border px-2 py-0.5 text-xs text-linear-text-tertiary">
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                      Loading branches
+                    </span>
+                  )}
                   {suggestions.map((branch) => (
                     <button
                       key={branch}
@@ -766,7 +887,11 @@ function ProjectStep({
                       {branch}
                     </button>
                   ))}
+                  {!isLoadingBranches && suggestions.length === 0 && (
+                    <span className="text-xs text-linear-text-tertiary">No branches found. Type the branch name above.</span>
+                  )}
                 </div>
+                {branchError && <p className="text-xs text-linear-text-tertiary">{branchError}</p>}
               </div>
             )}
           </div>
