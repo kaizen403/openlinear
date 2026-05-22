@@ -250,6 +250,45 @@ describe('execution-core batch helpers', () => {
     expect(buildSingleTaskPrompt({ title: '', description: '' }, 'Fallback title')).not.toContain('\n\n\n');
   });
 
+  it('covers state.ts branch: default createdAt and Map title lookup', () => {
+    // Hits line 70: createdAt defaults to new Date() when not provided
+    const noDate = createBatchState({
+      id: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+      projectId: 'p1',
+      mode: 'queue',
+      taskIds: ['t1'],
+      titleByTaskId: new Map([['t1', 'Map title']]),
+      settings,
+      mainRepoPath: '/tmp',
+      accessToken: 'tok',
+      userId: null,
+    });
+    expect(noDate.createdAt).toBeInstanceOf(Date);
+    expect(noDate.tasks[0].title).toBe('Map title');
+
+    // Hits line 27/29: Map without key returns 'Untitled task'
+    const missingKey = createBatchState({
+      id: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+      projectId: 'p1',
+      mode: 'queue',
+      taskIds: ['missing'],
+      titleByTaskId: new Map([['other', 'Other']]),
+      settings,
+      mainRepoPath: '/tmp',
+      accessToken: null,
+      userId: null,
+    });
+    expect(missingKey.tasks[0].title).toBe('Untitled task');
+  });
+
+  it('covers responses.ts branch: toBatchStatusResponse with null completedAt', () => {
+    // Hits line 74: batch.completedAt is null → null in response
+    const state = batch();
+    const resp = toBatchStatusResponse(state);
+    expect(resp.completedAt).toBeNull();
+    expect(resp.prUrl).toBeNull();
+  });
+
   it('builds combined prompts in selected task order', () => {
     const state = batch({ mode: 'combined' });
     const prompt = buildCombinedBatchPrompt(state.tasks, [
