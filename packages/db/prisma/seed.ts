@@ -197,6 +197,11 @@ async function main() {
   console.log(`[seed] Upserted TeamMember demo -> Default`);
 
   // 8. Migrate orphan tasks into the project and team
+  // First clear number to avoid unique constraint (teamId, number) conflicts
+  await prisma.task.updateMany({
+    where: { projectId: null },
+    data: { number: null },
+  });
   const migrated = await prisma.task.updateMany({
     where: { projectId: null },
     data: { projectId: project.id, teamId: team.id },

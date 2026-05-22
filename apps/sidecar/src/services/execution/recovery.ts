@@ -32,6 +32,7 @@ export async function recoverInFlightExecutions(): Promise<RecoveryResult> {
     id: string;
     teamId: string | null;
     creatorId: string | null;
+    updatedAt: Date;
     agentRuns: Array<{ id: string; startedAt: Date; endedAt: Date | null }>;
   }>;
   try {
@@ -41,6 +42,7 @@ export async function recoverInFlightExecutions(): Promise<RecoveryResult> {
         id: true,
         teamId: true,
         creatorId: true,
+        updatedAt: true,
         agentRuns: {
           orderBy: { startedAt: 'desc' },
           take: 1,
@@ -65,8 +67,6 @@ export async function recoverInFlightExecutions(): Promise<RecoveryResult> {
     const lastRun = task.agentRuns[0];
 
     // No AgentRun row at all OR last run is still open → check age.
-    const referenceStart = lastRun?.startedAt?.getTime() ?? now;
-    const ageMs = now - referenceStart;
     const isOpen = !lastRun || lastRun.endedAt === null;
 
     if (!isOpen) {
@@ -75,6 +75,9 @@ export async function recoverInFlightExecutions(): Promise<RecoveryResult> {
       result.orphaned += 1;
       continue;
     }
+
+    const referenceStart = lastRun?.startedAt?.getTime() ?? task.updatedAt?.getTime() ?? now;
+    const ageMs = now - referenceStart;
 
     if (ageMs > ORPHAN_THRESHOLD_MS) {
       await markOrphan(task, lastRun?.id ?? null);
@@ -96,17 +99,20 @@ export async function recoverInFlightExecutions(): Promise<RecoveryResult> {
 }
 
 async function markOrphan(
-  task: { id: string; teamId: string | null; creatorId: string | null },
+  task: { id: string; teamId: string | null; creatorId: string | null; updatedAt: Date },
   agentRunId: string | null,
 ): Promise<void> {
   const reason = 'sidecar_restart_orphan';
   try {
+    const elapsedMs = Date.now() - task.updatedAt.getTime();
     const updated = await prisma.task.update({
       where: { id: task.id },
       data: {
         status: 'cancelled',
         outcome: reason,
         sessionId: null,
+        executionElapsedMs: elapsedMs,
+        executionPausedAt: new Date(),
       },
       include: { labels: { include: { label: true } } },
     });

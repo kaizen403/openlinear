@@ -206,6 +206,7 @@ model Settings {
   queueAutoApprove Boolean @default(false)
   stopOnFailure    Boolean @default(false)
   conflictBehavior String  @default("skip") // "skip" | "fail"
+  taskDeletionMode String  @default("archive") // "archive" | "delete"
 
   @@map("settings")
 }

@@ -29,16 +29,16 @@ export default function EnterprisePage() {
             <div className="h-8 w-8 rounded-xl bg-green-500/10 border border-green-500/10 flex items-center justify-center shrink-0">
               <Shield className="h-3.5 w-3.5 text-green-400/80" />
             </div>
-            <p className="text-[0.8125rem] font-semibold text-[#EDE8D0]/90 tracking-[-0.01em]">Container Isolated</p>
+            <p className="text-[0.8125rem] font-semibold text-[#9c9580]/90 tracking-[-0.01em]">Container Isolated</p>
           </div>
           <div className="flex flex-col gap-2 pl-[44px]">
             <div className="flex items-center gap-2">
               <CheckCircle2 className="h-3 w-3 text-green-400/60 shrink-0" />
-              <span className="text-[0.6875rem] text-[#EDE8D0]/40">Network sandboxed</span>
+              <span className="text-[0.6875rem] text-[#9c9580]/40">Network sandboxed</span>
             </div>
             <div className="flex items-center gap-2">
               <CheckCircle2 className="h-3 w-3 text-green-400/60 shrink-0" />
-              <span className="text-[0.6875rem] text-[#EDE8D0]/40">Worktree isolated</span>
+              <span className="text-[0.6875rem] text-[#9c9580]/40">Worktree isolated</span>
             </div>
           </div>
         </div>
@@ -46,27 +46,27 @@ export default function EnterprisePage() {
         {/* Floating glass-panel: Audit Trail */}
         <div className="hidden lg:block absolute bottom-[18%] left-[6%] w-[260px] glass-panel rounded-2xl overflow-hidden z-10 animate-float-4">
           <div className="px-4 py-3 border-b border-white/[0.04] flex items-center gap-2.5">
-            <Terminal className="h-3.5 w-3.5 text-[#EDE8D0]/50" />
-            <p className="text-[0.6875rem] font-semibold text-[#EDE8D0]/60 tracking-wide uppercase">Audit Log</p>
+            <Terminal className="h-3.5 w-3.5 text-[#9c9580]/50" />
+            <p className="text-[0.6875rem] font-semibold text-[#9c9580]/60 tracking-wide uppercase">Audit Log</p>
           </div>
           <div className="px-4 py-3 flex flex-col gap-1.5 font-mono">
-            <p className="text-[0.625rem] text-[#EDE8D0]/30"><span className="text-green-400/50">✓</span> Agent spawned in container</p>
-            <p className="text-[0.625rem] text-[#EDE8D0]/30"><span className="text-green-400/50">✓</span> Repo cloned &amp; branch created</p>
-            <p className="text-[0.625rem] text-[#EDE8D0]/25"><span className="text-[#EDE8D0]/20">…</span> Executing task #47</p>
+            <p className="text-[0.625rem] text-[#9c9580]/30"><span className="text-green-400/50">✓</span> Agent spawned in container</p>
+            <p className="text-[0.625rem] text-[#9c9580]/30"><span className="text-green-400/50">✓</span> Repo cloned &amp; branch created</p>
+            <p className="text-[0.625rem] text-[#9c9580]/25"><span className="text-[#9c9580]/20">…</span> Executing task #47</p>
           </div>
         </div>
 
         <div className="relative mx-auto max-w-none px-[100px] w-full text-center py-40">
-          <span className="hero-reveal-1 inline-block text-[0.75rem] font-semibold text-[#EDE8D0]/40 tracking-[0.2em] uppercase mb-8">
+          <span className="hero-reveal-1 inline-block text-[0.75rem] font-semibold text-[#9c9580]/40 tracking-[0.2em] uppercase mb-8">
             Enterprise
           </span>
-          <h1 className="hero-reveal-2 font-display text-[2.75rem] md:text-[3.75rem] lg:text-[4.5rem] font-bold tracking-[-0.05em] text-[#EDE8D0] leading-[1.02] max-w-4xl mx-auto">
+          <h1 className="hero-reveal-2 font-display text-[2.75rem] md:text-[3.75rem] lg:text-[4.5rem] font-bold tracking-[-0.05em] text-[#9c9580] leading-[1.02] max-w-4xl mx-auto">
             AI execution with{" "}
-            <span className="bg-gradient-to-r from-[#EDE8D0] to-[#EDE8D0]/60 bg-clip-text text-transparent">
+            <span className="bg-gradient-to-r from-[#9c9580] to-[#9c9580]/60 bg-clip-text text-transparent">
               <span className="font-editorial italic">enterprise control.</span>
             </span>
           </h1>
-          <p className="hero-reveal-3 text-[#EDE8D0]/40 leading-[1.75] text-[1.0625rem] tracking-[-0.01em] max-w-2xl mx-auto mt-8">
+          <p className="hero-reveal-3 text-[#9c9580]/40 leading-[1.75] text-[1.0625rem] tracking-[-0.01em] max-w-2xl mx-auto mt-8">
             Modernize your development workflow with AI-powered code execution.
             Every action transparent. Every change reviewable. Your infrastructure.
           </p>
@@ -79,7 +79,7 @@ export default function EnterprisePage() {
             </a>
             <a
               href="/pricing"
-              className="btn-secondary inline-flex items-center gap-2 rounded-full border border-[#EDE8D0]/[0.08] bg-[#EDE8D0]/[0.03] px-8 py-3.5 text-[0.875rem] font-medium text-[#EDE8D0]/70"
+              className="btn-secondary inline-flex items-center gap-2 rounded-full border border-[#9c9580]/[0.08] bg-[#9c9580]/[0.03] px-8 py-3.5 text-[0.875rem] font-medium text-[#9c9580]/70"
             >
               View Plans
             </a>
@@ -99,13 +99,13 @@ export default function EnterprisePage() {
               { value: "∞", label: "Audit trail", sub: "Every action logged" },
             ].map((stat) => (
               <div key={stat.label} className="text-center lg:text-left">
-                <p className="font-display text-[2.5rem] md:text-[3rem] font-bold tracking-[-0.04em] text-[#EDE8D0] leading-none">
+                <p className="font-display text-[2.5rem] md:text-[3rem] font-bold tracking-[-0.04em] text-[#9c9580] leading-none">
                   {stat.value}
                 </p>
-                <p className="text-[0.875rem] font-medium text-[#EDE8D0]/70 mt-2 tracking-[-0.01em]">
+                <p className="text-[0.875rem] font-medium text-[#9c9580]/70 mt-2 tracking-[-0.01em]">
                   {stat.label}
                 </p>
-                <p className="text-[0.75rem] text-[#EDE8D0]/30 mt-1">
+                <p className="text-[0.75rem] text-[#9c9580]/30 mt-1">
                   {stat.sub}
                 </p>
               </div>
@@ -217,8 +217,8 @@ export default function EnterprisePage() {
                 <span className="text-[0.75rem] font-semibold text-primary/50 tracking-[-0.01em] mb-5 block font-mono">
                   {item.step}
                 </span>
-                <div className="h-10 w-10 rounded-lg bg-[#EDE8D0]/[0.05] border border-[#EDE8D0]/[0.06] flex items-center justify-center mb-5">
-                  <item.icon className="h-4.5 w-4.5 text-[#EDE8D0]/60" />
+                <div className="h-10 w-10 rounded-lg bg-[#9c9580]/[0.05] border border-[#9c9580]/[0.06] flex items-center justify-center mb-5">
+                  <item.icon className="h-4.5 w-4.5 text-[#9c9580]/60" />
                 </div>
                 <h3 className="font-display text-[1.25rem] font-bold tracking-[-0.03em] text-foreground mb-3">
                   {item.title}
@@ -237,15 +237,15 @@ export default function EnterprisePage() {
                       <p className="text-[0.625rem] text-muted-foreground/30">PR #142</p>
                     </div>
                     <div className="px-4 py-3.5">
-                      <p className="text-[0.75rem] font-medium text-[#EDE8D0]/75 mb-2">feat: add dark mode toggle</p>
+                      <p className="text-[0.75rem] font-medium text-[#9c9580]/75 mb-2">feat: add dark mode toggle</p>
                       <div className="flex items-center gap-3 mb-3">
                         <span className="text-[0.625rem] font-mono text-green-400/50">+48</span>
                         <span className="text-[0.625rem] font-mono text-red-400/40">−12</span>
-                        <span className="text-[0.625rem] text-[#EDE8D0]/20">3 files</span>
+                        <span className="text-[0.625rem] text-[#9c9580]/20">3 files</span>
                       </div>
                       <div className="flex gap-2">
                         <span className="rounded-md bg-green-500/10 border border-green-500/10 px-2.5 py-1 text-[0.625rem] font-medium text-green-400/70">Approve</span>
-                        <span className="rounded-md bg-[#EDE8D0]/[0.04] border border-[#EDE8D0]/[0.06] px-2.5 py-1 text-[0.625rem] font-medium text-[#EDE8D0]/25">Comment</span>
+                        <span className="rounded-md bg-[#9c9580]/[0.04] border border-[#9c9580]/[0.06] px-2.5 py-1 text-[0.625rem] font-medium text-[#9c9580]/25">Comment</span>
                       </div>
                     </div>
                   </div>
@@ -289,10 +289,10 @@ export default function EnterprisePage() {
         <div className="absolute top-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-[hsl(0_0%_100%/0.04)] to-transparent" />
 
         <div className="relative mx-auto max-w-none px-[100px] text-center">
-          <h2 className="font-display text-[2rem] md:text-[2.75rem] lg:text-[3.25rem] font-bold tracking-[-0.045em] text-[#EDE8D0] text-balance leading-[1.04] max-w-2xl mx-auto">
+          <h2 className="font-display text-[2rem] md:text-[2.75rem] lg:text-[3.25rem] font-bold tracking-[-0.045em] text-[#9c9580] text-balance leading-[1.04] max-w-2xl mx-auto">
             Ready to <span className="font-editorial italic">evaluate</span>?
           </h2>
-          <p className="text-[#EDE8D0]/35 leading-[1.7] text-[0.9375rem] tracking-[-0.01em] max-w-lg mx-auto mt-5">
+          <p className="text-[#9c9580]/35 leading-[1.7] text-[0.9375rem] tracking-[-0.01em] max-w-lg mx-auto mt-5">
             Talk to our team about how OpenLinear can fit your engineering workflow.
           </p>
           <div className="flex items-center justify-center gap-4 mt-10">
@@ -304,7 +304,7 @@ export default function EnterprisePage() {
             </a>
             <a
               href="/pricing"
-              className="inline-flex items-center gap-2.5 rounded-full border border-[#EDE8D0]/[0.06] px-7 py-3.5 text-[0.8125rem] font-medium text-[#EDE8D0]/60 transition-all duration-300 hover:bg-[#EDE8D0]/[0.03] hover:border-[#EDE8D0]/[0.1]"
+              className="inline-flex items-center gap-2.5 rounded-full border border-[#9c9580]/[0.06] px-7 py-3.5 text-[0.8125rem] font-medium text-[#9c9580]/60 transition-all duration-300 hover:bg-[#9c9580]/[0.03] hover:border-[#9c9580]/[0.1]"
             >
               View Plans
             </a>

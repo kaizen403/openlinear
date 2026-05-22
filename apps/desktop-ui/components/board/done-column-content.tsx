@@ -13,6 +13,7 @@ interface DoneColumnContentProps {
   completedBatch: { taskIds: string[]; prUrl: string | null; mode: string } | null
   selectedTaskIds: Set<string>
   onDelete: (taskId: string) => Promise<void>
+  deletionMode?: "archive" | "delete"
   onTaskClick: (taskId: string) => Promise<void>
   onToggleSelect: (taskId: string) => void
   renderTask: (task: Task, index: number, completedBatch?: boolean) => ReactNode
@@ -23,6 +24,7 @@ export function DoneColumnContent({
   completedBatch,
   selectedTaskIds,
   onDelete,
+  deletionMode,
   onTaskClick,
   onToggleSelect,
   renderTask,
@@ -95,6 +97,7 @@ export function DoneColumnContent({
                       onExecute={undefined}
                       onCancel={undefined}
                       onDelete={onDelete}
+                      deletionMode={deletionMode}
                       onTaskClick={onTaskClick}
                       selected={selectedTaskIds.has(task.id)}
                       onToggleSelect={onToggleSelect}

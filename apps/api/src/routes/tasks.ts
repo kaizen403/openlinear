@@ -670,6 +670,7 @@ router.patch(
 router.delete('/:id', requireAuth, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const id = req.params.id as string;
+    const permanent = req.query.permanent === 'true';
     const owned = await assertTaskOwned(id, req.userId!);
 
     const fullTask = await prisma.task.findUnique({
@@ -677,10 +678,14 @@ router.delete('/:id', requireAuth, async (req: AuthRequest, res: Response, next:
       select: { teamId: true, creatorId: true },
     });
 
-    await prisma.task.update({
-      where: { id },
-      data: { archived: true },
-    });
+    if (permanent) {
+      await prisma.task.delete({ where: { id } });
+    } else {
+      await prisma.task.update({
+        where: { id },
+        data: { archived: true },
+      });
+    }
 
     const teamId = fullTask?.teamId ?? owned.teamId ?? null;
     const creatorId = fullTask?.creatorId ?? null;
@@ -697,7 +702,7 @@ router.delete('/:id', requireAuth, async (req: AuthRequest, res: Response, next:
       projectId: owned.projectId,
       teamId,
       userId: req.userId!,
-      action: 'task_archived',
+      action: permanent ? 'task_deleted' : 'task_archived',
       payload: { id },
     });
 

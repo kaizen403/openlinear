@@ -149,13 +149,13 @@ export default function PricingPage() {
         <div className="absolute bottom-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-white/[0.06] to-transparent" />
 
         <div className="relative mx-auto max-w-none px-[100px] w-full text-center py-40">
-          <span className="hero-reveal-1 inline-block text-[0.75rem] font-semibold text-[#EDE8D0]/40 tracking-[0.2em] uppercase mb-8">
+          <span className="hero-reveal-1 inline-block text-[0.75rem] font-semibold text-[#9c9580]/40 tracking-[0.2em] uppercase mb-8">
             Pricing
           </span>
-          <h1 className="hero-reveal-2 font-display text-[2.75rem] md:text-[3.75rem] lg:text-[4.5rem] font-bold tracking-[-0.05em] text-[#EDE8D0] leading-[1.02] max-w-3xl mx-auto">
+          <h1 className="hero-reveal-2 font-display text-[2.75rem] md:text-[3.75rem] lg:text-[4.5rem] font-bold tracking-[-0.05em] text-[#9c9580] leading-[1.02] max-w-3xl mx-auto">
             Plans and <span className="font-editorial italic">Pricing</span>
           </h1>
-          <p className="hero-reveal-3 text-[#EDE8D0]/40 leading-[1.75] text-[1.0625rem] tracking-[-0.01em] max-w-lg mx-auto mt-8">
+          <p className="hero-reveal-3 text-[#9c9580]/40 leading-[1.75] text-[1.0625rem] tracking-[-0.01em] max-w-lg mx-auto mt-8">
             Start free. Upgrade when you need more power.
           </p>
         </div>
@@ -164,17 +164,17 @@ export default function PricingPage() {
           <div className="glass-panel rounded-2xl p-4 pr-6">
             <div className="flex items-center gap-3 mb-3">
               <Star className="h-4 w-4 text-primary" />
-              <span className="text-[0.6875rem] font-semibold text-[#EDE8D0]/60 tracking-wide uppercase">Most Popular</span>
+              <span className="text-[0.6875rem] font-semibold text-[#9c9580]/60 tracking-wide uppercase">Most Popular</span>
             </div>
             <div className="flex items-center gap-4">
               <div className="text-center">
-                <span className="block text-[0.6875rem] text-[#EDE8D0]/30 mb-0.5">Free</span>
-                <span className="block font-display text-[1rem] font-bold text-[#EDE8D0]/50 tracking-tight">$0</span>
+                <span className="block text-[0.6875rem] text-[#9c9580]/30 mb-0.5">Free</span>
+                <span className="block font-display text-[1rem] font-bold text-[#9c9580]/50 tracking-tight">$0</span>
               </div>
               <ArrowRight className="h-3.5 w-3.5 text-primary/60" />
               <div className="text-center">
-                <span className="block text-[0.6875rem] text-[#EDE8D0]/30 mb-0.5">Pro</span>
-                <span className="block font-display text-[1rem] font-bold text-[#EDE8D0] tracking-tight">$20</span>
+                <span className="block text-[0.6875rem] text-[#9c9580]/30 mb-0.5">Pro</span>
+                <span className="block font-display text-[1rem] font-bold text-[#9c9580] tracking-tight">$20</span>
               </div>
             </div>
           </div>
@@ -279,7 +279,7 @@ export default function PricingPage() {
           <div className="glass-panel rounded-2xl p-3.5">
             <div className="flex items-center gap-2">
               <Sparkles className="h-4 w-4 text-primary/70" />
-              <span className="text-[0.6875rem] font-medium text-[#EDE8D0]/40">Custom plans available</span>
+              <span className="text-[0.6875rem] font-medium text-[#9c9580]/40">Custom plans available</span>
             </div>
           </div>
         </div>

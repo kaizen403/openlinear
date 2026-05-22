@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useRef } from "react"
 import { useVirtualizer } from "@tanstack/react-virtual"
-import { X, ArrowLeft, Bot, Wrench, CheckCircle, AlertCircle, Info, Clock, AlertTriangle, Flag, Tag, Folder, Square, Archive, GitMerge, ExternalLink, Play, Check, Loader2 } from "lucide-react"
+import { X, ArrowLeft, Bot, Wrench, CheckCircle, AlertCircle, Info, Clock, AlertTriangle, Flag, Tag, Folder, Square, Archive, Trash2, GitMerge, ExternalLink, Play, Check, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetTitle, SheetDescription } from "@/components/ui/sheet"
 import { MarkdownView } from "@/components/markdown-view"
@@ -18,6 +18,7 @@ interface TaskDetailViewProps {
   open: boolean
   onClose: () => void
   onDelete?: (taskId: string) => void
+  deletionMode?: "archive" | "delete"
   onCancel?: (taskId: string) => void
   onExecute?: (taskId: string) => void
   onUpdate?: (taskId: string, data: { title?: string; description?: string | null }) => void
@@ -73,7 +74,7 @@ function formatDate(timestamp: string): string {
   })
 }
 
-export function TaskDetailView({ task, progress, open, onClose, onDelete, onCancel, onExecute, onUpdate, isExecuting, project }: TaskDetailViewProps) {
+export function TaskDetailView({ task, progress, open, onClose, onDelete, deletionMode, onCancel, onExecute, onUpdate, isExecuting, project }: TaskDetailViewProps) {
   const logsContainerRef = useRef<HTMLDivElement>(null)
   const titleInputRef = useRef<HTMLInputElement>(null)
   const descriptionRef = useRef<HTMLTextAreaElement>(null)
@@ -255,8 +256,14 @@ export function TaskDetailView({ task, progress, open, onClose, onDelete, onCanc
                 className="h-8 px-2 sm:px-3 text-linear-text-secondary hover:text-linear-accent hover:bg-linear-accent/10"
                 onClick={() => onDelete(task.id)}
               >
-                <Archive className="h-3.5 w-3.5 mr-1.5" />
-                <span className="hidden sm:inline">Archive</span>
+                {deletionMode === "delete" ? (
+                  <Trash2 className="h-3.5 w-3.5 mr-1.5" />
+                ) : (
+                  <Archive className="h-3.5 w-3.5 mr-1.5" />
+                )}
+                <span className="hidden sm:inline">
+                  {deletionMode === "delete" ? "Delete" : "Archive"}
+                </span>
               </Button>
             )}
             <Button

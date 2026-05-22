@@ -19,17 +19,17 @@ export default function ProductPage() {
         <div className="absolute bottom-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-white/[0.06] to-transparent" />
 
         <div className="relative mx-auto max-w-none px-[100px] w-full text-center py-40">
-          <span className="hero-reveal-1 inline-block text-[0.75rem] font-semibold text-[#EDE8D0]/40 tracking-[0.2em] uppercase mb-8">
+          <span className="hero-reveal-1 inline-block text-[0.75rem] font-semibold text-[#9c9580]/40 tracking-[0.2em] uppercase mb-8">
             Product
           </span>
-          <h1 className="hero-reveal-2 font-display text-[2.75rem] md:text-[3.75rem] lg:text-[4.5rem] font-bold tracking-[-0.05em] text-[#EDE8D0] leading-[1.02] max-w-3xl mx-auto">
+          <h1 className="hero-reveal-2 font-display text-[2.75rem] md:text-[3.75rem] lg:text-[4.5rem] font-bold tracking-[-0.05em] text-[#9c9580] leading-[1.02] max-w-3xl mx-auto">
             A board that executes
             <br />
-            <span className="bg-gradient-to-r from-[#EDE8D0]/50 to-[#EDE8D0]/30 bg-clip-text text-transparent">
+            <span className="bg-gradient-to-r from-[#9c9580]/50 to-[#9c9580]/30 bg-clip-text text-transparent">
               <span className="font-editorial italic">and brainstorms.</span>
             </span>
           </h1>
-          <p className="hero-reveal-3 text-[#EDE8D0]/40 leading-[1.75] text-[1.0625rem] tracking-[-0.01em] max-w-2xl mx-auto mt-8">
+          <p className="hero-reveal-3 text-[#9c9580]/40 leading-[1.75] text-[1.0625rem] tracking-[-0.01em] max-w-2xl mx-auto mt-8">
             OpenLinear is a desktop kanban board connected to your GitHub repository.
             Tasks don&apos;t just get tracked — they get done by AI agents.
           </p>
@@ -42,7 +42,7 @@ export default function ProductPage() {
             </a>
             <a
               href="/docs"
-              className="btn-secondary inline-flex items-center gap-2 rounded-full border border-[#EDE8D0]/[0.08] bg-[#EDE8D0]/[0.03] px-8 py-3.5 text-[0.875rem] font-medium text-[#EDE8D0]/70"
+              className="btn-secondary inline-flex items-center gap-2 rounded-full border border-[#9c9580]/[0.08] bg-[#9c9580]/[0.03] px-8 py-3.5 text-[0.875rem] font-medium text-[#9c9580]/70"
             >
               Read the docs
             </a>
@@ -52,16 +52,16 @@ export default function ProductPage() {
         {/* ── Floating glass-panel decorative cards ── */}
         <div className="hidden lg:block absolute bottom-24 right-[11%] w-[260px] glass-panel rounded-2xl p-5 z-20 animate-float-1">
           <div className="flex items-start gap-3.5">
-            <div className="h-9 w-9 rounded-xl bg-[#EDE8D0]/[0.08] flex items-center justify-center shrink-0 border border-[#EDE8D0]/[0.06]">
-              <Play className="h-4 w-4 text-[#EDE8D0]/60" />
+            <div className="h-9 w-9 rounded-xl bg-[#9c9580]/[0.08] flex items-center justify-center shrink-0 border border-[#9c9580]/[0.06]">
+              <Play className="h-4 w-4 text-[#9c9580]/60" />
             </div>
             <div className="flex flex-col gap-1.5 flex-1">
-              <p className="text-[0.8125rem] font-semibold text-[#EDE8D0]/90 tracking-[-0.01em]">Executing task…</p>
-              <p className="text-[0.75rem] text-[#EDE8D0]/35 leading-[1.6]">
+              <p className="text-[0.8125rem] font-semibold text-[#9c9580]/90 tracking-[-0.01em]">Executing task…</p>
+              <p className="text-[0.75rem] text-[#9c9580]/35 leading-[1.6]">
                 Implementing auth middleware for API routes
               </p>
               <div className="mt-2 h-1.5 w-full rounded-full bg-white/[0.06] overflow-hidden">
-                <div className="h-full w-[45%] rounded-full bg-gradient-to-r from-[#EDE8D0]/40 to-[#EDE8D0]/20 animate-pulse" />
+                <div className="h-full w-[45%] rounded-full bg-gradient-to-r from-[#9c9580]/40 to-[#9c9580]/20 animate-pulse" />
               </div>
             </div>
           </div>
@@ -72,9 +72,9 @@ export default function ProductPage() {
             <div className="h-7 w-7 rounded-lg bg-green-500/10 flex items-center justify-center border border-green-500/10">
               <GitMerge className="h-3.5 w-3.5 text-green-400/80" />
             </div>
-            <p className="text-[0.8125rem] font-semibold text-[#EDE8D0]/90 tracking-[-0.01em]">PR Merged</p>
+            <p className="text-[0.8125rem] font-semibold text-[#9c9580]/90 tracking-[-0.01em]">PR Merged</p>
           </div>
-          <p className="text-[0.75rem] text-[#EDE8D0]/35 leading-[1.55] pl-[38px]">
+          <p className="text-[0.75rem] text-[#9c9580]/35 leading-[1.55] pl-[38px]">
             feat/batch-queue → main
           </p>
         </div>
@@ -169,8 +169,8 @@ export default function ProductPage() {
             ].map((item) => (
               <div key={item.title} className="mock-card rounded-2xl p-8 lg:p-10 group">
                 <div className="flex items-start gap-5">
-                  <div className="h-10 w-10 rounded-lg bg-[#EDE8D0]/[0.05] border border-[#EDE8D0]/[0.06] flex items-center justify-center shrink-0 group-hover:bg-[#EDE8D0]/[0.08] transition-colors duration-300">
-                    <item.icon className="h-4 w-4 text-[#EDE8D0]/60" />
+                  <div className="h-10 w-10 rounded-lg bg-[#9c9580]/[0.05] border border-[#9c9580]/[0.06] flex items-center justify-center shrink-0 group-hover:bg-[#9c9580]/[0.08] transition-colors duration-300">
+                    <item.icon className="h-4 w-4 text-[#9c9580]/60" />
                   </div>
                   <div className="flex-1">
                     <h3 className="font-display text-[1.125rem] font-bold tracking-[-0.03em] text-foreground mb-2">
@@ -183,7 +183,7 @@ export default function ProductPage() {
                       {item.details.map((detail) => (
                         <span
                           key={detail}
-                          className="inline-flex items-center rounded-full bg-[#EDE8D0]/[0.04] border border-[#EDE8D0]/[0.06] px-3 py-1 text-[0.6875rem] text-muted-foreground/50 font-medium"
+                          className="inline-flex items-center rounded-full bg-[#9c9580]/[0.04] border border-[#9c9580]/[0.06] px-3 py-1 text-[0.6875rem] text-muted-foreground/50 font-medium"
                         >
                           {detail}
                         </span>
@@ -191,24 +191,24 @@ export default function ProductPage() {
                     </div>
                     {item.title === "Batch Execution" && (
                       <div className="mock-card rounded-2xl overflow-hidden mt-6 hidden lg:block">
-                        <div className="flex items-center gap-3 px-5 py-3 border-b border-[#EDE8D0]/[0.06]">
+                        <div className="flex items-center gap-3 px-5 py-3 border-b border-[#9c9580]/[0.06]">
                           <div className="flex gap-[5px]">
-                            <div className="h-2 w-2 rounded-full bg-[#EDE8D0]/[0.08]" />
-                            <div className="h-2 w-2 rounded-full bg-[#EDE8D0]/[0.05]" />
-                            <div className="h-2 w-2 rounded-full bg-[#EDE8D0]/[0.05]" />
+                            <div className="h-2 w-2 rounded-full bg-[#9c9580]/[0.08]" />
+                            <div className="h-2 w-2 rounded-full bg-[#9c9580]/[0.05]" />
+                            <div className="h-2 w-2 rounded-full bg-[#9c9580]/[0.05]" />
                           </div>
-                          <p className="text-[0.6875rem] text-[#EDE8D0]/40">Batch Queue</p>
+                          <p className="text-[0.6875rem] text-[#9c9580]/40">Batch Queue</p>
                         </div>
-                        <div className="divide-y divide-[#EDE8D0]/[0.04]">
+                        <div className="divide-y divide-[#9c9580]/[0.04]">
                           {[
                             { name: "Refactor auth service", status: "Running", icon: Play, statusColor: "text-green-400" },
                             { name: "Add rate limiting", status: "Queued", icon: Clock, statusColor: "text-yellow-400/70" },
-                            { name: "Update API docs", status: "Queued", icon: Clock, statusColor: "text-[#EDE8D0]/40" },
-                            { name: "Fix CORS headers", status: "Done", icon: CheckCircle2, statusColor: "text-[#EDE8D0]/60" },
+                            { name: "Update API docs", status: "Queued", icon: Clock, statusColor: "text-[#9c9580]/40" },
+                            { name: "Fix CORS headers", status: "Done", icon: CheckCircle2, statusColor: "text-[#9c9580]/60" },
                           ].map((task, i) => (
                             <div key={i} className="flex items-center gap-3 px-5 py-2.5">
                               <task.icon className={`h-3 w-3 ${task.statusColor} shrink-0`} />
-                              <span className="text-[0.75rem] text-[#EDE8D0]/60 flex-1 truncate">{task.name}</span>
+                              <span className="text-[0.75rem] text-[#9c9580]/60 flex-1 truncate">{task.name}</span>
                               <span className={`text-[0.625rem] font-medium ${task.statusColor}`}>{task.status}</span>
                             </div>
                           ))}

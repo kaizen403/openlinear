@@ -32,11 +32,11 @@ export function Footer() {
           {/* Brand — left column */}
           <div className="flex flex-col gap-5 lg:w-[280px] shrink-0">
             <div className="flex items-center">
-              <span className="font-display text-[0.8125rem] font-semibold tracking-[0.08em] text-[#EDE8D0] uppercase">
+              <span className="font-display text-[0.8125rem] font-semibold tracking-[0.08em] text-[#9c9580] uppercase">
                 OpenLinear
               </span>
             </div>
-            <p className="text-[0.875rem] text-[#EDE8D0]/40 leading-[1.6]">
+            <p className="text-[0.875rem] text-[#9c9580]/40 leading-[1.6]">
               Execute your tasks.
               <br />
               Don&apos;t just track them.
@@ -47,13 +47,13 @@ export function Footer() {
           <div className="grid grid-cols-2 md:grid-cols-4 gap-10 lg:gap-16 flex-1">
             {Object.entries(footerLinks).map(([category, links]) => (
               <div key={category} className="flex flex-col gap-5">
-                <p className="text-[0.8125rem] font-semibold text-[#EDE8D0]/90 tracking-[-0.01em]">{category}</p>
+                <p className="text-[0.8125rem] font-semibold text-[#9c9580]/90 tracking-[-0.01em]">{category}</p>
                 <ul className="flex flex-col gap-3">
                   {links.map((link) => (
                     <li key={link.label}>
                       <a
                         href={link.href}
-                        className="text-[0.8125rem] text-[#EDE8D0]/35 hover:text-[#EDE8D0]/70 transition-colors duration-300"
+                        className="text-[0.8125rem] text-[#9c9580]/35 hover:text-[#9c9580]/70 transition-colors duration-300"
                       >
                         {link.label}
                       </a>
@@ -65,7 +65,7 @@ export function Footer() {
 
             {/* Connect column */}
             <div className="flex flex-col gap-5">
-              <p className="text-[0.8125rem] font-semibold text-[#EDE8D0]/90 tracking-[-0.01em]">Connect</p>
+              <p className="text-[0.8125rem] font-semibold text-[#9c9580]/90 tracking-[-0.01em]">Connect</p>
               <ul className="flex flex-col gap-3">
                 {socialLinks.map((social) => (
                   <li key={social.label}>
@@ -73,7 +73,7 @@ export function Footer() {
                       href={social.href}
                       target={social.external ? "_blank" : undefined}
                       rel={social.external ? "noopener noreferrer" : undefined}
-                      className="flex items-center gap-2.5 text-[0.8125rem] text-[#EDE8D0]/35 hover:text-[#EDE8D0]/70 transition-colors duration-300"
+                      className="flex items-center gap-2.5 text-[0.8125rem] text-[#9c9580]/35 hover:text-[#9c9580]/70 transition-colors duration-300"
                     >
                       <span className="text-[0.6875rem] font-mono w-5 text-center opacity-60">{socialIcons[social.label] ?? ""}</span>
                       {social.label}
@@ -88,7 +88,7 @@ export function Footer() {
 
       {/* Large watermark text */}
       <div className="relative w-full flex justify-center mt-4 pb-10 overflow-hidden">
-        <p className="font-display text-[5rem] md:text-[8rem] lg:text-[12rem] font-bold tracking-[-0.05em] text-[#EDE8D0]/[0.03] leading-none select-none whitespace-nowrap">
+        <p className="font-display text-[5rem] md:text-[8rem] lg:text-[12rem] font-bold tracking-[-0.05em] text-[#9c9580]/[0.03] leading-none select-none whitespace-nowrap">
           OPENLINEAR
         </p>
       </div>

@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent } from "@/components/ui/card"
+import { Switch } from "@/components/ui/switch"
 import {
   Select,
   SelectContent,
@@ -43,6 +44,16 @@ import {
   ProviderAuthMethods,
   ProviderModels,
 } from "@/lib/api/opencode"
+
+const POPULAR_MODELS = [
+  { id: "claude-sonnet-4-20250514", name: "Claude Sonnet 4", providers: ["anthropic", "openrouter", "aws-bedrock"] },
+  { id: "claude-opus-4-20250514", name: "Claude Opus 4", providers: ["anthropic", "openrouter", "aws-bedrock"] },
+  { id: "gpt-4.1", name: "GPT-4.1", providers: ["openai", "openrouter", "azure"] },
+  { id: "gemini-2.5-pro", name: "Gemini 2.5 Pro", providers: ["google", "openrouter"] },
+  { id: "o3", name: "o3", providers: ["openai", "openrouter"] },
+  { id: "deepseek-r1", name: "DeepSeek R1", providers: ["deepseek", "openrouter"] },
+  { id: "qwen3-235b-a22b", name: "Qwen 3 235B", providers: ["openrouter"] },
+]
 
 type ProviderInputState = {
   key: string
@@ -507,14 +518,20 @@ export function AIProvidersSection() {
     clearOAuthPendingState,
   } = useAIProviders()
 
-  const [selectedUnconnectedProvider, setSelectedUnconnectedProvider] = useState<string | null>(null)
+  const [expandedProvider, setExpandedProvider] = useState<string | null>(null)
 
-  const currentProviderId = currentModel?.split("/")[0] ?? null
   const providerQuery = providerSearch.trim().toLowerCase()
+
+  const connectedProviders = useMemo(
+    () => providerSetupStatus?.providers.filter((p) => p.authenticated) ?? [],
+    [providerSetupStatus],
+  )
+
   const providerModelsById = useMemo(
     () => new Map(providerModelsList.map((provider) => [provider.id, provider])),
     [providerModelsList],
   )
+
   const favoriteModels = useMemo(
     () =>
       providerModelsList
@@ -522,7 +539,8 @@ export function AIProvidersSection() {
           provider.models
             .filter((model) => model.favorite)
             .map((model) => ({
-              provider,
+              providerId: provider.id,
+              providerName: provider.name,
               model,
               value: `${provider.id}/${model.id}`,
             })),
@@ -533,181 +551,108 @@ export function AIProvidersSection() {
         ),
     [providerModelsList],
   )
+
+  const visiblePopularModels = useMemo(() => {
+    if (!providerQuery) return POPULAR_MODELS
+    return POPULAR_MODELS.filter(
+      (m) =>
+        m.name.toLowerCase().includes(providerQuery) ||
+        m.id.toLowerCase().includes(providerQuery) ||
+        m.providers.some((p) => p.includes(providerQuery)),
+    )
+  }, [providerQuery])
+
   const visibleFavoriteModels = useMemo(() => {
     if (!providerQuery) return favoriteModels
-    return favoriteModels.filter(({ provider, model }) => (
-      provider.name.toLowerCase().includes(providerQuery) ||
-      provider.id.toLowerCase().includes(providerQuery) ||
-      model.name.toLowerCase().includes(providerQuery) ||
-      model.id.toLowerCase().includes(providerQuery)
-    ))
+    return favoriteModels.filter(
+      ({ providerName, model }) =>
+        providerName.toLowerCase().includes(providerQuery) ||
+        model.name.toLowerCase().includes(providerQuery) ||
+        model.id.toLowerCase().includes(providerQuery),
+    )
   }, [favoriteModels, providerQuery])
-  const visibleFavoriteModelGroups = useMemo(() => {
-    const groups = new Map<
-      string,
-      {
-        provider: ProviderModels
-        items: typeof favoriteModels
-      }
-    >()
 
-    visibleFavoriteModels.forEach((item) => {
-      const group = groups.get(item.provider.id)
-      if (group) {
-        group.items.push(item)
-        return
-      }
-
-      groups.set(item.provider.id, {
-        provider: item.provider,
-        items: [item],
-      })
-    })
-
-    return Array.from(groups.values()).sort((a, b) =>
-      a.provider.name.localeCompare(b.provider.name),
+  const visibleProviders = useMemo(() => {
+    if (!providerSetupStatus) return []
+    const providers = [...providerSetupStatus.providers]
+    const filtered = providerQuery
+      ? providers.filter(
+          (p) =>
+            p.name.toLowerCase().includes(providerQuery) ||
+            p.id.toLowerCase().includes(providerQuery),
+        )
+      : providers
+    return filtered.sort((a, b) =>
+      a.authenticated === b.authenticated
+        ? a.name.localeCompare(b.name)
+        : a.authenticated ? -1 : 1,
     )
-  }, [favoriteModels, visibleFavoriteModels])
+  }, [providerSetupStatus, providerQuery])
 
-  const providersSorted = providerSetupStatus
-    ? [...providerSetupStatus.providers]
-        .filter((provider) => {
-          if (!providerQuery) return true
-          const providerModels = providerModelsById.get(provider.id)?.models ?? []
-          return (
-            provider.name.toLowerCase().includes(providerQuery) ||
-            provider.id.toLowerCase().includes(providerQuery) ||
-            provider.selectedModel?.toLowerCase().includes(providerQuery) ||
-            provider.defaultModel?.toLowerCase().includes(providerQuery) ||
-            providerModels.some((model) =>
-              model.favorite &&
-              (
-                model.name.toLowerCase().includes(providerQuery) ||
-                model.id.toLowerCase().includes(providerQuery)
-              )
-            )
-          )
-        })
-        .sort((a, b) => {
-          const aCurrent = currentProviderId === a.id ? 1 : 0
-          const bCurrent = currentProviderId === b.id ? 1 : 0
-          if (aCurrent !== bCurrent) return bCurrent - aCurrent
-          if (a.authenticated !== b.authenticated) return a.authenticated ? -1 : 1
-          return (b.modelCount ?? 0) - (a.modelCount ?? 0) || a.name.localeCompare(b.name)
-        })
-    : []
-
-  const connectedProviders = providersSorted.filter((provider) => provider.authenticated)
-  const unconfiguredProviders = providersSorted.filter((provider) => !provider.authenticated)
-  const totalProviders = providerSetupStatus?.providers.length ?? 0
-  const totalConnected = providerSetupStatus?.providers.filter((provider) => provider.authenticated).length ?? 0
-  const totalModels = providerModelsList.reduce((sum, provider) => sum + provider.models.length, 0)
-  const codexProvider = providerSetupStatus?.providers.find((provider) => provider.id === CODEX_PROVIDER_ID)
-  const codexOAuthMethods = getOAuthMethodOptions(
-    providerAuthMethodsMap[CODEX_PROVIDER_ID] || codexProvider?.authMethods || [],
+  const getSourcesForModel = useCallback(
+    (modelId: string, supportedProviderIds: string[]) => {
+      return connectedProviders.filter(
+        (p) =>
+          supportedProviderIds.includes(p.id) ||
+          providerModelsById.get(p.id)?.models.some((m) => m.id === modelId),
+      )
+    },
+    [connectedProviders, providerModelsById],
   )
-  const codexModelCount =
-    providerModelsById.get(CODEX_PROVIDER_ID)?.models.length ||
-    codexProvider?.modelCount ||
-    0
 
-  const renderFavoriteModel = (item: typeof favoriteModels[number]) => {
-    const active = currentModel === item.value
+  const isModelActive = useCallback(
+    (modelId: string) => currentModel?.endsWith(`/${modelId}`) ?? false,
+    [currentModel],
+  )
 
-    return (
-      <button
-        key={item.value}
-        type="button"
-        onClick={() => handleModelSelect(item.value)}
-        disabled={modelSaving || active}
-        className={cn(
-          "group flex min-h-11 w-full items-center gap-2 rounded-sm px-1 py-1.5 text-left transition-colors hover:bg-linear-bg-secondary disabled:cursor-default disabled:opacity-100",
-          active && "bg-linear-bg-secondary",
-        )}
-        title={`${item.provider.name}: ${item.model.name || item.model.id}`}
-      >
-        <Star className="h-3.5 w-3.5 shrink-0 text-linear-text-tertiary transition-colors group-hover:text-linear-text-secondary" />
-        <div className="min-w-0 flex-1 break-words text-sm font-medium leading-tight text-linear-text">
-          {item.model.name || item.model.id}
-        </div>
-        {active && <Check className="h-4 w-4 shrink-0 text-linear-text-secondary" />}
-      </button>
-    )
-  }
-
-  const renderConnectedProvider = (provider: SetupStatus["providers"][number]) => {
-    const providerModels = providerModelsById.get(provider.id)
-    const models = providerModels?.models ?? []
-    const selectedForProvider =
-      currentModel?.startsWith(`${provider.id}/`) && currentModel
-        ? currentModel
-        : provider.selectedModel
-          ? `${provider.id}/${provider.selectedModel}`
-          : ""
-    const selectedModel = models.find((model) => `${provider.id}/${model.id}` === selectedForProvider)
+  const renderModelRow = (
+    modelId: string,
+    modelName: string,
+    supportedProviderIds: string[],
+    key: string,
+  ) => {
+    const active = isModelActive(modelId)
+    const sources = getSourcesForModel(modelId, supportedProviderIds)
 
     return (
-      <div
-        key={provider.id}
-        className="flex items-center gap-3 rounded-md border border-linear-border bg-linear-bg-secondary px-3 py-2.5"
-      >
-        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-sm bg-linear-bg-tertiary">
-          <Brain className="h-3.5 w-3.5 text-linear-text-secondary" />
-        </div>
+      <div key={key} className="flex items-center gap-3 px-3 py-2.5">
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-medium text-linear-text">{provider.name}</span>
-            {currentProviderId === provider.id && (
-              <span className="inline-flex items-center rounded-full border border-linear-accent/20 bg-linear-accent/10 px-1.5 py-0.5 text-[10px] font-medium text-linear-accent">
-                Active
-              </span>
-            )}
-          </div>
-          <div className="text-xs text-linear-text-tertiary">
-            {models.length || provider.modelCount || 0} models
-          </div>
+          <span className="text-sm text-linear-text">{modelName}</span>
         </div>
 
-        {models.length > 0 && (
+        {active && sources.length > 0 && (
           <Select
-            value={selectedForProvider}
+            value={currentModel ?? ""}
             onValueChange={(value) => handleModelSelect(value)}
             disabled={modelSaving}
           >
-            <SelectTrigger className="h-8 w-[300px] shrink-0 border-linear-border bg-linear-bg text-xs text-linear-text [&>span]:!block [&>span]:!overflow-visible [&>span]:!whitespace-nowrap [&>span]:!text-clip [&>span]:!line-clamp-none">
-              <SelectValue placeholder="Select model">
-                {selectedModel ? (
-                  <span
-                    className="flex items-center gap-2 whitespace-nowrap"
-                    title={selectedModel.name || selectedModel.id}
-                  >
-                    <span>{selectedModel.name || selectedModel.id}</span>
-                  </span>
-                ) : null}
-              </SelectValue>
+            <SelectTrigger className="h-7 w-[140px] shrink-0 border-linear-border bg-linear-bg text-xs text-linear-text">
+              <SelectValue placeholder="Source" />
             </SelectTrigger>
-            <SelectContent className="max-h-60 border-linear-border bg-linear-bg-secondary">
-              {models.map((model) => (
-                <SelectItem key={model.id} value={`${provider.id}/${model.id}`}>
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm">{model.name || model.id}</span>
-                  </div>
+            <SelectContent className="border-linear-border bg-linear-bg-secondary">
+              {sources.map((provider) => (
+                <SelectItem key={provider.id} value={`${provider.id}/${modelId}`}>
+                  {provider.name}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
         )}
 
-        <Button
-          type="button"
-          size="sm"
-          variant="ghost"
-          onClick={() => handleRemoveProvider(provider.id, provider.name)}
-          className="h-8 w-8 p-0 text-linear-text-secondary hover:text-red-400"
-          title={`Remove ${provider.name}`}
-        >
-          <Trash2 className="h-4 w-4" />
-        </Button>
+        {!active && sources.length === 0 && (
+          <span className="text-xs text-linear-text-tertiary">No source</span>
+        )}
+
+        <Switch
+          checked={active}
+          onCheckedChange={(checked) => {
+            if (checked && sources.length > 0) {
+              handleModelSelect(`${sources[0].id}/${modelId}`)
+            }
+          }}
+          disabled={modelSaving || (!active && sources.length === 0)}
+          className="shrink-0"
+        />
       </div>
     )
   }
@@ -788,72 +733,6 @@ export function AIProvidersSection() {
     </div>
   )
 
-  const renderCodexConnectionCard = () => {
-    const isWaiting = oauthWaitingProvider === CODEX_PROVIDER_ID
-
-    return (
-      <Card className="border-linear-border bg-linear-bg-secondary">
-        <CardContent className="flex flex-col gap-4 p-4">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-            <div className="flex min-w-0 gap-3">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center text-linear-text">
-                <img
-                  src="/brand/openai-mark.svg"
-                  alt=""
-                  aria-hidden="true"
-                  className="h-6 w-6"
-                />
-              </div>
-              <div className="min-w-0">
-                <h3 className="text-base font-semibold text-linear-text">
-                  Connect to Codex
-                </h3>
-                <p className="mt-1 text-sm text-linear-text-secondary">
-                  Use the Codex login methods that OpenCode reports for this machine.
-                </p>
-              </div>
-            </div>
-
-            {codexProvider?.authenticated && (
-              <div className="flex shrink-0 items-center gap-2 text-xs text-linear-text-tertiary">
-                <span className="h-1.5 w-1.5 rounded-full bg-linear-text-secondary" />
-                OpenAI auth available
-              </div>
-            )}
-          </div>
-
-          {providersLoading && !providerSetupStatus ? (
-            <div className="flex items-center gap-2 text-sm text-linear-text-tertiary">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Loading Codex connection...
-            </div>
-          ) : codexProvider?.authenticated ? (
-            <p className="text-sm text-linear-text-secondary">
-              {codexModelCount} Codex-backed model{codexModelCount === 1 ? "" : "s"} available in the connected providers list.
-            </p>
-          ) : codexOAuthMethods.length > 0 ? (
-            <div className="flex flex-col gap-2">
-              {isWaiting
-                ? renderOAuthCallbackCompletion(CODEX_PROVIDER_ID)
-                : renderOAuthMethodActions(
-                    CODEX_PROVIDER_ID,
-                    codexOAuthMethods,
-                    (method) => `Connect with ${method.label}`,
-                  )}
-            </div>
-          ) : (
-            <div className="flex items-start gap-2 rounded-sm border border-linear-border bg-linear-bg px-3 py-2 text-sm text-linear-text-secondary">
-              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-linear-text-tertiary" />
-              <span>
-                Codex connection is unavailable until OpenCode reports OpenAI OAuth login methods.
-              </span>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-    )
-  }
-
   const renderProviderSetup = (providerId: string) => {
     const provider = providerSetupStatus?.providers.find((p) => p.id === providerId)
     if (!provider) return null
@@ -865,25 +744,7 @@ export function AIProvidersSection() {
     const isWaiting = oauthWaitingProvider === provider.id
 
     return (
-      <div className="mt-3 space-y-4 rounded-md border border-linear-border bg-linear-bg-secondary p-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-sm bg-linear-bg-tertiary">
-              <Brain className="h-3.5 w-3.5 text-linear-text-secondary" />
-            </div>
-            <span className="text-sm font-medium text-linear-text">{provider.name}</span>
-          </div>
-          <Button
-            type="button"
-            size="sm"
-            variant="ghost"
-            onClick={() => setSelectedUnconnectedProvider(null)}
-            className="h-8 text-linear-text-secondary hover:text-linear-text"
-          >
-            <Trash2 className="h-4 w-4" />
-          </Button>
-        </div>
-
+      <div className="mt-2 space-y-3 rounded-md border border-linear-border bg-linear-bg p-3">
         {hasOAuth && (
           <div className="space-y-2">
             {isWaiting ? (
@@ -961,140 +822,162 @@ export function AIProvidersSection() {
     )
   }
 
+  // --- MAIN RENDER ---
+
+  if (providerError) {
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-linear-text">AI Providers</h2>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => fetchProviderStatus()}
+            disabled={providersLoading}
+            className="h-8 gap-2 border-linear-border text-linear-text hover:bg-linear-bg-tertiary"
+          >
+            <RefreshCw className={cn("h-3.5 w-3.5", providersLoading && "animate-spin")} />
+            Retry
+          </Button>
+        </div>
+        <div className="flex items-center gap-2 rounded-md border border-red-500/20 bg-red-500/10 px-3 py-2.5 text-sm text-red-300">
+          <AlertCircle className="h-4 w-4 shrink-0" />
+          {providerError}
+        </div>
+      </div>
+    )
+  }
+
+  if (providersLoading && !providerSetupStatus) {
+    return (
+      <div className="space-y-4">
+        <h2 className="text-lg font-semibold text-linear-text">AI Providers</h2>
+        <div className="flex items-center gap-2 text-sm text-linear-text-tertiary">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Loading providers...
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <h2 className="text-lg font-semibold text-linear-text">AI Providers</h2>
-          <p className="mt-1 text-sm text-linear-text-tertiary">
-            {totalConnected} of {totalProviders} connected, {totalModels} models available
-          </p>
-        </div>
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-semibold text-linear-text">AI Providers</h2>
         <Button
           type="button"
           size="sm"
-          variant="outline"
+          variant="ghost"
           onClick={() => fetchProviderStatus()}
           disabled={providersLoading}
-          className="h-9 gap-2 border-linear-border text-linear-text hover:bg-linear-bg-tertiary"
+          className="h-8 w-8 p-0 text-linear-text-secondary hover:text-linear-text"
         >
           <RefreshCw className={cn("h-4 w-4", providersLoading && "animate-spin")} />
-          Refresh
         </Button>
       </div>
 
-      {renderCodexConnectionCard()}
-
+      {/* Search */}
       <div className="relative">
         <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-linear-text-tertiary" />
         <Input
           type="search"
-          placeholder="Search providers"
+          placeholder="Search models and providers..."
           value={providerSearch}
           onChange={(event) => setProviderSearch(event.target.value)}
           className="h-9 border-linear-border bg-linear-bg pl-9 text-linear-text placeholder:text-linear-text-tertiary focus-visible:ring-linear-accent"
         />
       </div>
 
-      {providerError && (
-        <div className="flex items-center gap-2 rounded-sm border border-red-500/20 bg-red-500/10 px-3 py-2 text-sm text-red-300">
-          <AlertCircle className="h-4 w-4" />
-          {providerError}
-        </div>
+      {/* Popular Models */}
+      {visiblePopularModels.length > 0 && (
+        <section className="space-y-2">
+          <h3 className="text-xs font-medium uppercase tracking-wide text-linear-text-tertiary">
+            Popular Models
+          </h3>
+          <div className="divide-y divide-linear-border rounded-md border border-linear-border">
+            {visiblePopularModels.map((model) =>
+              renderModelRow(model.id, model.name, model.providers, `popular-${model.id}`),
+            )}
+          </div>
+        </section>
       )}
 
-      {providersLoading && !providerSetupStatus ? (
-        <div className="flex items-center gap-2 text-sm text-linear-text-tertiary">
-          <Loader2 className="h-4 w-4 animate-spin" />
-          Loading providers...
-        </div>
-      ) : totalProviders === 0 ? (
-        <Card className="border-linear-border bg-linear-bg-secondary">
-          <CardContent className="flex items-center gap-3 p-4 text-sm text-linear-text-tertiary">
-            <Plug className="h-4 w-4" />
-            No providers found.
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="space-y-6">
-          {visibleFavoriteModels.length > 0 && (
-            <div className="space-y-3">
-              <div className="flex items-center gap-2">
-                <div className="flex h-5 w-5 items-center justify-center rounded-full bg-linear-bg-tertiary">
-                  <Star className="h-3 w-3 text-linear-text-tertiary" />
-                </div>
-                <div className="text-xs font-medium uppercase tracking-wide text-linear-text-tertiary">
-                  Favorite Models
-                </div>
-              </div>
-              <div className="space-y-5">
-                {visibleFavoriteModelGroups.map((group) => (
-                  <div key={group.provider.id} className="space-y-2.5">
-                    <div className="flex items-baseline justify-between gap-3 px-1">
-                      <div className="text-xs font-medium text-linear-text-secondary">
-                        {group.provider.name}
-                      </div>
-                      <div className="text-[11px] text-linear-text-tertiary">
-                        {group.items.length} model{group.items.length === 1 ? "" : "s"}
-                      </div>
-                    </div>
-                    <div className="grid gap-x-6 gap-y-1 sm:grid-cols-2 xl:grid-cols-3">
-                      {group.items.map(renderFavoriteModel)}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+      {/* Favorite Models */}
+      {visibleFavoriteModels.length > 0 && (
+        <section className="space-y-2">
+          <h3 className="text-xs font-medium uppercase tracking-wide text-linear-text-tertiary">
+            Favorites
+          </h3>
+          <div className="divide-y divide-linear-border rounded-md border border-linear-border">
+            {visibleFavoriteModels.map((item) =>
+              renderModelRow(
+                item.model.id,
+                item.model.name || item.model.id,
+                [item.providerId],
+                `fav-${item.value}`,
+              ),
+            )}
+          </div>
+        </section>
+      )}
 
-          {connectedProviders.length > 0 && (
-            <div className="space-y-3">
-              <div className="flex items-center gap-2">
-                <div className="flex h-5 w-5 items-center justify-center rounded-full bg-linear-accent/10">
-                  <Check className="h-3 w-3 text-linear-accent" />
-                </div>
-                <div className="text-xs font-medium uppercase tracking-wide text-linear-text-tertiary">
-                  Connected
-                </div>
+      {/* Connect Providers */}
+      {visibleProviders.length > 0 && (
+        <section className="space-y-2">
+          <h3 className="text-xs font-medium uppercase tracking-wide text-linear-text-tertiary">
+            Connect Providers
+          </h3>
+          <div className="divide-y divide-linear-border rounded-md border border-linear-border">
+            {visibleProviders.map((provider) => (
+              <div key={provider.id} className="px-3 py-2.5">
+                <button
+                  type="button"
+                  className="flex w-full items-center gap-3 text-left"
+                  onClick={() => {
+                    if (provider.authenticated) return
+                    setExpandedProvider(
+                      expandedProvider === provider.id ? null : provider.id,
+                    )
+                  }}
+                >
+                  <span
+                    className={cn(
+                      "h-2 w-2 shrink-0 rounded-full",
+                      provider.authenticated ? "bg-green-500" : "bg-linear-text-tertiary/40",
+                    )}
+                  />
+                  <span className="flex-1 text-sm text-linear-text">{provider.name}</span>
+                  {provider.authenticated ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleRemoveProvider(provider.id, provider.name)
+                      }}
+                      className="h-7 w-7 p-0 text-linear-text-tertiary hover:text-red-400"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  ) : (
+                    <ChevronDown
+                      className={cn(
+                        "h-4 w-4 text-linear-text-tertiary transition-transform",
+                        expandedProvider === provider.id && "rotate-180",
+                      )}
+                    />
+                  )}
+                </button>
+                {!provider.authenticated && expandedProvider === provider.id && (
+                  renderProviderSetup(provider.id)
+                )}
               </div>
-              <div className="space-y-2">{connectedProviders.map(renderConnectedProvider)}</div>
-            </div>
-          )}
-
-          {unconfiguredProviders.length > 0 && (
-            <div className="space-y-3">
-              <div className="flex items-center gap-2">
-                <div className="flex h-5 w-5 items-center justify-center rounded-full bg-linear-bg-tertiary">
-                  <Cpu className="h-3 w-3 text-linear-text-tertiary" />
-                </div>
-                <div className="text-xs font-medium uppercase tracking-wide text-linear-text-tertiary">
-                  Add Provider
-                </div>
-              </div>
-
-              <Select
-                value={selectedUnconnectedProvider || ""}
-                onValueChange={(value) => setSelectedUnconnectedProvider(value)}
-              >
-                <SelectTrigger className="h-9 border-linear-border bg-linear-bg text-sm text-linear-text">
-                  <SelectValue placeholder={`${unconfiguredProviders.length} providers available`} />
-                </SelectTrigger>
-                <SelectContent className="max-h-60 border-linear-border bg-linear-bg-secondary">
-                  {unconfiguredProviders.map((provider) => (
-                    <SelectItem key={provider.id} value={provider.id}>
-                      <div className="flex items-center gap-2">
-                        <Brain className="h-3.5 w-3.5 text-linear-text-secondary" />
-                        <span>{provider.name}</span>
-                      </div>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-
-              {selectedUnconnectedProvider && renderProviderSetup(selectedUnconnectedProvider)}
-            </div>
-          )}
-        </div>
+            ))}
+          </div>
+        </section>
       )}
     </div>
   )

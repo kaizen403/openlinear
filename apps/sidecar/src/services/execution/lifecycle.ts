@@ -208,6 +208,7 @@ export async function executeTask({ taskId, userId }: ExecuteTaskParams): Promis
     await updateTaskStatus(taskId, 'in_progress', sessionId, {
       executionStartedAt: executionState.startedAt,
       executionPausedAt: null,
+      executionElapsedMs: 0,
       executionProgress: 0,
     });
 

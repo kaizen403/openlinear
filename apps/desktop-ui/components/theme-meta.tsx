@@ -11,7 +11,7 @@ export function ThemeMeta() {
     if (meta) {
       meta.setAttribute(
         "content",
-        resolvedTheme === "light" ? "#ffffff" : "#111111",
+        resolvedTheme === "light" ? "#0a0a0a" : "#0a0a0a",
       )
     }
   }, [resolvedTheme])

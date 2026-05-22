@@ -4,7 +4,7 @@ import { useState, useEffect, memo } from "react"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
-import { Loader2, GitBranch, Code, GitPullRequest, Check, X, ExternalLink, Play, ArrowRight, Archive, Clock, CalendarDays } from "lucide-react"
+import { Loader2, GitBranch, Code, GitPullRequest, Check, X, ExternalLink, Play, ArrowRight, Archive, Trash2, Clock, CalendarDays } from "lucide-react"
 import { cn, openExternal } from "@/lib/utils"
 import { Task, ExecutionProgress, formatDuration } from "@/types/task"
 import { STATUS_COLORS } from "@/lib/design-tokens"
@@ -15,6 +15,7 @@ interface TaskCardProps {
   onExecute?: (taskId: string) => void
   onCancel?: (taskId: string) => void
   onDelete?: (taskId: string) => void
+  deletionMode?: "archive" | "delete"
   onMoveToInProgress?: (taskId: string) => void
   onTaskClick?: (taskId: string) => void
   executionProgress?: ExecutionProgress
@@ -62,7 +63,7 @@ const LiveDuration = memo(function LiveDuration({ startedAt }: { startedAt: stri
   return <>{formatDuration(ms)}</>
 })
 
-function TaskCardComponent({ task, onExecute, onCancel, onDelete, onMoveToInProgress, onTaskClick, executionProgress, selected, onToggleSelect, selectionMode, isBatchTask, isCompletedBatchTask, isDragging }: TaskCardProps) {
+function TaskCardComponent({ task, onExecute, onCancel, onDelete, deletionMode, onMoveToInProgress, onTaskClick, executionProgress, selected, onToggleSelect, selectionMode, isBatchTask, isCompletedBatchTask, isDragging }: TaskCardProps) {
   const [cancelling, setCancelling] = useState(false)
   const liveProgress = useExecutionProgress(task.id)
   const currentProgress = executionProgress ?? liveProgress
@@ -296,7 +297,7 @@ function TaskCardComponent({ task, onExecute, onCancel, onDelete, onMoveToInProg
                 <Play className="w-3 h-3 fill-current" />
               </Button>
             )}
-            {isActiveProgress && onCancel && (
+            {isActiveProgress && onCancel && !isBatchTask && (
               <Button
                 size="sm"
                 variant="ghost"
@@ -326,9 +327,13 @@ function TaskCardComponent({ task, onExecute, onCancel, onDelete, onMoveToInProg
                   e.stopPropagation()
                   handleDelete()
                 }}
-                aria-label="Archive task"
+                aria-label={deletionMode === "delete" ? "Delete task" : "Archive task"}
               >
-                <Archive className="w-3 h-3" />
+                {deletionMode === "delete" ? (
+                  <Trash2 className="w-3 h-3" />
+                ) : (
+                  <Archive className="w-3 h-3" />
+                )}
               </Button>
             )}
           </div>

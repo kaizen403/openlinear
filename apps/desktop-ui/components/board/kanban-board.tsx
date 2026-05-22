@@ -196,6 +196,7 @@ export function KanbanBoard(props: KanbanBoardProps) {
     showProviderSetup,
     setShowProviderSetup,
     handleProviderSetupComplete,
+    taskDeletionMode,
   } = useKanbanBoard(props)
 
   const boardRef = useRef<HTMLDivElement>(null)
@@ -266,6 +267,7 @@ export function KanbanBoard(props: KanbanBoardProps) {
               isBatchTask={batchTaskIds.includes(task.id)}
               isCompletedBatchTask={isCompletedBatch}
               isDragging={snapshot.isDragging}
+              deletionMode={taskDeletionMode}
             />
           </div>
         )
@@ -376,6 +378,7 @@ export function KanbanBoard(props: KanbanBoardProps) {
                                 onExecute={handleExecute}
                                 onCancel={handleCancel}
                                 onDelete={handleDelete}
+                                deletionMode={taskDeletionMode}
                                 onTaskClick={handleTaskClick}
                                 onToggleSelect={toggleTaskSelect}
                               />
@@ -392,6 +395,7 @@ export function KanbanBoard(props: KanbanBoardProps) {
                             completedBatch={completedBatch}
                             selectedTaskIds={selectedTaskIds}
                             onDelete={handleDelete}
+                            deletionMode={taskDeletionMode}
                             onTaskClick={handleTaskClick}
                             onToggleSelect={toggleTaskSelect}
                             renderTask={renderTask}
@@ -428,6 +432,7 @@ export function KanbanBoard(props: KanbanBoardProps) {
           onUpdate={handleUpdateTask}
           isExecuting={isSelectedTaskExecuting}
           project={selectedProject ? { id: selectedProject.id, name: selectedProject.name } : null}
+          deletionMode={taskDeletionMode}
         />
 
         <ProviderSetupDialog

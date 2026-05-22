@@ -1,4 +1,4 @@
 {
-  "model": "fireworks-ai/accounts/fireworks/models/deepseek-v4-pro",
+  "model": "azure-foundry/Kimi-K2.5",
   "$schema": "https://opencode.ai/config.json"
 }

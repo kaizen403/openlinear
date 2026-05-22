@@ -124,6 +124,7 @@ function SettingsContent() {
   const [stopOnFailure, setStopOnFailure] = useState(false)
   const [conflictBehavior, setConflictBehavior] = useState("skip")
   const [autoRetry, setAutoRetry] = useState(false)
+  const [taskDeletionMode, setTaskDeletionMode] = useState<"archive" | "delete">("archive")
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [activeRepositoryId, setActiveRepositoryId] = useState<string | null>(null)
@@ -192,6 +193,7 @@ function SettingsContent() {
             queueAutoApprove?: boolean
             stopOnFailure?: boolean
             conflictBehavior?: string
+            taskDeletionMode?: "archive" | "delete"
           }>('/api/settings').catch(() => null),
           getActiveRepository().catch(() => null),
         ])
@@ -202,6 +204,7 @@ function SettingsContent() {
           setQueueAutoApprove(settingsData.queueAutoApprove ?? false)
           setStopOnFailure(settingsData.stopOnFailure ?? false)
           setConflictBehavior(settingsData.conflictBehavior ?? "skip")
+          setTaskDeletionMode(settingsData.taskDeletionMode ?? "archive")
         }
 
         if (activeRepository) {
@@ -263,6 +266,7 @@ function SettingsContent() {
           queueAutoApprove,
           stopOnFailure,
           conflictBehavior,
+          taskDeletionMode,
         }),
       })
 
@@ -514,6 +518,26 @@ function SettingsContent() {
               </p>
             </div>
             <Switch checked={autoSave} onCheckedChange={setAutoSave} />
+          </div>
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 py-3 border-t border-linear-border">
+            <div>
+              <p className="text-sm text-linear-text">Task deletion mode</p>
+              <p className="text-xs text-linear-text-tertiary">
+                Choose what happens when you remove a task from the board
+              </p>
+            </div>
+            <Select
+              value={taskDeletionMode}
+              onValueChange={(v: "archive" | "delete") => setTaskDeletionMode(v)}
+            >
+              <SelectTrigger className="w-full sm:w-40 bg-linear-bg border-linear-border text-linear-text">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="bg-linear-bg-secondary border-linear-border">
+                <SelectItem value="archive">Archive</SelectItem>
+                <SelectItem value="delete">Delete</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
         </CardContent>
       </Card>

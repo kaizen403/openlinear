@@ -20,7 +20,7 @@ export function FeaturesSection() {
               <div className="w-[85%] bg-[#111111] border border-[#2a2a2a] rounded-xl shadow-2xl relative z-10 transform scale-95 group-hover:scale-100 transition-transform duration-500 text-left">
                 <div className="p-3">
                   <div className="flex items-start gap-2">
-                    <h4 className="text-sm text-[#f5f5f5] font-light leading-tight line-clamp-2 flex-1">
+                    <h4 className="text-sm text-[#b0b0b0] font-light leading-tight line-clamp-2 flex-1">
                       Implement dark mode toggle in settings
                     </h4>
                     <svg aria-hidden="true" className="w-3.5 h-3.5 animate-spin flex-shrink-0 mt-0.5 text-[#5e6ad2]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
@@ -33,7 +33,7 @@ export function FeaturesSection() {
                   
                   <div className="p-2 bg-white/[0.03] rounded-md mb-3 flex items-center gap-2">
                     <svg aria-hidden="true" className="w-3 h-3 animate-spin text-[#5e6ad2]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
-                    <span className="text-xs text-[#a0a0a0]">Executing...</span>
+                    <span className="text-xs text-[#6a6a6a]">Executing...</span>
                   </div>
                   
                   <div className="flex items-center justify-between mt-1">
@@ -67,7 +67,7 @@ export function FeaturesSection() {
               <div className="w-[85%] bg-[#111111] border border-[#2a2a2a] rounded-lg shadow-2xl relative z-10 flex flex-col overflow-hidden transform scale-95 group-hover:scale-100 transition-transform duration-500 text-left">
                 <div className="flex items-center justify-between p-2 border-b border-[#2a2a2a] bg-[#141414]">
                   <div className="flex items-center gap-2">
-                    <span className="text-[10px] font-semibold text-[#f5f5f5] truncate">Execution Details</span>
+                    <span className="text-[10px] font-semibold text-[#b0b0b0] truncate">Execution Details</span>
                     <span className="text-[9px] text-[#6a6a6a]">Task OPN-124</span>
                   </div>
                   <svg aria-hidden="true" className="h-3 w-3 text-[#6a6a6a]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
@@ -80,24 +80,24 @@ export function FeaturesSection() {
                 
                 <div className="p-3 space-y-2 bg-[#111111]">
                   <div className="flex gap-2">
-                    <svg aria-hidden="true" className="w-3 h-3 text-[#a0a0a0] mt-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+                    <svg aria-hidden="true" className="w-3 h-3 text-[#6a6a6a] mt-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
                     <div>
                        <div className="text-[#6a6a6a] text-[9px] font-mono mb-0.5">14:02:41</div>
-                       <p className="text-[10px] text-[#a0a0a0]">Provisioning dedicated environment...</p>
+                       <p className="text-[10px] text-[#6a6a6a]">Provisioning dedicated environment...</p>
                     </div>
                   </div>
                   <div className="flex gap-2">
-                    <svg aria-hidden="true" className="w-3 h-3 text-[#a0a0a0] mt-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+                    <svg aria-hidden="true" className="w-3 h-3 text-[#6a6a6a] mt-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
                     <div>
                        <div className="text-[#6a6a6a] text-[9px] font-mono mb-0.5">14:02:45</div>
-                       <p className="text-[10px] text-[#a0a0a0]">Mounting isolated worktree /tmp/worktree-124</p>
+                       <p className="text-[10px] text-[#6a6a6a]">Mounting isolated worktree /tmp/worktree-124</p>
                     </div>
                   </div>
                   <div className="flex gap-2">
                     <svg aria-hidden="true" className="w-3 h-3 text-blue-400 mt-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
                     <div>
                        <div className="text-[#6a6a6a] text-[9px] font-mono mb-0.5">14:02:46</div>
-                       <p className="text-[10px] text-[#f5f5f5]">Agent spawned securely</p>
+                       <p className="text-[10px] text-[#b0b0b0]">Agent spawned securely</p>
                     </div>
                   </div>
                 </div>
@@ -127,10 +127,10 @@ export function FeaturesSection() {
                     </div>
                   </div>
                   <div className="flex gap-2">
-                    <svg aria-hidden="true" className="w-3 h-3 text-[#a0a0a0] mt-0.5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+                    <svg aria-hidden="true" className="w-3 h-3 text-[#6a6a6a] mt-0.5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
                     <div className="min-w-0">
                        <div className="text-[#6a6a6a] text-[9px] font-mono mb-0.5">14:03:12</div>
-                       <p className="text-[10px] text-[#a0a0a0] truncate">Reading file contents (150 lines)</p>
+                       <p className="text-[10px] text-[#6a6a6a] truncate">Reading file contents (150 lines)</p>
                     </div>
                   </div>
                   <div className="flex gap-2">

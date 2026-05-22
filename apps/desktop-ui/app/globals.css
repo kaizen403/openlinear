@@ -87,31 +87,31 @@
 
 @layer base {
   :root {
-    /* Unified dark theme — hex-matched to linear-* palette */
-    --background: 0 0% 7%;          /* #111111 = linear-bg */
-    --foreground: 0 0% 96%;         /* #f5f5f5 = linear-text */
-    --card: 0 0% 8%;                /* #141414 = linear-bg-secondary */
-    --card-foreground: 0 0% 96%;
-    --popover: 0 0% 6%;             /* #0f0f0f = linear-bg-tertiary */
-    --popover-foreground: 0 0% 96%;
-    --primary: 160 84% 39%;
+    /* Unified dark theme — deeper blacks */
+    --background: 0 0% 4%;          /* #0a0a0a */
+    --foreground: 0 0% 90%;         /* #e6e6e6 */
+    --card: 0 0% 5%;                /* #0d0d0d */
+    --card-foreground: 0 0% 90%;
+    --popover: 0 0% 3%;             /* #080808 */
+    --popover-foreground: 0 0% 90%;
+    --primary: 160 84% 30%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 0 0% 8%;           /* #141414 */
-    --secondary-foreground: 0 0% 96%;
-    --muted: 0 0% 8%;               /* #141414 */
-    --muted-foreground: 0 0% 42%;   /* #6a6a6a = linear-text-tertiary */
-    --accent: 160 84% 39%;
+    --secondary: 0 0% 5%;           /* #0d0d0d */
+    --secondary-foreground: 0 0% 90%;
+    --muted: 0 0% 5%;               /* #0d0d0d */
+    --muted-foreground: 0 0% 35%;   /* #595959 */
+    --accent: 160 84% 30%;
     --accent-foreground: 0 0% 100%;
-    --destructive: 0 84% 60%;
+    --destructive: 0 84% 45%;
     --destructive-foreground: 0 0% 100%;
-    --border: 0 0% 16%;             /* #2a2a2a = linear-border */
-    --input: 0 0% 16%;
-    --ring: 0 0% 25%;
+    --border: 0 0% 12%;             /* #1f1f1f */
+    --input: 0 0% 12%;
+    --ring: 0 0% 20%;
     --radius: 0.125rem;
 
     /* Linear accent – overridden at runtime by the accent-color picker */
-    --linear-accent: #10b981;
-    --linear-accent-hover: #059669;
+    --linear-accent: #059669;
+    --linear-accent-hover: #047857;
   }
 }
 
@@ -121,7 +121,7 @@
   }
 
   html {
-    background-color: #111111;
+    background-color: #0a0a0a;
     font-family: var(--font-sans);
     overscroll-behavior: none;
   }
@@ -169,7 +169,7 @@
 /* ── Dark scrollbars ─────────────────────────────────── */
 * {
   scrollbar-width: thin;
-  scrollbar-color: #2a2a2a transparent;
+  scrollbar-color: #1f1f1f transparent;
 }
 
 *::-webkit-scrollbar {
@@ -182,12 +182,12 @@
 }
 
 *::-webkit-scrollbar-thumb {
-  background-color: #2a2a2a;
+  background-color: #1f1f1f;
   border-radius: 3px;
 }
 
 *::-webkit-scrollbar-thumb:hover {
-  background-color: #3a3a3a;
+  background-color: #2a2a2a;
 }
 
 *::-webkit-scrollbar-corner {

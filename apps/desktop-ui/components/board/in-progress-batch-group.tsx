@@ -15,6 +15,7 @@ interface InProgressBatchGroupProps {
   onExecute?: (taskId: string) => Promise<void>
   onCancel: (taskId: string) => Promise<void>
   onDelete: (taskId: string) => Promise<void>
+  deletionMode?: "archive" | "delete"
   onTaskClick: (taskId: string) => Promise<void>
   onToggleSelect: (taskId: string) => void
 }
@@ -27,6 +28,7 @@ export function InProgressBatchGroup({
   onExecute,
   onCancel,
   onDelete,
+  deletionMode,
   onTaskClick,
   onToggleSelect,
 }: InProgressBatchGroupProps) {
@@ -59,6 +61,7 @@ export function InProgressBatchGroup({
                   onExecute={canExecute ? onExecute : undefined}
                   onCancel={onCancel}
                   onDelete={onDelete}
+                  deletionMode={deletionMode}
                   onTaskClick={onTaskClick}
                   selected={selectedTaskIds.has(task.id)}
                   onToggleSelect={onToggleSelect}

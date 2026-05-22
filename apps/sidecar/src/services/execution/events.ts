@@ -307,6 +307,19 @@ async function handleSessionComplete(taskId: string): Promise<void> {
           addLogEntry(taskId, 'success', 'Changes pushed! Create PR here:', result.url);
           broadcastProgress(taskId, 'done', 'Changes pushed successfully', { prUrl: result.url, isCompareLink: true });
         }
+      } else {
+        execution.status = 'error';
+        outcome = 'Changes committed but no repository linked to create PR';
+        addLogEntry(taskId, 'error', outcome);
+        broadcastProgress(taskId, 'error', outcome);
+        await finalizeAgentRun(execution, 'failed', { errorMessage: outcome });
+        await updateTaskStatus(taskId, 'cancelled', null, {
+          executionElapsedMs: elapsedMs,
+          executionPausedAt: new Date(),
+          executionProgress: 100,
+          outcome,
+        });
+        return;
       }
     } else if (commitResult.status === 'no_changes') {
       execution.status = 'error';
@@ -345,8 +358,15 @@ async function handleSessionComplete(taskId: string): Promise<void> {
     console.error('[Execution] Post-execution error:', error);
     addLogEntry(taskId, 'error', 'Post-execution failed');
     broadcastProgress(taskId, 'error', 'Post-execution failed');
+    const errorMessage = error instanceof Error ? error.message : 'Post-execution failed';
     await finalizeAgentRun(execution, 'failed', {
-      errorMessage: error instanceof Error ? error.message : 'Post-execution failed',
+      errorMessage,
+    });
+    await updateTaskStatus(taskId, 'cancelled', null, {
+      executionElapsedMs: elapsedMs,
+      executionPausedAt: new Date(),
+      executionProgress: 100,
+      outcome: errorMessage,
     });
   } finally {
     await persistLogs(taskId);
@@ -488,12 +508,16 @@ async function handleOpenCodeEvent(event: { type: string; properties?: Record<st
             : 'Execution failed';
         addLogEntry(taskId, 'error', headline, errorDetail);
         broadcastProgress(taskId, 'error', headline);
-        if (execution) {
-          await finalizeAgentRun(execution, 'failed', { errorMessage: errorDetail });
-        }
-        await updateTaskStatus(taskId, 'cancelled', null);
-        await persistLogs(taskId);
-        await cleanupExecution(taskId);
+    if (execution) {
+      await finalizeAgentRun(execution, 'failed', { errorMessage: errorDetail });
+    }
+    const elapsedMs = execution ? Date.now() - execution.startedAt.getTime() : 0;
+    await updateTaskStatus(taskId, 'cancelled', null, {
+      executionElapsedMs: elapsedMs,
+      executionPausedAt: new Date(),
+    });
+    await persistLogs(taskId);
+    await cleanupExecution(taskId);
       }
       break;
 

@@ -110,7 +110,7 @@ export function TextHighlighter() {
                         return (
                             <p
                                 key={i}
-                                className="font-display text-[1.75rem] md:text-[2.25rem] lg:text-[2.75rem] font-bold tracking-[-0.04em] leading-[1.15] transition-all duration-500 ease-out text-[#EDE8D0]"
+                                className="font-display text-[1.75rem] md:text-[2.25rem] lg:text-[2.75rem] font-bold tracking-[-0.04em] leading-[1.15] transition-all duration-500 ease-out text-[#9c9580]"
                                 style={{
                                     transform: `translateY(${opacity > 0.5 ? 0 : 4}px)`,
                                 }}

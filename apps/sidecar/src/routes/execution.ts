@@ -4,6 +4,7 @@ import { broadcastToTask } from '@openlinear/api/sse';
 import { optionalAuth, AuthRequest } from '@openlinear/api/middleware';
 import { assertTaskOwned } from '@openlinear/api/ownership';
 import { executeTask, cancelTask, isTaskRunning, getExecutionLogs } from '../services/execution';
+import { getBatchExecutionLogs } from '../services/batch';
 
 const taskInclude = {
   labels: { include: { label: true } },
@@ -170,6 +171,9 @@ router.get('/:id/logs', optionalAuth, async (req: AuthRequest, res: Response, ne
       await assertTaskOwned(id, req.userId);
     }
     let logs = getExecutionLogs(id);
+    if (logs.length === 0) {
+      logs = getBatchExecutionLogs(id);
+    }
 
     if (logs.length === 0) {
       const result = await prisma.$queryRaw<Array<{ executionLogs: unknown }>>`

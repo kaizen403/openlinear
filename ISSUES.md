@@ -247,6 +247,25 @@ See `.sisyphus/plans/openlinear-issues.md` for full root-cause analysis and file
 ### Next steps / blockers
 - Run `pnpm dev-live` and visually inspect the Home Chat header/dropdown in the Tauri shell if further visual tuning is wanted.
 
+## [2026-05-22] — Orient on codebase for future assistance
+
+**Status:** Done
+**Agent:** Codex
+
+### What was done
+- Read the workspace guidance and active work log before inspecting the repo.
+- Mapped the monorepo entry points, package boundaries, API routing, desktop UI task and chat flows, sidecar execution lifecycle, MCP worker surface, SSE plumbing, and Prisma domain model.
+- Noted the existing dirty worktree so future changes can avoid overwriting unrelated in-progress edits.
+
+### Files changed
+- `ISSUES.md` — recorded this orientation pass.
+
+### Issues encountered
+- Semantic `codebase_search` calls returned HTTP 429, so the repo map was built from targeted local file inspection instead.
+
+### Next steps / blockers
+- Ready to inspect a specific feature, bug, or implementation path when requested.
+
 <!-- 
 AGENTS: Add new entries above this comment. Format:
 

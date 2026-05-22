@@ -115,6 +115,7 @@ export interface UseKanbanBoardReturn {
   showProviderSetup: boolean
   setShowProviderSetup: (show: boolean) => void
   handleProviderSetupComplete: () => void
+  taskDeletionMode: "archive" | "delete"
 }
 
 export function useKanbanBoard({ projectId, teamId, projects = [], searchQuery = "" }: KanbanBoardProps): UseKanbanBoardReturn {
@@ -133,6 +134,7 @@ export function useKanbanBoard({ projectId, teamId, projects = [], searchQuery =
   // Tracks tasks whose Execute POST is in flight so the UI can show "starting…"
   // and the second click on Execute is ignored. Cleared on success or failure.
   const [startingExecuteIds, setStartingExecuteIds] = useState<Set<string>>(new Set())
+  const [taskDeletionMode, setTaskDeletionMode] = useState<"archive" | "delete">("archive")
   const lastSelectedIdRef = useRef<string | null>(null)
   const { isAuthenticated, activeRepository, refreshActiveRepository } = useAuth()
 
@@ -278,15 +280,40 @@ export function useKanbanBoard({ projectId, teamId, projects = [], searchQuery =
       return
     }
 
+    const previousSelection = selectedTaskIds
+    const previousTasks = tasks
+    const previousActiveBatch = activeBatch
+    const pendingTasks = inProgressTaskIds.map((taskId) => {
+      const task = tasks.find(candidate => candidate.id === taskId)
+      return {
+        taskId,
+        title: task?.title || 'Untitled task',
+        status: 'queued' as const,
+      }
+    })
+
+    clearSelection()
+    setActiveBatch({
+      id: `starting-${mode}-${Date.now()}`,
+      status: 'starting',
+      mode,
+      tasks: pendingTasks,
+      prUrl: null,
+    })
+
     try {
       const status = await getSetupStatus()
       if (!status.ready) {
+        setActiveBatch(previousActiveBatch)
+        setSelectedTaskIds(previousSelection)
         setShowProviderSetup(true)
         toast.error('Configure an AI provider before starting batch execution')
         return
       }
     } catch (err) {
       if (err instanceof OpenCodeUnavailableError) {
+        setActiveBatch(previousActiveBatch)
+        setSelectedTaskIds(previousSelection)
         toast.error(
           'Execution service is not running. Start the sidecar (pnpm dev) or switch off CRUD-only mode.',
         )
@@ -295,10 +322,6 @@ export function useKanbanBoard({ projectId, teamId, projects = [], searchQuery =
       }
       console.warn('Could not check provider setup before batch execution, proceeding anyway:', err)
     }
-
-    const previousSelection = selectedTaskIds
-    const previousTasks = tasks
-    clearSelection()
 
     try {
       const created = await apiFetch<{
@@ -320,9 +343,11 @@ export function useKanbanBoard({ projectId, teamId, projects = [], searchQuery =
         tasks: created.tasks.map(t => ({ taskId: t.taskId, title: t.title, status: t.status })),
         prUrl: null,
       })
+      setCompletedBatch(null)
     } catch (err) {
       setTasks(previousTasks)
       setSelectedTaskIds(previousSelection)
+      setActiveBatch(previousActiveBatch)
       const msg = err instanceof Error ? err.message : 'Operation failed'
       console.error('Error creating batch:', err)
       toast.error(msg)
@@ -705,6 +730,16 @@ export function useKanbanBoard({ projectId, teamId, projects = [], searchQuery =
   useEffect(() => {
     fetchTasks({ showLoading: true, allowRetry: true, clearError: true, resetRetry: true })
 
+    apiFetch("/api/settings")
+      .then((data: any) => {
+        if (data?.taskDeletionMode) {
+          setTaskDeletionMode(data.taskDeletionMode)
+        }
+      })
+      .catch(() => {
+        // ignore settings fetch errors
+      })
+
     return () => {
       if (retryTimeoutRef.current) {
         clearTimeout(retryTimeoutRef.current)
@@ -817,17 +852,19 @@ export function useKanbanBoard({ projectId, teamId, projects = [], searchQuery =
     setTasks(prev => prev.filter(t => !ids.includes(t.id)))
     clearSelection()
 
+    const permanent = taskDeletionMode === "delete"
     const results = await Promise.allSettled(
-      ids.map(id => apiFetch(`/api/tasks/${id}`, { method: 'DELETE' })),
+      ids.map(id => apiFetch(`/api/tasks/${id}${permanent ? "?permanent=true" : ""}`, { method: 'DELETE' })),
     )
     const failures = results.filter(r => r.status === 'rejected').length
     if (failures > 0) {
       setTasks(snapshot)
       toast.error(`Failed to delete ${failures} of ${ids.length} task${ids.length !== 1 ? 's' : ''}`)
     } else {
-      toast.success(`Deleted ${ids.length} task${ids.length !== 1 ? 's' : ''}`)
+      const action = permanent ? "Deleted" : "Archived"
+      toast.success(`${action} ${ids.length} task${ids.length !== 1 ? 's' : ''}`)
     }
-  }, [selectedTaskIds, tasks, batchTaskIds])
+  }, [selectedTaskIds, tasks, batchTaskIds, taskDeletionMode])
 
   const handleBulkChangeStatus = useCallback(async (newStatus: Task['status']) => {
     const ids = Array.from(selectedTaskIds).filter(id => !batchTaskIds.includes(id))
@@ -994,8 +1031,9 @@ export function useKanbanBoard({ projectId, teamId, projects = [], searchQuery =
     const previousSelectedTaskId = selectedTaskId
     setTasks((prev) => prev.filter((t) => t.id !== taskId))
     setSelectedTaskId(null)
+    const permanent = taskDeletionMode === "delete"
     try {
-      await apiFetch(`/api/tasks/${taskId}`, { method: 'DELETE' })
+      await apiFetch(`/api/tasks/${taskId}${permanent ? "?permanent=true" : ""}`, { method: 'DELETE' })
     } catch (err) {
       setTasks(previousTasks)
       setSelectedTaskId(previousSelectedTaskId)
@@ -1099,5 +1137,6 @@ export function useKanbanBoard({ projectId, teamId, projects = [], searchQuery =
     showProviderSetup,
     setShowProviderSetup,
     handleProviderSetupComplete,
+    taskDeletionMode,
   }
 }
