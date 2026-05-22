@@ -756,6 +756,12 @@ export function useKanbanBoard({ projectId, teamId, projects = [], searchQuery =
         })
         break
 
+      case 'settings:updated':
+        if (data?.taskDeletionMode === 'archive' || data?.taskDeletionMode === 'delete') {
+          setTaskDeletionMode(data.taskDeletionMode)
+        }
+        break
+
       default:
         break
     }
