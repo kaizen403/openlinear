@@ -19,6 +19,7 @@ describe('delta buffer', () => {
 
   afterEach(() => {
     cleanupDeltaBuffer('task-1');
+    cleanupDeltaBuffer('task-idle');
     cleanupDeltaBuffer('missing');
     vi.useRealTimers();
   });
@@ -46,6 +47,7 @@ describe('delta buffer', () => {
   it('marks thinking only once until cleared or flushed', () => {
     getOrCreateBuffer('task-1', emit);
 
+    expect(markThinking('missing')).toBe(true);
     expect(markThinking('task-1')).toBe(true);
     expect(markThinking('task-1')).toBe(false);
     clearThinking('task-1');
@@ -69,8 +71,42 @@ describe('delta buffer', () => {
   it('cleans up pending timers', () => {
     getOrCreateBuffer('task-1', emit);
     appendTextDelta('task-1', 'pending');
+    appendReasoningDelta('task-1', 'pending thought');
     cleanupDeltaBuffer('task-1');
 
+    vi.advanceTimersByTime(800);
+
+    expect(emit).not.toHaveBeenCalled();
+  });
+
+  it('emits reasoning after debounce', () => {
+    getOrCreateBuffer('task-1', emit);
+    appendReasoningDelta('task-1', 'delayed thought');
+
+    vi.advanceTimersByTime(800);
+
+    expect(emit).toHaveBeenCalledWith('Thinking: delayed thought');
+  });
+
+  it('debounces repeated reasoning deltas and reuses existing buffers', () => {
+    getOrCreateBuffer('task-1', emit);
+    getOrCreateBuffer('task-1', emit);
+
+    appendReasoningDelta('task-1', 'first ');
+    appendReasoningDelta('task-1', 'second');
+
+    vi.advanceTimersByTime(799);
+    expect(emit).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(1);
+    expect(emit).toHaveBeenCalledWith('Thinking: first second');
+  });
+
+  it('cleans up buffer after idle TTL expires', () => {
+    getOrCreateBuffer('task-idle', emit);
+
+    vi.advanceTimersByTime(35 * 60 * 1000);
+    appendTextDelta('task-idle', 'hello');
     vi.advanceTimersByTime(800);
 
     expect(emit).not.toHaveBeenCalled();

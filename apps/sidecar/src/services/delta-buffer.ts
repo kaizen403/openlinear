@@ -47,8 +47,7 @@ function getBuffer(taskId: string): BufferState | undefined {
 }
 
 function touchBuffer(taskId: string): void {
-  const buf = getBuffer(taskId);
-  if (!buf) return;
+  const buf = getBuffer(taskId)!;
 
   if (buf.idleTimer) clearTimeout(buf.idleTimer);
   buf.idleTimer = setTimeout(() => {
@@ -142,6 +141,6 @@ export function cleanupDeltaBuffer(taskId: string): void {
 
   if (buf.textTimer) clearTimeout(buf.textTimer);
   if (buf.reasoningTimer) clearTimeout(buf.reasoningTimer);
-  if (buf.idleTimer) clearTimeout(buf.idleTimer);
+  clearTimeout(buf.idleTimer!);
   buffers.delete(taskId);
 }

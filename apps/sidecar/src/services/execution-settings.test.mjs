@@ -91,4 +91,22 @@ describe('execution settings', () => {
       conflictBehavior: 'skip',
     });
   });
+
+  it('uses hardcoded defaults when row fields are null', async () => {
+    mocks.findUnique.mockResolvedValue({
+      parallelLimit: null,
+      maxBatchSize: null,
+      queueAutoApprove: null,
+      stopOnFailure: null,
+      conflictBehavior: 'fail',
+    });
+
+    await expect(getExecutionSettings('user-1')).resolves.toEqual({
+      parallelLimit: 3,
+      maxBatchSize: 3,
+      queueAutoApprove: false,
+      stopOnFailure: false,
+      conflictBehavior: 'fail',
+    });
+  });
 });

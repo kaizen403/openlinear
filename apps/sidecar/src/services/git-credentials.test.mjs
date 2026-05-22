@@ -55,6 +55,28 @@ describe('git credentials', () => {
     }
   });
 
+  it('falls back to GitHub credentials for parsed non-http remotes', () => {
+    const config = createGitCredentialConfig('token', 'ftp://example.com/repo.git');
+    const credentialsFile = config.args[1].slice('credential.helper=store --file='.length);
+
+    try {
+      expect(readFileSync(credentialsFile, 'utf8')).toBe('https://oauth2:token@github.com\n');
+    } finally {
+      config.cleanup();
+    }
+  });
+
+  it('uses GitHub credentials when no remote URL is available', () => {
+    const config = createGitCredentialConfig('token');
+    const credentialsFile = config.args[1].slice('credential.helper=store --file='.length);
+
+    try {
+      expect(readFileSync(credentialsFile, 'utf8')).toBe('https://oauth2:token@github.com\n');
+    } finally {
+      config.cleanup();
+    }
+  });
+
   it('executes git with temporary credentials and always cleans up', async () => {
     mocks.execFileAsync.mockResolvedValue({ stdout: 'ok', stderr: '' });
 

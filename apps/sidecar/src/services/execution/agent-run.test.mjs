@@ -94,6 +94,38 @@ describe('execution agent-run helpers', () => {
     }));
   });
 
+  it('creates agent runs without activity when no user is attached', async () => {
+    mocks.agentRunCreate.mockResolvedValue({ id: 'run-1' });
+
+    await expect(createAgentRun({
+      taskId: 'task-1',
+      userId: null,
+      agent: 'opencode',
+      model: 'unknown',
+    })).resolves.toBe('run-1');
+
+    expect(mocks.taskFindUnique).not.toHaveBeenCalled();
+    expect(mocks.logActivity).not.toHaveBeenCalled();
+  });
+
+  it('records start activity with null scope when the task is missing', async () => {
+    mocks.agentRunCreate.mockResolvedValue({ id: 'run-1' });
+    mocks.taskFindUnique.mockResolvedValue(null);
+
+    await expect(createAgentRun({
+      taskId: 'task-1',
+      userId: 'user-1',
+      agent: 'opencode',
+      model: 'unknown',
+    })).resolves.toBe('run-1');
+
+    expect(mocks.logActivity).toHaveBeenCalledWith(expect.objectContaining({
+      teamId: null,
+      projectId: null,
+      action: 'agent_run_started',
+    }));
+  });
+
   it('returns null and logs when agent run creation fails', async () => {
     mocks.agentRunCreate.mockRejectedValue(new Error('db down'));
 
@@ -154,9 +186,71 @@ describe('execution agent-run helpers', () => {
     }));
   });
 
+  it('records completion activity with null task scope when the task is missing', async () => {
+    const state = makeState();
+    mocks.taskFindUnique.mockResolvedValue(null);
+
+    await finalizeAgentRun(state, 'cancelled', { errorMessage: 'cancelled' });
+
+    expect(mocks.logActivity).toHaveBeenCalledWith(expect.objectContaining({
+      teamId: null,
+      projectId: null,
+      action: 'agent_run_completed',
+      payload: expect.objectContaining({ errorMessage: 'cancelled' }),
+    }));
+  });
+
+  it('records successful completion activity without optional payload fields', async () => {
+    const state = makeState();
+    mocks.taskFindUnique.mockResolvedValue({ teamId: 'team-1', projectId: 'project-1' });
+
+    await finalizeAgentRun(state, 'succeeded');
+
+    expect(mocks.logActivity).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'agent_run_completed',
+      payload: {
+        agentRunId: 'run-1',
+        status: 'succeeded',
+      },
+    }));
+  });
+
+  it('finalizes rows without optional usage, metadata, or user activity', async () => {
+    const state = makeState({ userId: null });
+
+    await finalizeAgentRun(state, 'succeeded');
+
+    expect(mocks.agentRunUpdate).toHaveBeenCalledWith({
+      where: { id: 'run-1' },
+      data: expect.objectContaining({
+        status: 'succeeded',
+        endedAt: expect.any(Date),
+      }),
+    });
+    expect(mocks.agentRunUpdate.mock.calls[0][0].data).not.toHaveProperty('costUsd');
+    expect(mocks.logActivity).not.toHaveBeenCalled();
+  });
+
   it('skips finalization when no agent run was created', async () => {
     await finalizeAgentRun(makeState({ agentRunId: null }), 'succeeded');
 
     expect(mocks.agentRunUpdate).not.toHaveBeenCalled();
+  });
+
+  it('logs and swallows finalization failures', async () => {
+    const state = makeState();
+    mocks.agentRunUpdate.mockRejectedValue(new Error('write failed'));
+
+    await expect(finalizeAgentRun(state, 'succeeded')).resolves.toBeUndefined();
+
+    expect(mocks.loggerError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        err: expect.any(Error),
+        taskId: 'task-1',
+        agentRunId: 'run-1',
+        status: 'succeeded',
+      }),
+      '[AgentRun] failed to finalize row',
+    );
   });
 });

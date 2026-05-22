@@ -68,6 +68,30 @@ describe('worktree helpers', () => {
       null,
       'https://github.com/acme/repo.git',
     );
+
+    mocks.mkdirSync.mockClear();
+    mocks.execGitWithCredentials.mockClear();
+    mocks.existsSync
+      .mockReset()
+      .mockReturnValueOnce(false)
+      .mockReturnValueOnce(true);
+
+    await expect(ensureMainRepo('project-1', 'https://github.com/acme/repo.git', null)).resolves.toBe('/repos/project-1/.main');
+
+    expect(mocks.mkdirSync).not.toHaveBeenCalled();
+    expect(mocks.execGitWithCredentials).toHaveBeenCalledWith(
+      ['clone', '--bare', 'https://github.com/acme/repo.git', '/repos/project-1/.main'],
+      null,
+      'https://github.com/acme/repo.git',
+    );
+  });
+
+  it('rethrows main repo preparation failures', async () => {
+    mocks.existsSync.mockReturnValue(true);
+    mocks.execGitWithCredentials.mockRejectedValue(new Error('fetch failed'));
+
+    await expect(ensureMainRepo('project-1', 'https://github.com/acme/repo.git', 'token'))
+      .rejects.toThrow('fetch failed');
   });
 
   it('creates task and combined worktrees after clearing stale branches', async () => {
@@ -100,6 +124,144 @@ describe('worktree helpers', () => {
     await expect(createBatchWorktree('project-1', 'batch-1', 'openlinear/batch-1', 'main')).resolves.toBe(
       '/repos/project-1/batch-batch-1/combined',
     );
+  });
+
+  it('skips stale worktrees outside repo storage and handles stale cleanup failures', async () => {
+    mocks.assertPathInsideReposDir.mockImplementation((path) => {
+      if (path === '/outside/task') throw new Error('outside');
+      return path;
+    });
+    mocks.existsSync.mockImplementation((path) => {
+      if (path === '/repos/project-1/batch-batch-1') return true;
+      if (path === '/repos/project-1/batch-batch-1/task-task-1') return false;
+      if (path === '/repos/project-1/batch-batch-1/task-stale') return true;
+      return false;
+    });
+    mocks.execFileAsync
+      .mockResolvedValueOnce({ stdout: '', stderr: '' })
+      .mockResolvedValueOnce({
+        stdout: [
+          'worktree /outside/task',
+          'branch refs/heads/openlinear/task-1',
+          '',
+          'worktree /repos/project-1/batch-batch-1/task-other',
+          'branch refs/heads/openlinear/other',
+          '',
+          'worktree /repos/project-1/batch-batch-1/task-stale',
+          'branch refs/heads/openlinear/task-1',
+          '',
+        ].join('\n'),
+        stderr: '',
+      })
+      .mockRejectedValueOnce(new Error('remove stale failed'))
+      .mockResolvedValueOnce({ stdout: '', stderr: '' })
+      .mockResolvedValueOnce({ stdout: '', stderr: '' });
+
+    await expect(createWorktree('project-1', 'batch-1', 'task-1', 'main')).resolves.toBe(
+      '/repos/project-1/batch-batch-1/task-task-1',
+    );
+
+    expect(mocks.rmSync).toHaveBeenCalledWith('/repos/project-1/batch-batch-1/task-stale', {
+      recursive: true,
+      force: true,
+    });
+
+    mocks.rmSync.mockClear();
+    mocks.assertPathInsideReposDir.mockImplementation((path) => path);
+    mocks.existsSync.mockImplementation((path) => {
+      if (path === '/repos/project-1/batch-batch-1/task-stale') return false;
+      return false;
+    });
+    mocks.execFileAsync
+      .mockReset()
+      .mockResolvedValueOnce({ stdout: '', stderr: '' })
+      .mockResolvedValueOnce({
+        stdout: 'worktree /repos/project-1/batch-batch-1/task-stale\nbranch refs/heads/openlinear/task-1\n',
+        stderr: '',
+      })
+      .mockRejectedValueOnce(new Error('remove stale failed'))
+      .mockResolvedValueOnce({ stdout: '', stderr: '' })
+      .mockResolvedValueOnce({ stdout: '', stderr: '' });
+
+    await expect(createWorktree('project-1', 'batch-1', 'task-1', 'main')).resolves.toBe(
+      '/repos/project-1/batch-batch-1/task-task-1',
+    );
+
+    expect(mocks.rmSync).not.toHaveBeenCalled();
+  });
+
+  it('creates a combined worktree without recreating an existing batch directory', async () => {
+    mocks.existsSync.mockImplementation((path) => path === '/repos/project-1/batch-batch-1');
+    mocks.execFileAsync.mockResolvedValue({ stdout: '', stderr: '' });
+
+    await expect(createBatchWorktree('project-1', 'batch-1', 'openlinear/batch-1', 'main')).resolves.toBe(
+      '/repos/project-1/batch-batch-1/combined',
+    );
+
+    expect(mocks.mkdirSync).not.toHaveBeenCalled();
+  });
+
+  it('removes partially-created task and batch worktrees after creation failures', async () => {
+    mocks.existsSync
+      .mockReturnValueOnce(false)
+      .mockReturnValueOnce(true);
+    mocks.execFileAsync
+      .mockResolvedValueOnce({ stdout: '', stderr: '' })
+      .mockResolvedValueOnce({ stdout: '', stderr: '' })
+      .mockResolvedValueOnce({ stdout: '', stderr: '' })
+      .mockRejectedValueOnce(new Error('add failed'))
+      .mockRejectedValueOnce(new Error('remove failed'));
+
+    await expect(createWorktree('project-1', 'batch-1', 'task-1', 'main')).rejects.toThrow('add failed');
+    expect(mocks.rmSync).toHaveBeenCalledWith('/repos/project-1/batch-batch-1/task-task-1', {
+      recursive: true,
+      force: true,
+    });
+
+    mocks.rmSync.mockClear();
+    mocks.existsSync
+      .mockReset()
+      .mockReturnValueOnce(false)
+      .mockReturnValueOnce(true);
+    mocks.execFileAsync
+      .mockReset()
+      .mockResolvedValueOnce({ stdout: '', stderr: '' })
+      .mockResolvedValueOnce({ stdout: '', stderr: '' })
+      .mockResolvedValueOnce({ stdout: '', stderr: '' })
+      .mockRejectedValueOnce(new Error('batch add failed'))
+      .mockRejectedValueOnce(new Error('batch remove failed'));
+
+    await expect(createBatchWorktree('project-1', 'batch-1', 'openlinear/batch-1', 'main'))
+      .rejects.toThrow('batch add failed');
+    expect(mocks.rmSync).toHaveBeenCalledWith('/repos/project-1/batch-batch-1/combined', {
+      recursive: true,
+      force: true,
+    });
+  });
+
+  it('does not remove failed worktree paths that were never created', async () => {
+    mocks.existsSync.mockReturnValue(false);
+    mocks.execFileAsync
+      .mockResolvedValueOnce({ stdout: '', stderr: '' })
+      .mockResolvedValueOnce({ stdout: '', stderr: '' })
+      .mockResolvedValueOnce({ stdout: '', stderr: '' })
+      .mockRejectedValueOnce(new Error('add failed'));
+
+    await expect(createWorktree('project-1', 'batch-1', 'task-1', 'main')).rejects.toThrow('add failed');
+
+    expect(mocks.rmSync).not.toHaveBeenCalled();
+
+    mocks.execFileAsync.mockReset();
+    mocks.execFileAsync
+      .mockResolvedValueOnce({ stdout: '', stderr: '' })
+      .mockResolvedValueOnce({ stdout: '', stderr: '' })
+      .mockResolvedValueOnce({ stdout: '', stderr: '' })
+      .mockRejectedValueOnce(new Error('batch add failed'));
+
+    await expect(createBatchWorktree('project-1', 'batch-1', 'openlinear/batch-1', 'main'))
+      .rejects.toThrow('batch add failed');
+
+    expect(mocks.rmSync).not.toHaveBeenCalled();
   });
 
   it('lists, removes, and cleans up worktrees safely', async () => {
@@ -138,6 +300,85 @@ describe('worktree helpers', () => {
     expect(mocks.rmSync).toHaveBeenCalledWith('/repos/project-1/batch-batch-1', { recursive: true, force: true });
   });
 
+  it('logs remove failures and only deletes worktree paths that remain on disk', async () => {
+    mocks.existsSync.mockReturnValue(false);
+    mocks.execFileAsync.mockRejectedValueOnce(new Error('remove failed'));
+
+    await removeWorktree('project-1', '/repos/project-1/batch-batch-1/task-task-1');
+
+    expect(mocks.rmSync).not.toHaveBeenCalled();
+  });
+
+  it('ignores listed worktrees outside the target batch', async () => {
+    mocks.existsSync.mockImplementation((path) => path === '/repos/project-1/.main');
+    mocks.execFileAsync.mockResolvedValueOnce({
+      stdout: 'worktree /repos/project-1/other/task-task-1\n',
+      stderr: '',
+    });
+
+    await cleanupBatch('project-1', 'batch-1');
+
+    expect(mocks.rmSync).not.toHaveBeenCalled();
+  });
+
+  it('returns an empty worktree list and removes the batch directory when listing fails', async () => {
+    mocks.existsSync.mockReturnValue(true);
+    mocks.execFileAsync.mockRejectedValue(new Error('list failed'));
+
+    await expect(listWorktrees('project-1')).resolves.toEqual([]);
+    await cleanupBatch('project-1', 'batch-1');
+
+    expect(mocks.rmSync).toHaveBeenCalledWith('/repos/project-1/batch-batch-1', {
+      recursive: true,
+      force: true,
+    });
+  });
+
+  it('returns an empty worktree list when the main repo is missing', async () => {
+    mocks.existsSync.mockReturnValue(false);
+
+    await expect(listWorktrees('project-1')).resolves.toEqual([]);
+
+    expect(mocks.execFileAsync).not.toHaveBeenCalled();
+  });
+
+  it('force-removes the batch directory when cleanup throws after listing', async () => {
+    mocks.execFileAsync.mockResolvedValueOnce({ stdout: '', stderr: '' });
+    mocks.existsSync.mockImplementation((path) => {
+      if (path === '/repos/project-1/batch-batch-1') {
+        throw new Error('stat failed');
+      }
+      return true;
+    });
+    mocks.existsSync
+      .mockImplementationOnce(() => true)
+      .mockImplementationOnce(() => {
+        throw new Error('stat failed');
+      })
+      .mockImplementationOnce(() => true);
+
+    await cleanupBatch('project-1', 'batch-1');
+
+    expect(mocks.rmSync).toHaveBeenCalledWith('/repos/project-1/batch-batch-1', {
+      recursive: true,
+      force: true,
+    });
+  });
+
+  it('does not force-remove a batch directory that disappears after cleanup errors', async () => {
+    mocks.execFileAsync.mockResolvedValueOnce({ stdout: '', stderr: '' });
+    mocks.existsSync
+      .mockImplementationOnce(() => true)
+      .mockImplementationOnce(() => {
+        throw new Error('stat failed');
+      })
+      .mockImplementationOnce(() => false);
+
+    await cleanupBatch('project-1', 'batch-1');
+
+    expect(mocks.rmSync).not.toHaveBeenCalled();
+  });
+
   it('merges branches by updating the target ref and reports conflicts', async () => {
     mocks.execFileAsync
       .mockResolvedValueOnce({ stdout: '', stderr: '' })
@@ -163,6 +404,65 @@ describe('worktree helpers', () => {
       .mockResolvedValue({ stdout: '', stderr: '' });
 
     await expect(mergeBranch('project-1', 'openlinear/task-1', 'openlinear/batch')).resolves.toBe(false);
+  });
+
+  it('returns false and removes merge temp directories when setup and cleanup fail', async () => {
+    mocks.existsSync
+      .mockReturnValueOnce(false)
+      .mockReturnValueOnce(true);
+    mocks.execFileAsync
+      .mockRejectedValueOnce(new Error('add failed'))
+      .mockRejectedValueOnce(new Error('remove failed'));
+
+    await expect(mergeBranch('project-1', 'openlinear/task-1', 'openlinear/batch')).resolves.toBe(false);
+
+    expect(mocks.rmSync).toHaveBeenCalledWith('/repos/project-1/merge-temp', { recursive: true, force: true });
+  });
+
+  it('clears stale merge temp directories before merging', async () => {
+    mocks.existsSync.mockReturnValueOnce(true).mockReturnValue(false);
+    mocks.execFileAsync
+      .mockRejectedValueOnce(new Error('stale remove failed'))
+      .mockResolvedValueOnce({ stdout: '', stderr: '' })
+      .mockResolvedValueOnce({ stdout: '', stderr: '' })
+      .mockResolvedValueOnce({ stdout: 'merge-sha\n', stderr: '' })
+      .mockResolvedValueOnce({ stdout: '', stderr: '' })
+      .mockResolvedValueOnce({ stdout: '', stderr: '' })
+      .mockResolvedValueOnce({ stdout: '', stderr: '' });
+
+    await expect(mergeBranch('project-1', 'openlinear/task-1', 'openlinear/batch')).resolves.toBe(true);
+
+    expect(mocks.rmSync).toHaveBeenCalledWith('/repos/project-1/merge-temp', { recursive: true, force: true });
+  });
+
+  it('falls back to deleting merge temp after a successful merge cleanup failure', async () => {
+    mocks.existsSync.mockReturnValueOnce(false).mockReturnValueOnce(true).mockReturnValue(false);
+    mocks.execFileAsync
+      .mockResolvedValueOnce({ stdout: '', stderr: '' })
+      .mockResolvedValueOnce({ stdout: '', stderr: '' })
+      .mockResolvedValueOnce({ stdout: 'merge-sha\n', stderr: '' })
+      .mockRejectedValueOnce(new Error('cleanup failed'))
+      .mockResolvedValueOnce({ stdout: '', stderr: '' })
+      .mockResolvedValueOnce({ stdout: '', stderr: '' });
+
+    await expect(mergeBranch('project-1', 'openlinear/task-1', 'openlinear/batch')).resolves.toBe(true);
+
+    expect(mocks.rmSync).toHaveBeenCalledWith('/repos/project-1/merge-temp', { recursive: true, force: true });
+  });
+
+  it('skips deleting merge temp when cleanup failures leave no directory behind', async () => {
+    mocks.existsSync.mockReturnValue(false);
+    mocks.execFileAsync
+      .mockResolvedValueOnce({ stdout: '', stderr: '' })
+      .mockResolvedValueOnce({ stdout: '', stderr: '' })
+      .mockResolvedValueOnce({ stdout: 'merge-sha\n', stderr: '' })
+      .mockRejectedValueOnce(new Error('cleanup failed'))
+      .mockResolvedValueOnce({ stdout: '', stderr: '' })
+      .mockRejectedValueOnce(new Error('final cleanup failed'));
+
+    await expect(mergeBranch('project-1', 'openlinear/task-1', 'openlinear/batch')).resolves.toBe(true);
+
+    expect(mocks.rmSync).not.toHaveBeenCalled();
   });
 
   it('creates and pushes batch branches', async () => {

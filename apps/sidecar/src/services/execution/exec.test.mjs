@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { execFileAsync } from './exec';
 
 describe('execution exec helpers', () => {
@@ -19,5 +19,19 @@ describe('execution exec helpers', () => {
     ]);
 
     expect(result.stdout).toBe('literal; echo injected');
+  });
+
+  it('coerces Buffer stdout/stderr to utf8 strings', async () => {
+    // Force Buffer outputs by omitting encoding (default is Buffer when no encoding set
+    // on raw child_process exec). The current implementation passes maxBuffer and any
+    // caller options through, so we exercise the Buffer-to-string fallback here.
+    const result = await execFileAsync(
+      process.execPath,
+      ['-e', 'process.stdout.write("buf"); process.stderr.write("err");'],
+      { encoding: 'buffer' },
+    );
+
+    expect(result.stdout).toBe('buf');
+    expect(result.stderr).toBe('err');
   });
 });

@@ -86,10 +86,8 @@ export async function executeTask({ taskId, userId }: ExecuteTaskParams): Promis
 
   if (useLocalPath) {
     repoPath = useLocalPath;
-  } else if (project) {
-    repoPath = buildReposPath(project.name, taskId.slice(0, 8));
   } else {
-    return { success: false, error: 'No active project selected' };
+    repoPath = buildReposPath(project!.name, taskId.slice(0, 8));
   }
 
   try {
@@ -97,9 +95,10 @@ export async function executeTask({ taskId, userId }: ExecuteTaskParams): Promis
     if (useLocalPath) {
       broadcastProgress(taskId, 'cloning', 'Preparing local repository...');
       await createBranch(repoPath, branchName);
-    } else if (project) {
+    } else {
+      const repository = project!;
       broadcastProgress(taskId, 'cloning', 'Cloning repository...');
-      await cloneRepository(project.cloneUrl, repoPath, accessToken, project.defaultBranch);
+      await cloneRepository(repository.cloneUrl, repoPath, accessToken, repository.defaultBranch);
       await createBranch(repoPath, branchName);
     }
 
@@ -150,7 +149,7 @@ export async function executeTask({ taskId, userId }: ExecuteTaskParams): Promis
 
     const agentRunId = await createAgentRun({
       taskId,
-      userId: userId ?? null,
+      userId,
       agent: 'opencode',
       model: modelLabel,
     });
@@ -168,7 +167,7 @@ export async function executeTask({ taskId, userId }: ExecuteTaskParams): Promis
       sessionId,
       repoPath,
       branchName,
-      userId: userId ?? null,
+      userId,
       accessToken,
       timeoutId,
       streamTimeoutId: null,

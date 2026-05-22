@@ -55,6 +55,18 @@ describe('execution git helpers', () => {
 
     mocks.execFileAsync.mockResolvedValueOnce({ stdout: 'R  old.ts -> src/new.ts\n', stderr: '' });
     await expect(hasCommittableChanges('/repo')).resolves.toBe(true);
+
+    mocks.execFileAsync.mockResolvedValueOnce({ stdout: 'R  old.ts -> \n', stderr: '' });
+    await expect(hasCommittableChanges('/repo')).resolves.toBe(true);
+
+    mocks.execFileAsync.mockResolvedValueOnce({ stdout: '?? \n', stderr: '' });
+    await expect(hasCommittableChanges('/repo')).resolves.toBe(true);
+
+    mocks.execFileAsync.mockResolvedValueOnce({ stdout: ' M .sisyphus\n', stderr: '' });
+    await expect(hasCommittableChanges('/repo')).resolves.toBe(false);
+
+    mocks.execFileAsync.mockResolvedValueOnce({ stdout: ' M src\\windows.ts\n', stderr: '' });
+    await expect(hasCommittableChanges('/repo')).resolves.toBe(true);
   });
 
   it('stages only committable files after excluding runtime artifacts', async () => {
@@ -77,6 +89,15 @@ describe('execution git helpers', () => {
     ]);
   });
 
+  it('continues staging when resetting ignored runtime artifacts fails', async () => {
+    mocks.execFileAsync
+      .mockResolvedValueOnce({ stdout: '', stderr: '' })
+      .mockRejectedValueOnce(new Error('nothing to reset'))
+      .mockResolvedValueOnce({ stdout: 'src/index.ts\n', stderr: '' });
+
+    await expect(stageCommittableChanges('/repo')).resolves.toBe(true);
+  });
+
   it('clones into a safe repo path and prepares permissions', async () => {
     mocks.existsSync.mockReturnValueOnce(false).mockReturnValueOnce(true);
     mocks.execGitWithCredentials.mockResolvedValue(undefined);
@@ -91,6 +112,29 @@ describe('execution git helpers', () => {
       'https://github.com/acme/repo.git',
     );
     expect(mocks.execFileAsync).toHaveBeenCalledWith('chmod', ['-R', 'a+rwX', '/tmp/openlinear-repos/repo']);
+  });
+
+  it('clones without creating or removing directories when storage exists and repo path is absent', async () => {
+    mocks.existsSync.mockReturnValueOnce(true).mockReturnValueOnce(false);
+    mocks.execGitWithCredentials.mockResolvedValue(undefined);
+    mocks.execFileAsync.mockResolvedValue({ stdout: '', stderr: '' });
+
+    await cloneRepository('https://github.com/acme/repo.git', '/tmp/openlinear-repos/repo', null, 'main');
+
+    expect(mocks.mkdirSync).not.toHaveBeenCalled();
+    expect(mocks.rmSync).not.toHaveBeenCalled();
+    expect(mocks.execGitWithCredentials).toHaveBeenCalled();
+  });
+
+  it('fails clone early when repo storage is not writable', async () => {
+    mocks.accessSync.mockImplementation(() => {
+      throw new Error('permission denied');
+    });
+
+    await expect(cloneRepository('https://github.com/acme/repo.git', '/tmp/openlinear-repos/repo', null, 'main'))
+      .rejects.toThrow('No write access');
+
+    expect(mocks.execGitWithCredentials).not.toHaveBeenCalled();
   });
 
   it('checks out branches without shelling through a command string', async () => {
@@ -142,12 +186,44 @@ describe('execution git helpers', () => {
     expect(mocks.execGitWithCredentials).not.toHaveBeenCalled();
   });
 
+  it('returns no_changes when only runtime artifacts remain after staging', async () => {
+    mocks.execFileAsync
+      .mockResolvedValueOnce({ stdout: ' M src/index.ts\n', stderr: '' })
+      .mockResolvedValueOnce({ stdout: '', stderr: '' })
+      .mockResolvedValueOnce({ stdout: '', stderr: '' })
+      .mockResolvedValueOnce({ stdout: '', stderr: '' });
+
+    await expect(commitAndPush('/repo', 'branch', 'Task')).resolves.toEqual({ status: 'no_changes' });
+
+    expect(mocks.execGitWithCredentials).not.toHaveBeenCalled();
+  });
+
   it('returns failed with stderr when git operations fail', async () => {
     mocks.execFileAsync.mockRejectedValueOnce({ stderr: 'fatal: bad repo\n', message: 'bad' });
 
     await expect(commitAndPush('/repo', 'branch', 'Task')).resolves.toEqual({
       status: 'failed',
       reason: 'fatal: bad repo',
+    });
+  });
+
+  it('returns failed with message or unknown fallbacks when git errors lack stderr', async () => {
+    mocks.execFileAsync.mockRejectedValueOnce({ message: 'plain failure' });
+    await expect(commitAndPush('/repo', 'branch', 'Task')).resolves.toEqual({
+      status: 'failed',
+      reason: 'plain failure',
+    });
+
+    mocks.execFileAsync.mockRejectedValueOnce({});
+    await expect(commitAndPush('/repo', 'branch', 'Task')).resolves.toEqual({
+      status: 'failed',
+      reason: 'Unknown git error',
+    });
+
+    mocks.execFileAsync.mockRejectedValueOnce(null);
+    await expect(commitAndPush('/repo', 'branch', 'Task')).resolves.toEqual({
+      status: 'failed',
+      reason: 'Unknown git error',
     });
   });
 
@@ -167,6 +243,12 @@ describe('execution git helpers', () => {
     });
 
     mocks.fetch.mockResolvedValueOnce({ ok: false, text: async () => 'nope' });
+    await expect(createPullRequest('acme/repo', 'feature', 'main', 'Task', null, 'token')).resolves.toEqual({
+      url: 'https://github.com/acme/repo/compare/main...feature',
+      type: 'compare',
+    });
+
+    mocks.fetch.mockRejectedValueOnce(new Error('network down'));
     await expect(createPullRequest('acme/repo', 'feature', 'main', 'Task', null, 'token')).resolves.toEqual({
       url: 'https://github.com/acme/repo/compare/main...feature',
       type: 'compare',

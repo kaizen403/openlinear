@@ -132,6 +132,138 @@ describe('execution recovery', () => {
     await expect(recoverInFlightExecutions()).resolves.toEqual({ recovered: 0, orphaned: 1 });
   });
 
+  it('marks closed agent run records even when their id is unavailable', async () => {
+    mocks.taskFindMany.mockResolvedValue([
+      {
+        id: 'task-closed-no-id',
+        teamId: null,
+        creatorId: null,
+        updatedAt: new Date('2026-05-22T11:50:00.000Z'),
+        agentRuns: [{ startedAt: new Date('2026-05-22T11:00:00.000Z'), endedAt: new Date() }],
+      },
+    ]);
+    mocks.taskUpdate.mockResolvedValue({ id: 'task-closed-no-id', labels: [] });
+
+    await expect(recoverInFlightExecutions()).resolves.toEqual({ recovered: 0, orphaned: 1 });
+
+    expect(mocks.agentRunUpdate).not.toHaveBeenCalled();
+  });
+
+  it('marks old tasks without agent runs as orphaned and leaves fresh ones alone', async () => {
+    mocks.taskFindMany.mockResolvedValue([
+      {
+        id: 'task-no-run-old',
+        teamId: null,
+        creatorId: null,
+        updatedAt: new Date('2026-05-22T10:00:00.000Z'),
+        agentRuns: [],
+      },
+      {
+        id: 'task-no-run-fresh',
+        teamId: null,
+        creatorId: null,
+        updatedAt: new Date('2026-05-22T11:45:00.000Z'),
+        agentRuns: [],
+      },
+    ]);
+    mocks.taskUpdate.mockResolvedValue({ id: 'task-no-run-old', labels: [] });
+
+    await expect(recoverInFlightExecutions()).resolves.toEqual({ recovered: 1, orphaned: 1 });
+
+    expect(mocks.agentRunUpdate).not.toHaveBeenCalled();
+    expect(mocks.taskUpdate).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'task-no-run-old' },
+    }));
+    expect(mocks.loggerWarn).toHaveBeenCalledWith(
+      expect.objectContaining({ taskId: 'task-no-run-fresh', agentRunId: null }),
+      '[Recovery] task in_progress within 1h window — leaving for potential reconnect (T15)',
+    );
+  });
+
+  it('uses the current time when a task without agent runs has no update timestamp', async () => {
+    mocks.taskFindMany.mockResolvedValue([
+      {
+        id: 'task-no-run-no-date',
+        teamId: null,
+        creatorId: null,
+        updatedAt: null,
+        agentRuns: [],
+      },
+    ]);
+
+    await expect(recoverInFlightExecutions()).resolves.toEqual({ recovered: 1, orphaned: 0 });
+
+    expect(mocks.taskUpdate).not.toHaveBeenCalled();
+    expect(mocks.loggerWarn).toHaveBeenCalledWith(
+      expect.objectContaining({ taskId: 'task-no-run-no-date', ageMs: 0, agentRunId: null }),
+      '[Recovery] task in_progress within 1h window — leaving for potential reconnect (T15)',
+    );
+  });
+
+  it('continues when orphan broadcasts fail', async () => {
+    mocks.taskFindMany.mockResolvedValue([
+      {
+        id: 'task-old',
+        teamId: 'team-1',
+        creatorId: 'user-1',
+        updatedAt: new Date('2026-05-22T10:00:00.000Z'),
+        agentRuns: [{ id: 'run-1', startedAt: new Date('2026-05-22T10:00:00.000Z'), endedAt: null }],
+      },
+    ]);
+    mocks.taskUpdate.mockResolvedValue({ id: 'task-old', labels: [] });
+    mocks.broadcastToTask.mockImplementation(() => {
+      throw new Error('socket closed');
+    });
+
+    await expect(recoverInFlightExecutions()).resolves.toEqual({ recovered: 0, orphaned: 1 });
+
+    expect(mocks.loggerWarn).toHaveBeenCalledWith(
+      expect.objectContaining({ err: expect.any(Error), taskId: 'task-old' }),
+      '[Recovery] broadcast failed (non-fatal)',
+    );
+  });
+
+  it('continues when marking the agent run as failed does not persist', async () => {
+    mocks.taskFindMany.mockResolvedValue([
+      {
+        id: 'task-old',
+        teamId: 'team-1',
+        creatorId: 'user-1',
+        updatedAt: new Date('2026-05-22T10:00:00.000Z'),
+        agentRuns: [{ id: 'run-1', startedAt: new Date('2026-05-22T10:00:00.000Z'), endedAt: null }],
+      },
+    ]);
+    mocks.taskUpdate.mockResolvedValue({ id: 'task-old', labels: [] });
+    mocks.agentRunUpdate.mockRejectedValue(new Error('agent run update failed'));
+
+    await expect(recoverInFlightExecutions()).resolves.toEqual({ recovered: 0, orphaned: 1 });
+
+    expect(mocks.loggerError).toHaveBeenCalledWith(
+      expect.objectContaining({ err: expect.any(Error), agentRunId: 'run-1', taskId: 'task-old' }),
+      '[Recovery] failed to mark AgentRun as failed (continuing)',
+    );
+  });
+
+  it('logs task orphan update failures without throwing', async () => {
+    mocks.taskFindMany.mockResolvedValue([
+      {
+        id: 'task-old',
+        teamId: 'team-1',
+        creatorId: 'user-1',
+        updatedAt: new Date('2026-05-22T10:00:00.000Z'),
+        agentRuns: [{ id: 'run-1', startedAt: new Date('2026-05-22T10:00:00.000Z'), endedAt: null }],
+      },
+    ]);
+    mocks.taskUpdate.mockRejectedValue(new Error('update failed'));
+
+    await expect(recoverInFlightExecutions()).resolves.toEqual({ recovered: 0, orphaned: 1 });
+
+    expect(mocks.loggerError).toHaveBeenCalledWith(
+      expect.objectContaining({ err: expect.any(Error), taskId: 'task-old' }),
+      '[Recovery] failed to mark task as orphan — manual cleanup may be required',
+    );
+  });
+
   it('skips recovery gracefully when task lookup fails', async () => {
     mocks.taskFindMany.mockRejectedValue(new Error('db down'));
 
@@ -152,6 +284,14 @@ describe('execution recovery', () => {
     await expect(recoverActiveBatches()).resolves.toEqual({ recovered: 0, orphaned: 3 });
 
     expect(mocks.loggerWarn).toHaveBeenCalledTimes(2);
+  });
+
+  it('returns zero stale batches when none are found', async () => {
+    mocks.taskGroupBy.mockResolvedValue([]);
+
+    await expect(recoverActiveBatches()).resolves.toEqual({ recovered: 0, orphaned: 0 });
+
+    expect(mocks.loggerInfo).toHaveBeenCalledWith('[Recovery] no stale batches detected');
   });
 
   it('returns zero stale batches on query failure', async () => {

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   taskUpdate: vi.fn(),
+  taskFindUnique: vi.fn(),
   executeRaw: vi.fn(),
   broadcastToTask: vi.fn(),
   broadcastToTaskById: vi.fn(),
@@ -13,7 +14,7 @@ vi.mock('@openlinear/db', () => ({
   prisma: {
     task: {
       update: mocks.taskUpdate,
-      findUnique: vi.fn(),
+      findUnique: mocks.taskFindUnique,
     },
     $executeRaw: mocks.executeRaw,
   },
@@ -105,6 +106,25 @@ describe('execution state helpers', () => {
       taskId: 'task-1',
       entry: execution.logs[0],
     });
+
+    state.addLogEntry('task-1', 'tool', 'Object details', { file: 'src/index.ts' });
+
+    expect(execution.logs).toHaveLength(2);
+  });
+
+  it('ignores log entries for missing executions', () => {
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    state.addLogEntry('missing-task', 'info', 'lost');
+
+    expect(consoleLog).toHaveBeenCalledWith(
+      '[Execution] Warning: No execution found for task missing- when adding log',
+    );
+    expect(mocks.broadcastToTaskById).not.toHaveBeenCalled();
+  });
+
+  it('returns an empty log list when execution state is missing', () => {
+    expect(state.getExecutionLogs('missing')).toEqual([]);
   });
 
   it('broadcasts progress payloads with task id and extra data', () => {
@@ -116,6 +136,40 @@ describe('execution state helpers', () => {
       message: 'Running',
       percentage: 50,
     });
+  });
+
+  it('retries critical progress broadcasts after transient failures', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    mocks.broadcastToTaskById
+      .mockRejectedValueOnce(new Error('socket busy'))
+      .mockResolvedValueOnce(undefined);
+
+    state.broadcastProgress('task-1', 'done', 'Done');
+    await Promise.resolve();
+    vi.advanceTimersByTime(1_000);
+    await Promise.resolve();
+
+    expect(consoleError).toHaveBeenCalledWith(
+      '[Execution] Failed to broadcast execution:progress for task task-1 (attempt 1):',
+      expect.any(Error),
+    );
+    expect(mocks.broadcastToTaskById).toHaveBeenCalledTimes(2);
+  });
+
+  it('stops retrying critical broadcasts after the maximum attempts', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    mocks.broadcastToTaskById.mockRejectedValue(new Error('still down'));
+
+    state.broadcastProgress('task-1', 'error', 'Failed');
+    await Promise.resolve();
+    vi.advanceTimersByTime(1_000);
+    await Promise.resolve();
+    vi.advanceTimersByTime(1_000);
+    await Promise.resolve();
+    vi.advanceTimersByTime(1_000);
+    await Promise.resolve();
+
+    expect(mocks.broadcastToTaskById).toHaveBeenCalledTimes(3);
   });
 
   it('updates task status, flattens labels, and broadcasts task updates', async () => {
@@ -137,6 +191,15 @@ describe('execution state helpers', () => {
       status: 'in_progress',
       labels: [{ id: 'label-1', name: 'bug', color: '#f00' }],
     });
+  });
+
+  it('logs task status update failures without throwing', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    mocks.taskUpdate.mockRejectedValue(new Error('db down'));
+
+    await expect(state.updateTaskStatus('task-1', 'cancelled', null)).resolves.toBeUndefined();
+
+    expect(consoleError).toHaveBeenCalledWith('[Execution] Failed to update task task-1:', expect.any(Error));
   });
 
   it('estimates progress from tools, files, and elapsed time with a cap', () => {
@@ -163,6 +226,30 @@ describe('execution state helpers', () => {
     expect(mocks.executeRaw).toHaveBeenCalledTimes(1);
   });
 
+  it('skips log persistence when no active logs exist', async () => {
+    await state.persistLogs('missing');
+
+    const execution = makeExecution({ logs: [] });
+    state.activeExecutions.set('task-1', execution);
+    await state.persistLogs('task-1');
+
+    expect(mocks.executeRaw).not.toHaveBeenCalled();
+  });
+
+  it('logs persist failures without throwing', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const execution = makeExecution({ logs: [{ timestamp: 'now', type: 'info', message: 'Started' }] });
+    state.activeExecutions.set('task-1', execution);
+    mocks.executeRaw.mockRejectedValue(new Error('json write failed'));
+
+    await expect(state.persistLogs('task-1')).resolves.toBeUndefined();
+
+    expect(consoleError).toHaveBeenCalledWith(
+      '[Execution] Failed to persist logs for task task-1:',
+      expect.any(Error),
+    );
+  });
+
   it('cleans up timers, buffers, streams, and active maps', async () => {
     const eventStreamCleanup = vi.fn();
     const execution = makeExecution({ eventStreamCleanup });
@@ -176,5 +263,31 @@ describe('execution state helpers', () => {
     expect(eventStreamCleanup).toHaveBeenCalledTimes(1);
     expect(state.activeExecutions.has('task-1')).toBe(false);
     expect(state.sessionToTask.has('ses_1')).toBe(false);
+  });
+
+  it('continues cleanup when event stream cleanup throws', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const eventStreamCleanup = vi.fn().mockRejectedValue(new Error('stream cleanup failed'));
+    const execution = makeExecution({ eventStreamCleanup });
+    state.activeExecutions.set('task-1', execution);
+    state.sessionToTask.set('ses_1', 'task-1');
+
+    await state.cleanupExecution('task-1');
+
+    expect(consoleError).toHaveBeenCalledWith(
+      '[Execution] Failed to clean up event stream for task task-1:',
+      expect.any(Error),
+    );
+    expect(state.activeExecutions.has('task-1')).toBe(false);
+    expect(state.sessionToTask.has('ses_1')).toBe(false);
+  });
+
+  it('ignores cleanup for missing executions and falls back to generic task titles', async () => {
+    await state.cleanupExecution('missing');
+
+    mocks.taskFindUnique.mockResolvedValue(null);
+    await expect(state.getTaskTitle('missing')).resolves.toBe('Task');
+
+    expect(mocks.flushDeltaBuffer).not.toHaveBeenCalled();
   });
 });

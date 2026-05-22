@@ -141,6 +141,12 @@ describe('execution routes', () => {
       status: 400,
       body: { error: 'No active project selected' },
     });
+
+    mocks.executeTask.mockRejectedValueOnce(new Error('execute exploded'));
+    await expect(request(app, 'POST', '/task-1/execute')).resolves.toEqual({
+      status: 500,
+      body: { error: 'execute exploded' },
+    });
   });
 
   it('reports running state and cancels only running tasks', async () => {
@@ -148,6 +154,23 @@ describe('execution routes', () => {
     await expect(request(app, 'GET', '/task-1/running')).resolves.toEqual({
       status: 200,
       body: { running: true },
+    });
+
+    mocks.isTaskRunning.mockReturnValueOnce(true);
+    await expect(request(app, 'GET', '/task-1/running', {
+      headers: { 'x-user-id': 'user-1' },
+    })).resolves.toEqual({
+      status: 200,
+      body: { running: true },
+    });
+    expect(mocks.assertTaskOwned).toHaveBeenCalledWith('task-1', 'user-1');
+
+    mocks.assertTaskOwned.mockRejectedValueOnce(new Error('not yours'));
+    await expect(request(app, 'GET', '/task-1/running', {
+      headers: { 'x-user-id': 'user-1' },
+    })).resolves.toEqual({
+      status: 500,
+      body: { error: 'not yours' },
     });
 
     mocks.isTaskRunning.mockReturnValueOnce(false);
@@ -159,6 +182,31 @@ describe('execution routes', () => {
     mocks.isTaskRunning.mockReturnValueOnce(true);
     mocks.cancelTask.mockResolvedValueOnce({ success: true });
     await expect(request(app, 'POST', '/task-1/cancel')).resolves.toEqual({
+      status: 200,
+      body: { message: 'Task cancelled' },
+    });
+
+    mocks.isTaskRunning.mockReturnValueOnce(true);
+    mocks.cancelTask.mockResolvedValueOnce({ success: false, error: 'Abort failed' });
+    await expect(request(app, 'POST', '/task-1/cancel')).resolves.toEqual({
+      status: 400,
+      body: { error: 'Abort failed' },
+    });
+
+    mocks.isTaskRunning.mockImplementationOnce(() => {
+      throw new Error('state read failed');
+    });
+    await expect(request(app, 'POST', '/task-1/cancel')).resolves.toEqual({
+      status: 500,
+      body: { error: 'state read failed' },
+    });
+
+    mocks.assertTaskOwned.mockResolvedValueOnce(undefined);
+    mocks.isTaskRunning.mockReturnValueOnce(true);
+    mocks.cancelTask.mockResolvedValueOnce({ success: true });
+    await expect(request(app, 'POST', '/task-1/cancel', {
+      headers: { 'x-user-id': 'user-1' },
+    })).resolves.toEqual({
       status: 200,
       body: { message: 'Task cancelled' },
     });
@@ -187,6 +235,24 @@ describe('execution routes', () => {
     await expect(request(app, 'GET', '/task-1/logs')).resolves.toEqual({
       status: 200,
       body: { logs: persistedLogs },
+    });
+
+    mocks.getExecutionLogs.mockReturnValueOnce([]);
+    mocks.getBatchExecutionLogs.mockReturnValueOnce([]);
+    mocks.queryRaw.mockRejectedValueOnce(new Error('logs query failed'));
+    await expect(request(app, 'GET', '/task-1/logs')).resolves.toEqual({
+      status: 500,
+      body: { error: 'logs query failed' },
+    });
+
+    mocks.getExecutionLogs.mockReturnValueOnce([]);
+    mocks.getBatchExecutionLogs.mockReturnValueOnce([]);
+    mocks.queryRaw.mockResolvedValueOnce([]);
+    await expect(request(app, 'GET', '/task-1/logs', {
+      headers: { 'x-user-id': 'user-1' },
+    })).resolves.toEqual({
+      status: 200,
+      body: { logs: [] },
     });
   });
 
@@ -231,6 +297,30 @@ describe('execution routes', () => {
       prUrl: 'https://github.com/acme/repo/pull/7',
       labels: [{ id: 'label-1', name: 'bug', color: '#f00' }],
     });
+
+    mocks.taskFindUnique.mockResolvedValue({
+      prUrl: 'https://github.com/acme/repo/compare/main...openlinear%2Ftask-2',
+      batchId: null,
+    });
+    mocks.userFindUnique.mockResolvedValue({ accessToken: 'secret' });
+    mocks.fetch.mockResolvedValue({
+      ok: true,
+      json: async () => [{ html_url: 'https://github.com/acme/repo/pull/8' }],
+    });
+    mocks.taskUpdate.mockResolvedValue({
+      id: 'task-2',
+      prUrl: 'https://github.com/acme/repo/pull/8',
+      labels: [],
+    });
+    mocks.taskUpdateMany.mockClear();
+
+    await expect(request(app, 'POST', '/task-2/refresh-pr', {
+      headers: { 'x-user-id': 'user-1' },
+    })).resolves.toEqual({
+      status: 200,
+      body: { prUrl: 'https://github.com/acme/repo/pull/8', refreshed: true },
+    });
+    expect(mocks.taskUpdateMany).not.toHaveBeenCalled();
   });
 
   it('does not refresh missing tasks, non-compare links, or unauthenticated compare links', async () => {
@@ -246,6 +336,21 @@ describe('execution routes', () => {
       body: { prUrl: 'https://github.com/acme/repo/pull/1', refreshed: false },
     });
 
+    mocks.taskFindUnique.mockResolvedValueOnce({ prUrl: 'https://github.com/acme/repo/compare/no-dots', batchId: null });
+    await expect(request(app, 'POST', '/task-1/refresh-pr')).resolves.toEqual({
+      status: 200,
+      body: { prUrl: 'https://github.com/acme/repo/compare/no-dots', refreshed: false },
+    });
+
+    mocks.taskFindUnique.mockResolvedValueOnce({
+      prUrl: 'https://github.com/acme/repo/compare/main...branch',
+      batchId: null,
+    });
+    await expect(request(app, 'POST', '/task-1/refresh-pr')).resolves.toEqual({
+      status: 400,
+      body: { error: 'GitHub authentication required to refresh PR status' },
+    });
+
     mocks.taskFindUnique.mockResolvedValueOnce({
       prUrl: 'https://github.com/acme/repo/compare/main...branch',
       batchId: null,
@@ -255,6 +360,57 @@ describe('execution routes', () => {
     })).resolves.toEqual({
       status: 400,
       body: { error: 'GitHub authentication required to refresh PR status' },
+    });
+
+    mocks.taskFindUnique.mockResolvedValueOnce({
+      prUrl: 'https://github.com/acme/repo/compare/main...branch',
+      batchId: null,
+    });
+    mocks.userFindUnique.mockResolvedValueOnce({ accessToken: 'secret' });
+    mocks.decryptToken.mockImplementationOnce(() => {
+      throw new Error('decrypt failed');
+    });
+    await expect(request(app, 'POST', '/task-1/refresh-pr', {
+      headers: { 'x-user-id': 'user-1' },
+    })).resolves.toEqual({
+      status: 400,
+      body: { error: 'GitHub authentication required to refresh PR status' },
+    });
+
+    mocks.taskFindUnique.mockResolvedValueOnce({
+      prUrl: 'https://github.com/acme/repo/compare/main...branch',
+      batchId: null,
+    });
+    mocks.userFindUnique.mockResolvedValueOnce({ accessToken: 'secret' });
+    mocks.fetch.mockResolvedValueOnce({ ok: false });
+    await expect(request(app, 'POST', '/task-1/refresh-pr', {
+      headers: { 'x-user-id': 'user-1' },
+    })).resolves.toEqual({
+      status: 502,
+      body: { error: 'GitHub API request failed' },
+    });
+
+    mocks.taskFindUnique.mockResolvedValueOnce({
+      prUrl: 'https://github.com/acme/repo/compare/main...branch',
+      batchId: null,
+    });
+    mocks.userFindUnique.mockResolvedValueOnce({ accessToken: 'secret' });
+    mocks.fetch.mockResolvedValueOnce({ ok: true, json: async () => [] });
+    await expect(request(app, 'POST', '/task-1/refresh-pr', {
+      headers: { 'x-user-id': 'user-1' },
+    })).resolves.toEqual({
+      status: 200,
+      body: {
+        prUrl: 'https://github.com/acme/repo/compare/main...branch',
+        refreshed: false,
+        message: 'No PR found for this branch yet',
+      },
+    });
+
+    mocks.taskFindUnique.mockRejectedValueOnce(new Error('refresh failed'));
+    await expect(request(app, 'POST', '/task-1/refresh-pr')).resolves.toEqual({
+      status: 500,
+      body: { error: 'Failed to refresh PR status' },
     });
   });
 });

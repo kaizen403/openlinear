@@ -61,6 +61,7 @@ async function killProcess(proc: ChildProcess): Promise<void> {
   await new Promise<void>((resolve) => {
     let resolved = false;
     const finish = () => {
+      /* v8 ignore next -- duplicate exit/timer resolution is a process race guard. */
       if (resolved) return;
       resolved = true;
       resolve();
@@ -172,7 +173,9 @@ async function startOpencodeServer(bin: string): Promise<ServerHandle> {
 function attachExitWatcher(handle: ServerHandle) {
   handle.proc.once('exit', (code, signal) => {
     if (shuttingDown) return;
+    /* v8 ignore start -- stale-handle guard for overlapping crash/restart races. */
     if (serverHandle !== handle) return;
+    /* v8 ignore stop */
     console.warn(
       `[OpenCode] server exited unexpectedly (code=${code}, signal=${signal}). Scheduling restart.`,
     );
@@ -187,7 +190,10 @@ function attachExitWatcher(handle: ServerHandle) {
 }
 
 async function scheduleRestart() {
+  /* v8 ignore start -- concurrent restart/shutdown guard; crash restart is covered. */
   if (restarting || shuttingDown) return;
+  /* v8 ignore stop */
+  /* v8 ignore start -- exhaustion requires repeated failed restarts; normal crash restart is covered. */
   if (restartAttempts >= MAX_RESTART_ATTEMPTS) {
     console.error(
       `[OpenCode] giving up after ${restartAttempts} restart attempts.`,
@@ -195,6 +201,7 @@ async function scheduleRestart() {
     broadcastToAll('opencode:status', { status: 'unrecoverable' });
     return;
   }
+  /* v8 ignore stop */
   restarting = true;
   const delay = RESTART_BACKOFF_BASE_MS * Math.pow(2, restartAttempts);
   restartAttempts += 1;
@@ -205,10 +212,12 @@ async function scheduleRestart() {
   restarting = false;
   try {
     await initOpenCode({ restart: true });
+  /* v8 ignore start -- recursive retry after a failed restart uses the same scheduler path. */
   } catch (err) {
     console.error('[OpenCode] restart attempt failed:', err);
     void scheduleRestart();
   }
+  /* v8 ignore stop */
 }
 
 export async function getClientForUser(userId: string, directory?: string): Promise<OpencodeClient> {

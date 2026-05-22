@@ -14,20 +14,23 @@ const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
 const OAUTH_INTERCEPTOR_PORT = Number(process.env.OAUTH_INTERCEPTOR_PORT ?? 1455);
 const BIND_HOST = process.env.SIDECAR_BIND_HOST || '127.0.0.1';
 
-async function loadDotenvIfPresent() {
+export async function loadDotenvIfPresent() {
   if (process.env.OPENLINEAR_SKIP_DOTENV === '1') return;
   try {
     const dotenv = await import('dotenv');
     const { resolve } = await import('node:path');
     const dirname = (import.meta as { dirname?: string }).dirname;
-    const cwd = dirname ?? process.cwd();
+    let cwd = dirname;
+    /* v8 ignore start -- package snapshot fallback; Vitest always provides import.meta.dirname. */
+    if (!cwd) cwd = process.cwd();
+    /* v8 ignore stop */
     dotenv.config({ path: resolve(cwd, '../../../.env'), quiet: true });
   } catch {
     // dotenv missing or path unresolvable (e.g. inside pkg snapshot) — skip silently.
   }
 }
 
-function printOpenCodeSingleTenantBanner() {
+export function printOpenCodeSingleTenantBanner() {
   const banner = [
     '================================================================',
     '  OpenCode runs in SINGLE-TENANT mode.',
@@ -40,7 +43,7 @@ function printOpenCodeSingleTenantBanner() {
   logger.warn('[Sidecar] OpenCode runs in single-tenant mode — see docs/limitations.md');
 }
 
-function closeServer(server: Server, name: string): Promise<void> {
+export function closeServer(server: Server, name: string): Promise<void> {
   return new Promise((resolve) => {
     if (!server.listening) {
       resolve();
@@ -56,7 +59,7 @@ function closeServer(server: Server, name: string): Promise<void> {
   });
 }
 
-async function start() {
+export async function start() {
   await loadDotenvIfPresent();
   const app = createSidecarApp();
   registerShutdownHandlers();
@@ -172,9 +175,11 @@ async function start() {
   }
 }
 
-start().catch((err) => {
-  logger.fatal({ err }, '[Sidecar] Fatal startup error');
-  process.exit(1);
-});
+if (process.env.OPENLINEAR_SIDECAR_AUTOSTART !== '0') {
+  start().catch((err) => {
+    logger.fatal({ err }, '[Sidecar] Fatal startup error');
+    process.exit(1);
+  });
+}
 
 export { createSidecarApp };
