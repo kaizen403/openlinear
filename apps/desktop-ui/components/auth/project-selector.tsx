@@ -68,6 +68,7 @@ export function ProjectSelector() {
           <span className="flex-1 text-left truncate">
             {activeRepository?.fullName || 'Select Project'}
           </span>
+          <Plus className="w-3.5 h-3.5 text-linear-text-tertiary" />
         </button>
       </DialogTrigger>
       <DialogContent className="max-w-lg">
@@ -75,6 +76,12 @@ export function ProjectSelector() {
           <DialogTitle>Select Project</DialogTitle>
         </DialogHeader>
         
+        {userProjects.length === 0 && (
+          <p className="text-xs text-linear-text-tertiary mb-4">
+            Add more projects by importing repositories from GitHub below.
+          </p>
+        )}
+
         {userProjects.length > 0 && (
           <div className="mb-4">
             <h3 className="text-xs font-semibold text-linear-text-tertiary uppercase tracking-wider mb-2">
