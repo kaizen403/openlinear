@@ -79,9 +79,9 @@
 | # | Issue | Status |
 |---|---|---|
 | 5 | Invite flow — proper domain, accept page, OAuth on web | ⏳ Planned (see `.sisyphus/plans/openlinear-issues.md`) |
-| 12 | Remove duplicate "Add Task" button at bottom of Kanban columns | ⏳ Planned |
-| 13 | Remove blue accent focus outline from input elements | ⏳ Planned |
-| 17 | Add "+" button and "Add More Projects" hint to project selector | ⏳ Planned |
+| 12 | Remove duplicate "Add Task" button at bottom of Kanban columns | ✅ Done |
+| 13 | Remove blue accent focus outline from input elements | ✅ Done |
+| 17 | Add "+" button and "Add More Projects" hint to project selector | ✅ Done |
 | — | API deployed to `api.openlinear.tech` via Azure Container Apps | ✅ Done |
 | — | MCP redeployed to `mcp.openlinear.tech` pointing to `api.openlinear.tech` | ✅ Done |
 | — | MCP `bulk_create_plan` auto-team fallback when `teamId` omitted | ✅ Done (deployed) |
@@ -321,113 +321,6 @@ See `.sisyphus/plans/openlinear-issues.md` for full root-cause analysis and file
 
 ### Next steps / blockers
 - Run `pnpm dev-live` on a machine with `ELEVENLABS_API_KEY` set and verify microphone permission, record/stop animation, and transcript insertion in the Tauri shell.
-
-**Status:** Done
-**Agent:** Codex
-
-### What was done
-- Read the workspace guidance and active work log before inspecting the repo.
-- Mapped the monorepo entry points, package boundaries, API routing, desktop UI task and chat flows, sidecar execution lifecycle, MCP worker surface, SSE plumbing, and Prisma domain model.
-- Noted the existing dirty worktree so future changes can avoid overwriting unrelated in-progress edits.
-
-### Files changed
-- `ISSUES.md` — recorded this orientation pass.
-
-### Issues encountered
-- Semantic `codebase_search` calls returned HTTP 429, so the repo map was built from targeted local file inspection instead.
-
-### Next steps / blockers
-- Ready to inspect a specific feature, bug, or implementation path when requested.
-
-## [2026-05-21] — Add ElevenLabs voice dictation to Home Chat
-
-**Status:** Done
-**Agent:** Codex
-
-### What was done
-- Added the official ElevenLabs TypeScript SDK to the sidecar.
-- Replaced the existing Whisper/OpenAI transcription path with ElevenLabs Scribe speech-to-text via `client.speechToText.convert`.
-- Added server-side ElevenLabs STT environment configuration and kept the API key sidecar-only.
-- Added a Home Chat microphone control with recording, transcribing, blocked-mic, and failure states.
-- Added a restrained recording animation and automatic transcript insertion into the chat composer after recording stops.
-- Reverted the custom project-name gradient so the empty-state project name follows the configured app accent color.
-
-### Files changed
-- `apps/sidecar/src/routes/transcribe.ts` — switched `/api/transcribe` to ElevenLabs Scribe and added safer upload/model/timeout handling.
-- `apps/sidecar/package.json` / `pnpm-lock.yaml` — added `@elevenlabs/elevenlabs-js`.
-- `apps/desktop-ui/components/chat/chat-composer.tsx` — added voice recording UI, MediaRecorder capture, transcription flow, and transcript insertion.
-- `apps/desktop-ui/lib/api/chat.ts` — added Home Chat transcription client helper.
-- `apps/desktop-ui/components/chat/chat-empty-state.tsx` — keeps the project name aligned to the configured accent color.
-- `.env.example` — documented ElevenLabs STT configuration.
-- `ISSUES.md` — recorded this session.
-
-### Issues encountered
-- The ElevenLabs SDK exposes `statusCode` as optional on errors, so the sidecar route now normalizes missing SDK statuses to a 502 before returning the shared JSON error envelope.
-
-### Next steps / blockers
-- Run `pnpm dev-live` on a machine with `ELEVENLABS_API_KEY` set and verify microphone permission, record/stop animation, and transcript insertion in the Tauri shell.
-
-## [2026-05-21] — Unify desktop UI accent color and configure Fireworks locally
-
-**Status:** Done
-**Agent:** Codex
-
-### What was done
-- Synced Tailwind `primary`, `accent`, and `linear-accent` color tokens to the accent color configured in Settings instead of leaving shadcn `primary` hardcoded to emerald.
-- Added RGB companion CSS variables so opacity utilities such as `bg-linear-accent/10` and `bg-primary/90` can follow the selected accent reliably.
-- Updated the Settings accent picker and pre-hydration layout script to keep the hex and RGB accent variables in sync.
-- Replaced remaining non-semantic `primary` usages in chat controls, shared button/badge defaults, and chat tool UI with `linear-accent`.
-- Updated usage chart/cost accents and project-selector checkmarks to follow the configured accent; left semantic status/priority greens alone.
-- Added the provided Fireworks key to the ignored local `.env` for chat and brainstorm testing, including Fireworks base URL and Kimi model settings.
-- Fixed chat LLM env fallback so blank `CHAT_LLM_API_KEY` values no longer block fallback to `FIREWORKS_API_KEY`.
-
-### Files changed
-- `apps/desktop-ui/tailwind.config.ts` — maps primary/accent tokens to the runtime accent RGB variables.
-- `apps/desktop-ui/app/globals.css` — added default accent RGB variables.
-- `apps/desktop-ui/app/layout.tsx` — syncs stored accent colors before hydration.
-- `apps/desktop-ui/app/(app)/settings/page.tsx` — writes both hex and RGB accent variables from Settings.
-- `apps/desktop-ui/components/ui/button.tsx` / `apps/desktop-ui/components/ui/badge.tsx` — default interactive variants now use `linear-accent`.
-- `apps/desktop-ui/components/chat/*` — send button, selected project check, user-message border, and tool in-progress state now use the configured accent.
-- `apps/desktop-ui/app/(app)/usage/page.tsx` and `apps/desktop-ui/components/auth/project-selector.tsx` — replaced non-semantic emerald UI accents.
-- `apps/api/src/lib/chat-llm.ts` — added non-empty env fallback selection.
-- `.env` — configured Fireworks locally; file is ignored and not committed.
-- `ISSUES.md` — recorded this session.
-
-### Issues encountered
-- The app had two accent systems: `--linear-accent` from Settings and shadcn `primary/accent` still hardcoded to emerald. The fix makes the shadcn tokens inherit the Settings accent.
-
-### Next steps / blockers
-- Run `pnpm dev-live` and visually confirm a non-emerald accent preset changes the send button, project name, usage chart, and default buttons consistently.
-
-## [2026-05-22] — Validate Fireworks model path and structured generation
-
-**Status:** Done
-**Agent:** Codex
-
-### What was done
-- Tested the originally configured Fireworks Kimi model and confirmed `accounts/fireworks/models/kimi-k2-instruct` is not accessible for the provided key.
-- Listed accessible Fireworks models and switched local chat/brainstorm config to `accounts/fireworks/models/kimi-k2p6`.
-- Verified Fireworks JSON-mode title generation, brainstorm task generation, and OpenAI-style tool calling against the provided key without printing the secret.
-- Added a non-stream JSON completion path for Home Chat title generation so Kimi does not return reasoning text for session names.
-- Updated Home Chat title parsing to accept JSON title responses and fall back safely for older test doubles/providers.
-- Updated sidecar brainstorm generation to use JSON-mode responses for Fireworks/OpenAI-compatible providers, making task/question parsing deterministic.
-- Disabled web-search availability for Fireworks-backed brainstorm because the sidecar is using the OpenAI-compatible Fireworks endpoint, not OpenAI web search.
-
-### Files changed
-- `apps/api/src/lib/chat-llm.ts` — added non-stream JSON completion support and defaulted the Fireworks model to `kimi-k2p6`.
-- `apps/api/src/lib/chat-prompts.ts` — changed the title prompt to request a JSON title object.
-- `apps/api/src/services/chat.ts` — switched auto-title generation to JSON-mode completion when available.
-- `apps/sidecar/src/services/brainstorm.ts` — added JSON-mode question/task generation for Fireworks/OpenAI-compatible providers.
-- `.env.example` — updated the default chat model to the accessible Fireworks Kimi model.
-- `.env` — updated local ignored chat/brainstorm model settings for Fireworks testing.
-- `ISSUES.md` — recorded this session.
-
-### Issues encountered
-- Plain `kimi-k2p6` completions tended to include reasoning text for title prompts; Fireworks JSON mode returned clean structured output.
-- The previously configured Kimi model ID returned a Fireworks 404 for this key.
-
-### Next steps / blockers
-- Run `pnpm dev-live` and perform one authenticated Home Chat message to confirm the visible session title updates to the JSON-generated title.
 
 <!-- 
 AGENTS: Add new entries above this comment. Format:
