@@ -154,7 +154,8 @@
     font-family: var(--font-ui);
   }
 
-  *:focus {
+  *:focus,
+  *:focus-visible {
     outline: none;
   }
 
