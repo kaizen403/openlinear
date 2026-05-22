@@ -1,4 +1,4 @@
 {
-  "model": "azure-foundry/Kimi-K2.5",
+  "model": "openrouter/gemini-2.5-pro",
   "$schema": "https://opencode.ai/config.json"
 }
