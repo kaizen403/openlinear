@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 64" fill="none" aria-label="OpenLinear">
+  <title>OpenLinear</title>
+  <g>
+    <circle cx="32" cy="32" r="22" stroke="#ffffff" stroke-width="8" fill="none"/>
+    <path d="M22 42 L42 22" stroke="#ffffff" stroke-width="8" stroke-linecap="square"/>
+  </g>
+  <text x="74" y="44"
+        font-family="'Space Grotesk', 'Inter', system-ui, sans-serif"
+        font-size="34"
+        font-weight="600"
+        letter-spacing="-1.2"
+        fill="#ffffff">OpenLinear</text>
+</svg>

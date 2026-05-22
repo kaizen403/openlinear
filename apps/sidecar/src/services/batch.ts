@@ -1,9 +1,30 @@
 import crypto from 'crypto';
 import { prisma } from '@openlinear/db';
 import { broadcastToTask, broadcastToTaskById, broadcastToUser } from '@openlinear/api/sse';
+import {
+  batchActivityId,
+  batchIdFromActivityId,
+  buildCombinedBatchPrompt,
+  buildSingleTaskPrompt,
+  completionKey,
+  createBatchState,
+  findNextQueuedBatchTaskIndex,
+  formatExecutionMode,
+  getCompletedBatchTaskIds,
+  getInitialBatchLaunchIndexes,
+  hasQueuedOrRunningBatchTasks,
+  isBatchTaskTerminal,
+} from '@openlinear/execution-core';
+import type {
+  BatchEventType,
+  BatchExecutionProgressStatus,
+  BatchSettings,
+  BatchState,
+  BatchTask,
+  CreateBatchParams,
+} from '@openlinear/execution-core';
 import { getClientForUser } from './opencode';
 import { ensureMainRepo, createWorktree, createBatchWorktree, cleanupBatch, mergeBranch, createBatchBranch, pushBranch } from './worktree';
-import type { BatchState, BatchTask, BatchSettings, CreateBatchParams, BatchEventType } from '../types/batch';
 import type { OpencodeClient } from '@opencode-ai/sdk';
 import { getOrCreateBuffer, appendTextDelta, appendReasoningDelta, flushDeltaBuffer, cleanupDeltaBuffer, markThinking } from './delta-buffer';
 import { getGitIdentityEnv } from './git-identity';
@@ -11,12 +32,6 @@ import { execFileAsync } from './execution/exec';
 import { hasCommittableChanges, stageCommittableChanges } from './execution/git';
 import { broadcastProgress } from './execution/state';
 import { getExecutionSettings } from './execution-settings';
-import {
-  batchActivityId,
-  batchIdFromActivityId,
-  formatExecutionMode,
-  getInitialBatchLaunchIndexes,
-} from './batch-mode';
 
 const activeBatches = new Map<string, BatchState>();
 const sessionToBatch = new Map<string, { batchId: string; taskIds: string[] }>();
@@ -47,15 +62,6 @@ interface BatchLogEntry {
   details?: string;
 }
 const batchTaskLogs = new Map<string, BatchLogEntry[]>();
-
-type BatchExecutionProgressStatus =
-  | 'cloning'
-  | 'executing'
-  | 'committing'
-  | 'creating_pr'
-  | 'done'
-  | 'cancelled'
-  | 'error';
 
 function extractBackgroundTaskId(output: string): string | null {
   return output.match(/(?:task_id|Background Task ID):\s*([A-Za-z0-9_-]+)/i)?.[1] ?? null;
@@ -118,17 +124,6 @@ function broadcastBatchProgress(
   }
 }
 
-function isBatchTaskTerminal(task: BatchTask): boolean {
-  return task.status === 'completed'
-    || task.status === 'failed'
-    || task.status === 'skipped'
-    || task.status === 'cancelled';
-}
-
-function completionKey(batchId: string, taskId: string): string {
-  return `${batchId}:${taskId}`;
-}
-
 export async function createBatch(params: CreateBatchParams): Promise<BatchState> {
   const batchId = crypto.randomUUID();
 
@@ -181,34 +176,18 @@ export async function createBatch(params: CreateBatchParams): Promise<BatchState
   });
   const titleMap = new Map(taskRecords.map(t => [t.id, t.title]));
 
-  const batchBranch = `openlinear/batch-${batchId.slice(0, 8)}`;
-  const tasks: BatchTask[] = params.taskIds.map(taskId => ({
-    taskId,
-    title: titleMap.get(taskId) || 'Untitled task',
-    status: 'queued',
-    worktreePath: null,
-    branch: params.mode === 'combined' ? batchBranch : `openlinear/${taskId}`,
-    sessionId: null,
-    error: null,
-    startedAt: null,
-    completedAt: null,
-  }));
-
-  const batch: BatchState = {
+  const batch = createBatchState({
     id: batchId,
     projectId: project.id,
     mode: params.mode,
-    status: 'pending',
-    tasks,
+    taskIds: params.taskIds,
+    titleByTaskId: titleMap,
     settings: batchSettings,
     mainRepoPath,
-    batchBranch,
-    prUrl: null,
     accessToken: params.accessToken,
     userId: params.userId,
-    createdAt: new Date(),
-    completedAt: null,
-  };
+  });
+  const tasks = batch.tasks;
 
   activeBatches.set(batchId, batch);
 
@@ -335,18 +314,7 @@ async function startTask(batch: BatchState, taskIndex: number): Promise<void> {
       select: { title: true, description: true },
     });
 
-    let prompt = taskRecord?.title || task.title;
-    if (taskRecord?.description) {
-      prompt += `\n\n${taskRecord.description}`;
-    }
-    prompt += [
-      '',
-      '',
-      'Execution contract:',
-      '- Make the requested code changes directly in this worktree before finishing.',
-      '- If you use a background subtask, wait for its result and apply any required changes before completing.',
-      '- Do not mark the task complete unless the worktree contains the requested changes or you can explain why no code change is valid.',
-    ].join('\n');
+    const prompt = buildSingleTaskPrompt(taskRecord, task.title);
 
     client.session.prompt({
       path: { id: sessionId },
@@ -379,42 +347,13 @@ async function startTask(batch: BatchState, taskIndex: number): Promise<void> {
   }
 }
 
-async function buildCombinedPrompt(batch: BatchState): Promise<string> {
+async function loadCombinedPrompt(batch: BatchState): Promise<string> {
   const taskIds = batch.tasks.map(t => t.taskId);
   const taskRecords = await prisma.task.findMany({
     where: { id: { in: taskIds } },
     select: { id: true, identifier: true, title: true, description: true },
   });
-  const recordMap = new Map(taskRecords.map(task => [task.id, task]));
-
-  const taskSections = batch.tasks.map((task, index) => {
-    const record = recordMap.get(task.taskId);
-    const label = record?.identifier ? `${record.identifier}: ${record.title}` : (record?.title || task.title);
-    const description = record?.description?.trim() || 'No additional description provided.';
-
-    return [
-      `Task ${index + 1}: ${label}`,
-      `Task ID: ${task.taskId}`,
-      '',
-      description,
-    ].join('\n');
-  });
-
-  return [
-    `Execute these ${batch.tasks.length} selected tasks together in one coherent implementation.`,
-    '',
-    'Selected tasks:',
-    '',
-    taskSections.join('\n\n---\n\n'),
-    '',
-    'Execution contract:',
-    '- Make the requested code changes directly in this worktree before finishing.',
-    '- Satisfy every listed task in this single session; do not treat this as one task only.',
-    '- Resolve overlap between tasks as one coherent change set.',
-    '- If you use a background subtask, wait for its result and apply any required changes before completing.',
-    '- Before finishing, summarize task-by-task coverage so each selected task has an explicit result.',
-    '- Do not mark the work complete unless the worktree contains the requested changes or you can explain why no code change is valid for all listed tasks.',
-  ].join('\n');
+  return buildCombinedBatchPrompt(batch.tasks, taskRecords);
 }
 
 async function startCombinedBatch(batch: BatchState): Promise<void> {
@@ -475,7 +414,7 @@ async function startCombinedBatch(batch: BatchState): Promise<void> {
     onComplete: (success, error) => handleCombinedBatchComplete(batch.id, success, error),
   });
 
-  const prompt = await buildCombinedPrompt(batch);
+  const prompt = await loadCombinedPrompt(batch);
   await client.session.prompt({
     path: { id: sessionId },
     body: { parts: [{ type: 'text', text: prompt }] },
@@ -1087,13 +1026,13 @@ async function handleCombinedBatchComplete(
 }
 
 async function advanceQueue(batch: BatchState): Promise<void> {
-  const hasRemaining = batch.tasks.some(t => t.status === 'queued' || t.status === 'running');
+  const hasRemaining = hasQueuedOrRunningBatchTasks(batch);
   if (!hasRemaining) {
     await finalizeBatch(batch.id);
     return;
   }
 
-  const nextIndex = batch.tasks.findIndex(t => t.status === 'queued');
+  const nextIndex = findNextQueuedBatchTaskIndex(batch);
   if (nextIndex === -1) return;
 
   if (batch.mode === 'parallel') {
@@ -1173,9 +1112,7 @@ async function finalizeBatch(batchId: string): Promise<void> {
       broadcastBatchEvent('batch:failed', batchId);
     } else {
       try {
-        const completedTaskIds = batch.tasks
-          .filter(t => t.status === 'completed')
-          .map(t => t.taskId);
+        const completedTaskIds = getCompletedBatchTaskIds(batch);
         broadcastBatchProgress(completedTaskIds, 'creating_pr', `Creating ${formatExecutionMode(batch.mode)} pull request...`);
 
         const proj = await prisma.repository.findUnique({ where: { id: batch.projectId } });
@@ -1227,16 +1164,15 @@ async function finalizeBatch(batchId: string): Promise<void> {
       batch.completedAt = new Date();
 
       if (batch.prUrl) {
-        const completedTaskIds = batch.tasks
-          .filter(t => t.status === 'completed')
-          .map(t => t.taskId);
+        const completedTaskIds = getCompletedBatchTaskIds(batch);
         for (const taskId of completedTaskIds) {
           await updateTaskInDb(taskId, 'done', { prUrl: batch.prUrl });
         }
         broadcastBatchProgress(completedTaskIds, 'done', `${formatExecutionMode(batch.mode)} pull request ready`, { prUrl: batch.prUrl });
       } else {
+        const completedTaskIds = getCompletedBatchTaskIds(batch);
         broadcastBatchProgress(
-          batch.tasks.filter(t => t.status === 'completed').map(t => t.taskId),
+          completedTaskIds,
           'done',
           `${formatExecutionMode(batch.mode)} completed`,
         );
@@ -1341,9 +1277,7 @@ async function finalizeCombinedBatch(batchId: string): Promise<void> {
     const activityId = batchActivityId(batch.id);
 
     if (batch.prUrl) {
-      const completedTaskIds = batch.tasks
-        .filter(t => t.status === 'completed')
-        .map(t => t.taskId);
+      const completedTaskIds = getCompletedBatchTaskIds(batch);
       for (const taskId of completedTaskIds) {
         await updateTaskInDb(taskId, 'done', { prUrl: batch.prUrl });
       }

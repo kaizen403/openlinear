@@ -4,6 +4,12 @@ import { prisma, decryptToken } from '@openlinear/db';
 import { optionalAuth, AuthRequest } from '@openlinear/api/middleware';
 import { assertTaskOwned } from '@openlinear/api/ownership';
 import {
+  toBatchStatusResponse,
+  toBatchTaskSummaries,
+  toCreateBatchResponse,
+} from '@openlinear/execution-core';
+import type { BatchState, BatchTask } from '@openlinear/execution-core';
+import {
   createBatch,
   startBatch,
   cancelBatch,
@@ -12,7 +18,6 @@ import {
   getActiveBatches,
   approveNextTask,
 } from '../services/batch';
-import type { BatchState, BatchTask, BatchStatusResponse } from '../types/batch';
 
 const CreateBatchSchema = z.object({
   taskIds: z.array(z.string()).min(1).max(20),
@@ -62,18 +67,7 @@ router.post('/', optionalAuth, async (req: AuthRequest, res: Response, next: Nex
 
     startBatch(batch.id);
 
-    res.status(201).json({
-      id: batch.id,
-      status: batch.status,
-      mode: batch.mode,
-      tasks: batch.tasks.map((t: BatchTask) => ({
-        taskId: t.taskId,
-        title: t.title,
-        status: t.status,
-        branch: t.branch,
-      })),
-      createdAt: batch.createdAt.toISOString(),
-    });
+    res.status(201).json(toCreateBatchResponse(batch));
   } catch (error) {
     next(error);
   }
@@ -129,44 +123,7 @@ router.get('/:id', optionalAuth, async (req: AuthRequest, res: Response, next: N
       await batchTaskGuard(batch, req.userId);
     }
 
-    const total = batch.tasks.length;
-    const completed = batch.tasks.filter((t: BatchTask) => t.status === 'completed').length;
-    const failed = batch.tasks.filter((t: BatchTask) => t.status === 'failed').length;
-    const running = batch.tasks.filter((t: BatchTask) => t.status === 'running').length;
-    const queued = batch.tasks.filter((t: BatchTask) => t.status === 'queued').length;
-    const skipped = batch.tasks.filter((t: BatchTask) => t.status === 'skipped').length;
-    const cancelled = batch.tasks.filter((t: BatchTask) => t.status === 'cancelled').length;
-    const percentage = total > 0 ? Math.round(((completed + failed + skipped + cancelled) / total) * 100) : 0;
-
-    const response: BatchStatusResponse = {
-      id: batch.id,
-      status: batch.status,
-      mode: batch.mode,
-      tasks: batch.tasks.map((t: BatchTask) => ({
-        taskId: t.taskId,
-        title: t.title,
-        status: t.status,
-        branch: t.branch,
-        error: t.error,
-        startedAt: t.startedAt?.toISOString() ?? null,
-        completedAt: t.completedAt?.toISOString() ?? null,
-      })),
-      prUrl: batch.prUrl,
-      createdAt: batch.createdAt.toISOString(),
-      completedAt: batch.completedAt?.toISOString() ?? null,
-      progress: {
-        total,
-        completed,
-        failed,
-        running,
-        queued,
-        skipped,
-        cancelled,
-        percentage,
-      },
-    };
-
-    res.json(response);
+    res.json(toBatchStatusResponse(batch));
   } catch (error) {
     next(error);
   }
@@ -225,12 +182,7 @@ router.post('/:id/approve', optionalAuth, async (req: AuthRequest, res: Response
       id: updated.id,
       status: updated.status,
       mode: updated.mode,
-      tasks: updated.tasks.map((t: BatchTask) => ({
-        taskId: t.taskId,
-        title: t.title,
-        status: t.status,
-        branch: t.branch,
-      })),
+      tasks: toBatchTaskSummaries(updated),
     });
   } catch (error) {
     next(error);

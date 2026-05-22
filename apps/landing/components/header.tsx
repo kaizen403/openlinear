@@ -29,7 +29,14 @@ export function Header() {
               Use cases <ChevronDown className="h-3.5 w-3.5 opacity-70" />
             </button>
             <NavLink href="/pricing">Pricing</NavLink>
-            <NavLink href="/docs">Docs</NavLink>
+            <a
+              href="https://docs.openlinear.tech"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-3 py-2 text-sm text-white/70 hover:text-white transition-colors rounded-lg hover:bg-white/[0.04]"
+            >
+              MCP
+            </a>
             <NavLink href="/blog">Blog</NavLink>
             <NavLink href="/about">About</NavLink>
             <NavLink href="/consumer">Consumer</NavLink>
@@ -75,7 +82,14 @@ export function Header() {
             <MobileNavLink href="/product">Research</MobileNavLink>
             <MobileNavLink href="/enterprise">Use cases</MobileNavLink>
             <MobileNavLink href="/pricing">Pricing</MobileNavLink>
-            <MobileNavLink href="/docs">Docs</MobileNavLink>
+            <a
+              href="https://docs.openlinear.tech"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-3 py-3 text-base text-white/80 hover:text-white hover:bg-white/[0.04] rounded-lg transition-colors"
+            >
+              MCP
+            </a>
             <MobileNavLink href="/blog">Blog</MobileNavLink>
             <MobileNavLink href="/about">About</MobileNavLink>
             

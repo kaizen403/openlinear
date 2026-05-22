@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none" aria-label="OpenLinear">
+  <title>OpenLinear</title>
+  <circle cx="32" cy="32" r="22" stroke="#ffffff" stroke-width="8" fill="none"/>
+  <path d="M22 42 L42 22" stroke="#ffffff" stroke-width="8" stroke-linecap="square"/>
+</svg>

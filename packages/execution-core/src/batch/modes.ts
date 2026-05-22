@@ -1,4 +1,4 @@
-import type { BatchMode } from '../types/batch';
+import type { BatchMode } from './types';
 
 export function formatExecutionMode(mode: BatchMode): string {
   switch (mode) {

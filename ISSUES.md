@@ -326,7 +326,6 @@ See `.sisyphus/plans/openlinear-issues.md` for full root-cause analysis and file
 **Agent:** Codex
 
 ### What was done
-<<<<<<< HEAD
 - Read the workspace guidance and active work log before inspecting the repo.
 - Mapped the monorepo entry points, package boundaries, API routing, desktop UI task and chat flows, sidecar execution lifecycle, MCP worker surface, SSE plumbing, and Prisma domain model.
 - Noted the existing dirty worktree so future changes can avoid overwriting unrelated in-progress edits.
@@ -339,7 +338,13 @@ See `.sisyphus/plans/openlinear-issues.md` for full root-cause analysis and file
 
 ### Next steps / blockers
 - Ready to inspect a specific feature, bug, or implementation path when requested.
-=======
+
+## [2026-05-21] — Add ElevenLabs voice dictation to Home Chat
+
+**Status:** Done
+**Agent:** Codex
+
+### What was done
 - Added the official ElevenLabs TypeScript SDK to the sidecar.
 - Replaced the existing Whisper/OpenAI transcription path with ElevenLabs Scribe speech-to-text via `client.speechToText.convert`.
 - Added server-side ElevenLabs STT environment configuration and kept the API key sidecar-only.
@@ -423,7 +428,6 @@ See `.sisyphus/plans/openlinear-issues.md` for full root-cause analysis and file
 
 ### Next steps / blockers
 - Run `pnpm dev-live` and perform one authenticated Home Chat message to confirm the visible session title updates to the JSON-generated title.
->>>>>>> 0a976f2f98bac3bea2ea6894b3389e65ec8d8db6
 
 <!-- 
 AGENTS: Add new entries above this comment. Format:
@@ -796,3 +800,110 @@ AGENTS: Add new entries above this comment. Format:
 
 ### Next steps / blockers
 - None for Docker scope. Use Docker only for local Postgres; do not use Docker to run the API/UI for these pnpm workflows.
+
+## [2026-05-22] — Built standalone MCP docs site + landing nav swap
+
+**Status:** Done
+**Agent:** Sisyphus (OpenCode)
+
+### What was done
+- Built a brand-new MCP-only docs site at `apps/mcp-docs/` (Next.js 16 App Router, port 3004) that replicates the landing-page theme exactly: HSL CSS vars, Space Grotesk + DM Sans + EB Garamond + DM Mono fonts, glass-card / hero-reveal / section-divider, custom scrollbar, focus ring, `tailwindcss-animate`, `next-themes` with `forcedTheme=dark`.
+- App shell with fixed pill header, sticky sidebar nav (4 sections, 18 routes), footer, prev/next pager, copy-button code blocks, callouts, tool cards.
+- Wrote 19 MCP-only content pages covering: intro, quickstart, authentication (PAT format `ol_pat_<32hex>`, SHA-256 hashing, scopes), client setup for Claude Desktop / OpenCode / Cursor+Continue+custom SDK, full tool reference for the actual 12-tool surface (workspaces / projects / teams / labels / phases / issues / `bulk_create_plan`), and 3 guides (plan-from-prompt, phase-naming, troubleshooting).
+- Updated `apps/landing/components/header.tsx`: replaced `/docs Docs` link with an `MCP` link (both desktop NavLink and mobile MobileNavLink, opens in a new tab) pointing at the new docs site.
+- Deployed `apps/mcp-docs` to Vercel production: `https://mcp-docs-gqyo74qsn-kaizen403s-projects.vercel.app`, aliased to `https://mcp-docs-one.vercel.app`.
+- Redeployed `apps/landing` so the new MCP header link is live; aliased to `https://rixie.in`.
+
+### Files changed
+- `apps/mcp-docs/` — new app (package.json, tsconfig.json, next.config.mjs, postcss.config.js, tailwind.config.ts, app/globals.css, app/layout.tsx, app/not-found.tsx, lib/cn.ts, lib/nav.ts, components/{header,sidebar,footer,page-nav,code-block,callout,tool-card,theme-provider}.tsx, plus content pages under app/, app/quickstart, app/authentication, app/clients/*, app/tools/* (index + 7 tool pages including bulk-create-plan), app/guides/*)
+- `apps/landing/components/header.tsx` — replaced `/docs` Docs nav link with an MCP link pointing to `https://mcp-docs-one.vercel.app` (desktop + mobile)
+
+### Issues encountered
+- Mintlify docs site (`docs.openlinear.tech`) was abandoned in favor of an in-monorepo Next.js app per user request. Mintlify repo is no longer the source of truth for MCP docs.
+- `mcp.openlinear.tech` custom domain on Cloudflare is reserved for the MCP Worker, not docs. Header link uses the Vercel alias for now; no DNS work needed.
+
+### Next steps / blockers
+- Optional: wire `docs.openlinear.tech` or `mcp-docs.openlinear.tech` as a Vercel custom domain when desired and update the landing header href.
+- Optional: add automated build to `turbo.json`/CI for `@openlinear/mcp-docs` so content changes ship via standard pipeline.
+
+## [2026-05-22] — Extract execution batch core package
+
+**Status:** Done
+**Agent:** Codex
+
+### What was done
+- Added `@openlinear/execution-core` as a pure workspace package for batch execution types, mode labels, branch/state construction, prompt builders, progress summaries, and API response shaping.
+- Rewired sidecar batch routes and runtime service to import deterministic batch rules from the package while keeping Prisma, SSE, worktree, Git, OpenCode, and PR side effects in the sidecar.
+- Moved the old sidecar batch-mode regression coverage into the package and expanded it to cover task state, combined prompt ordering, progress summaries, and serializable responses.
+- Verified the sidecar still typechecks and builds against the workspace package import.
+
+### Files changed
+- `packages/execution-core/` — new pure package with batch helpers, types, tests, and typecheck config.
+- `apps/sidecar/package.json` — depends on `@openlinear/execution-core`.
+- `apps/sidecar/src/services/batch.ts` — uses extracted mode, state, prompt, and status helpers.
+- `apps/sidecar/src/routes/batches.ts` — uses shared response serializers.
+- `apps/sidecar/src/types/batch.ts` — re-exports shared batch types.
+- `apps/sidecar/src/services/batch-mode.ts` — removed after extraction.
+- `apps/sidecar/src/services/batch-mode.test.mjs` — removed after coverage moved to execution-core.
+- `pnpm-lock.yaml` — links the new workspace package for sidecar.
+
+### Issues encountered
+- Sidecar typecheck initially could not resolve `@openlinear/execution-core` until pnpm linked the new workspace package.
+- The lockfile already contained unrelated dirty workspace changes for `apps/mcp-docs`; those were left in place.
+
+### Next steps / blockers
+- None for this refactor. `@openlinear/execution-core` typecheck, focused Vitest coverage, sidecar typecheck, sidecar build, and diff whitespace checks passed.
+
+## [2026-05-22] — Expand execution-core test coverage
+
+**Status:** Done
+**Agent:** Codex
+
+### What was done
+- Added a package-local `test` script for `@openlinear/execution-core`.
+- Expanded execution-core coverage so every exported runtime helper is exercised directly: execution labels, activity ids, launch indexes, branch naming, batch task construction, batch state construction, terminal/queued status helpers, progress summaries, response serializers, and prompt builders.
+- Hardened combined prompt title fallback so nullable task-record titles do not render as `null` or `undefined`.
+
+### Files changed
+- `packages/execution-core/package.json` — added package-local test command and Vitest dev dependency.
+- `packages/execution-core/src/batch/core.test.mjs` — expanded helper and serializer coverage.
+- `packages/execution-core/src/batch/prompts.ts` — fixed combined prompt fallback title handling.
+- `pnpm-lock.yaml` — records the package-local Vitest dev dependency.
+
+### Issues encountered
+- The semantic code search MCP was rate-limited, so direct repo search was used instead.
+- `pnpm add` ran the existing `packages/openlinear-cli` postinstall hook; its AppImage download returned 404 but the pnpm command completed successfully.
+
+### Next steps / blockers
+- None. `@openlinear/execution-core` tests, `@openlinear/execution-core` typecheck, sidecar typecheck, sidecar build, and diff whitespace checks passed.
+
+## [2026-05-22] — Add sidecar execution workflow tests
+
+**Status:** Done
+**Agent:** Codex
+
+### What was done
+- Added a sidecar-local `test` script and Vitest dev dependency.
+- Added execution workflow tests for task execution lifecycle, event stream handling, recovery, agent run persistence, execution state, git execution helpers, subprocess execution, execution settings, and public exports.
+- Added route-level tests for execute, running, logs, cancel, and refresh-PR behavior using an in-memory Express app with mocked services.
+- Added adjacent workflow helper tests for delta buffering, git credentials, git identity, repo path safety, and worktree operations.
+- Kept tests isolated from real OpenCode, real GitHub, real Prisma, and real worktree mutation by mocking those boundaries.
+
+### Files changed
+- `apps/sidecar/package.json` — added `test` script and Vitest dev dependency.
+- `apps/sidecar/src/services/execution/*.test.mjs` — new coverage for execution service files.
+- `apps/sidecar/src/services/execution-settings.test.mjs` — new settings lookup coverage.
+- `apps/sidecar/src/routes/execution.test.mjs` — new route wrapper coverage.
+- `apps/sidecar/src/services/delta-buffer.test.mjs` — new stream buffer coverage.
+- `apps/sidecar/src/services/git-credentials.test.mjs` — new credential helper coverage.
+- `apps/sidecar/src/services/git-identity.test.mjs` — new git identity coverage.
+- `apps/sidecar/src/services/repo-storage.test.mjs` — new repository path safety coverage.
+- `apps/sidecar/src/services/worktree.test.mjs` — new worktree operation coverage.
+- `pnpm-lock.yaml` — records sidecar Vitest dev dependency.
+
+### Issues encountered
+- The first test run exposed that mocked SSE functions needed to return promises, matching the real broadcaster contract.
+- Negative-path worktree and git tests intentionally exercise error logging; the suite passes with expected stderr output from those paths.
+
+### Next steps / blockers
+- None. Sidecar tests, sidecar typecheck, sidecar build, execution-core tests, execution-core typecheck, and diff whitespace checks passed.
