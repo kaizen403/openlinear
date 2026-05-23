@@ -5,6 +5,55 @@
 
 ---
 
+## [2026-05-23] — Add onboarding back controls and chat thinking loader
+
+**Status:** Done
+**Agent:** Codex
+
+### What was done
+- Added a safe Back path from onboarding Team setup, including the teamless-project repair flow.
+- Made the previous Project step read-only when backing up from an existing teamless project, preventing duplicate project creation.
+- Added a theme-matched chat Thinking loader for the interval after sending a prompt and before assistant text or tool calls stream in.
+- Extended the onboarding/chat regression guard to cover the back path and chat thinking state.
+
+### Files changed
+- `apps/desktop-ui/components/onboarding/onboarding-wizard.tsx` — back controls, read-only existing-project step, duplicate-project guard.
+- `apps/desktop-ui/components/chat/chat-message-list.tsx` — transient Thinking loader row.
+- `apps/desktop-ui/app/(app)/page.tsx` — computes and passes chat thinking state.
+- `scripts/verify-onboarding-repo-scroll.mjs` — added source guards for back controls and chat loader.
+- `ISSUES.md` — recorded this session.
+
+### Issues encountered
+- The worktree still has unrelated dirty API/MCP/schema/lockfile changes; they were left untouched.
+
+### Next steps / blockers
+- Manually send a chat message and confirm the Thinking loader disappears when text or tool cards begin streaming.
+
+## [2026-05-23] — Require team setup for teamless onboarding projects
+
+**Status:** Done
+**Agent:** Codex
+
+### What was done
+- Traced the `Project must have a team` error to task creation resolving a team from the selected project.
+- Kept onboarding active when an existing project has no team, so users are sent directly to Team setup instead of entering the app in a broken state.
+- Loaded project teams in the shared project context so teamless projects can be detected reliably.
+- Prefilled the Team step from the project name and tightened the copy around team keys as issue prefixes.
+- Extended the onboarding regression script to guard the teamless-project workflow.
+
+### Files changed
+- `apps/desktop-ui/app/(app)/page.tsx` — detects teamless projects and passes them into onboarding.
+- `apps/desktop-ui/hooks/use-project.tsx` — includes project teams in the shared project fields.
+- `apps/desktop-ui/components/onboarding/onboarding-wizard.tsx` — supports existing-project Team setup mode with default team naming.
+- `scripts/verify-onboarding-repo-scroll.mjs` — added guards for teamless-project onboarding.
+- `ISSUES.md` — recorded this session.
+
+### Issues encountered
+- The worktree still has unrelated dirty API/MCP/schema/lockfile changes; they were left untouched.
+
+### Next steps / blockers
+- Manually confirm that a project with no team opens onboarding on Team setup and issue creation succeeds after finishing.
+
 ## [2026-05-23] — Fix onboarding project Continue and compact the card
 
 **Status:** Done
@@ -1214,3 +1263,29 @@ AGENTS: Add new entries above this comment. Format:
 ### Next steps / blockers
 - Deploy `apps/dashboard/` to Vercel and configure `DASHBOARD_URL` and `CORS_ORIGIN` env vars on the API server.
 - Consider extracting shared auth/API client code from `desktop-ui` and `dashboard` into `packages/openlinear` to prevent drift.
+
+---
+
+## [2026-05-23] — Add GitHub auth success feedback
+
+**Status:** Done
+**Agent:** Codex
+
+### What was done
+- Added a visible authenticated status on the login page after a pasted desktop callback token is accepted.
+- Delayed the manual callback redirect briefly so the success state is visible before entering the app.
+- Added a success toast for automatic Tauri deep-link callback completion.
+- Updated the browser callback bridge copy to say the user is authenticated after GitHub succeeds.
+
+### Files changed
+- `apps/desktop-ui/app/login/page.tsx` — shows "Authenticated. Opening OpenLinear..." after callback-token verification and prevents duplicate submits during handoff.
+- `apps/desktop-ui/hooks/use-auth.tsx` — shows a success toast when automatic desktop callback authentication completes.
+- `apps/api/src/routes/auth.ts` — updates the Chrome callback bridge success copy.
+- `ISSUES.md` — recorded this session.
+
+### Issues encountered
+- The codebase search MCP returned 429, so investigation used direct repository search.
+- Existing unrelated dirty files remain in the worktree and were left untouched.
+
+### Next steps / blockers
+- Manually run the desktop GitHub OAuth flow and confirm the Chrome bridge plus OpenLinear login screen show the success feedback.
