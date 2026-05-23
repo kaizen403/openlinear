@@ -20,3 +20,6 @@ apps/desktop/src-tauri/binaries/opencode-*
 apps/intro-video/build/
 .cache/
 apps/mcp/.dev.vars
+apps/mcp/.wrangler/
+.env.production
+apps/dashboard/
