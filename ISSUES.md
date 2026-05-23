@@ -5,6 +5,71 @@
 
 ---
 
+## [2026-05-23] — Fix production preview startup after stale dev server
+
+**Status:** Done
+**Agent:** Codex
+
+### What was done
+- Diagnosed `pnpm start` hanging at static-server startup as a stale Next dev server still bound to port `3000`.
+- Stopped the stale dev-server process that was blocking the production static server.
+- Hardened `scripts/start-prod-preview.sh` so port cleanup can discover listeners via `lsof`, `fuser`, or `ss`, avoiding the same startup failure when one tool misses a process.
+
+### Files changed
+- `scripts/start-prod-preview.sh` — added fallback listener detection for stale OpenLinear port cleanup.
+- `ISSUES.md` — recorded this startup fix.
+
+### Issues encountered
+- The stale dev server had also hit a Turbopack cache panic after `.next` was removed during production startup.
+- The current failed `pnpm start` attempt had already exited after the static server failed to bind, so it needs to be rerun.
+
+### Next steps / blockers
+- Run `pnpm start` again now that port `3000` is clear.
+
+## [2026-05-23] — Reduce onboarding GitHub repo scroll cost
+
+**Status:** Done
+**Agent:** Codex
+
+### What was done
+- Simplified the onboarding GitHub repo row so scrolling no longer mounts GitHub avatar images for every newly visible repository.
+- Removed pushed-date and star metadata from the hot scroll row to avoid extra icon rendering and per-row date formatting during virtualization.
+- Reduced virtualized row height and overscan so fewer repo rows render around the viewport.
+- Added row-level CSS containment to reduce paint/layout work while scrolling.
+
+### Files changed
+- `apps/desktop-ui/components/onboarding/onboarding-wizard.tsx` — simplified and contained repository rows, reduced virtualizer overscan, and kept the earlier user-initiated repo loading changes.
+- `apps/desktop-ui/lib/api/repos.ts` — retained the short GitHub repo page cache from the previous pass.
+- `ISSUES.md` — recorded this follow-up fix.
+
+### Issues encountered
+- Could not reproduce against a live GitHub account from this environment; fix is based on the reported scroll-only lag and the row render path.
+
+### Next steps / blockers
+- Manually verify the onboarding GitHub repo picker against an account with many repositories and organizations.
+
+## [2026-05-23] — Stop onboarding from auto-pulling GitHub repositories
+
+**Status:** Done
+**Agent:** Codex
+
+### What was done
+- Kept the onboarding repository connector collapsed by default, even when restoring a draft with a previously selected repository.
+- Preserved the selected repository as a compact summary in the collapsed connector so onboarding no longer pulls repositories and branches just because the page mounted.
+- Added a short browser-side cache for GitHub repository pages and removed hot-path console logging from repo fetches.
+- Stopped one-character repository searches from triggering GitHub search requests.
+
+### Files changed
+- `apps/desktop-ui/components/onboarding/onboarding-wizard.tsx` — made repo/branch loading user-initiated on restored onboarding drafts and reduced search request churn.
+- `apps/desktop-ui/lib/api/repos.ts` — cached GitHub repo page responses in the desktop UI client and shortened the client timeout.
+- `ISSUES.md` — recorded this session.
+
+### Issues encountered
+- The codebase search MCP was rate-limited, so investigation used direct repository search.
+
+### Next steps / blockers
+- Manually verify onboarding with a GitHub account that has many repos/orgs to confirm the page opens without background GitHub pulls and cached picker reloads feel instant.
+
 ## [2026-05-23] — Stabilize onboarding repository list and branch refresh
 
 **Status:** Done
