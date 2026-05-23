@@ -18,7 +18,7 @@ const router: Router = Router();
 const STATE_TTL_MS = 10 * 60 * 1000;
 const DESKTOP_CALLBACK_SCHEME = 'openlinear://callback';
 
-type OAuthClient = 'web' | 'desktop';
+type OAuthClient = 'web' | 'desktop' | 'dashboard';
 
 function getJwtSecret(): string {
   const secret = process.env.JWT_SECRET;
@@ -33,6 +33,10 @@ function getJwtSecret(): string {
 
 function getFrontendUrl() {
   return process.env.FRONTEND_URL || 'http://localhost:3000';
+}
+
+function getDashboardUrl() {
+  return process.env.DASHBOARD_URL || 'http://localhost:3005';
 }
 
 function isLoopbackHostname(hostname: string): boolean {
@@ -99,7 +103,7 @@ function verifyState(state: string): { client: OAuthClient; nonce: string; issue
     const payload = JSON.parse(Buffer.from(body, 'base64url').toString());
     if (typeof payload.issuedAt !== 'number') return null;
     if (Date.now() - payload.issuedAt > STATE_TTL_MS) return null;
-    if (payload.client !== 'web' && payload.client !== 'desktop') return null;
+    if (payload.client !== 'web' && payload.client !== 'desktop' && payload.client !== 'dashboard') return null;
     if (typeof payload.nonce !== 'string') return null;
     return payload;
   } catch {
@@ -107,7 +111,10 @@ function verifyState(state: string): { client: OAuthClient; nonce: string; issue
   }
 }
 
-function buildWebSuccessRedirect(token: string): string {
+function buildWebSuccessRedirect(client: OAuthClient, token: string): string {
+  if (client === 'dashboard') {
+    return `${getDashboardUrl()}?token=${encodeURIComponent(token)}`;
+  }
   return `${getFrontendUrl()}?token=${encodeURIComponent(token)}`;
 }
 
@@ -237,7 +244,7 @@ function respondWithSuccess(client: OAuthClient, token: string, res: Response): 
       .send(renderDesktopCallbackHtml({ token }));
     return;
   }
-  res.redirect(buildWebSuccessRedirect(token));
+  res.redirect(buildWebSuccessRedirect(client, token));
 }
 
 function respondWithError(client: OAuthClient, error: string, res: Response): void {
@@ -250,11 +257,17 @@ function respondWithError(client: OAuthClient, error: string, res: Response): vo
       .send(renderDesktopCallbackHtml({ error }));
     return;
   }
+  if (client === 'dashboard') {
+    res.redirect(`${getDashboardUrl()}?error=${encoded}`);
+    return;
+  }
   res.redirect(`${getFrontendUrl()}?error=${encoded}`);
 }
 
 router.get('/github', (req: Request, res: Response) => {
-  const requestedClient = req.query.client === 'desktop' ? 'desktop' : 'web';
+  const clientParam = req.query.client;
+  const requestedClient: OAuthClient =
+    clientParam === 'desktop' ? 'desktop' : clientParam === 'dashboard' ? 'dashboard' : 'web';
   const state = signState({
     client: requestedClient,
     nonce: crypto.randomUUID(),
