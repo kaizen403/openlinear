@@ -7,6 +7,8 @@ import { spawn } from 'node:child_process';
 
 const onboardingPath = new URL('../apps/desktop-ui/components/onboarding/onboarding-wizard.tsx', import.meta.url);
 const homePagePath = new URL('../apps/desktop-ui/app/(app)/page.tsx', import.meta.url);
+const projectHookPath = new URL('../apps/desktop-ui/hooks/use-project.tsx', import.meta.url);
+const chatMessageListPath = new URL('../apps/desktop-ui/components/chat/chat-message-list.tsx', import.meta.url);
 const chromiumPath = process.env.CHROMIUM_BIN || '/usr/bin/chromium';
 
 function assertSourceGuards(source) {
@@ -29,7 +31,12 @@ function assertSourceGuards(source) {
   assert.match(repoItemSource, /<img[\s\S]*loading="lazy"[\s\S]*decoding="async"/, 'repo logos must be lazy and async decoded');
   assert.match(repoItemSource, /onError=\{\(event\) => event\.currentTarget\.remove\(\)\}/, 'repo logos need a cheap failure fallback');
   assert.match(source, /initialWorkspaceId\?: string \| null/, 'wizard must accept an existing workspace id');
+  assert.match(source, /initialProjectId\?: string \| null/, 'wizard must accept an existing project id for team setup');
   assert.match(source, /const workspaceIdForProject = createdWorkspaceId \?\? initialWorkspaceId/, 'project creation must fall back to the initial workspace id');
+  assert.match(source, /setCurrentStep\(initialProjectId \? 2 : 1\)/, 'existing project onboarding must start at team setup');
+  assert.match(source, /if \(initialProjectId && createdProjectId === initialProjectId\)/, 'existing project back path must not create duplicate projects');
+  assert.match(source, /isExistingProject=\{Boolean\(initialProjectId && createdProjectId === initialProjectId\)\}/, 'existing project step must render read-only project UI');
+  assert.match(source, /onBack=\{\(\) => setCurrentStep\(1\)\}/, 'team setup must expose a back button');
   assert.match(source, /createdWorkspaceId, createdProjectId/, 'stored drafts must keep created ids needed by later steps');
   assert.match(source, /className="max-h-44 overflow-y-auto/, 'repo list height should stay compact inside the card');
 }
@@ -41,6 +48,22 @@ function assertHomePageSourceGuards(source) {
   assert.match(onboardingWrapperSource, /overflow-hidden/, 'onboarding page wrapper must hide page-level overflow');
   assert.equal(onboardingWrapperSource.includes('overflow-y-auto'), false, 'onboarding page wrapper must not use page-level vertical scrolling');
   assert.match(onboardingWrapperSource, /initialWorkspaceId=\{onboardingWorkspaceId\}/, 'home page must pass the existing workspace id into onboarding');
+  assert.match(source, /projectWithoutTeam/, 'home page must keep onboarding active for teamless projects');
+  assert.match(onboardingWrapperSource, /initialProjectId=\{projectWithoutTeam\?\.id \?\? null\}/, 'home page must pass a teamless project id into onboarding');
+  assert.match(onboardingWrapperSource, /initialProjectName=\{projectWithoutTeam\?\.name \?\? null\}/, 'home page must pass a teamless project name into onboarding');
+  assert.match(source, /const isThinking = isStreaming && !streamingContent && activeToolCalls\.length === 0/, 'home page must compute an empty-response thinking state');
+  assert.match(source, /isThinking=\{isThinking\}/, 'home page must pass thinking state to chat message list');
+}
+
+function assertProjectHookSourceGuards(source) {
+  assert.match(source, /'teams'/, 'project list must include teams so teamless projects can be detected');
+}
+
+function assertChatMessageListSourceGuards(source) {
+  assert.match(source, /function ChatThinkingIndicator/, 'chat message list must include a thinking indicator');
+  assert.match(source, /isThinking\?: boolean/, 'chat message list must accept thinking state');
+  assert.match(source, /showThinking && <ChatThinkingIndicator \/>/, 'chat message list must render thinking before first assistant content');
+  assert.match(source, /Loader2[\s\S]*animate-spin/, 'thinking indicator must show a spinner');
 }
 
 function buildFixtureHtml(rowCount = 8) {
@@ -321,8 +344,12 @@ async function runBrowserScrollCheck(html) {
 
 const source = await readFile(onboardingPath, 'utf8');
 const homePageSource = await readFile(homePagePath, 'utf8');
+const projectHookSource = await readFile(projectHookPath, 'utf8');
+const chatMessageListSource = await readFile(chatMessageListPath, 'utf8');
 assertSourceGuards(source);
 assertHomePageSourceGuards(homePageSource);
+assertProjectHookSourceGuards(projectHookSource);
+assertChatMessageListSourceGuards(chatMessageListSource);
 
 const metrics = await runBrowserScrollCheck(buildFixtureHtml());
 console.log(

@@ -35,7 +35,6 @@ import {
   fetchGitHubRepos,
   importRepo,
   type GitHubRepo,
-  type Team,
 } from "@/lib/api"
 import { useAuth } from "@/hooks/use-auth"
 
@@ -46,8 +45,9 @@ const REPO_SEARCH_LIMIT = 8
 const STEP_LABELS = ["Workspace", "Project", "Team"] as const
 
 interface OnboardingWizardProps {
-  teams: Team[]
   initialWorkspaceId?: string | null
+  initialProjectId?: string | null
+  initialProjectName?: string | null
   onComplete: (result: { teamId: string; projectId: string; workspaceId: string }) => void
   onCancel?: () => void
 }
@@ -133,6 +133,17 @@ function deriveTeamKey(name: string): string {
   key = key.replace(/[^A-Z0-9]/g, "")
   if (!/^[A-Z]/.test(key)) key = `T${key}`
   return key.slice(0, 10) || "TEAM"
+}
+
+function deriveDefaultTeamName(projectName: string | null | undefined): string {
+  const base = (projectName || "Project")
+    .trim()
+    .replace(/\s+/g, " ")
+    .slice(0, 45)
+    .trim() || "Project"
+
+  if (/\bteam$/i.test(base)) return base.slice(0, 50)
+  return `${base} Team`.slice(0, 50).trim()
 }
 
 function deriveProjectNameFromUrl(url: string): string {
@@ -489,6 +500,7 @@ function ProjectStep({
   projectName,
   repoDraft,
   isCreating,
+  isExistingProject = false,
   onProjectNameChange,
   onRepoDraftChange,
   onBack,
@@ -497,9 +509,10 @@ function ProjectStep({
   projectName: string
   repoDraft: RepoDraft
   isCreating: boolean
+  isExistingProject?: boolean
   onProjectNameChange: (name: string) => void
   onRepoDraftChange: (patch: Partial<RepoDraft>) => void
-  onBack: () => void
+  onBack?: () => void
   onCreate: () => void
 }) {
   const [showRepo, setShowRepo] = useState(false)
@@ -577,9 +590,13 @@ function ProjectStep({
         <div className="w-10 h-10 mx-auto rounded-sm bg-linear-accent/10 flex items-center justify-center mb-2">
           <FolderKanban className="w-5 h-5 text-linear-accent" />
         </div>
-        <h2 className="text-lg font-semibold text-linear-text">Create a project</h2>
+        <h2 className="text-lg font-semibold text-linear-text">
+          {isExistingProject ? "Project is ready" : "Create a project"}
+        </h2>
         <p className="text-xs text-linear-text-secondary">
-          Projects group your tasks and connect to a code repository.
+          {isExistingProject
+            ? "Finish setup by adding a team for issue keys and ownership."
+            : "Projects group your tasks and connect to a code repository."}
         </p>
       </div>
 
@@ -592,65 +609,67 @@ function ProjectStep({
           value={projectName}
           onChange={(e) => onProjectNameChange(e.target.value)}
           placeholder="e.g., Web App"
+          disabled={isExistingProject}
           className="bg-linear-bg-tertiary border-linear-border text-linear-text placeholder:text-linear-text-tertiary focus:border-linear-border-hover h-9"
         />
       </div>
 
       {/* Collapsible repo section */}
-      <div className="border border-linear-border rounded-sm overflow-hidden">
-        <button
-          type="button"
-          onClick={() => setShowRepo(!showRepo)}
-          aria-expanded={showRepo}
-          className="w-full flex items-center gap-2 px-3 py-2.5 text-left hover:bg-linear-bg-tertiary transition-colors"
-        >
-          {showRepo ? (
-            <ChevronDown className="w-4 h-4 text-linear-text-tertiary" />
-          ) : (
-            <ChevronRight className="w-4 h-4 text-linear-text-tertiary" />
-          )}
-          <GitBranch className="w-4 h-4 text-linear-text-secondary" />
-          <span className="text-sm text-linear-text-secondary">
-            Connect a repository
-          </span>
-          <span className="ml-auto max-w-[220px] truncate text-xs text-linear-text-tertiary">
-            {repoSummary ?? "Optional"}
-          </span>
-        </button>
+      {!isExistingProject && (
+        <div className="border border-linear-border rounded-sm overflow-hidden">
+          <button
+            type="button"
+            onClick={() => setShowRepo(!showRepo)}
+            aria-expanded={showRepo}
+            className="w-full flex items-center gap-2 px-3 py-2.5 text-left hover:bg-linear-bg-tertiary transition-colors"
+          >
+            {showRepo ? (
+              <ChevronDown className="w-4 h-4 text-linear-text-tertiary" />
+            ) : (
+              <ChevronRight className="w-4 h-4 text-linear-text-tertiary" />
+            )}
+            <GitBranch className="w-4 h-4 text-linear-text-secondary" />
+            <span className="text-sm text-linear-text-secondary">
+              Connect a repository
+            </span>
+            <span className="ml-auto max-w-[220px] truncate text-xs text-linear-text-tertiary">
+              {repoSummary ?? "Optional"}
+            </span>
+          </button>
 
-        {showRepo && (
-          <div className="border-t border-linear-border px-3 py-3 space-y-3">
-            {/* Tabs */}
-            <div className="grid grid-cols-3 rounded-sm bg-linear-bg-tertiary p-0.5 border border-linear-border">
-              {tabs.map((tab) => {
-                const Icon = tab.icon
-                const isActive = activeTab === tab.id
-                return (
-                  <button
-                    type="button"
-                    key={tab.id}
-                    onClick={() => {
-                      setActiveTab(tab.id)
-                      if (tab.id === "github") {
-                        onRepoDraftChange({ source: "github", repoUrl: "", sshUrl: "" })
-                      } else if (tab.id === "link") {
-                        onRepoDraftChange({ source: "link", selectedRepo: null, sshUrl: "" })
-                      } else {
-                        onRepoDraftChange({ source: "ssh", selectedRepo: null, repoUrl: "" })
-                      }
-                    }}
-                    className={`flex items-center justify-center gap-1.5 h-7 rounded-sm text-xs font-medium transition-all ${
-                      isActive
-                        ? "bg-linear-bg-secondary text-linear-text shadow-sm"
-                        : "text-linear-text-tertiary hover:text-linear-text-secondary"
-                    }`}
-                  >
-                    <Icon className="w-3.5 h-3.5" />
-                    <span>{tab.label}</span>
-                  </button>
-                )
-              })}
-            </div>
+          {showRepo && (
+            <div className="border-t border-linear-border px-3 py-3 space-y-3">
+              {/* Tabs */}
+              <div className="grid grid-cols-3 rounded-sm bg-linear-bg-tertiary p-0.5 border border-linear-border">
+                {tabs.map((tab) => {
+                  const Icon = tab.icon
+                  const isActive = activeTab === tab.id
+                  return (
+                    <button
+                      type="button"
+                      key={tab.id}
+                      onClick={() => {
+                        setActiveTab(tab.id)
+                        if (tab.id === "github") {
+                          onRepoDraftChange({ source: "github", repoUrl: "", sshUrl: "" })
+                        } else if (tab.id === "link") {
+                          onRepoDraftChange({ source: "link", selectedRepo: null, sshUrl: "" })
+                        } else {
+                          onRepoDraftChange({ source: "ssh", selectedRepo: null, repoUrl: "" })
+                        }
+                      }}
+                      className={`flex items-center justify-center gap-1.5 h-7 rounded-sm text-xs font-medium transition-all ${
+                        isActive
+                          ? "bg-linear-bg-secondary text-linear-text shadow-sm"
+                          : "text-linear-text-tertiary hover:text-linear-text-secondary"
+                      }`}
+                    >
+                      <Icon className="w-3.5 h-3.5" />
+                      <span>{tab.label}</span>
+                    </button>
+                  )
+                })}
+              </div>
 
             {/* Tab content */}
             {activeTab === "github" ? (
@@ -717,18 +736,21 @@ function ProjectStep({
                 </div>
               </div>
             )}
-          </div>
-        )}
-      </div>
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="flex gap-2">
-        <button
-          type="button"
-          onClick={onBack}
-          className="border border-linear-border hover:bg-linear-bg-tertiary text-linear-text rounded-sm h-9 px-4 text-sm font-medium transition-colors"
-        >
-          Back
-        </button>
+        {onBack && (
+          <button
+            type="button"
+            onClick={onBack}
+            className="border border-linear-border hover:bg-linear-bg-tertiary text-linear-text rounded-sm h-9 px-4 text-sm font-medium transition-colors"
+          >
+            Back
+          </button>
+        )}
         <button
           type="button"
           onClick={onCreate}
@@ -755,16 +777,18 @@ function ProjectStep({
 // ─── Step 3: Team ───────────────────────────────────────────────────────────
 
 function TeamStep({
+  projectName,
   teamName,
   isCreating,
   onNameChange,
   onBack,
   onCreate,
 }: {
+  projectName?: string
   teamName: string
   isCreating: boolean
   onNameChange: (name: string) => void
-  onBack: () => void
+  onBack?: () => void
   onCreate: () => void
 }) {
   const [key, setKey] = useState(() => deriveTeamKey(teamName || "Team"))
@@ -785,9 +809,11 @@ function TeamStep({
         <div className="w-10 h-10 mx-auto rounded-sm bg-linear-accent/10 flex items-center justify-center mb-2">
           <Users2 className="w-5 h-5 text-linear-accent" />
         </div>
-        <h2 className="text-lg font-semibold text-linear-text">Create a team</h2>
+        <h2 className="text-lg font-semibold text-linear-text">Set up a team</h2>
         <p className="text-xs text-linear-text-secondary">
-          Teams organize work inside a project. You can add more later.
+          {projectName
+            ? `Issues in ${projectName} need a team and key.`
+            : "Issues need a team and key before you can create them."}
         </p>
       </div>
 
@@ -819,18 +845,22 @@ function TeamStep({
             placeholder="e.g., FE"
             className="bg-linear-bg-tertiary border-linear-border text-linear-text placeholder:text-linear-text-tertiary focus:border-linear-border-hover h-9"
           />
-          <p className="text-xs text-linear-text-tertiary">Uppercase letters and numbers, starts with a letter.</p>
+          <p className="text-xs text-linear-text-tertiary">
+            This becomes the issue prefix, for example {key.trim() || "TEAM"}-1.
+          </p>
         </div>
       </div>
 
       <div className="flex gap-2">
-        <button
-          type="button"
-          onClick={onBack}
-          className="border border-linear-border hover:bg-linear-bg-tertiary text-linear-text rounded-sm h-9 px-4 text-sm font-medium transition-colors"
-        >
-          Back
-        </button>
+        {onBack && (
+          <button
+            type="button"
+            onClick={onBack}
+            className="border border-linear-border hover:bg-linear-bg-tertiary text-linear-text rounded-sm h-9 px-4 text-sm font-medium transition-colors"
+          >
+            Back
+          </button>
+        )}
         <button
           type="button"
           onClick={onCreate}
@@ -907,14 +937,20 @@ function StepIndicator({ currentStep }: { currentStep: number }) {
 
 // ─── Main Component ─────────────────────────────────────────────────────────
 
-export function OnboardingWizard({ teams, initialWorkspaceId = null, onComplete, onCancel }: OnboardingWizardProps) {
+export function OnboardingWizard({
+  initialWorkspaceId = null,
+  initialProjectId = null,
+  initialProjectName = null,
+  onComplete,
+  onCancel,
+}: OnboardingWizardProps) {
   const [currentStep, setCurrentStep] = useState(0)
   const [workspaceName, setWorkspaceName] = useState("")
-  const [projectName, setProjectName] = useState("")
-  const [teamName, setTeamName] = useState("")
+  const [projectName, setProjectName] = useState(initialProjectName ?? "")
+  const [teamName, setTeamName] = useState(() => (initialProjectId ? deriveDefaultTeamName(initialProjectName) : ""))
   const [repoDraft, setRepoDraft] = useState<RepoDraft>(EMPTY_REPO_DRAFT)
   const [createdWorkspaceId, setCreatedWorkspaceId] = useState<string | null>(initialWorkspaceId)
-  const [createdProjectId, setCreatedProjectId] = useState<string | null>(null)
+  const [createdProjectId, setCreatedProjectId] = useState<string | null>(initialProjectId)
   const [isWorking, setIsWorking] = useState(false)
   const didLoadStoredDraftRef = useRef(false)
   const reduceMotion = useReducedMotion()
@@ -926,27 +962,41 @@ export function OnboardingWizard({ teams, initialWorkspaceId = null, onComplete,
     const storedDraft = loadStoredDraft()
     if (storedDraft) {
       const restoredWorkspaceId = initialWorkspaceId ?? storedDraft.createdWorkspaceId ?? null
+      const restoredProjectId = initialProjectId ?? storedDraft.createdProjectId ?? null
       let restoredStep = restoredWorkspaceId ? storedDraft.currentStep : 0
       if (restoredWorkspaceId && restoredStep === 0) restoredStep = 1
-      if (restoredStep === 2 && !storedDraft.createdProjectId) restoredStep = 1
+      if (restoredProjectId) restoredStep = 2
+      if (restoredStep === 2 && !restoredProjectId) restoredStep = 1
       setCurrentStep(Math.min(Math.max(restoredStep, 0), 2))
       setWorkspaceName(storedDraft.workspaceName)
-      setProjectName(storedDraft.projectName)
+      const restoredProjectName = initialProjectName || storedDraft.projectName
+      setProjectName(restoredProjectName)
       setRepoDraft(storedDraft.repoDraft)
-      setTeamName(storedDraft.teamName)
+      setTeamName(storedDraft.teamName || (restoredProjectId ? deriveDefaultTeamName(restoredProjectName) : ""))
       setCreatedWorkspaceId(restoredWorkspaceId)
-      setCreatedProjectId(storedDraft.createdProjectId ?? null)
+      setCreatedProjectId(restoredProjectId)
     } else if (initialWorkspaceId) {
       setCreatedWorkspaceId(initialWorkspaceId)
-      setCurrentStep(1)
+      setCreatedProjectId(initialProjectId)
+      setProjectName(initialProjectName ?? "")
+      setTeamName(initialProjectId ? deriveDefaultTeamName(initialProjectName) : "")
+      setCurrentStep(initialProjectId ? 2 : 1)
     }
     didLoadStoredDraftRef.current = true
-  }, [initialWorkspaceId])
+  }, [initialWorkspaceId, initialProjectId, initialProjectName])
 
   useEffect(() => {
     if (!initialWorkspaceId) return
     setCreatedWorkspaceId((current) => current ?? initialWorkspaceId)
   }, [initialWorkspaceId])
+
+  useEffect(() => {
+    if (!initialProjectId) return
+    setCreatedProjectId((current) => current ?? initialProjectId)
+    setProjectName((current) => current || initialProjectName || "")
+    setTeamName((current) => current || deriveDefaultTeamName(initialProjectName))
+    setCurrentStep((step) => (step < 2 ? 2 : step))
+  }, [initialProjectId, initialProjectName])
 
   // Save draft
   useEffect(() => {
@@ -975,6 +1025,12 @@ export function OnboardingWizard({ teams, initialWorkspaceId = null, onComplete,
 
   // Step 1: Create project
   const handleCreateProject = useCallback(async () => {
+    if (initialProjectId && createdProjectId === initialProjectId) {
+      setTeamName((current) => current || deriveDefaultTeamName(projectName || initialProjectName))
+      setCurrentStep(2)
+      return
+    }
+
     const workspaceIdForProject = createdWorkspaceId ?? initialWorkspaceId
     if (!projectName.trim() || !workspaceIdForProject) return
     setIsWorking(true)
@@ -1006,13 +1062,14 @@ export function OnboardingWizard({ teams, initialWorkspaceId = null, onComplete,
 
       setCreatedWorkspaceId(workspaceIdForProject)
       setCreatedProjectId(project.id)
+      setTeamName((current) => current || deriveDefaultTeamName(project.name))
       setCurrentStep(2)
     } catch {
       toast.error("Failed to create project. Please try again.")
     } finally {
       setIsWorking(false)
     }
-  }, [projectName, createdWorkspaceId, initialWorkspaceId, repoDraft])
+  }, [projectName, createdWorkspaceId, initialWorkspaceId, initialProjectId, initialProjectName, createdProjectId, repoDraft])
 
   // Step 2: Create team and finish
   const handleCreateTeam = useCallback(async () => {
@@ -1059,15 +1116,17 @@ export function OnboardingWizard({ teams, initialWorkspaceId = null, onComplete,
             projectName={projectName}
             repoDraft={repoDraft}
             isCreating={isWorking}
+            isExistingProject={Boolean(initialProjectId && createdProjectId === initialProjectId)}
             onProjectNameChange={setProjectName}
             onRepoDraftChange={updateRepoDraft}
-            onBack={() => setCurrentStep(0)}
+            onBack={initialProjectId ? undefined : () => setCurrentStep(0)}
             onCreate={handleCreateProject}
           />
         )
       case 2:
         return (
           <TeamStep
+            projectName={projectName || initialProjectName || undefined}
             teamName={teamName}
             isCreating={isWorking}
             onNameChange={setTeamName}

@@ -28,7 +28,7 @@ function HomeContent() {
   const { isAuthenticated, isLoading } = useAuth()
   const { activeProject, projects, isLoading: isProjectsLoading, refreshProjects } = useProject()
   const { workspaces, activeWorkspace, isLoading: isWorkspacesLoading, refreshWorkspaces } = useWorkspace()
-  const { teams } = useTeams()
+  const { teams, reload: reloadTeams } = useTeams()
   const { sessions, activeSessionId, setActiveSessionId, createSession } = useChatSessions()
   const { messages, status, streamingContent, activeToolCalls, send, stop, reset, loadHistory } = useChatStream()
   const router = useRouter()
@@ -72,8 +72,13 @@ function HomeContent() {
   }
 
   const onboardingWorkspaceId = activeWorkspace?.id ?? workspaces[0]?.id ?? null
+  const projectWithoutTeam = projects.find((project) => {
+    const projectTeams = project.teams ?? []
+    const visibleTeams = teams.filter((team) => team.projectId === project.id)
+    return projectTeams.length === 0 && visibleTeams.length === 0
+  }) ?? null
 
-  if (workspaces.length === 0 || projects.length === 0) {
+  if (workspaces.length === 0 || projects.length === 0 || projectWithoutTeam) {
     return (
       <>
         <header className="min-h-14 border-b border-linear-border flex items-center px-4 sm:px-6 py-2 sm:py-0 bg-linear-bg gap-2 sm:gap-4" data-tauri-drag-region>
@@ -82,11 +87,13 @@ function HomeContent() {
         </header>
         <div className="flex-1 min-h-0 flex items-center justify-center overflow-hidden px-4 py-3">
           <OnboardingWizard
-            teams={teams}
             initialWorkspaceId={onboardingWorkspaceId}
+            initialProjectId={projectWithoutTeam?.id ?? null}
+            initialProjectName={projectWithoutTeam?.name ?? null}
             onComplete={() => {
               refreshWorkspaces()
               refreshProjects()
+              void reloadTeams()
             }}
           />
         </div>

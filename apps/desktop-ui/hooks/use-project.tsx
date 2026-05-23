@@ -29,6 +29,7 @@ const SHARED_PROJECT_FIELDS = [
   'localPath',
   'repoUrl',
   'repository',
+  'teams',
 ] as const
 
 export function ProjectProvider({ children }: { children: ReactNode }) {
