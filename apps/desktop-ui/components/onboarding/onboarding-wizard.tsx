@@ -7,7 +7,6 @@ import {
   ArrowRight,
   ArrowLeft,
   Building2,
-  CalendarClock,
   Check,
   ChevronDown,
   ChevronRight,
@@ -24,7 +23,6 @@ import {
   Rocket,
   Search,
   SquareTerminal,
-  Star,
   Users2,
 } from "lucide-react"
 import { toast } from "sonner"
@@ -177,6 +175,13 @@ function hasRepoSelection(draft: RepoDraft): boolean {
   return false
 }
 
+function getRepoSummary(draft: RepoDraft): string | null {
+  if (draft.source === "github" && draft.selectedRepo) return draft.selectedRepo.full_name
+  if (draft.source === "link" && draft.repoUrl.trim()) return draft.repoUrl.trim().replace(/^https?:\/\/github\.com\//, "")
+  if (draft.source === "ssh" && draft.sshUrl.trim()) return draft.sshUrl.trim().replace(/^git@github\.com:/, "")
+  return null
+}
+
 function getDefaultBranchSuggestions(draft: RepoDraft, branchNames: string[]): string[] {
   return Array.from(
     new Set(
@@ -189,24 +194,6 @@ function getDefaultBranchSuggestions(draft: RepoDraft, branchNames: string[]): s
         .filter(Boolean) as string[],
     ),
   )
-}
-
-function formatPushedAt(value?: string | null): string {
-  if (!value) return "No pushes yet"
-  const pushedAt = new Date(value)
-  if (Number.isNaN(pushedAt.getTime())) return "Push date unknown"
-
-  const seconds = Math.max(1, Math.floor((Date.now() - pushedAt.getTime()) / 1000))
-  if (seconds < 60) return "Pushed just now"
-  const minutes = Math.floor(seconds / 60)
-  if (minutes < 60) return `Pushed ${minutes}m ago`
-  const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `Pushed ${hours}h ago`
-  const days = Math.floor(hours / 24)
-  if (days < 30) return `Pushed ${days}d ago`
-  const months = Math.floor(days / 30)
-  if (months < 12) return `Pushed ${months}mo ago`
-  return `Pushed ${Math.floor(months / 12)}y ago`
 }
 
 function mergeRepos(existing: GitHubRepo[], next: GitHubRepo[]): GitHubRepo[] {
@@ -314,25 +301,18 @@ const RepoItem = memo(function RepoItem({
     <button
       type="button"
       onClick={() => onSelect(repo)}
-      className={`w-full h-[96px] overflow-hidden flex items-start gap-3 px-3 py-3 rounded-sm text-left transition-colors ${
+      className={`w-full h-[72px] overflow-hidden flex items-center gap-3 px-3 py-2 rounded-sm text-left ${
         isSelected
           ? "bg-linear-accent/10 border border-linear-accent/40"
           : "hover:bg-linear-bg-tertiary border border-transparent"
       }`}
+      style={{ contain: "layout paint style" }}
     >
-      {repo.owner?.avatar_url ? (
-        <img
-          src={repo.owner.avatar_url}
-          alt=""
-          className="w-8 h-8 rounded-sm border border-linear-border flex-shrink-0"
-        />
-      ) : (
-        <div className="w-8 h-8 rounded-sm border border-linear-border bg-linear-bg-tertiary flex items-center justify-center text-xs text-linear-text-secondary flex-shrink-0">
-          {owner[0]?.toUpperCase()}
-        </div>
-      )}
+      <div className="w-8 h-8 rounded-sm border border-linear-border bg-linear-bg-tertiary flex items-center justify-center text-xs font-medium text-linear-text-secondary flex-shrink-0">
+        {owner[0]?.toUpperCase()}
+      </div>
 
-      <div className="flex-1 min-w-0 space-y-0.5">
+      <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1.5 min-w-0">
           <span className="text-sm font-medium text-linear-text truncate">{repo.name}</span>
           {repo.private ? (
@@ -342,24 +322,10 @@ const RepoItem = memo(function RepoItem({
           )}
           {repo.fork && <GitFork className="w-3.5 h-3.5 text-linear-text-tertiary flex-shrink-0" />}
         </div>
-        <div className="text-xs text-linear-text-tertiary truncate">{owner} / {repo.name}</div>
+        <div className="text-xs text-linear-text-tertiary truncate">{repo.full_name}</div>
         {repo.description && (
           <p className="text-xs text-linear-text-secondary line-clamp-1 leading-4">{repo.description}</p>
         )}
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-linear-text-tertiary leading-4">
-          <span className="inline-flex items-center gap-1">
-            <GitBranch className="w-3 h-3" />
-            {repo.default_branch || "main"}
-          </span>
-          <span className="inline-flex items-center gap-1">
-            <CalendarClock className="w-3 h-3" />
-            {formatPushedAt(repo.pushed_at)}
-          </span>
-          <span className="inline-flex items-center gap-1">
-            <Star className="w-3 h-3" />
-            {repo.stargazers_count ?? 0}
-          </span>
-        </div>
       </div>
 
       <div
@@ -392,6 +358,10 @@ const GitHubRepoList = memo(function GitHubRepoList({
   const [isLoadingRepos, setIsLoadingRepos] = useState(false)
   const [isLoadingMore, setIsLoadingMore] = useState(false)
   const debouncedSearch = useDebouncedValue(search, 300)
+  const repoQuery = useMemo(() => {
+    const trimmed = debouncedSearch.trim()
+    return trimmed.length >= 2 ? trimmed : ""
+  }, [debouncedSearch])
   const scrollParentRef = useRef<HTMLDivElement>(null)
   const requestIdRef = useRef(0)
   const repoRequestControllerRef = useRef<AbortController | null>(null)
@@ -413,9 +383,9 @@ const GitHubRepoList = memo(function GitHubRepoList({
   const rowVirtualizer = useVirtualizer({
     count: repos.length,
     getScrollElement: () => scrollParentRef.current,
-    estimateSize: () => 96,
+    estimateSize: () => 72,
     getItemKey,
-    overscan: 5,
+    overscan: 2,
   })
   const repoListHeight = Math.min(rowVirtualizer.getTotalSize(), 440)
 
@@ -440,7 +410,7 @@ const GitHubRepoList = memo(function GitHubRepoList({
           perPage: REPO_PAGE_SIZE,
           sort,
           filter,
-          q: debouncedSearch || undefined,
+          q: repoQuery || undefined,
           signal: controller.signal,
         })
 
@@ -465,7 +435,7 @@ const GitHubRepoList = memo(function GitHubRepoList({
         }
       }
     },
-    [debouncedSearch, filter, hasGitHub, sort],
+    [filter, hasGitHub, repoQuery, sort],
   )
 
   useEffect(() => {
@@ -606,11 +576,12 @@ function ProjectStep({
   onBack: () => void
   onCreate: () => void
 }) {
-  const [showRepo, setShowRepo] = useState(() => hasRepoSelection(repoDraft))
+  const [showRepo, setShowRepo] = useState(false)
   const [activeTab, setActiveTab] = useState<ProjectTab>(repoDraft.source)
   const [branchNames, setBranchNames] = useState<string[]>([])
   const [isLoadingBranches, setIsLoadingBranches] = useState(false)
   const [branchError, setBranchError] = useState<string | null>(null)
+  const repoSummary = useMemo(() => getRepoSummary(repoDraft), [repoDraft])
   const suggestions = useMemo(
     () => getDefaultBranchSuggestions(repoDraft, branchNames),
     [branchNames, repoDraft.defaultBranch, repoDraft.selectedRepo?.default_branch],
@@ -774,6 +745,7 @@ function ProjectStep({
         <button
           type="button"
           onClick={() => setShowRepo(!showRepo)}
+          aria-expanded={showRepo}
           className="w-full flex items-center gap-2 px-4 py-3 text-left hover:bg-linear-bg-tertiary transition-colors"
         >
           {showRepo ? (
@@ -785,7 +757,9 @@ function ProjectStep({
           <span className="text-sm text-linear-text-secondary">
             Connect a repository
           </span>
-          <span className="text-xs text-linear-text-tertiary ml-auto">Optional</span>
+          <span className="ml-auto max-w-[220px] truncate text-xs text-linear-text-tertiary">
+            {repoSummary ?? "Optional"}
+          </span>
         </button>
 
         {showRepo && (

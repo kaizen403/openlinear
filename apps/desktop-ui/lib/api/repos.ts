@@ -10,8 +10,14 @@ import type {
   Repository,
 } from './types';
 
+const GITHUB_REPO_CACHE_TTL_MS = 5 * 60_000;
 const GITHUB_BRANCH_CACHE_TTL_MS = 60_000;
+const githubRepoCache = new Map<string, { expiresAt: number; result: GitHubReposResponse }>();
 const githubBranchCache = new Map<string, { expiresAt: number; result: GitHubBranchesResponse }>();
+
+function getRepoCacheKey(params: URLSearchParams): string {
+  return `${getAuthToken() ?? 'anonymous'}:${params.toString()}`;
+}
 
 function getBranchCacheKey(owner: string, repo: string): string {
   return `${getAuthToken() ?? 'anonymous'}:${owner.trim().toLowerCase()}/${repo.trim().toLowerCase()}`;
@@ -36,26 +42,29 @@ export async function fetchGitHubRepos(options: {
   if (options.filter) params.set('filter', options.filter);
   if (options.q?.trim()) params.set('q', options.q.trim());
 
+  const cacheKey = getRepoCacheKey(params);
+  const now = Date.now();
+  const cached = githubRepoCache.get(cacheKey);
+  if (cached && cached.expiresAt > now) return cached.result;
+
   const controller = new AbortController();
   const abortFromCaller = () => controller.abort();
   options.signal?.addEventListener('abort', abortFromCaller, { once: true });
-  const timeoutId = window.setTimeout(() => controller.abort(), 20_000);
-  const t0 = performance.now();
+  const timeoutId = window.setTimeout(() => controller.abort(), 12_000);
   try {
     const result = await apiFetch<GitHubReposResponse>(
       `/api/repos/github?${params.toString()}`,
       { signal: controller.signal },
     );
-    console.log(
-      `[fetchGitHubRepos] ${params.toString()} -> ${result.repos.length} repos (total=${result.totalCount}, hasMore=${result.hasMore}) in ${Math.round(performance.now() - t0)}ms`,
-    );
+    githubRepoCache.set(cacheKey, {
+      expiresAt: now + GITHUB_REPO_CACHE_TTL_MS,
+      result,
+    });
     return result;
   } catch (err) {
     if (err instanceof DOMException && err.name === 'AbortError') {
-      console.error(`[fetchGitHubRepos] timeout after 20s: ${params.toString()}`);
       throw new Error('GitHub took too long to respond. Try a narrower search or fewer filters.');
     }
-    console.error(`[fetchGitHubRepos] error after ${Math.round(performance.now() - t0)}ms:`, err);
     throw err;
   } finally {
     window.clearTimeout(timeoutId);
