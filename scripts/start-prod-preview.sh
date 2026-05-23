@@ -65,9 +65,20 @@ trap 'cleanup; exit 143' TERM
 
 pids_on_port() {
     local port="$1"
-    if command -v lsof >/dev/null 2>&1; then
-        lsof -tiTCP:"$port" -sTCP:LISTEN 2>/dev/null || true
-    fi
+    {
+        if command -v lsof >/dev/null 2>&1; then
+            lsof -tiTCP:"$port" -sTCP:LISTEN 2>/dev/null || true
+            printf '\n'
+        fi
+        if command -v fuser >/dev/null 2>&1; then
+            fuser -n tcp "$port" 2>/dev/null || true
+            printf '\n'
+        fi
+        if command -v ss >/dev/null 2>&1; then
+            ss -ltnp "sport = :$port" 2>/dev/null | sed -n 's/.*pid=\([0-9][0-9]*\).*/\1/p' || true
+            printf '\n'
+        fi
+    } | tr ' ' '\n' | sed '/^$/d' | sort -u
 }
 
 is_openlinear_process() {
