@@ -188,6 +188,69 @@ describe('GitHub repo service', () => {
     expect(result.repos.map((repo) => repo.full_name)).toEqual(['octo/private-app', 'acme/org-app']);
   });
 
+  it('prioritizes an exact owner/repo query before search results', async () => {
+    const fetchMock = vi.fn().mockImplementation((rawUrl: string) => {
+      const url = new URL(rawUrl);
+      if (url.pathname === '/repos/octo/exact-repo') {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              id: 99,
+              name: 'exact-repo',
+              full_name: 'octo/exact-repo',
+              clone_url: 'https://github.com/octo/exact-repo.git',
+              default_branch: 'main',
+              private: true,
+              description: 'Exact match',
+              owner: { login: 'octo', avatar_url: 'https://github.com/octo.png' },
+            }),
+            { status: 200 },
+          ),
+        );
+      }
+      if (url.pathname === '/user/orgs') {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }));
+      }
+
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            total_count: 1,
+            items: [
+              {
+                id: 100,
+                name: 'exact-repo-alt',
+                full_name: 'octo/exact-repo-alt',
+                clone_url: 'https://github.com/octo/exact-repo-alt.git',
+                default_branch: 'main',
+                private: true,
+                description: null,
+                owner: { login: 'octo', avatar_url: null },
+              },
+            ],
+          }),
+          { status: 200 },
+        ),
+      );
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await getGitHubRepos('token-exact-repo', {
+      userId: 'repo-service-exact',
+      username: 'octo',
+      page: 1,
+      perPage: 8,
+      sort: 'pushed',
+      filter: 'all',
+      q: 'octo/exact-repo',
+    });
+
+    const firstUrl = new URL(fetchMock.mock.calls[0][0] as string);
+    expect(firstUrl.pathname).toBe('/repos/octo/exact-repo');
+    expect(result.repos.map((repo) => repo.full_name)).toEqual(['octo/exact-repo', 'octo/exact-repo-alt']);
+    expect(result.repos[0].owner?.avatar_url).toBe('https://github.com/octo.png');
+  });
+
   it('limits repository search to the first five organization scopes', async () => {
     const fetchMock = vi.fn().mockImplementation((rawUrl: string) => {
       const url = new URL(rawUrl);

@@ -157,6 +157,41 @@ function applyRepoFilter(repos: GitHubRepo[], filter: GitHubRepoFilter): GitHubR
   return repos;
 }
 
+function repoMatchesFilter(repo: GitHubRepo, options: GetGitHubReposOptions): boolean {
+  if (options.filter === 'owned') {
+    return (repo.owner?.login || repo.full_name.split('/')[0]) === options.username;
+  }
+  if (options.filter === 'private') return repo.private;
+  if (options.filter === 'public') return !repo.private;
+  if (options.filter === 'no_forks') return !repo.fork;
+  return true;
+}
+
+function getExactRepoSlug(query?: string): { owner: string; repo: string } | null {
+  const trimmed = query?.trim();
+  if (!trimmed || /\s/.test(trimmed)) return null;
+  return parseGitHubUrl(trimmed);
+}
+
+async function fetchAccessibleRepo(
+  accessToken: string,
+  owner: string,
+  repo: string,
+): Promise<GitHubRepo | null> {
+  const encodedOwner = encodeURIComponent(owner);
+  const encodedRepo = encodeURIComponent(repo);
+  const response = await fetch(`https://api.github.com/repos/${encodedOwner}/${encodedRepo}`, {
+    headers: getGitHubHeaders(accessToken),
+  });
+
+  if (response.status === 404) return null;
+  if (!response.ok) {
+    throw new Error(await getGitHubErrorMessage(response, `Failed to fetch repository ${owner}/${repo}`));
+  }
+
+  return (await response.json()) as GitHubRepo;
+}
+
 export function parseGitHubUrl(url: string): { owner: string; repo: string } | null {
   const patterns = [
     /^https?:\/\/github\.com\/([^\/]+)\/([^\/]+?)(\.git)?$/,
@@ -487,6 +522,10 @@ async function searchGitHubRepos(
   accessToken: string,
   options: GetGitHubReposOptions,
 ): Promise<GitHubReposResult> {
+  const exactSlug = getExactRepoSlug(options.q);
+  const exactRepo = exactSlug
+    ? await fetchAccessibleRepo(accessToken, exactSlug.owner, exactSlug.repo)
+    : null;
   const orgLogins = options.filter === 'owned'
     ? []
     : (await getGitHubOrgLogins(accessToken)).slice(0, MAX_ORG_SEARCH_SCOPES);
@@ -500,16 +539,25 @@ async function searchGitHubRepos(
   );
   const repoMap = new Map<number, GitHubRepo>();
 
+  if (exactRepo && repoMatchesFilter(exactRepo, options)) {
+    repoMap.set(exactRepo.id, exactRepo);
+  }
+
   for (const result of scopeResults) {
     for (const repo of result.repos) {
-      repoMap.set(repo.id, repo);
+      if (!repoMap.has(repo.id)) {
+        repoMap.set(repo.id, repo);
+      }
     }
   }
 
   const repos = sortRepos([...repoMap.values()], options.sort);
   const start = (options.page - 1) * options.perPage;
   const end = start + options.perPage;
-  const totalCount = scopeResults.reduce((total, result) => total + result.totalCount, 0);
+  const totalCount = Math.max(
+    repoMap.size,
+    scopeResults.reduce((total, result) => total + result.totalCount, 0),
+  );
 
   return {
     repos: repos.slice(start, end),
