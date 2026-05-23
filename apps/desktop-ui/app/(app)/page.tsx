@@ -71,6 +71,8 @@ function HomeContent() {
     return <HomePageSkeleton />
   }
 
+  const onboardingWorkspaceId = activeWorkspace?.id ?? workspaces[0]?.id ?? null
+
   if (workspaces.length === 0 || projects.length === 0) {
     return (
       <>
@@ -78,9 +80,10 @@ function HomeContent() {
           <h1 className="text-lg font-semibold truncate">Dashboard</h1>
           <div className="flex-1 h-full" data-tauri-drag-region />
         </header>
-        <div className="flex-1 flex items-start justify-center p-6 overflow-y-auto">
+        <div className="flex-1 min-h-0 flex items-center justify-center overflow-hidden px-4 py-3">
           <OnboardingWizard
             teams={teams}
+            initialWorkspaceId={onboardingWorkspaceId}
             onComplete={() => {
               refreshWorkspaces()
               refreshProjects()

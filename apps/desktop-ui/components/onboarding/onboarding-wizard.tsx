@@ -1,7 +1,6 @@
 "use client"
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { useVirtualizer } from "@tanstack/react-virtual"
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion"
 import {
   ArrowRight,
@@ -24,6 +23,7 @@ import {
   Search,
   SquareTerminal,
   Users2,
+  X,
 } from "lucide-react"
 import { toast } from "sonner"
 import { Input } from "@/components/ui/input"
@@ -32,38 +32,22 @@ import {
   createWorkspace,
   ApiError,
   createTeam,
-  fetchGitHubBranches,
   fetchGitHubRepos,
   importRepo,
   type GitHubRepo,
-  type GitHubRepoFilter,
-  type GitHubRepoSort,
   type Team,
 } from "@/lib/api"
 import { useAuth } from "@/hooks/use-auth"
 
 const SPRING = { type: "spring" as const, stiffness: 300, damping: 30 }
 const STORAGE_KEY = "openlinear:onboarding:v4"
-const REPO_PAGE_SIZE = 30
+const REPO_SEARCH_LIMIT = 8
 
 const STEP_LABELS = ["Workspace", "Project", "Team"] as const
 
-const FILTER_OPTIONS: Array<{ value: GitHubRepoFilter; label: string }> = [
-  { value: "all", label: "All" },
-  { value: "owned", label: "Owned" },
-  { value: "private", label: "Private" },
-  { value: "public", label: "Public" },
-  { value: "no_forks", label: "Forks excluded" },
-]
-
-const SORT_OPTIONS: Array<{ value: GitHubRepoSort; label: string }> = [
-  { value: "pushed", label: "Recently pushed" },
-  { value: "name", label: "Name A-Z" },
-  { value: "stars", label: "Stars" },
-]
-
 interface OnboardingWizardProps {
   teams: Team[]
+  initialWorkspaceId?: string | null
   onComplete: (result: { teamId: string; projectId: string; workspaceId: string }) => void
   onCancel?: () => void
 }
@@ -84,6 +68,8 @@ interface StoredDraft {
   projectName: string
   repoDraft: RepoDraft
   teamName: string
+  createdWorkspaceId?: string | null
+  createdProjectId?: string | null
 }
 
 const EMPTY_REPO_DRAFT: RepoDraft = {
@@ -106,6 +92,8 @@ function loadStoredDraft(): StoredDraft | null {
       projectName: typeof parsed.projectName === "string" ? parsed.projectName : "",
       repoDraft: { ...EMPTY_REPO_DRAFT, ...parsed.repoDraft },
       teamName: typeof parsed.teamName === "string" ? parsed.teamName : "",
+      createdWorkspaceId: typeof parsed.createdWorkspaceId === "string" ? parsed.createdWorkspaceId : null,
+      createdProjectId: typeof parsed.createdProjectId === "string" ? parsed.createdProjectId : null,
     }
   } catch {
     return null
@@ -153,13 +141,6 @@ function deriveProjectNameFromUrl(url: string): string {
   return match?.[1] || ""
 }
 
-function parseGitHubRepoSlug(value: string): { owner: string; repo: string } | null {
-  const trimmed = value.trim().replace(/\.git$/, "")
-  const match = trimmed.match(/(?:github\.com[:/])?([^/:\s]+)\/([^/:\s]+)$/)
-  if (!match) return null
-  return { owner: match[1], repo: match[2] }
-}
-
 function getRepoUrl(repo: GitHubRepo): string {
   return repo.html_url || `https://github.com/${repo.full_name}`
 }
@@ -182,30 +163,17 @@ function getRepoSummary(draft: RepoDraft): string | null {
   return null
 }
 
-function getDefaultBranchSuggestions(draft: RepoDraft, branchNames: string[]): string[] {
+function getDefaultBranchSuggestions(draft: RepoDraft): string[] {
   return Array.from(
     new Set(
       [
         draft.selectedRepo?.default_branch,
-        ...branchNames,
-        branchNames.includes(draft.defaultBranch) ? draft.defaultBranch : undefined,
+        draft.defaultBranch,
       ]
         .map((branch) => branch?.trim())
         .filter(Boolean) as string[],
     ),
   )
-}
-
-function mergeRepos(existing: GitHubRepo[], next: GitHubRepo[]): GitHubRepo[] {
-  const seen = new Set(existing.map((repo) => repo.id))
-  const merged = [...existing]
-  for (const repo of next) {
-    if (!seen.has(repo.id)) {
-      seen.add(repo.id)
-      merged.push(repo)
-    }
-  }
-  return merged
 }
 
 // ─── Step 1: Workspace ──────────────────────────────────────────────────────
@@ -224,14 +192,14 @@ function WorkspaceStep({
   const reduceMotion = useReducedMotion()
 
   return (
-    <div className="text-center space-y-6">
+    <div className="text-center space-y-5">
       <motion.div
         initial={reduceMotion ? false : { scale: 0.8, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
         transition={reduceMotion ? { duration: 0 } : { ...SPRING, delay: 0.1 }}
-        className="w-16 h-16 mx-auto rounded-sm bg-linear-accent/10 flex items-center justify-center"
+        className="w-12 h-12 mx-auto rounded-sm bg-linear-accent/10 flex items-center justify-center"
       >
-        <Building2 className="w-8 h-8 text-linear-accent" />
+        <Building2 className="w-6 h-6 text-linear-accent" />
       </motion.div>
 
       <motion.div
@@ -240,7 +208,7 @@ function WorkspaceStep({
         transition={reduceMotion ? { duration: 0 } : { ...SPRING, delay: 0.2 }}
         className="space-y-2"
       >
-        <h2 className="text-2xl font-semibold text-linear-text">Create your workspace</h2>
+        <h2 className="text-xl font-semibold text-linear-text">Create your workspace</h2>
         <p className="text-sm text-linear-text-secondary max-w-sm mx-auto leading-relaxed">
           A workspace is your team&apos;s home. All projects and members live here.
         </p>
@@ -259,13 +227,13 @@ function WorkspaceStep({
           onKeyDown={(e) => {
             if (e.key === "Enter" && workspaceName.trim()) onCreate()
           }}
-          className="text-center"
+          className="text-center h-9"
         />
         <button
           type="button"
           onClick={onCreate}
           disabled={!workspaceName.trim() || isCreating}
-          className="w-full bg-linear-accent hover:bg-linear-accent-hover disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-sm h-10 px-6 text-sm font-medium transition-colors inline-flex items-center justify-center gap-2"
+          className="w-full bg-linear-accent hover:bg-linear-accent-hover disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-sm h-9 px-6 text-sm font-medium transition-colors inline-flex items-center justify-center gap-2"
         >
           {isCreating ? (
             <>
@@ -299,22 +267,34 @@ const RepoItem = memo(function RepoItem({
 
   return (
     <button
+      data-testid="onboarding-github-repo-row"
       type="button"
       onClick={() => onSelect(repo)}
-      className={`w-full h-[72px] overflow-hidden flex items-center gap-3 px-3 py-2 rounded-sm text-left ${
+      className={`w-full h-16 overflow-hidden flex items-center gap-2.5 px-3 py-1.5 rounded-sm text-left ${
         isSelected
           ? "bg-linear-accent/10 border border-linear-accent/40"
           : "hover:bg-linear-bg-tertiary border border-transparent"
       }`}
       style={{ contain: "layout paint style" }}
     >
-      <div className="w-8 h-8 rounded-sm border border-linear-border bg-linear-bg-tertiary flex items-center justify-center text-xs font-medium text-linear-text-secondary flex-shrink-0">
+      <div className="relative w-7 h-7 rounded-sm border border-linear-border bg-linear-bg-tertiary flex items-center justify-center text-xs font-medium text-linear-text-secondary flex-shrink-0 overflow-hidden">
         {owner[0]?.toUpperCase()}
+        {repo.owner?.avatar_url && (
+          <img
+            src={repo.owner.avatar_url}
+            alt=""
+            loading="lazy"
+            decoding="async"
+            referrerPolicy="no-referrer"
+            onError={(event) => event.currentTarget.remove()}
+            className="absolute inset-0 h-full w-full object-cover"
+          />
+        )}
       </div>
 
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1.5 min-w-0">
-          <span className="text-sm font-medium text-linear-text truncate">{repo.name}</span>
+          <span className="text-sm font-medium text-linear-text truncate leading-5">{repo.name}</span>
           {repo.private ? (
             <Lock className="w-3.5 h-3.5 text-linear-text-tertiary flex-shrink-0" />
           ) : (
@@ -322,7 +302,7 @@ const RepoItem = memo(function RepoItem({
           )}
           {repo.fork && <GitFork className="w-3.5 h-3.5 text-linear-text-tertiary flex-shrink-0" />}
         </div>
-        <div className="text-xs text-linear-text-tertiary truncate">{repo.full_name}</div>
+        <div className="text-xs text-linear-text-tertiary truncate leading-4">{repo.full_name}</div>
         {repo.description && (
           <p className="text-xs text-linear-text-secondary line-clamp-1 leading-4">{repo.description}</p>
         )}
@@ -349,29 +329,17 @@ const GitHubRepoList = memo(function GitHubRepoList({
   const { user } = useAuth()
   const [repos, setRepos] = useState<GitHubRepo[]>([])
   const [search, setSearch] = useState("")
-  const [sort, setSort] = useState<GitHubRepoSort>("pushed")
-  const [filter, setFilter] = useState<GitHubRepoFilter>("all")
-  const [page, setPage] = useState(1)
-  const [hasMore, setHasMore] = useState(false)
-  const [totalCount, setTotalCount] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [isLoadingRepos, setIsLoadingRepos] = useState(false)
-  const [isLoadingMore, setIsLoadingMore] = useState(false)
   const debouncedSearch = useDebouncedValue(search, 300)
   const repoQuery = useMemo(() => {
     const trimmed = debouncedSearch.trim()
     return trimmed.length >= 2 ? trimmed : ""
   }, [debouncedSearch])
-  const scrollParentRef = useRef<HTMLDivElement>(null)
   const requestIdRef = useRef(0)
   const repoRequestControllerRef = useRef<AbortController | null>(null)
 
   const hasGitHub = Boolean(user?.githubLinked ?? user?.githubId)
-
-  const getItemKey = useCallback(
-    (index: number) => repos[index]?.id ?? `repo-${index}`,
-    [repos],
-  )
 
   const handleSelectRepo = useCallback(
     (repo: GitHubRepo) => {
@@ -380,47 +348,38 @@ const GitHubRepoList = memo(function GitHubRepoList({
     [onSelectRepo, selectedRepo?.id],
   )
 
-  const rowVirtualizer = useVirtualizer({
-    count: repos.length,
-    getScrollElement: () => scrollParentRef.current,
-    estimateSize: () => 72,
-    getItemKey,
-    overscan: 2,
-  })
-  const repoListHeight = Math.min(rowVirtualizer.getTotalSize(), 440)
-
   const loadRepos = useCallback(
-    async (nextPage: number, replace: boolean) => {
+    async () => {
       if (!hasGitHub) return
+      if (!repoQuery) {
+        requestIdRef.current += 1
+        repoRequestControllerRef.current?.abort()
+        repoRequestControllerRef.current = null
+        setRepos([])
+        setError(null)
+        setIsLoadingRepos(false)
+        return
+      }
+
       const requestId = ++requestIdRef.current
       repoRequestControllerRef.current?.abort()
       const controller = new AbortController()
       repoRequestControllerRef.current = controller
 
       setError(null)
-      if (replace) {
-        setIsLoadingRepos(true)
-      } else {
-        setIsLoadingMore(true)
-      }
+      setIsLoadingRepos(true)
 
       try {
         const result = await fetchGitHubRepos({
-          page: nextPage,
-          perPage: REPO_PAGE_SIZE,
-          sort,
-          filter,
-          q: repoQuery || undefined,
+          page: 1,
+          perPage: REPO_SEARCH_LIMIT,
+          q: repoQuery,
           signal: controller.signal,
         })
 
         if (requestId !== requestIdRef.current) return
 
-        const newRepos = result.repos || []
-        setRepos((existing) => (replace ? newRepos : mergeRepos(existing, newRepos)))
-        setPage(nextPage)
-        setHasMore(result.hasMore ?? false)
-        setTotalCount(result.totalCount ?? 0)
+        setRepos(result.repos || [])
       } catch {
         if (controller.signal.aborted) return
         if (requestId !== requestIdRef.current) return
@@ -431,11 +390,10 @@ const GitHubRepoList = memo(function GitHubRepoList({
         }
         if (requestId === requestIdRef.current) {
           setIsLoadingRepos(false)
-          setIsLoadingMore(false)
         }
       }
     },
-    [filter, hasGitHub, repoQuery, sort],
+    [hasGitHub, repoQuery],
   )
 
   useEffect(() => {
@@ -447,7 +405,7 @@ const GitHubRepoList = memo(function GitHubRepoList({
   }, [])
 
   useEffect(() => {
-    loadRepos(1, true)
+    loadRepos()
   }, [loadRepos])
 
   if (!hasGitHub) {
@@ -467,36 +425,35 @@ const GitHubRepoList = memo(function GitHubRepoList({
           <Input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search repositories..."
+            placeholder="Search name or owner/repo..."
             className="pl-9 pr-8 h-8 bg-linear-bg-tertiary border-linear-border text-sm"
           />
+          {search && search === debouncedSearch && (
+            <button
+              type="button"
+              onClick={() => setSearch("")}
+              className="absolute right-2 top-1/2 -translate-y-1/2 rounded-sm p-1 text-linear-text-tertiary hover:bg-linear-bg-secondary hover:text-linear-text-secondary"
+              aria-label="Clear repository search"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
           {search !== debouncedSearch && (
             <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 animate-spin text-linear-text-tertiary" />
           )}
         </div>
-        <select
-          value={filter}
-          onChange={(e) => setFilter(e.target.value as GitHubRepoFilter)}
-          className="h-8 rounded-sm border border-linear-border bg-linear-bg-tertiary px-2 text-xs text-linear-text"
-        >
-          {FILTER_OPTIONS.map((opt) => (
-            <option key={opt.value} value={opt.value}>{opt.label}</option>
-          ))}
-        </select>
-        <select
-          value={sort}
-          onChange={(e) => setSort(e.target.value as GitHubRepoSort)}
-          className="h-8 rounded-sm border border-linear-border bg-linear-bg-tertiary px-2 text-xs text-linear-text"
-        >
-          {SORT_OPTIONS.map((opt) => (
-            <option key={opt.value} value={opt.value}>{opt.label}</option>
-          ))}
-        </select>
       </div>
+      <p className="text-xs text-linear-text-tertiary">
+        Search returns the top {REPO_SEARCH_LIMIT} matches. Use owner/repo for an exact match.
+      </p>
 
       {error && <p className="text-xs text-destructive">{error}</p>}
 
-      {isLoadingRepos ? (
+      {!repoQuery ? (
+        <div className="text-center py-8">
+          <p className="text-sm text-linear-text-tertiary">Search by repository name.</p>
+        </div>
+      ) : isLoadingRepos ? (
         <div className="flex items-center justify-center py-10">
           <Loader2 className="w-5 h-5 animate-spin text-linear-text-tertiary" />
         </div>
@@ -507,50 +464,19 @@ const GitHubRepoList = memo(function GitHubRepoList({
       ) : (
         <>
           <div
-            ref={scrollParentRef}
-            className="overflow-y-auto border border-linear-border rounded-sm"
-            style={{ height: `${repoListHeight}px` }}
+            data-testid="onboarding-github-repo-list"
+            className="max-h-44 overflow-y-auto border border-linear-border rounded-sm"
+            style={{ contain: "content" }}
           >
-            <div
-              style={{ height: `${rowVirtualizer.getTotalSize()}px`, position: "relative" }}
-            >
-              {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-                const repo = repos[virtualRow.index]
-                if (!repo) return null
-                return (
-                  <div
-                    key={virtualRow.key}
-                    data-index={virtualRow.index}
-                    style={{
-                      position: "absolute",
-                      top: 0,
-                      left: 0,
-                      width: "100%",
-                      height: `${virtualRow.size}px`,
-                      transform: `translateY(${virtualRow.start}px)`,
-                    }}
-                  >
-                    <RepoItem
-                      repo={repo}
-                      isSelected={selectedRepo?.id === repo.id}
-                      onSelect={handleSelectRepo}
-                    />
-                  </div>
-                )
-              })}
-            </div>
+            {repos.map((repo) => (
+              <RepoItem
+                key={repo.id}
+                repo={repo}
+                isSelected={selectedRepo?.id === repo.id}
+                onSelect={handleSelectRepo}
+              />
+            ))}
           </div>
-
-          {hasMore && (
-            <button
-              type="button"
-              onClick={() => loadRepos(page + 1, false)}
-              disabled={isLoadingMore}
-              className="w-full text-xs text-linear-text-secondary hover:text-linear-text transition-colors py-2"
-            >
-              {isLoadingMore ? "Loading..." : `Load more (${repos.length} of ${totalCount})`}
-            </button>
-          )}
         </>
       )}
     </div>
@@ -578,81 +504,11 @@ function ProjectStep({
 }) {
   const [showRepo, setShowRepo] = useState(false)
   const [activeTab, setActiveTab] = useState<ProjectTab>(repoDraft.source)
-  const [branchNames, setBranchNames] = useState<string[]>([])
-  const [isLoadingBranches, setIsLoadingBranches] = useState(false)
-  const [branchError, setBranchError] = useState<string | null>(null)
   const repoSummary = useMemo(() => getRepoSummary(repoDraft), [repoDraft])
   const suggestions = useMemo(
-    () => getDefaultBranchSuggestions(repoDraft, branchNames),
-    [branchNames, repoDraft.defaultBranch, repoDraft.selectedRepo?.default_branch],
+    () => getDefaultBranchSuggestions(repoDraft),
+    [repoDraft.defaultBranch, repoDraft.selectedRepo?.default_branch],
   )
-
-  const branchRepo = useMemo(() => {
-    if (repoDraft.source === "github" && repoDraft.selectedRepo) {
-      return parseGitHubRepoSlug(repoDraft.selectedRepo.full_name)
-    }
-    if (repoDraft.source === "link") {
-      return parseGitHubRepoSlug(repoDraft.repoUrl)
-    }
-    if (repoDraft.source === "ssh") {
-      return parseGitHubRepoSlug(repoDraft.sshUrl)
-    }
-    return null
-  }, [repoDraft.repoUrl, repoDraft.selectedRepo, repoDraft.source, repoDraft.sshUrl])
-
-  const branchRepoKey = branchRepo ? `${branchRepo.owner}/${branchRepo.repo}` : ""
-  const debouncedBranchRepoKey = useDebouncedValue(branchRepoKey, 400)
-  const debouncedBranchRepo = useMemo(() => {
-    if (!debouncedBranchRepoKey) return null
-    const [owner, repo] = debouncedBranchRepoKey.split("/")
-    if (!owner || !repo) return null
-    return { owner, repo }
-  }, [debouncedBranchRepoKey])
-
-  useEffect(() => {
-    if (!showRepo || !branchRepoKey) {
-      setBranchNames([])
-      setBranchError(null)
-      setIsLoadingBranches(false)
-      return
-    }
-
-    if (branchRepoKey !== debouncedBranchRepoKey || !debouncedBranchRepo) {
-      setBranchNames([])
-      setIsLoadingBranches(true)
-      setBranchError(null)
-      return
-    }
-
-    let cancelled = false
-    const controller = new AbortController()
-    setBranchNames([])
-    setIsLoadingBranches(true)
-    setBranchError(null)
-
-    fetchGitHubBranches(debouncedBranchRepo.owner, debouncedBranchRepo.repo, {
-      signal: controller.signal,
-    })
-      .then((result) => {
-        if (cancelled) return
-        const names = result.branches.map((branch) => branch.name).filter(Boolean)
-        setBranchNames(names)
-      })
-      .catch((err) => {
-        if (cancelled || (err instanceof DOMException && err.name === "AbortError")) return
-        setBranchNames([])
-        const message = err instanceof Error ? err.message : "Could not load repository branches"
-        setBranchError(message)
-      })
-      .finally(() => {
-        if (!cancelled) setIsLoadingBranches(false)
-      })
-
-    return () => {
-      cancelled = true
-      controller.abort()
-    }
-  }, [branchRepoKey, debouncedBranchRepo, debouncedBranchRepoKey, showRepo])
 
   const canCreate = projectName.trim().length > 0
 
@@ -716,13 +572,13 @@ function ProjectStep({
   ]
 
   return (
-    <div className="space-y-5">
-      <div className="text-center space-y-2">
-        <div className="w-12 h-12 mx-auto rounded-sm bg-linear-accent/10 flex items-center justify-center mb-4">
-          <FolderKanban className="w-6 h-6 text-linear-accent" />
+    <div className="space-y-4">
+      <div className="text-center space-y-1.5">
+        <div className="w-10 h-10 mx-auto rounded-sm bg-linear-accent/10 flex items-center justify-center mb-2">
+          <FolderKanban className="w-5 h-5 text-linear-accent" />
         </div>
-        <h2 className="text-xl font-semibold text-linear-text">Create a project</h2>
-        <p className="text-sm text-linear-text-secondary">
+        <h2 className="text-lg font-semibold text-linear-text">Create a project</h2>
+        <p className="text-xs text-linear-text-secondary">
           Projects group your tasks and connect to a code repository.
         </p>
       </div>
@@ -736,7 +592,7 @@ function ProjectStep({
           value={projectName}
           onChange={(e) => onProjectNameChange(e.target.value)}
           placeholder="e.g., Web App"
-          className="bg-linear-bg-tertiary border-linear-border text-linear-text placeholder:text-linear-text-tertiary focus:border-linear-border-hover h-10"
+          className="bg-linear-bg-tertiary border-linear-border text-linear-text placeholder:text-linear-text-tertiary focus:border-linear-border-hover h-9"
         />
       </div>
 
@@ -746,7 +602,7 @@ function ProjectStep({
           type="button"
           onClick={() => setShowRepo(!showRepo)}
           aria-expanded={showRepo}
-          className="w-full flex items-center gap-2 px-4 py-3 text-left hover:bg-linear-bg-tertiary transition-colors"
+          className="w-full flex items-center gap-2 px-3 py-2.5 text-left hover:bg-linear-bg-tertiary transition-colors"
         >
           {showRepo ? (
             <ChevronDown className="w-4 h-4 text-linear-text-tertiary" />
@@ -763,7 +619,7 @@ function ProjectStep({
         </button>
 
         {showRepo && (
-          <div className="border-t border-linear-border px-4 py-4 space-y-4">
+          <div className="border-t border-linear-border px-3 py-3 space-y-3">
             {/* Tabs */}
             <div className="grid grid-cols-3 rounded-sm bg-linear-bg-tertiary p-0.5 border border-linear-border">
               {tabs.map((tab) => {
@@ -783,7 +639,7 @@ function ProjectStep({
                         onRepoDraftChange({ source: "ssh", selectedRepo: null, repoUrl: "" })
                       }
                     }}
-                    className={`flex items-center justify-center gap-1.5 h-8 rounded-sm text-xs font-medium transition-all ${
+                    className={`flex items-center justify-center gap-1.5 h-7 rounded-sm text-xs font-medium transition-all ${
                       isActive
                         ? "bg-linear-bg-secondary text-linear-text shadow-sm"
                         : "text-linear-text-tertiary hover:text-linear-text-secondary"
@@ -811,7 +667,7 @@ function ProjectStep({
                     value={repoDraft.repoUrl}
                     onChange={(e) => handleLinkChange(e.target.value)}
                     placeholder="https://github.com/owner/repo"
-                    className="bg-linear-bg-tertiary border-linear-border text-linear-text placeholder:text-linear-text-tertiary h-10 pl-10"
+                    className="bg-linear-bg-tertiary border-linear-border text-linear-text placeholder:text-linear-text-tertiary h-9 pl-10"
                   />
                 </div>
               </div>
@@ -824,7 +680,7 @@ function ProjectStep({
                     value={repoDraft.sshUrl}
                     onChange={(e) => handleSshChange(e.target.value)}
                     placeholder="git@github.com:owner/repo.git"
-                    className="bg-linear-bg-tertiary border-linear-border text-linear-text placeholder:text-linear-text-tertiary h-10 pl-10"
+                    className="bg-linear-bg-tertiary border-linear-border text-linear-text placeholder:text-linear-text-tertiary h-9 pl-10"
                   />
                 </div>
               </div>
@@ -832,21 +688,15 @@ function ProjectStep({
 
             {/* Branch picker — show if repo is selected */}
             {hasRepoSelection(repoDraft) && (
-              <div className="space-y-2 border-t border-linear-border pt-4">
+              <div className="space-y-1.5 border-t border-linear-border pt-3">
                 <label className="text-xs font-medium text-linear-text-secondary">Default branch</label>
                 <Input
                   value={repoDraft.defaultBranch}
                   onChange={(e) => onRepoDraftChange({ defaultBranch: e.target.value })}
                   placeholder="main"
-                  className="bg-linear-bg-tertiary border-linear-border text-linear-text h-9"
+                  className="bg-linear-bg-tertiary border-linear-border text-linear-text h-8"
                 />
                 <div className="flex flex-wrap gap-1.5">
-                  {isLoadingBranches && (
-                    <span className="inline-flex items-center gap-1 rounded-sm border border-linear-border px-2 py-0.5 text-xs text-linear-text-tertiary">
-                      <Loader2 className="w-3 h-3 animate-spin" />
-                      Loading branches
-                    </span>
-                  )}
                   {suggestions.map((branch) => (
                     <button
                       key={branch}
@@ -861,11 +711,10 @@ function ProjectStep({
                       {branch}
                     </button>
                   ))}
-                  {!isLoadingBranches && suggestions.length === 0 && (
+                  {suggestions.length === 0 && (
                     <span className="text-xs text-linear-text-tertiary">No branches found. Type the branch name above.</span>
                   )}
                 </div>
-                {branchError && <p className="text-xs text-linear-text-tertiary">{branchError}</p>}
               </div>
             )}
           </div>
@@ -876,7 +725,7 @@ function ProjectStep({
         <button
           type="button"
           onClick={onBack}
-          className="border border-linear-border hover:bg-linear-bg-tertiary text-linear-text rounded-sm h-10 px-4 text-sm font-medium transition-colors"
+          className="border border-linear-border hover:bg-linear-bg-tertiary text-linear-text rounded-sm h-9 px-4 text-sm font-medium transition-colors"
         >
           Back
         </button>
@@ -884,7 +733,7 @@ function ProjectStep({
           type="button"
           onClick={onCreate}
           disabled={isCreating || !canCreate}
-          className="flex-1 bg-linear-accent hover:bg-linear-accent-hover disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-sm h-10 px-6 text-sm font-medium transition-colors inline-flex items-center justify-center gap-2"
+          className="flex-1 bg-linear-accent hover:bg-linear-accent-hover disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-sm h-9 px-6 text-sm font-medium transition-colors inline-flex items-center justify-center gap-2"
         >
           {isCreating ? (
             <>
@@ -931,13 +780,13 @@ function TeamStep({
   const canCreate = teamName.trim().length > 0 && /^[A-Z][A-Z0-9]*$/.test(key.trim())
 
   return (
-    <div className="space-y-5">
-      <div className="text-center space-y-2">
-        <div className="w-12 h-12 mx-auto rounded-sm bg-linear-accent/10 flex items-center justify-center mb-4">
-          <Users2 className="w-6 h-6 text-linear-accent" />
+    <div className="space-y-4">
+      <div className="text-center space-y-1.5">
+        <div className="w-10 h-10 mx-auto rounded-sm bg-linear-accent/10 flex items-center justify-center mb-2">
+          <Users2 className="w-5 h-5 text-linear-accent" />
         </div>
-        <h2 className="text-xl font-semibold text-linear-text">Create a team</h2>
-        <p className="text-sm text-linear-text-secondary">
+        <h2 className="text-lg font-semibold text-linear-text">Create a team</h2>
+        <p className="text-xs text-linear-text-secondary">
           Teams organize work inside a project. You can add more later.
         </p>
       </div>
@@ -952,7 +801,7 @@ function TeamStep({
             value={teamName}
             onChange={(e) => onNameChange(e.target.value)}
             placeholder="e.g., Frontend"
-            className="bg-linear-bg-tertiary border-linear-border text-linear-text placeholder:text-linear-text-tertiary focus:border-linear-border-hover h-10"
+            className="bg-linear-bg-tertiary border-linear-border text-linear-text placeholder:text-linear-text-tertiary focus:border-linear-border-hover h-9"
           />
         </div>
 
@@ -968,7 +817,7 @@ function TeamStep({
               setKey(e.target.value.toUpperCase())
             }}
             placeholder="e.g., FE"
-            className="bg-linear-bg-tertiary border-linear-border text-linear-text placeholder:text-linear-text-tertiary focus:border-linear-border-hover h-10"
+            className="bg-linear-bg-tertiary border-linear-border text-linear-text placeholder:text-linear-text-tertiary focus:border-linear-border-hover h-9"
           />
           <p className="text-xs text-linear-text-tertiary">Uppercase letters and numbers, starts with a letter.</p>
         </div>
@@ -978,7 +827,7 @@ function TeamStep({
         <button
           type="button"
           onClick={onBack}
-          className="border border-linear-border hover:bg-linear-bg-tertiary text-linear-text rounded-sm h-10 px-4 text-sm font-medium transition-colors"
+          className="border border-linear-border hover:bg-linear-bg-tertiary text-linear-text rounded-sm h-9 px-4 text-sm font-medium transition-colors"
         >
           Back
         </button>
@@ -986,7 +835,7 @@ function TeamStep({
           type="button"
           onClick={onCreate}
           disabled={isCreating || !canCreate}
-          className="flex-1 bg-linear-accent hover:bg-linear-accent-hover disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-sm h-10 px-6 text-sm font-medium transition-colors inline-flex items-center justify-center gap-2"
+          className="flex-1 bg-linear-accent hover:bg-linear-accent-hover disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-sm h-9 px-6 text-sm font-medium transition-colors inline-flex items-center justify-center gap-2"
         >
           {isCreating ? (
             <>
@@ -1009,7 +858,7 @@ function TeamStep({
 
 function StepIndicator({ currentStep }: { currentStep: number }) {
   return (
-    <div className="mb-8">
+    <div className="mb-5">
       <div className="flex items-center">
         {STEP_LABELS.map((label, index) => {
           const isActive = index === currentStep
@@ -1019,16 +868,16 @@ function StepIndicator({ currentStep }: { currentStep: number }) {
             <div key={label} className="contents">
               <div className="flex flex-col items-center shrink-0">
                 <div
-                  className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold transition-colors duration-300 ${
+                  className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold transition-colors duration-300 ${
                     isCompleted || isActive
                       ? "bg-linear-accent text-white"
                       : "bg-linear-bg border-2 border-linear-border text-linear-text-tertiary"
                   }`}
                 >
-                  {isCompleted ? <Check className="w-4 h-4" /> : <span>{index + 1}</span>}
+                  {isCompleted ? <Check className="w-3.5 h-3.5" /> : <span>{index + 1}</span>}
                 </div>
                 <span
-                  className={`mt-2 text-xs text-center whitespace-nowrap ${
+                  className={`mt-1.5 text-xs text-center whitespace-nowrap ${
                     isActive
                       ? "text-linear-text font-medium"
                       : isCompleted
@@ -1040,7 +889,7 @@ function StepIndicator({ currentStep }: { currentStep: number }) {
                 </span>
               </div>
               {index < STEP_LABELS.length - 1 && (
-                <div className="flex-1 h-[2px] mx-3 mb-5 transition-colors duration-500">
+                <div className="flex-1 h-[2px] mx-3 mb-4 transition-colors duration-500">
                   <div
                     className={`h-full rounded-full transition-colors duration-500 ${
                       index < currentStep ? "bg-linear-accent" : "bg-linear-border"
@@ -1058,13 +907,13 @@ function StepIndicator({ currentStep }: { currentStep: number }) {
 
 // ─── Main Component ─────────────────────────────────────────────────────────
 
-export function OnboardingWizard({ teams, onComplete, onCancel }: OnboardingWizardProps) {
+export function OnboardingWizard({ teams, initialWorkspaceId = null, onComplete, onCancel }: OnboardingWizardProps) {
   const [currentStep, setCurrentStep] = useState(0)
   const [workspaceName, setWorkspaceName] = useState("")
   const [projectName, setProjectName] = useState("")
   const [teamName, setTeamName] = useState("")
   const [repoDraft, setRepoDraft] = useState<RepoDraft>(EMPTY_REPO_DRAFT)
-  const [createdWorkspaceId, setCreatedWorkspaceId] = useState<string | null>(null)
+  const [createdWorkspaceId, setCreatedWorkspaceId] = useState<string | null>(initialWorkspaceId)
   const [createdProjectId, setCreatedProjectId] = useState<string | null>(null)
   const [isWorking, setIsWorking] = useState(false)
   const didLoadStoredDraftRef = useRef(false)
@@ -1073,22 +922,37 @@ export function OnboardingWizard({ teams, onComplete, onCancel }: OnboardingWiza
 
   // Restore draft
   useEffect(() => {
+    if (didLoadStoredDraftRef.current) return
     const storedDraft = loadStoredDraft()
     if (storedDraft) {
-      setCurrentStep(storedDraft.currentStep)
+      const restoredWorkspaceId = initialWorkspaceId ?? storedDraft.createdWorkspaceId ?? null
+      let restoredStep = restoredWorkspaceId ? storedDraft.currentStep : 0
+      if (restoredWorkspaceId && restoredStep === 0) restoredStep = 1
+      if (restoredStep === 2 && !storedDraft.createdProjectId) restoredStep = 1
+      setCurrentStep(Math.min(Math.max(restoredStep, 0), 2))
       setWorkspaceName(storedDraft.workspaceName)
       setProjectName(storedDraft.projectName)
       setRepoDraft(storedDraft.repoDraft)
       setTeamName(storedDraft.teamName)
+      setCreatedWorkspaceId(restoredWorkspaceId)
+      setCreatedProjectId(storedDraft.createdProjectId ?? null)
+    } else if (initialWorkspaceId) {
+      setCreatedWorkspaceId(initialWorkspaceId)
+      setCurrentStep(1)
     }
     didLoadStoredDraftRef.current = true
-  }, [])
+  }, [initialWorkspaceId])
+
+  useEffect(() => {
+    if (!initialWorkspaceId) return
+    setCreatedWorkspaceId((current) => current ?? initialWorkspaceId)
+  }, [initialWorkspaceId])
 
   // Save draft
   useEffect(() => {
     if (!didLoadStoredDraftRef.current) return
-    saveStoredDraft({ currentStep, workspaceName, projectName, repoDraft, teamName })
-  }, [currentStep, workspaceName, projectName, repoDraft, teamName])
+    saveStoredDraft({ currentStep, workspaceName, projectName, repoDraft, teamName, createdWorkspaceId, createdProjectId })
+  }, [currentStep, workspaceName, projectName, repoDraft, teamName, createdWorkspaceId, createdProjectId])
 
   const updateRepoDraft = useCallback((patch: Partial<RepoDraft>) => {
     setRepoDraft((current) => ({ ...current, ...patch }))
@@ -1111,7 +975,8 @@ export function OnboardingWizard({ teams, onComplete, onCancel }: OnboardingWiza
 
   // Step 1: Create project
   const handleCreateProject = useCallback(async () => {
-    if (!projectName.trim() || !createdWorkspaceId) return
+    const workspaceIdForProject = createdWorkspaceId ?? initialWorkspaceId
+    if (!projectName.trim() || !workspaceIdForProject) return
     setIsWorking(true)
 
     try {
@@ -1133,12 +998,13 @@ export function OnboardingWizard({ teams, onComplete, onCancel }: OnboardingWiza
 
       const project = await createProject({
         name: projectName.trim(),
-        workspaceId: createdWorkspaceId,
+        workspaceId: workspaceIdForProject,
         repoUrl,
         repositoryId,
         defaultBranch: repoDraft.defaultBranch.trim() || "main",
       })
 
+      setCreatedWorkspaceId(workspaceIdForProject)
       setCreatedProjectId(project.id)
       setCurrentStep(2)
     } catch {
@@ -1146,11 +1012,12 @@ export function OnboardingWizard({ teams, onComplete, onCancel }: OnboardingWiza
     } finally {
       setIsWorking(false)
     }
-  }, [projectName, createdWorkspaceId, repoDraft])
+  }, [projectName, createdWorkspaceId, initialWorkspaceId, repoDraft])
 
   // Step 2: Create team and finish
   const handleCreateTeam = useCallback(async () => {
-    if (!teamName.trim() || !createdWorkspaceId || !createdProjectId) return
+    const workspaceIdForCompletion = createdWorkspaceId ?? initialWorkspaceId
+    if (!teamName.trim() || !workspaceIdForCompletion || !createdProjectId) return
     setIsWorking(true)
 
     try {
@@ -1166,14 +1033,14 @@ export function OnboardingWizard({ teams, onComplete, onCancel }: OnboardingWiza
       onComplete({
         teamId: created.id,
         projectId: createdProjectId,
-        workspaceId: createdWorkspaceId,
+        workspaceId: workspaceIdForCompletion,
       })
     } catch {
       toast.error("Failed to create team. Please try again.")
     } finally {
       setIsWorking(false)
     }
-  }, [teamName, createdWorkspaceId, createdProjectId, onComplete])
+  }, [teamName, createdWorkspaceId, initialWorkspaceId, createdProjectId, onComplete])
 
   const stepBody = (() => {
     switch (currentStep) {
@@ -1213,10 +1080,10 @@ export function OnboardingWizard({ teams, onComplete, onCancel }: OnboardingWiza
     }
   })()
 
-  const cardClassName = "bg-linear-bg-secondary border border-linear-border rounded-sm p-6"
+  const cardClassName = "bg-linear-bg-secondary border border-linear-border rounded-sm p-4 sm:p-5"
 
   return (
-    <div className="w-full max-w-2xl mx-auto py-8">
+    <div className="w-full max-w-[660px] mx-auto py-2">
       <StepIndicator currentStep={currentStep} />
       {onCancel && (
         <div className="mb-4 flex justify-end">
