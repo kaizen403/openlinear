@@ -5,6 +5,98 @@
 
 ---
 
+## [2026-05-23] — Fix onboarding project Continue and compact the card
+
+**Status:** Done
+**Agent:** Codex
+
+### What was done
+- Fixed the Project-step Continue no-op when onboarding opens for an existing workspace by passing the active workspace id into the wizard and using it for project creation.
+- Persisted created workspace/project ids in the onboarding draft so restored steps keep the ids required by later actions.
+- Tightened the onboarding layout: smaller step indicator, icon, inputs, buttons, card padding, repository rows, and repository list height.
+- Removed page-level scrolling from the onboarding shell while keeping the bounded repository results list scrollable inside the card.
+- Extended the onboarding repo-picker regression script to guard the existing-workspace Continue path and no-page-scroll wrapper.
+
+### Files changed
+- `apps/desktop-ui/app/(app)/page.tsx` — passes the existing workspace id into onboarding and hides page-level overflow for the onboarding surface.
+- `apps/desktop-ui/components/onboarding/onboarding-wizard.tsx` — workspace id fallback for Continue, draft id persistence, compact card sizing.
+- `scripts/verify-onboarding-repo-scroll.mjs` — added source guards for the Continue fallback and onboarding wrapper overflow.
+- `ISSUES.md` — recorded this session.
+
+### Issues encountered
+- The worktree still has unrelated dirty API/MCP/schema/lockfile changes; they were left untouched.
+
+### Next steps / blockers
+- Manually try the existing-workspace onboarding path with a connected GitHub account and confirm Continue advances to Team after repo selection.
+
+## [2026-05-23] — Add repo logos and exact search to onboarding picker
+
+**Status:** Done
+**Agent:** Codex
+
+### What was done
+- Added owner avatars back to onboarding repository results with lazy loading, async decoding, and an inline fallback so the capped search list keeps its performance guardrails.
+- Improved the repository search input copy and added a clear-search control.
+- Added authenticated exact `owner/repo` lookup ahead of GitHub repository search so direct slugs return a top result even when normal repository search ranking is poor.
+- Extended API tests for exact repository lookup and updated the onboarding repo-picker performance guard to allow only lazy/async avatars in the capped result list.
+
+### Files changed
+- `apps/desktop-ui/components/onboarding/onboarding-wizard.tsx` — capped repo avatars, clearer search prompt, clear control.
+- `apps/api/src/services/github.ts` — exact authenticated repo lookup for `owner/repo` queries.
+- `apps/api/src/__tests__/repos.test.ts` — coverage for exact repo lookup precedence and avatar payload preservation.
+- `scripts/verify-onboarding-repo-scroll.mjs` — updated source guard for lazy/async repo logos.
+- `ISSUES.md` — recorded this session.
+
+### Issues encountered
+- The worktree contains unrelated dirty API/MCP/schema/lockfile changes; they were left untouched.
+
+### Next steps / blockers
+- Re-run onboarding, search by repo name or `owner/repo`, and confirm the selected repo shows its owner logo without reintroducing scroll lag.
+
+## [2026-05-23] — Replace onboarding repo browsing with search-only picker
+
+**Status:** Done
+**Agent:** Codex
+
+### What was done
+- Removed browsing/scrolling through connected GitHub repositories from onboarding.
+- Changed the GitHub picker to search-only with a hard cap of 8 results, so opening the connector does not pull repo pages and selection no longer depends on scrolling through a list.
+- Removed automatic branch-list fetching after repository selection; onboarding now uses the selected repo default branch and leaves the branch field editable.
+- Added a dependency-free Chromium performance regression check that asserts the lightweight repo-picker invariants and measures the capped list scroll path.
+- Wired the repo-picker performance check into the desktop UI test script.
+
+### Files changed
+- `apps/desktop-ui/components/onboarding/onboarding-wizard.tsx` — search-only GitHub repo picker, no browse/load-more, no branch fetch, capped result list.
+- `apps/desktop-ui/package.json` — runs the onboarding repo-picker performance check during `pnpm --filter @openlinear/desktop-ui test`.
+- `scripts/verify-onboarding-repo-scroll.mjs` — source guards plus headless Chromium scroll timing check.
+- `ISSUES.md` — recorded this fix.
+
+### Issues encountered
+- Existing unrelated worktree changes are present in API files, `next-env.d.ts`, and `pnpm-lock.yaml`; they were left untouched.
+
+### Next steps / blockers
+- Re-run onboarding and search for a repo by name instead of scrolling through connected repositories.
+
+## [2026-05-23] — Remove virtualized scrolling from onboarding repo picker
+
+**Status:** Done
+**Agent:** Codex
+
+### What was done
+- Removed `@tanstack/react-virtual` from the onboarding GitHub repo picker because the picker only loads small pages and the virtualizer was adding React work on every scroll frame.
+- Switched the repo picker to a plain browser-native scroll container with contained, lightweight repository rows.
+- Kept the reduced row rendering from the previous pass: no avatar image loads, no pushed-date formatting, no star metadata in the hot scroll path.
+
+### Files changed
+- `apps/desktop-ui/components/onboarding/onboarding-wizard.tsx` — replaced virtualized repo scrolling with a native contained scroll list.
+- `ISSUES.md` — recorded this follow-up fix.
+
+### Issues encountered
+- Could not reproduce with a live GitHub account in this environment, so verification is build/type-level plus code-path inspection.
+
+### Next steps / blockers
+- Re-run onboarding with a large connected GitHub account and scroll the repo list; if it still stalls, capture renderer console logs or a performance trace around the stall.
+
 ## [2026-05-23] — Fix production preview startup after stale dev server
 
 **Status:** Done
@@ -1083,3 +1175,42 @@ AGENTS: Add new entries above this comment. Format:
 
 ### Next steps / blockers
 - None for the sidecar coverage task.
+
+---
+
+## [2026-05-23] — Build dash.openlinear.tech analytics dashboard
+
+**Status:** Done
+**Agent:** Sisyphus
+
+### What was done
+- Scaffolded a new Next.js 16 app `apps/dashboard/` for `dash.openlinear.tech` with Tailwind CSS, shadcn/ui, and Recharts.
+- Implemented auth layer copying the desktop-ui pattern: `AuthProvider` context with localStorage JWT, login page with GitHub OAuth, and API fetch helpers.
+- Extended `apps/api/src/routes/auth.ts` to support `client=dashboard` OAuth flow with `DASHBOARD_URL` env var redirect.
+- Built analytics dashboard with cost summary cards, daily cost bar chart, and sortable paginated task table using existing `/api/usage` endpoints.
+- Built PAT management section: list tokens, create new PAT with copy-to-clipboard, revoke with confirmation using `/api/pats`.
+- Added task/project health metrics with new API routes: `GET /api/dashboard/tasks` (status/priority counts, overdue, unassigned) and `GET /api/dashboard/projects` (completion rates, health scores).
+- Extended `GET /api/activity-log` to support user-scoped queries across teams/projects when no specific entity ID provided. Added paginated activity feed UI.
+- Added MCP usage tracking: new `McpToolCall` Prisma model, `POST /api/mcp/log` and `GET /api/mcp/usage` routes, proxy-based auto-logging in MCP server, and dashboard chart component.
+- Created `apps/dashboard/vercel.json` for static export deployment. Fixed `useAuth` to be SSR-safe for build.
+- Dashboard has 4 tabs: Overview (cost + task health + MCP usage), Projects (health table), Activity (feed), Tokens (PAT management).
+
+### Files changed
+- `apps/dashboard/` — entire new Next.js app with all components, pages, and config.
+- `apps/api/src/routes/auth.ts` — added `dashboard` OAuth client support and `DASHBOARD_URL` redirect.
+- `apps/api/src/routes/dashboard.ts` — new task/project health metrics routes.
+- `apps/api/src/routes/activity-log.ts` — extended with user-scoped query support.
+- `apps/api/src/routes/mcp-usage.ts` — new MCP tool call logging and usage aggregation.
+- `apps/api/src/app.ts` — mounted new dashboard and MCP usage routes.
+- `packages/db/prisma/schema.prisma` — added `McpToolCall` model.
+- `apps/mcp/src/mcp/server.ts` — added Proxy-based auto-logging for all client method calls.
+- `apps/mcp/src/openlinear/client.ts` — added `logMcpToolCall` method.
+- `packages/db/src/index.ts` — regenerated Prisma client with `McpToolCall`.
+
+### Issues encountered
+- Initial typecheck failures due to `darkMode: ['class']` array syntax in Tailwind config and missing React type declarations — both fixed.
+- `useAuth` hook threw during static export build because `AuthContext` was undefined on server — fixed by returning default state instead of throwing when no context.
+
+### Next steps / blockers
+- Deploy `apps/dashboard/` to Vercel and configure `DASHBOARD_URL` and `CORS_ORIGIN` env vars on the API server.
+- Consider extracting shared auth/API client code from `desktop-ui` and `dashboard` into `packages/openlinear` to prevent drift.
