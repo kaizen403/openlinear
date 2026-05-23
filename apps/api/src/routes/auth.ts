@@ -134,7 +134,6 @@ function escapeScriptString(value: string): string {
 function renderDesktopCallbackHtml(params: { token?: string; error?: string }): string {
   const callbackUrl = buildDesktopCallbackUrl(params);
   const hasToken = Boolean(params.token);
-  const safeToken = params.token ? escapeHtml(params.token) : '';
   const safeError = params.error ? escapeHtml(params.error) : '';
   const safeCallbackUrl = escapeHtml(callbackUrl);
   const title = hasToken ? 'OpenLinear sign-in complete' : 'OpenLinear sign-in failed';
@@ -179,18 +178,15 @@ function renderDesktopCallbackHtml(params: { token?: string; error?: string }): 
     <div class="actions">
       <a id="open-app" href="${safeCallbackUrl}">Open OpenLinear</a>
       <button class="secondary" type="button" id="copy-app-link">Copy app link</button>
-      ${hasToken ? '<button class="secondary" type="button" id="copy-token">Copy token</button>' : ''}
     </div>
     <p id="copy-status" class="copy-status" aria-live="polite"></p>
     ${hasToken ? `<div class="fallback">
-      <p>If OpenLinear does not open, paste the app link or this token into the sign-in screen.</p>
+      <p>If OpenLinear does not open, copy the app link below and paste it into the sign-in screen.</p>
       <textarea id="app-link" readonly>${safeCallbackUrl}</textarea>
-      <textarea id="token" readonly>${safeToken}</textarea>
     </div>` : ''}
   </main>
   <script>
     const callbackUrl = ${escapeScriptString(callbackUrl)};
-    const token = ${escapeScriptString(params.token ?? '')};
     const copyStatus = document.getElementById('copy-status');
 
     async function copyText(value, label) {
@@ -226,9 +222,6 @@ function renderDesktopCallbackHtml(params: { token?: string; error?: string }): 
     });
     document.getElementById('copy-app-link')?.addEventListener('click', () => {
       void copyText(callbackUrl, 'App link');
-    });
-    document.getElementById('copy-token')?.addEventListener('click', () => {
-      void copyText(token, 'Token');
     });
   </script>
 </body>
