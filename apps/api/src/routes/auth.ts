@@ -143,9 +143,9 @@ function renderDesktopCallbackHtml(params: { token?: string; error?: string }): 
   const hasToken = Boolean(params.token);
   const safeError = params.error ? escapeHtml(params.error) : '';
   const safeCallbackUrl = escapeHtml(callbackUrl);
-  const title = hasToken ? 'OpenLinear sign-in complete' : 'OpenLinear sign-in failed';
+  const title = hasToken ? 'OpenLinear authenticated' : 'OpenLinear sign-in failed';
   const statusText = hasToken
-    ? 'Return to OpenLinear to finish signing in.'
+    ? 'Authenticated. Return to OpenLinear to finish signing in.'
     : `GitHub returned an error${safeError ? `: ${safeError}` : '.'}`;
 
   return `<!doctype html>

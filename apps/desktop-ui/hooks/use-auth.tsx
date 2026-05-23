@@ -107,6 +107,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (requestId !== authRequestId.current) return;
         setUser(userData);
         await refreshActiveRepository();
+        toast.success('Authenticated. Opening OpenLinear...');
         if (pathname === '/login') {
           router.replace('/');
         }

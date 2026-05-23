@@ -1,6 +1,6 @@
 "use client"
 
-import { Github, KeyRound, Loader2 } from "lucide-react"
+import { CheckCircle2, Github, KeyRound, Loader2 } from "lucide-react"
 import { useEffect, useState, type FormEvent, type MouseEvent } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
@@ -16,12 +16,13 @@ export default function LoginPage() {
   const [showTokenFallback, setShowTokenFallback] = useState(false)
   const [callbackToken, setCallbackToken] = useState("")
   const [isCompletingTokenLogin, setIsCompletingTokenLogin] = useState(false)
+  const [authSuccessMessage, setAuthSuccessMessage] = useState("")
 
   useEffect(() => {
-    if (!isAuthLoading && isAuthenticated) {
+    if (!isAuthLoading && isAuthenticated && !authSuccessMessage) {
       router.replace("/")
     }
-  }, [isAuthLoading, isAuthenticated, router])
+  }, [authSuccessMessage, isAuthLoading, isAuthenticated, router])
 
   const handleGitHubLogin = async () => {
     setIsStartingLogin(true)
@@ -55,9 +56,12 @@ export default function LoginPage() {
     try {
       await verifyCallbackToken(token)
       await refreshUser()
-      toast.success("Signed in with GitHub")
+      setAuthSuccessMessage("Authenticated. Opening OpenLinear...")
+      toast.success("Authenticated. Opening OpenLinear...")
+      await new Promise((resolve) => window.setTimeout(resolve, 900))
       router.replace("/")
     } catch (err) {
+      setAuthSuccessMessage("")
       if (err instanceof NetworkError || (err instanceof ApiError && err.status >= 500)) {
         toast.error("Could not verify the callback token because the desktop API is not ready. Try again in a moment.")
       } else {
@@ -111,6 +115,17 @@ export default function LoginPage() {
             </button>
           )}
 
+          {authSuccessMessage && (
+            <div
+              className="mt-4 flex items-center gap-2 rounded-sm border border-green-500/30 bg-green-500/10 px-3 py-2 text-sm text-green-300"
+              role="status"
+              aria-live="polite"
+            >
+              <CheckCircle2 className="h-4 w-4 flex-none" />
+              <span>{authSuccessMessage}</span>
+            </div>
+          )}
+
           <div className="mt-4 border-t border-linear-border pt-4">
             <button
               type="button"
@@ -134,7 +149,7 @@ export default function LoginPage() {
                 />
                 <Button
                   type="submit"
-                  disabled={isCompletingTokenLogin || !callbackToken.trim()}
+                  disabled={isCompletingTokenLogin || Boolean(authSuccessMessage) || !callbackToken.trim()}
                   className="w-full bg-linear-accent hover:bg-linear-accent-hover text-white"
                 >
                   {isCompletingTokenLogin ? (
