@@ -13,6 +13,31 @@ interface McpServerOptions {
   apiUrl: string;
 }
 
+function createLoggingClient(baseUrl: string, pat: string): OpenLinearClient {
+  const client = new OpenLinearClient(baseUrl, pat);
+
+  return new Proxy(client, {
+    get(target, prop, receiver) {
+      const value = Reflect.get(target, prop, receiver);
+      if (typeof value !== "function" || prop === "logMcpToolCall") {
+        return value;
+      }
+      return async (...args: unknown[]) => {
+        const toolName = String(prop);
+        try {
+          const result = await value.apply(target, args);
+          await client.logMcpToolCall(toolName, true).catch(() => {});
+          return result;
+        } catch (error) {
+          const errorMsg = error instanceof Error ? error.message : String(error);
+          await client.logMcpToolCall(toolName, false, errorMsg).catch(() => {});
+          throw error;
+        }
+      };
+    },
+  }) as OpenLinearClient;
+}
+
 export function createMcpServer(opts: McpServerOptions): McpServer {
   const server = new McpServer(
     {
@@ -25,7 +50,7 @@ export function createMcpServer(opts: McpServerOptions): McpServer {
     },
   );
 
-  const client = new OpenLinearClient(opts.apiUrl, opts.pat);
+  const client = createLoggingClient(opts.apiUrl, opts.pat);
 
   registerWorkspaceTools(server, client);
   registerProjectTools(server, client);

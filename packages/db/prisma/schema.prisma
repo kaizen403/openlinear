@@ -542,3 +542,16 @@ model ActivityLog {
   @@index([projectId, createdAt])
   @@map("activity_logs")
 }
+
+model McpToolCall {
+  id        String   @id @default(uuid())
+  toolName  String
+  userId    String
+  success   Boolean
+  error     String?
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([toolName, createdAt])
+  @@map("mcp_tool_calls")
+}

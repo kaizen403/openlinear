@@ -89,4 +89,8 @@ export class OpenLinearClient {
     const qs = new URLSearchParams({ projectId: params.projectId });
     return this.request("GET", `/api/labels?${qs.toString()}`);
   }
+
+  logMcpToolCall(toolName: string, success: boolean, error?: string) {
+    return this.request<void>("POST", "/api/mcp/log", { toolName, success, error });
+  }
 }
