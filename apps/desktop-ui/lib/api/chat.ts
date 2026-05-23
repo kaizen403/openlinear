@@ -206,6 +206,35 @@ export async function sendChatMessage({ sessionId, content, signal, onChunk, onE
         }
       }
     }
+
+    buffer += decoder.decode();
+    if (buffer) {
+      const lines = buffer.split('\n');
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const data = line.slice(6).trim();
+        if (data === '[DONE]') {
+          onDone?.();
+          return;
+        }
+        try {
+          const chunk: ChatChunk = JSON.parse(data);
+          onChunk(chunk);
+          if (chunk.type === 'done') {
+            onDone?.();
+            return;
+          }
+          if (chunk.type === 'error') {
+            const flatMessage = typeof chunk.message === 'string' ? chunk.message : undefined;
+            onError?.(new Error(chunk.error?.message || flatMessage || 'Stream error'));
+            return;
+          }
+        } catch {
+          // Skip malformed JSON lines
+        }
+      }
+    }
+
     onDone?.();
   } catch (err) {
     if (signal?.aborted) return;

@@ -176,6 +176,9 @@ router.delete('/sessions/:id', requireAuth, async (req: AuthRequest, res: Respon
 function writeChunk(res: Response, chunk: ChatChunk): void {
   res.write(`event: ${chunk.type}\n`);
   res.write(`data: ${JSON.stringify(chunk)}\n\n`);
+  if (typeof (res as unknown as { flush?: () => void }).flush === 'function') {
+    (res as unknown as { flush: () => void }).flush();
+  }
 }
 
 router.post(
