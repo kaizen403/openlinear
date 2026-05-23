@@ -1,5 +1,5 @@
 import { Router, Response, NextFunction } from 'express';
-import { prisma } from '@openlinear/db';
+import { prisma, Prisma } from '@openlinear/db';
 import { z } from 'zod';
 import { requireAuth, AuthRequest } from '../middleware/auth';
 import {
@@ -7,22 +7,19 @@ import {
   assertProjectAccess,
   assertTeamRole,
 } from '../services/ownership';
+import { getUserTeamIds } from '../services/team-scope';
 import { paginated, paginationSkipTake } from '../schemas/pagination';
 import { ValidationError } from '../errors';
 
 const router: Router = Router();
 
-const querySchema = z
-  .object({
-    taskId: z.string().uuid().optional(),
-    projectId: z.string().uuid().optional(),
-    teamId: z.string().uuid().optional(),
-    page: z.coerce.number().int().min(1).default(1),
-    pageSize: z.coerce.number().int().min(1).max(200).default(50),
-  })
-  .refine((v) => Boolean(v.taskId || v.projectId || v.teamId), {
-    message: 'one of taskId, projectId, teamId is required',
-  });
+const querySchema = z.object({
+  taskId: z.string().uuid().optional(),
+  projectId: z.string().uuid().optional(),
+  teamId: z.string().uuid().optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(200).default(50),
+});
 
 router.get('/', requireAuth, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
@@ -36,11 +33,30 @@ router.get('/', requireAuth, async (req: AuthRequest, res: Response, next: NextF
     if (projectId) await assertProjectAccess(projectId, req.userId!, 'view');
     if (teamId) await assertTeamRole(teamId, req.userId!, ['owner', 'admin', 'member']);
 
-    const where = {
-      ...(taskId ? { taskId } : {}),
-      ...(projectId ? { projectId } : {}),
-      ...(teamId ? { teamId } : {}),
-    };
+    let where: Prisma.ActivityLogWhereInput = {};
+
+    if (taskId || projectId || teamId) {
+      where = {
+        ...(taskId ? { taskId } : {}),
+        ...(projectId ? { projectId } : {}),
+        ...(teamId ? { teamId } : {}),
+      };
+    } else {
+      const userId = req.userId!;
+      const teamIds = await getUserTeamIds(userId);
+      const projectIds = await prisma.projectAccess.findMany({
+        where: { userId },
+        select: { projectId: true },
+      }).then((rows) => rows.map((r) => r.projectId));
+
+      where = {
+        OR: [
+          { userId },
+          ...(teamIds.length > 0 ? [{ teamId: { in: teamIds } }] : []),
+          ...(projectIds.length > 0 ? [{ projectId: { in: projectIds } }] : []),
+        ],
+      };
+    }
 
     const [activities, total] = await prisma.$transaction(
       async (tx) => {
