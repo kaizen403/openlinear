@@ -126,11 +126,13 @@
     background-color: #0a0a0a;
     font-family: var(--font-sans);
     overscroll-behavior: none;
+    height: 100%;
   }
 
   body {
     @apply bg-linear-bg text-linear-text;
     font-family: var(--font-sans);
+    height: 100%;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     /* Disable standard/discretionary ligatures (they mangle code-like

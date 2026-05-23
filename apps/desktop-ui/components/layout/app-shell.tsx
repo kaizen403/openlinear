@@ -126,7 +126,7 @@ export function AppShell({ children }: AppShellProps) {
     const effectiveWidth = isMobile ? 300 : sidebarWidth
 
     return (
-        <div className="flex h-[100dvh] bg-linear-bg text-linear-text overflow-hidden">
+        <div className="flex h-screen min-h-0 bg-linear-bg text-linear-text overflow-hidden">
             {/* Mobile overlay backdrop */}
             {isMobile && sidebarOpen && (
                 <button
@@ -171,7 +171,7 @@ export function AppShell({ children }: AppShellProps) {
             )}
 
             <div
-                className="flex-1 flex flex-col min-w-0 overflow-hidden"
+                className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden"
             >
                 {children}
             </div>

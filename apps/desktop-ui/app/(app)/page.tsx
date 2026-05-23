@@ -110,7 +110,7 @@ function HomeContent() {
   const composerDisabled = !activeProject
 
   return (
-    <div className="flex flex-1 flex-col bg-linear-bg overflow-hidden">
+    <div className="flex flex-1 flex-col min-h-0 bg-linear-bg overflow-hidden">
       <header className="min-h-14 shrink-0 border-b border-linear-border bg-linear-bg/95 px-4 sm:px-6" data-tauri-drag-region>
         <div className="flex h-14 items-center gap-3">
           <div className="min-w-0 flex-1" data-tauri-drag-region>
