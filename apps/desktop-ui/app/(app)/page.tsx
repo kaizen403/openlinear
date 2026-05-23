@@ -103,6 +103,7 @@ function HomeContent() {
 
   const hasMessages = messages.length > 0
   const isStreaming = status === "streaming"
+  const isThinking = isStreaming && !streamingContent && activeToolCalls.length === 0
   const composerPlaceholder = activeProject
     ? `Ask about ${activeProject.name.toLowerCase()}...`
     : "Select a project to start..."
