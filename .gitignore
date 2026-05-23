@@ -1,25 +1,80 @@
+# === OS ===
 .DS_Store
-node_modules
-.next
-out
-dist
-*.log
+Thumbs.db
+
+# === Secrets & Environment ===
+# Ignore all .env files EXCEPT .env.example which is kept as documentation
 .env
 .env.local
 .env.*.local
 .env.bak.*
-coverage
-.turbo
-.vercel
+.env.production
+.env.staging
+!.env.example
+
+# === Dependencies ===
+node_modules/
+package-lock.json
+yarn.lock
+bun.lockb
+.pnpm-debug.log*
+
+# === Node.js / Next.js Build Artifacts ===
+.next/
+out/
+dist/
+build/
+*.tsbuildinfo
+
+# === Rust / Tauri Build Artifacts ===
+target/
+src-tauri/target/
+src-tauri/gen/
+
+# === Logs & Temp ===
+*.log
+logs/
+*.pid
+*.seed
+*.pid.lock
+.cache/
+.turbo/
+.tmp/
+temp/
+
+# === Testing ===
+coverage/
+*.lcov
+
+# === IDE / Editor ===
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+*.swp
+*.swo
+*~
+
+# === Deployment / Hosting ===
+.vercel/
+netlify.toml
+
+# === App-Specific Generated Files ===
+apps/desktop/src-tauri/binaries/opencode-*
+apps/intro-video/build/
+apps/mcp/.dev.vars
+apps/mcp/.wrangler/
+
+# === Work-in-Progress / Untracked Apps ===
+apps/dashboard/
+
+# === Internal Tooling ===
 .opencode-monitor/
 .omx/
 .sisyphus/
-*.tsbuildinfo
-package-lock.json
-apps/desktop/src-tauri/binaries/opencode-*
-apps/intro-video/build/
-.cache/
-apps/mcp/.dev.vars
-apps/mcp/.wrangler/
-.env.production
-apps/dashboard/
+
+# === Certificates ===
+*.pem
+*.key
+*.crt
+*.der
