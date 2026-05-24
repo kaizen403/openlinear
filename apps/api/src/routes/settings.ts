@@ -1,4 +1,4 @@
-import { Router, Response, NextFunction } from 'express';
+import { Router, Response } from 'express';
 import { prisma } from '@openlinear/db';
 import { broadcastToUser } from '../sse';
 import { requireAuth, AuthRequest } from '../middleware/auth';
@@ -7,40 +7,36 @@ import { updateSettingsBodySchema, UpdateSettingsBody } from '../schemas/setting
 
 const router: Router = Router();
 
-router.get('/', requireAuth, async (req: AuthRequest, res: Response, next: NextFunction) => {
-  try {
-    const userId = req.userId!;
-    let settings = await prisma.settings.findUnique({ where: { userId } });
+router.get('/', requireAuth, async (req: AuthRequest, res: Response) => {
 
-    if (!settings) {
-      settings = await prisma.settings.create({ data: { userId } });
-    }
+  const userId = req.userId!;
+  let settings = await prisma.settings.findUnique({ where: { userId } });
 
-    res.json(settings);
-  } catch (error) {
-    next(error);
+  if (!settings) {
+    settings = await prisma.settings.create({ data: { userId } });
   }
+
+  res.json(settings);
+  
 });
 
 router.patch(
   '/',
   requireAuth,
   validateBody(updateSettingsBodySchema),
-  async (req: AuthRequest & ValidatedRequest<UpdateSettingsBody>, res: Response, next: NextFunction) => {
-    try {
-      const userId = req.userId!;
-      const data = req.validBody!;
-      const settings = await prisma.settings.upsert({
-        where: { userId },
-        update: data,
-        create: { userId, ...data },
-      });
+  async (req: AuthRequest & ValidatedRequest<UpdateSettingsBody>, res: Response) => {
 
-      broadcastToUser(userId, 'settings:updated', settings);
-      res.json(settings);
-    } catch (error) {
-      next(error);
-    }
+    const userId = req.userId!;
+    const data = req.validBody!;
+    const settings = await prisma.settings.upsert({
+      where: { userId },
+      update: data,
+      create: { userId, ...data },
+    });
+
+    broadcastToUser(userId, 'settings:updated', settings);
+    res.json(settings);
+    
   },
 );
 
