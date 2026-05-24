@@ -1,8 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useDeferredValue, useMemo } from "react"
 import { DropResult } from "@hello-pangea/dnd"
 import { toast } from "sonner"
-import type { SSEEventType, SSEEventData } from "@/providers/sse-provider"
-import { useSSESubscription } from "@/providers/sse-provider"
 import { useAuth } from "@/hooks/use-auth"
 import { Project } from "@/lib/api"
 import type { Repository } from "@/lib/api"
@@ -10,21 +8,21 @@ import { Task, ExecutionProgress, ExecutionLogEntry } from "@/types/task"
 import { apiFetch, ApiError, NetworkError } from "@/lib/api/fetch"
 import { getSetupStatus, OpenCodeUnavailableError } from "@/lib/api/opencode"
 import {
-  appendExecutionLog,
   clearExecutionProgress,
   getExecutionProgress,
   hasExecutionLogs,
   replaceExecutionLogs,
-  setExecutionProgress,
 } from "@/lib/execution-state-store"
 import type { BatchMode } from "./batch-mode"
 import {
   applyBoardStatusChange,
-  getLockedBatchTaskIds,
   moveBoardTask,
   replaceOptimisticTask,
   upsertBoardTask,
 } from "./board-state"
+import { useTaskSelection } from "@/hooks/use-task-selection"
+import { useBatchExecution } from "@/hooks/use-batch-execution"
+import { useTaskSSE } from "@/hooks/use-task-sse"
 
 export const COLUMNS = [
   { id: 'todo', title: 'All Issues', status: 'todo' as const },
@@ -47,8 +45,7 @@ export interface ActiveBatch {
 
 /**
  * A task is "actively executing" when the sidecar is reporting live progress
- * in an active phase. Being in the In Progress column alone does NOT mean
- * the task is running — In Progress is a Kanban state, not a runtime state.
+ * in an active phase.
  */
 export function isTaskActivelyExecuting(
   task: Pick<Task, 'status'> | null | undefined,
@@ -133,31 +130,66 @@ export function useKanbanBoard({ projectId, teamId, projects = [], searchQuery =
   const [error, setError] = useState<string | null>(null)
   const [isTaskFormOpen, setIsTaskFormOpen] = useState(false)
   const [defaultStatus, setDefaultStatus] = useState<Task['status']>('todo')
-  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
-  const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set())
-  const [selectingColumns, setSelectingColumns] = useState<Set<string>>(new Set())
   const [activeBatch, setActiveBatch] = useState<ActiveBatch | null>(null)
-  const [completedBatch, setCompletedBatch] = useState<{ taskIds: string[]; prUrl: string | null; mode: BatchMode } | null>(null)
   const [showProviderSetup, setShowProviderSetup] = useState(false)
   const [pendingExecuteTaskId, setPendingExecuteTaskId] = useState<string | null>(null)
-  // Tracks tasks whose Execute POST is in flight so the UI can show "starting…"
-  // and the second click on Execute is ignored. Cleared on success or failure.
   const [startingExecuteIds, setStartingExecuteIds] = useState<Set<string>>(new Set())
   const [taskDeletionMode, setTaskDeletionMode] = useState<"archive" | "delete">("archive")
   const tasksRef = useRef(tasks)
-  const selectedTaskIdRef = useRef(selectedTaskId)
   const taskDeletionModeRef = useRef(taskDeletionMode)
-  const lastSelectedIdRef = useRef<string | null>(null)
+  tasksRef.current = tasks
+  taskDeletionModeRef.current = taskDeletionMode
+
   const { isAuthenticated, activeRepository, refreshActiveRepository } = useAuth()
 
-  const lockedBatchTaskIds = useMemo(() => getLockedBatchTaskIds(activeBatch), [activeBatch])
-  const batchTaskIds = useMemo(() => Array.from(lockedBatchTaskIds), [lockedBatchTaskIds])
-  const completedBatchTaskIds = completedBatch?.taskIds ?? []
-  const batchTaskIdsRef = useRef(batchTaskIds)
+  const deferredSearchQuery = useDeferredValue(searchQuery)
+  const filteredTasks = useMemo(() => {
+    const q = deferredSearchQuery.trim().toLowerCase()
+    if (q.length < 1) return tasks
+    return tasks.filter((task) => {
+      const title = (task.title || "").toLowerCase()
+      const identifier = (task.identifier || "").toLowerCase()
+      return title.includes(q) || identifier.includes(q)
+    })
+  }, [tasks, deferredSearchQuery])
 
-  tasksRef.current = tasks
-  selectedTaskIdRef.current = selectedTaskId
-  taskDeletionModeRef.current = taskDeletionMode
+  const filteredTasksRef = useRef(filteredTasks)
+  filteredTasksRef.current = filteredTasks
+
+  // --- Batch Execution ---
+  const batch = useBatchExecution({
+    tasks,
+    selectedTaskIds: new Set(), // will be overridden below
+    activeBatch,
+    setActiveBatch,
+    clearSelection: () => {}, // will be overridden below
+    setTasks,
+    setShowProviderSetup,
+    setSelectedTaskIds: () => {},
+  })
+
+  // --- Task Selection ---
+  const selection = useTaskSelection({
+    tasks,
+    filteredTasks,
+    batchTaskIds: batch.batchTaskIds,
+  })
+
+  // Re-wire batch with actual selection values
+  const batchWithSelection = useBatchExecution({
+    tasks,
+    selectedTaskIds: selection.selectedTaskIds,
+    activeBatch,
+    setActiveBatch,
+    clearSelection: selection.clearSelection,
+    setTasks,
+    setShowProviderSetup,
+    setSelectedTaskIds: selection.setSelectedTaskIds,
+  })
+
+  const { batchTaskIds, completedBatchTaskIds, completedBatch, setCompletedBatch } = batchWithSelection
+
+  const batchTaskIdsRef = useRef(batchTaskIds)
   batchTaskIdsRef.current = batchTaskIds
 
   const addStartingExecute = useCallback((taskId: string) => {
@@ -176,30 +208,11 @@ export function useKanbanBoard({ projectId, teamId, projects = [], searchQuery =
     })
   }, [])
 
-  const deferredSearchQuery = useDeferredValue(searchQuery)
-  const filteredTasks = useMemo(() => {
-    const q = deferredSearchQuery.trim().toLowerCase()
-    if (q.length < 1) return tasks
-    return tasks.filter((task) => {
-      const title = (task.title || "").toLowerCase()
-      const identifier = (task.identifier || "").toLowerCase()
-      return title.includes(q) || identifier.includes(q)
-    })
-  }, [tasks, deferredSearchQuery])
-
-  const filteredTasksRef = useRef(filteredTasks)
-  filteredTasksRef.current = filteredTasks
-
-  const clearSelection = useCallback(() => {
-    setSelectedTaskIds(new Set())
-    setSelectingColumns(new Set())
-    lastSelectedIdRef.current = null
-  }, [])
-
+  // Reset on scope change
   useEffect(() => {
-    clearSelection()
-    setSelectedTaskId(null)
-  }, [projectId, teamId, deferredSearchQuery, clearSelection])
+    selection.setSelectedTaskId(null)
+    selection.clearSelection()
+  }, [projectId, teamId, deferredSearchQuery])
 
   const getFullDestinationIndex = useCallback((taskId: string, status: Task['status'], visibleIndex: number) => {
     const visibleDestinationTasks = filteredTasksRef.current.filter(
@@ -209,274 +222,10 @@ export function useKanbanBoard({ projectId, teamId, projects = [], searchQuery =
     if (!targetTask) {
       return tasksRef.current.filter((task) => task.status === status && task.id !== taskId).length
     }
-
     return tasksRef.current
       .filter((task) => task.status === status && task.id !== taskId)
       .findIndex((task) => task.id === targetTask.id)
   }, [])
-
-  const clearColumnSelection = useCallback((status: Task['status']) => {
-    setSelectedTaskIds(prev => {
-      const next = new Set(prev)
-      filteredTasks
-        .filter(task => task.status === status)
-        .forEach(task => next.delete(task.id))
-      return next
-    })
-  }, [filteredTasks])
-
-  const toggleColumnSelection = useCallback((columnId: string) => {
-    setSelectedTaskId(null)
-    setSelectingColumns(prev => {
-      const next = new Set(prev)
-      if (next.has(columnId)) {
-        next.delete(columnId)
-        const columnStatus = COLUMNS.find(c => c.id === columnId)?.status
-        if (columnStatus) {
-          clearColumnSelection(columnStatus)
-        }
-      } else {
-        next.add(columnId)
-      }
-      return next
-    })
-  }, [clearColumnSelection])
-
-  const toggleTaskSelect = useCallback((taskId: string, modifiers?: { shift?: boolean; meta?: boolean }) => {
-    const currentBatchTaskIds = batchTaskIdsRef.current
-    const currentTasks = tasksRef.current
-
-    if (currentBatchTaskIds.includes(taskId)) return
-    setSelectedTaskId(null)
-
-    if (modifiers?.shift && lastSelectedIdRef.current) {
-      const orderedIds: string[] = []
-      for (const col of COLUMNS) {
-        for (const t of currentTasks) {
-          if (t.status === col.status) orderedIds.push(t.id)
-        }
-      }
-      const anchorIdx = orderedIds.indexOf(lastSelectedIdRef.current)
-      const targetIdx = orderedIds.indexOf(taskId)
-      if (anchorIdx !== -1 && targetIdx !== -1) {
-        const [from, to] = anchorIdx < targetIdx ? [anchorIdx, targetIdx] : [targetIdx, anchorIdx]
-        setSelectedTaskIds(prev => {
-          const next = new Set(prev)
-          for (let i = from; i <= to; i++) {
-            const id = orderedIds[i]
-            if (id && !currentBatchTaskIds.includes(id)) next.add(id)
-          }
-          return next
-        })
-        lastSelectedIdRef.current = taskId
-        return
-      }
-    }
-
-    setSelectedTaskIds(prev => {
-      const next = new Set(prev)
-      if (next.has(taskId)) next.delete(taskId)
-      else next.add(taskId)
-      return next
-    })
-    lastSelectedIdRef.current = taskId
-  }, [])
-
-  const toggleColumnSelectAll = useCallback((status: Task['status']) => {
-    setSelectedTaskId(null)
-    const columnTasks = filteredTasks.filter(task => task.status === status)
-    const columnTaskIds = columnTasks.map(task => task.id)
-    const allSelected = columnTaskIds.every(id => selectedTaskIds.has(id))
-    
-    setSelectedTaskIds(prev => {
-      const next = new Set(prev)
-      if (allSelected) {
-        columnTaskIds.forEach(id => next.delete(id))
-      } else {
-        columnTaskIds.forEach(id => {
-          if (!batchTaskIds.includes(id)) {
-            next.add(id)
-          }
-        })
-      }
-      return next
-    })
-  }, [filteredTasks, selectedTaskIds, batchTaskIds])
-
-  const selectionActive = selectedTaskIds.size > 0
-
-  useEffect(() => {
-    setSelectingColumns(prev => {
-      const next = new Set(prev)
-      let changed = false
-      if (batchTaskIds.length > 0 && next.has('in_progress')) {
-        next.delete('in_progress')
-        clearColumnSelection('in_progress')
-        changed = true
-      }
-      return changed ? next : prev
-    })
-  }, [batchTaskIds.length, clearColumnSelection])
-
-  const handleBatchExecute = async (mode: BatchMode) => {
-    // Only In Progress tasks may be executed in a batch. Mixed selections
-    // (Todo + In Progress) used to send Todo task ids to /api/batches too,
-    // which is wrong: Todo tasks must be moved to In Progress first.
-    const inProgressTaskIds = Array.from(selectedTaskIds).filter(
-      id => tasks.find(t => t.id === id)?.status === 'in_progress'
-    )
-    if (inProgressTaskIds.length === 0) {
-      toast.error('Select at least one In Progress task to execute as a batch')
-      return
-    }
-
-    const previousSelection = selectedTaskIds
-    const previousTasks = tasks
-    const previousActiveBatch = activeBatch
-    const pendingTasks = inProgressTaskIds.map((taskId) => {
-      const task = tasks.find(candidate => candidate.id === taskId)
-      return {
-        taskId,
-        title: task?.title || 'Untitled task',
-        status: 'queued' as const,
-      }
-    })
-
-    clearSelection()
-    setActiveBatch({
-      id: `starting-${mode}-${Date.now()}`,
-      status: 'starting',
-      mode,
-      tasks: pendingTasks,
-      prUrl: null,
-    })
-
-    try {
-      const status = await getSetupStatus()
-      if (!status.ready) {
-        setActiveBatch(previousActiveBatch)
-        setSelectedTaskIds(previousSelection)
-        setShowProviderSetup(true)
-        toast.error('Configure an AI provider before starting batch execution')
-        return
-      }
-    } catch (err) {
-      if (err instanceof OpenCodeUnavailableError) {
-        setActiveBatch(previousActiveBatch)
-        setSelectedTaskIds(previousSelection)
-        toast.error(
-          'Execution service is not running. Start the sidecar (pnpm dev) or switch off CRUD-only mode.',
-        )
-        console.error('Setup status check failed (sidecar unavailable):', err)
-        return
-      }
-      console.warn('Could not check provider setup before batch execution, proceeding anyway:', err)
-    }
-
-    try {
-      const created = await apiFetch<{
-        id: string
-        status: string
-        mode: BatchMode
-        tasks: Array<{ taskId: string; title: string; status: ActiveBatch['tasks'][number]['status'] }>
-      }>('/api/batches', {
-        method: 'POST',
-        sidecar: true,
-        body: JSON.stringify({ taskIds: inProgressTaskIds, mode }),
-      })
-      // Seed activeBatch immediately from the POST response so the UI shows
-      // the batch panel even before the first SSE batch:* event arrives.
-      setActiveBatch({
-        id: created.id,
-        status: created.status || 'running',
-        mode: created.mode || mode,
-        tasks: created.tasks.map(t => ({ taskId: t.taskId, title: t.title, status: t.status })),
-        prUrl: null,
-      })
-      setCompletedBatch(null)
-    } catch (err) {
-      setTasks(previousTasks)
-      setSelectedTaskIds(previousSelection)
-      setActiveBatch(previousActiveBatch)
-      const msg = err instanceof Error ? err.message : 'Operation failed'
-      console.error('Error creating batch:', err)
-      toast.error(msg)
-    }
-  }
-
-  const handleCancelBatch = async (batchId: string) => {
-    try {
-      await apiFetch(`/api/batches/${batchId}/cancel`, {
-        method: 'POST',
-        sidecar: true,
-      })
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Failed to cancel batch'
-      console.error('Error cancelling batch:', err)
-      toast.error(msg)
-    }
-  }
-
-  const handleApproveNextBatchTask = useCallback(async (batchId: string) => {
-    try {
-      await apiFetch(`/api/batches/${batchId}/approve`, {
-        method: 'POST',
-        sidecar: true,
-      })
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Failed to approve next task'
-      console.error('Error approving next batch task:', err)
-      toast.error(msg)
-    }
-  }, [])
-
-  const reconcileActiveBatches = useCallback(async () => {
-    try {
-      const batches = await apiFetch<Array<{ id: string; status: string; mode: BatchMode }>>(
-        '/api/batches',
-        { sidecar: true },
-      )
-      const running = batches.find(b => b.status === 'running' || b.status === 'pending' || b.status === 'merging')
-      if (running) {
-        const detail = await apiFetch<{
-          id: string
-          status: string
-          mode: BatchMode
-          prUrl: string | null
-          tasks: Array<{ taskId: string; title: string; status: ActiveBatch['tasks'][number]['status'] }>
-        }>(`/api/batches/${running.id}`, { sidecar: true })
-        setActiveBatch({
-          id: detail.id,
-          status: detail.status,
-          mode: detail.mode,
-          tasks: detail.tasks.map(t => ({ taskId: t.taskId, title: t.title, status: t.status })),
-          prUrl: detail.prUrl ?? null,
-        })
-      }
-    } catch (err) {
-      // Sidecar may not be running (CRUD-only mode); reconciliation is best-effort.
-      if (!(err instanceof OpenCodeUnavailableError) && !(err instanceof NetworkError)) {
-        console.debug('Active batch reconciliation skipped:', err)
-      }
-    }
-  }, [])
-
-  useEffect(() => {
-    const handleVisibility = () => {
-      if (document.visibilityState !== 'visible') return
-      if (isAuthenticated) {
-        refreshActiveRepository()
-      }
-    }
-
-    document.addEventListener('visibilitychange', handleVisibility)
-    window.addEventListener('focus', handleVisibility)
-
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibility)
-      window.removeEventListener('focus', handleVisibility)
-    }
-  }, [isAuthenticated, refreshActiveRepository])
 
   const selectedProject = projects.find(p => p.id === projectId)
   const canExecute = !!(selectedProject?.repositoryId || selectedProject?.localPath || activeRepository)
@@ -486,6 +235,7 @@ export function useKanbanBoard({ projectId, teamId, projects = [], searchQuery =
     setIsTaskFormOpen(true)
   }
 
+  // --- Fetch Tasks ---
   const retryTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const retryAttemptRef = useRef(0)
 
@@ -496,26 +246,10 @@ export function useKanbanBoard({ projectId, teamId, projects = [], searchQuery =
     resetRetry?: boolean
     silent?: boolean
   }) => {
-    const {
-      showLoading = false,
-      allowRetry = false,
-      clearError = false,
-      resetRetry = false,
-      silent = false,
-    } = options || {}
-
-    if (clearError) {
-      setError(null)
-    }
-
-    if (resetRetry) {
-      retryAttemptRef.current = 0
-    }
-
-    if (showLoading) {
-      setLoading(true)
-    }
-
+    const { showLoading = false, allowRetry = false, clearError = false, resetRetry = false, silent = false } = options || {}
+    if (clearError) setError(null)
+    if (resetRetry) retryAttemptRef.current = 0
+    if (showLoading) setLoading(true)
     let shouldStopLoading = showLoading
 
     try {
@@ -529,349 +263,66 @@ export function useKanbanBoard({ projectId, teamId, projects = [], searchQuery =
       setTasks(items)
       setError(null)
       retryAttemptRef.current = 0
-
-      if (retryTimeoutRef.current) {
-        clearTimeout(retryTimeoutRef.current)
-        retryTimeoutRef.current = null
-      }
+      if (retryTimeoutRef.current) { clearTimeout(retryTimeoutRef.current); retryTimeoutRef.current = null }
     } catch (err) {
       if (allowRetry && retryAttemptRef.current < 5 && (err instanceof NetworkError || (err instanceof ApiError && err.status >= 500))) {
         retryAttemptRef.current += 1
-        if (showLoading) {
-          shouldStopLoading = false
-        }
-        if (retryTimeoutRef.current) {
-          clearTimeout(retryTimeoutRef.current)
-        }
-        retryTimeoutRef.current = setTimeout(() => {
-          fetchTasks({ showLoading, allowRetry, silent: true })
-        }, 1500)
+        if (showLoading) shouldStopLoading = false
+        if (retryTimeoutRef.current) clearTimeout(retryTimeoutRef.current)
+        retryTimeoutRef.current = setTimeout(() => { fetchTasks({ showLoading, allowRetry, silent: true }) }, 1500)
         return
       }
-
       if (!silent) {
         const msg = err instanceof Error ? err.message : 'Failed to fetch tasks'
         setError(msg)
-        if (!(err instanceof ApiError && err.status === 401)) {
-          toast.error(msg)
-        }
+        if (!(err instanceof ApiError && err.status === 401)) toast.error(msg)
       }
     } finally {
-      if (shouldStopLoading) {
-        setLoading(false)
-      }
+      if (shouldStopLoading) setLoading(false)
     }
   }, [projectId, teamId])
 
-  const handleSSEEvent = useCallback((eventType: SSEEventType, data: SSEEventData) => {
-    switch (eventType) {
-      case 'task:created':
-        if (data.id && data.title && data.status) {
-          const taskProjectId = data.projectId
-          const taskTeamId = data.teamId
-          if (projectId && taskProjectId !== projectId) {
-            break
-          }
-          if (teamId && taskTeamId !== teamId) {
-            break
-          }
-          const newTask: Task = {
-            id: data.id,
-            title: data.title,
-            description: data.description ?? null,
-            priority: data.priority ?? 'medium',
-            status: data.status,
-            sessionId: data.sessionId ?? null,
-            createdAt: data.createdAt ?? new Date().toISOString(),
-            updatedAt: data.updatedAt ?? new Date().toISOString(),
-            labels: data.labels ?? [],
-            executionStartedAt: data.executionStartedAt ?? null,
-            executionPausedAt: data.executionPausedAt ?? null,
-            executionElapsedMs: data.executionElapsedMs ?? 0,
-            executionProgress: data.executionProgress ?? null,
-            prUrl: data.prUrl ?? null,
-            outcome: data.outcome ?? null,
-            batchId: data.batchId ?? null,
-            inboxRead: data.inboxRead ?? false,
-            identifier: data.identifier ?? null,
-            number: data.number ?? null,
-            dueDate: data.dueDate ?? null,
-            teamId: taskTeamId ?? null,
-            projectId: taskProjectId ?? null,
-            assigneeId: data.assigneeId ?? null,
-            creatorId: data.creatorId ?? null,
-            assignee: data.assignee ?? null,
-            creator: data.creator ?? null,
-            model: data.model ?? null,
-            archived: data.archived ?? false,
-          }
-          setTasks((prev) => upsertBoardTask(prev, newTask))
-        }
-        break
+  // --- SSE ---
+  useTaskSSE({
+    projectId,
+    teamId,
+    isAuthenticated,
+    refreshActiveRepository,
+    fetchTasks,
+    reconcileActiveBatches: batchWithSelection.reconcileActiveBatches,
+    setTasks,
+    setSelectedTaskId: selection.setSelectedTaskId,
+    setSelectedTaskIds: selection.setSelectedTaskIds,
+    setActiveBatch,
+    setCompletedBatch,
+    setTaskDeletionMode,
+    lastSelectedIdRef: selection.lastSelectedIdRef,
+  })
 
-      case 'tasks:bulk-created':
-        if (!projectId || data.projectId === projectId) {
-          fetchTasks({ silent: true })
-        }
-        break
-
-      case 'task:updated':
-        if (data.id) {
-          if (data.status && data.status !== 'in_progress') {
-            clearExecutionProgress(data.id)
-          }
-          const movedOutOfScope =
-            data.archived === true ||
-            (projectId !== undefined && projectId !== null && data.projectId !== undefined && data.projectId !== projectId) ||
-            (teamId !== undefined && teamId !== null && data.teamId !== undefined && data.teamId !== teamId)
-
-          if (movedOutOfScope) {
-            setTasks((prev) => prev.filter((task) => task.id !== data.id))
-            setSelectedTaskId((prev) => (prev === data.id ? null : prev))
-            setSelectedTaskIds((prev) => {
-              if (!prev.has(data.id!)) return prev
-              const next = new Set(prev)
-              next.delete(data.id!)
-              return next
-            })
-            if (lastSelectedIdRef.current === data.id) {
-              lastSelectedIdRef.current = null
-            }
-            break
-          }
-
-          setTasks((prev) => {
-            const existing = prev.find((task) => task.id === data.id)
-            if (!existing) return prev
-
-            const updated: Task = {
-              ...existing,
-              ...(data.title !== undefined && { title: data.title }),
-              ...(data.description !== undefined && { description: data.description }),
-              ...(data.priority !== undefined && { priority: data.priority }),
-              ...(data.status !== undefined && { status: data.status }),
-              ...(data.sessionId !== undefined && { sessionId: data.sessionId }),
-              ...(data.updatedAt !== undefined && { updatedAt: data.updatedAt }),
-              ...(data.labels !== undefined && { labels: data.labels }),
-              ...(data.executionStartedAt !== undefined && { executionStartedAt: data.executionStartedAt }),
-              ...(data.executionPausedAt !== undefined && { executionPausedAt: data.executionPausedAt }),
-              ...(data.executionElapsedMs !== undefined && { executionElapsedMs: data.executionElapsedMs }),
-              ...(data.executionProgress !== undefined && { executionProgress: data.executionProgress }),
-              ...(data.prUrl !== undefined && { prUrl: data.prUrl }),
-              ...(data.outcome !== undefined && { outcome: data.outcome }),
-              ...(data.batchId !== undefined && { batchId: data.batchId }),
-              ...(data.dueDate !== undefined && { dueDate: data.dueDate }),
-              ...(data.inboxRead !== undefined && { inboxRead: data.inboxRead }),
-              ...(data.identifier !== undefined && { identifier: data.identifier }),
-              ...(data.number !== undefined && { number: data.number }),
-              ...(data.teamId !== undefined && { teamId: data.teamId }),
-              ...(data.projectId !== undefined && { projectId: data.projectId }),
-              ...(data.assigneeId !== undefined && { assigneeId: data.assigneeId }),
-              ...(data.creatorId !== undefined && { creatorId: data.creatorId }),
-              ...(data.assignee !== undefined && { assignee: data.assignee }),
-              ...(data.creator !== undefined && { creator: data.creator }),
-              ...(data.model !== undefined && { model: data.model }),
-              ...(data.archived !== undefined && { archived: data.archived }),
-            }
-
-            return upsertBoardTask(prev, updated)
-          })
-        }
-        break
-
-      case 'task:deleted':
-        if (data.id) {
-          clearExecutionProgress(data.id)
-          setTasks((prev) => prev.filter((task) => task.id !== data.id))
-          setSelectedTaskIds((prev) => {
-            if (!prev.has(data.id!)) return prev
-            const next = new Set(prev)
-            next.delete(data.id!)
-            return next
-          })
-          setSelectedTaskId((prev) => (prev === data.id ? null : prev))
-          if (lastSelectedIdRef.current === data.id) {
-            lastSelectedIdRef.current = null
-          }
-        }
-        break
-
-      case 'execution:progress':
-        const progressData = data as unknown as ExecutionProgress
-        if (progressData.taskId) {
-          setExecutionProgress(progressData)
-        }
-        break
-
-      case 'execution:log':
-        const logData = data as unknown as { taskId: string; entry: ExecutionLogEntry }
-        if (logData.taskId && logData.entry) {
-          appendExecutionLog(logData.taskId, logData.entry)
-        }
-        break
-
-      case 'connected':
-        console.log("[SSE] Connected with clientId:", data.clientId)
-        fetchTasks({ silent: true })
-        if (isAuthenticated) {
-          refreshActiveRepository()
-        }
-        // On (re)connect, fetch active batches so we don't show a stale empty
-        // BatchProgress panel after the sidecar restarts or the SSE drops.
-        void reconcileActiveBatches()
-        break
-
-      case 'batch:created':
-      case 'batch:started':
-        if (data.batchId) {
-          setActiveBatch({
-            id: data.batchId as string,
-            status: data.status as string || 'running',
-            mode: (data.mode as BatchMode | undefined) || 'parallel',
-            tasks: (data.tasks as ActiveBatch['tasks']) || [],
-            prUrl: null,
-          })
-        }
-        break
-
-      case 'batch:task:started':
-        setActiveBatch(prev => {
-          if (!prev || prev.id !== data.batchId) return prev
-          return {
-            ...prev,
-            tasks: prev.tasks.map(t =>
-              t.taskId === data.taskId ? { ...t, status: 'running' } : t
-            ),
-          }
-        })
-        break
-
-      case 'batch:task:completed':
-        setActiveBatch(prev => {
-          if (!prev || prev.id !== data.batchId) return prev
-          return {
-            ...prev,
-            tasks: prev.tasks.map(t =>
-              t.taskId === data.taskId ? { ...t, status: 'completed' } : t
-            ),
-          }
-        })
-        break
-
-      case 'batch:task:failed':
-        setActiveBatch(prev => {
-          if (!prev || prev.id !== data.batchId) return prev
-          return {
-            ...prev,
-            tasks: prev.tasks.map(t =>
-              t.taskId === data.taskId ? { ...t, status: 'failed' } : t
-            ),
-          }
-        })
-        break
-
-      case 'batch:task:skipped':
-        setActiveBatch(prev => {
-          if (!prev || prev.id !== data.batchId) return prev
-          return {
-            ...prev,
-            tasks: prev.tasks.map(t =>
-              t.taskId === data.taskId ? { ...t, status: 'skipped' } : t
-            ),
-          }
-        })
-        break
-
-      case 'batch:task:cancelled':
-        setActiveBatch(prev => {
-          if (!prev || prev.id !== data.batchId) return prev
-          return {
-            ...prev,
-            tasks: prev.tasks.map(t =>
-              t.taskId === data.taskId ? { ...t, status: 'cancelled' } : t
-            ),
-          }
-        })
-        break
-
-      case 'batch:merging':
-        setActiveBatch(prev => {
-          if (prev?.id === data.batchId) {
-            return { ...prev, status: 'merging' } as ActiveBatch
-          }
-          return prev
-        })
-        break
-
-      case 'batch:completed':
-        if (data.batchId && data.prUrl) {
-          setTasks(prev => prev.map(task =>
-            task.batchId === data.batchId ? { ...task, prUrl: data.prUrl as string } : task
-          ))
-        }
-        setActiveBatch(prev => {
-          if (prev && prev.id === data.batchId) {
-            const prUrl = (data.prUrl as string) || prev.prUrl || null
-            const taskIds = prev.tasks.map(t => t.taskId)
-            setCompletedBatch({ taskIds, prUrl, mode: prev.mode })
-            return { ...prev, status: 'completed', prUrl } as ActiveBatch
-          }
-          return prev
-        })
-        break
-      case 'batch:failed':
-      case 'batch:cancelled':
-        setActiveBatch(prev => {
-          if (prev && prev.id === data.batchId) {
-            setTimeout(() => setActiveBatch(null), 5000)
-            return { ...prev, status: eventType.split(':')[1]! } as ActiveBatch
-          }
-          return prev
-        })
-        break
-
-      case 'settings:updated':
-        if (data?.taskDeletionMode === 'archive' || data?.taskDeletionMode === 'delete') {
-          setTaskDeletionMode(data.taskDeletionMode)
-        }
-        break
-
-      default:
-        break
-    }
-  }, [fetchTasks, isAuthenticated, refreshActiveRepository, projectId, teamId])
-
-  useSSESubscription(handleSSEEvent)
-
+  // --- Initial load ---
   useEffect(() => {
     fetchTasks({ showLoading: true, allowRetry: true, clearError: true, resetRetry: true })
-
     apiFetch("/api/settings")
-      .then((data: any) => {
-        if (data?.taskDeletionMode) {
-          setTaskDeletionMode(data.taskDeletionMode)
-        }
-      })
-      .catch(() => {
-        // ignore settings fetch errors
-      })
-
-    return () => {
-      if (retryTimeoutRef.current) {
-        clearTimeout(retryTimeoutRef.current)
-        retryTimeoutRef.current = null
-      }
-    }
+      .then((data: any) => { if (data?.taskDeletionMode) setTaskDeletionMode(data.taskDeletionMode) })
+      .catch(() => {})
+    return () => { if (retryTimeoutRef.current) { clearTimeout(retryTimeoutRef.current); retryTimeoutRef.current = null } }
   }, [fetchTasks])
 
-  const updateTaskStatus = async (
-    taskIds: string | string[],
-    newStatus: Task['status'],
-    options: { destinationIndex?: number } = {},
-  ) => {
+  // --- Visibility ---
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.visibilityState !== 'visible') return
+      if (isAuthenticated) refreshActiveRepository()
+    }
+    document.addEventListener('visibilitychange', handleVisibility)
+    window.addEventListener('focus', handleVisibility)
+    return () => { document.removeEventListener('visibilitychange', handleVisibility); window.removeEventListener('focus', handleVisibility) }
+  }, [isAuthenticated, refreshActiveRepository])
+
+  // --- Task Operations ---
+  const updateTaskStatus = async (taskIds: string | string[], newStatus: Task['status'], options: { destinationIndex?: number } = {}) => {
     const ids = Array.isArray(taskIds) ? taskIds : [taskIds]
     if (ids.length === 0) return
-
     let snapshot: Task[] = []
     setTasks((prev) => {
       snapshot = prev
@@ -880,26 +331,12 @@ export function useKanbanBoard({ projectId, teamId, projects = [], searchQuery =
         const destinationIndex = getFullDestinationIndex(ids[0]!, newStatus, options.destinationIndex)
         return moveBoardTask(prev, ids[0]!, newStatus, destinationIndex)
       }
-      return prev.map((task) =>
-        idSet.has(task.id) ? applyBoardStatusChange(task, newStatus) : task,
-      )
+      return prev.map((task) => idSet.has(task.id) ? applyBoardStatusChange(task, newStatus) : task)
     })
-    if (newStatus !== 'in_progress') {
-      ids.forEach(clearExecutionProgress)
-    }
-
+    if (newStatus !== 'in_progress') ids.forEach(clearExecutionProgress)
     try {
-      const updatedTasks = await Promise.all(
-        ids.map((id) =>
-          apiFetch<Task>(`/api/tasks/${id}`, {
-            method: 'PATCH',
-            body: JSON.stringify({ status: newStatus }),
-          }),
-        ),
-      )
-      setTasks((prev) =>
-        updatedTasks.reduce((next, task) => upsertBoardTask(next, task), prev),
-      )
+      const updatedTasks = await Promise.all(ids.map((id) => apiFetch<Task>(`/api/tasks/${id}`, { method: 'PATCH', body: JSON.stringify({ status: newStatus }) })))
+      setTasks((prev) => updatedTasks.reduce((next, task) => upsertBoardTask(next, task), prev))
     } catch (err) {
       setTasks(snapshot)
       const msg = err instanceof Error ? err.message : 'Operation failed'
@@ -908,64 +345,24 @@ export function useKanbanBoard({ projectId, teamId, projects = [], searchQuery =
     }
   }
 
-  const handleMoveToInProgress = async (taskId: string) => {
-    await updateTaskStatus(taskId, 'in_progress')
-  }
+  const handleMoveToInProgress = async (taskId: string) => { await updateTaskStatus(taskId, 'in_progress') }
 
   const handleBatchMoveToInProgress = async () => {
-    const todoIds = Array.from(selectedTaskIds).filter(
-      id => tasks.find(t => t.id === id)?.status === 'todo'
-    )
+    const todoIds = Array.from(selection.selectedTaskIds).filter(id => tasks.find(t => t.id === id)?.status === 'todo')
     if (todoIds.length === 0) return
-    clearSelection()
+    selection.clearSelection()
     await updateTaskStatus(todoIds, 'in_progress')
   }
 
   const handleInlineCreateTask = useCallback(async (status: Task['status'], title: string) => {
     const trimmed = title.trim()
     if (!trimmed) return
-
     const tempId = `temp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     const now = new Date().toISOString()
-    const optimistic: Task = {
-      id: tempId,
-      title: trimmed,
-      description: null,
-      priority: 'medium',
-      status,
-      sessionId: null,
-      createdAt: now,
-      updatedAt: now,
-      labels: [],
-      executionStartedAt: null,
-      executionPausedAt: null,
-      executionElapsedMs: 0,
-      executionProgress: null,
-      prUrl: null,
-      outcome: null,
-      batchId: null,
-      inboxRead: false,
-      identifier: null,
-      number: null,
-      dueDate: null,
-      projectId: projectId ?? null,
-      teamId: teamId ?? null,
-      model: null,
-      archived: false,
-    }
-
+    const optimistic: Task = { id: tempId, title: trimmed, description: null, priority: 'medium', status, sessionId: null, createdAt: now, updatedAt: now, labels: [], executionStartedAt: null, executionPausedAt: null, executionElapsedMs: 0, executionProgress: null, prUrl: null, outcome: null, batchId: null, inboxRead: false, identifier: null, number: null, dueDate: null, projectId: projectId ?? null, teamId: teamId ?? null, model: null, archived: false }
     setTasks(prev => [optimistic, ...prev])
-
     try {
-      const created = await apiFetch<Task>('/api/tasks', {
-        method: 'POST',
-        body: JSON.stringify({
-          title: trimmed,
-          status,
-          projectId: projectId || undefined,
-          teamId: teamId || undefined,
-        }),
-      })
+      const created = await apiFetch<Task>('/api/tasks', { method: 'POST', body: JSON.stringify({ title: trimmed, status, projectId: projectId || undefined, teamId: teamId || undefined }) })
       setTasks(prev => replaceOptimisticTask(prev, tempId, created))
     } catch (err) {
       setTasks(prev => prev.filter(t => t.id !== tempId))
@@ -975,243 +372,112 @@ export function useKanbanBoard({ projectId, teamId, projects = [], searchQuery =
     }
   }, [projectId, teamId])
 
-  const handleTaskCreated = useCallback((task: Task) => {
-    setTasks((prev) => upsertBoardTask(prev, task))
-  }, [])
+  const handleTaskCreated = useCallback((task: Task) => { setTasks((prev) => upsertBoardTask(prev, task)) }, [])
 
   const handleBulkDelete = useCallback(async () => {
-    const ids = Array.from(selectedTaskIds).filter(id => !batchTaskIds.includes(id))
+    const ids = Array.from(selection.selectedTaskIds).filter(id => !batchTaskIds.includes(id))
     if (ids.length === 0) return
-
     const snapshot = tasks
     setTasks(prev => prev.filter(t => !ids.includes(t.id)))
-    clearSelection()
-
-    const permanent = taskDeletionMode === "delete"
-    const results = await Promise.allSettled(
-      ids.map(id => apiFetch(`/api/tasks/${id}${permanent ? "?permanent=true" : ""}`, { method: 'DELETE' })),
-    )
+    selection.clearSelection()
+    const permanent = taskDeletionModeRef.current === "delete"
+    const results = await Promise.allSettled(ids.map(id => apiFetch(`/api/tasks/${id}${permanent ? "?permanent=true" : ""}`, { method: 'DELETE' })))
     const failures = results.filter(r => r.status === 'rejected').length
-    if (failures > 0) {
-      setTasks(snapshot)
-      toast.error(`Failed to delete ${failures} of ${ids.length} task${ids.length !== 1 ? 's' : ''}`)
-    } else {
-      const action = permanent ? "Deleted" : "Archived"
-      toast.success(`${action} ${ids.length} task${ids.length !== 1 ? 's' : ''}`)
-    }
-  }, [selectedTaskIds, tasks, batchTaskIds, taskDeletionMode])
+    if (failures > 0) { setTasks(snapshot); toast.error(`Failed to delete ${failures} of ${ids.length} task${ids.length !== 1 ? 's' : ''}`) }
+    else { const action = permanent ? "Deleted" : "Archived"; toast.success(`${action} ${ids.length} task${ids.length !== 1 ? 's' : ''}`) }
+  }, [selection.selectedTaskIds, tasks, batchTaskIds, selection.clearSelection])
 
   const handleBulkChangeStatus = useCallback(async (newStatus: Task['status']) => {
-    const ids = Array.from(selectedTaskIds).filter(id => !batchTaskIds.includes(id))
+    const ids = Array.from(selection.selectedTaskIds).filter(id => !batchTaskIds.includes(id))
     if (ids.length === 0) return
-
     let snapshot: Task[] = []
-    setTasks(prev => {
-      snapshot = prev
-      const idSet = new Set(ids)
-      return prev.map(t => (idSet.has(t.id) ? { ...t, status: newStatus } : t))
-    })
-    clearSelection()
-
-    const results = await Promise.allSettled(
-      ids.map(id =>
-        apiFetch(`/api/tasks/${id}`, {
-          method: 'PATCH',
-          body: JSON.stringify({ status: newStatus }),
-        }),
-      ),
-    )
+    setTasks(prev => { snapshot = prev; const idSet = new Set(ids); return prev.map(t => (idSet.has(t.id) ? { ...t, status: newStatus } : t)) })
+    selection.clearSelection()
+    const results = await Promise.allSettled(ids.map(id => apiFetch(`/api/tasks/${id}`, { method: 'PATCH', body: JSON.stringify({ status: newStatus }) })))
     const failures = results.filter(r => r.status === 'rejected').length
-    if (failures > 0) {
-      setTasks(snapshot)
-      toast.error(`Failed to update ${failures} of ${ids.length} task${ids.length !== 1 ? 's' : ''}`)
-    }
-  }, [selectedTaskIds, batchTaskIds])
+    if (failures > 0) { setTasks(snapshot); toast.error(`Failed to update ${failures} of ${ids.length} task${ids.length !== 1 ? 's' : ''}`) }
+  }, [selection.selectedTaskIds, batchTaskIds, selection.clearSelection])
 
   const handleDragEnd = async (result: DropResult) => {
     const { destination, source, draggableId } = result
-
     if (!destination) return
     if (destination.droppableId === source.droppableId && destination.index === source.index) return
-
     const newStatus = destination.droppableId as Task['status']
-
     if (draggableId.startsWith('batch-group-')) {
       const batchId = draggableId.replace('batch-group-', '')
-      const batchTaskIds = tasks
-        .filter(task => task.batchId === batchId)
-        .map(task => task.id)
-
-      if (batchTaskIds.length === 0) return
-
-      await updateTaskStatus(batchTaskIds, newStatus)
+      const ids = tasks.filter(task => task.batchId === batchId).map(task => task.id)
+      if (ids.length === 0) return
+      await updateTaskStatus(ids, newStatus)
       return
     }
-
     await updateTaskStatus(draggableId, newStatus, { destinationIndex: destination.index })
   }
 
   const handleExecute = async (taskId: string) => {
-    if (!canExecute) {
-      const msg = "No active project — connect a repo first"
-      console.error(msg)
-      toast.error(msg)
-      return
-    }
-
-    // Block duplicate clicks while the POST is in flight or live progress is
-    // already in an active phase.
+    if (!canExecute) { toast.error("No active project — connect a repo first"); return }
     if (startingExecuteIds.has(taskId)) return
     const live = getExecutionProgress(taskId)
-    if (live && ['cloning', 'executing', 'committing', 'creating_pr'].includes(live.status)) {
-      return
-    }
-
+    if (live && ['cloning', 'executing', 'committing', 'creating_pr'].includes(live.status)) return
     addStartingExecute(taskId)
-
     try {
       try {
-        const status = await getSetupStatus();
-        if (!status.ready) {
-          setPendingExecuteTaskId(taskId);
-          setShowProviderSetup(true);
-          return;
-        }
+        const status = await getSetupStatus()
+        if (!status.ready) { setPendingExecuteTaskId(taskId); setShowProviderSetup(true); return }
       } catch (err) {
-        if (err instanceof OpenCodeUnavailableError) {
-          // Setup-status check failed because the sidecar isn't reachable
-          // (404 from CRUD-only API, or 5xx from unhealthy sidecar). Do NOT
-          // proceed — POST /execute would just 404 again with a worse message.
-          toast.error(
-            'Execution service is not running. Start the sidecar (pnpm dev) or switch off CRUD-only mode.',
-          )
-          console.error('Setup status check failed (sidecar unavailable):', err)
-          return
-        }
+        if (err instanceof OpenCodeUnavailableError) { toast.error('Execution service is not running. Start the sidecar (pnpm dev) or switch off CRUD-only mode.'); console.error('Setup status check failed (sidecar unavailable):', err); return }
         console.warn('Could not check provider setup, proceeding anyway:', err)
       }
-
-      try {
-        await apiFetch(`/api/tasks/${taskId}/execute`, {
-          method: 'POST',
-          sidecar: true,
-        })
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : 'Failed to execute task'
-        console.error('Error executing task:', err)
-        toast.error(msg)
-      }
-    } finally {
-      removeStartingExecute(taskId)
-    }
+      try { await apiFetch(`/api/tasks/${taskId}/execute`, { method: 'POST', sidecar: true }) }
+      catch (err) { const msg = err instanceof Error ? err.message : 'Failed to execute task'; console.error('Error executing task:', err); toast.error(msg) }
+    } finally { removeStartingExecute(taskId) }
   }
 
   const handleProviderSetupComplete = useCallback(async () => {
-    setShowProviderSetup(false);
+    setShowProviderSetup(false)
     if (pendingExecuteTaskId) {
-      const taskId = pendingExecuteTaskId;
-      setPendingExecuteTaskId(null);
+      const taskId = pendingExecuteTaskId
+      setPendingExecuteTaskId(null)
       addStartingExecute(taskId)
-      try {
-        await apiFetch(`/api/tasks/${taskId}/execute`, {
-          method: 'POST',
-          sidecar: true,
-        });
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : 'Failed to execute task'
-        console.error('Error executing task:', err);
-        toast.error(msg)
-      } finally {
-        removeStartingExecute(taskId)
-      }
+      try { await apiFetch(`/api/tasks/${taskId}/execute`, { method: 'POST', sidecar: true }) }
+      catch (err) { const msg = err instanceof Error ? err.message : 'Failed to execute task'; console.error('Error executing task:', err); toast.error(msg) }
+      finally { removeStartingExecute(taskId) }
     }
-  }, [pendingExecuteTaskId, addStartingExecute, removeStartingExecute]);
+  }, [pendingExecuteTaskId, addStartingExecute, removeStartingExecute])
 
   const handleCancel = async (taskId: string) => {
-    try {
-      await apiFetch(`/api/tasks/${taskId}/cancel`, {
-        method: 'POST',
-        sidecar: true,
-      })
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Failed to cancel task'
-      console.error('Error cancelling task:', err)
-      toast.error(msg)
-    }
+    try { await apiFetch(`/api/tasks/${taskId}/cancel`, { method: 'POST', sidecar: true }) }
+    catch (err) { const msg = err instanceof Error ? err.message : 'Failed to cancel task'; console.error('Error cancelling task:', err); toast.error(msg) }
   }
 
   const handleTaskClick = async (taskId: string) => {
-    clearSelection()
-    setSelectedTaskId(taskId)
-
+    selection.clearSelection()
+    selection.setSelectedTaskId(taskId)
     if (!hasExecutionLogs(taskId)) {
-      try {
-        const data = await apiFetch<{ logs?: ExecutionLogEntry[] }>(
-          `/api/tasks/${taskId}/logs`,
-          { sidecar: true },
-        )
-        replaceExecutionLogs(taskId, data.logs || [])
-      } catch (err) {
-        console.error('Error fetching task logs:', err)
-      }
+      try { const data = await apiFetch<{ logs?: ExecutionLogEntry[] }>(`/api/tasks/${taskId}/logs`, { sidecar: true }); replaceExecutionLogs(taskId, data.logs || []) }
+      catch (err) { console.error('Error fetching task logs:', err) }
     }
   }
 
-  const handleDrawerClose = () => {
-    setSelectedTaskId(null)
-  }
+  const handleDrawerClose = () => { selection.setSelectedTaskId(null) }
 
   const handleDelete = useCallback(async (taskId: string) => {
     const previousTasks = tasksRef.current
-    const previousSelectedTaskId = selectedTaskIdRef.current
+    const previousSelectedTaskId = selection.selectedTaskId
     setTasks((prev) => prev.filter((t) => t.id !== taskId))
-    setSelectedTaskId(null)
+    selection.setSelectedTaskId(null)
     const permanent = taskDeletionModeRef.current === "delete"
-    try {
-      await apiFetch(`/api/tasks/${taskId}${permanent ? "?permanent=true" : ""}`, { method: 'DELETE' })
-    } catch (err) {
-      setTasks(previousTasks)
-      setSelectedTaskId(previousSelectedTaskId)
-      const msg = err instanceof Error ? err.message : 'Operation failed'
-      console.error('Error deleting task:', err)
-      toast.error(msg)
-    }
-  }, [])
+    try { await apiFetch(`/api/tasks/${taskId}${permanent ? "?permanent=true" : ""}`, { method: 'DELETE' }) }
+    catch (err) { setTasks(previousTasks); selection.setSelectedTaskId(previousSelectedTaskId); const msg = err instanceof Error ? err.message : 'Operation failed'; console.error('Error deleting task:', err); toast.error(msg) }
+  }, [selection.selectedTaskId])
 
   const handleUpdateTask = async (taskId: string, data: { title?: string; description?: string | null }) => {
-    try {
-      await apiFetch(`/api/tasks/${taskId}`, {
-        method: 'PATCH',
-        body: JSON.stringify(data),
-      })
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Failed to update task'
-      console.error('Error updating task:', err)
-      toast.error(msg)
-    }
+    try { await apiFetch(`/api/tasks/${taskId}`, { method: 'PATCH', body: JSON.stringify(data) }) }
+    catch (err) { const msg = err instanceof Error ? err.message : 'Failed to update task'; console.error('Error updating task:', err); toast.error(msg) }
   }
 
-  const selectedTask = selectedTaskId ? tasks.find((t) => t.id === selectedTaskId) || null : null
-
-  const isSelectedTaskExecuting = isTaskActivelyExecuting(
-    selectedTask,
-    selectedTaskId ? getExecutionProgress(selectedTaskId) : undefined,
-    startingExecuteIds,
-    selectedTaskId,
-  )
-
-  const getTasksByStatus = (status: Task['status']) => {
-    return filteredTasks.filter((task) => task.status === status)
-  }
-
-  const selectAllVisible = useCallback(() => {
-    const ids = filteredTasks
-      .filter(t => !batchTaskIds.includes(t.id))
-      .map(t => t.id)
-    if (ids.length === 0) return
-    setSelectedTaskId(null)
-    setSelectedTaskIds(new Set(ids))
-  }, [filteredTasks, batchTaskIds])
+  const selectedTask = selection.selectedTaskId ? tasks.find((t) => t.id === selection.selectedTaskId) || null : null
+  const isSelectedTaskExecuting = isTaskActivelyExecuting(selectedTask, selection.selectedTaskId ? getExecutionProgress(selection.selectedTaskId) : undefined, startingExecuteIds, selection.selectedTaskId)
+  const getTasksByStatus = (status: Task['status']) => filteredTasks.filter((task) => task.status === status)
 
   return {
     tasks,
@@ -1220,10 +486,10 @@ export function useKanbanBoard({ projectId, teamId, projects = [], searchQuery =
     isTaskFormOpen,
     setIsTaskFormOpen,
     defaultStatus,
-    selectedTaskId,
-    selectedTaskIds,
-    selectionActive,
-    selectingColumns,
+    selectedTaskId: selection.selectedTaskId,
+    selectedTaskIds: selection.selectedTaskIds,
+    selectionActive: selection.selectionActive,
+    selectingColumns: selection.selectingColumns,
     activeBatch,
     setActiveBatch,
     completedBatch,
@@ -1246,14 +512,14 @@ export function useKanbanBoard({ projectId, teamId, projects = [], searchQuery =
     handleUpdateTask,
     handleMoveToInProgress,
     handleBatchMoveToInProgress,
-    handleBatchExecute,
-    handleCancelBatch,
-    handleApproveNextBatchTask,
-    toggleTaskSelect,
-    toggleColumnSelection,
-    toggleColumnSelectAll,
-    selectAllVisible,
-    clearSelection,
+    handleBatchExecute: batchWithSelection.handleBatchExecute,
+    handleCancelBatch: batchWithSelection.handleCancelBatch,
+    handleApproveNextBatchTask: batchWithSelection.handleApproveNextBatchTask,
+    toggleTaskSelect: selection.toggleTaskSelect,
+    toggleColumnSelection: selection.toggleColumnSelection,
+    toggleColumnSelectAll: selection.toggleColumnSelectAll,
+    selectAllVisible: selection.selectAllVisible,
+    clearSelection: selection.clearSelection,
     handleInlineCreateTask,
     handleTaskCreated,
     handleBulkDelete,
