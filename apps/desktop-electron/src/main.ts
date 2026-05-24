@@ -22,7 +22,10 @@ if (process.platform === "linux") {
   app.disableHardwareAcceleration();
   app.commandLine.appendSwitch("disable-gpu-vsync");
   app.commandLine.appendSwitch("disable-software-rasterizer");
+  // Force XWayland on Hyprland/Wayland — native Wayland is broken in Electron
   app.commandLine.appendSwitch("ozone-platform", "x11");
+  app.commandLine.appendSwitch("ozone-platform-hint", "x11");
+  process.env.ELECTRON_OZONE_PLATFORM_HINT = "x11";
   app.commandLine.appendSwitch("enable-features", "VaapiVideoDecodeLinuxGL");
 }
 
