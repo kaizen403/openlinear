@@ -205,3 +205,40 @@ export async function createPullRequest(
     return { url: compareUrl, type: 'compare' };
   }
 }
+
+export interface IGitService {
+  clone(cloneUrl: string, repoPath: string, accessToken: string | null, defaultBranch: string): Promise<void>;
+  createBranch(repoPath: string, branchName: string): Promise<void>;
+  commitAndPush(repoPath: string, branchName: string, taskTitle: string, accessToken?: string | null): Promise<CommitPushResult>;
+  createPullRequest(fullName: string, branchName: string, defaultBranch: string, taskTitle: string, taskDescription: string | null, accessToken: string | null): Promise<PullRequestResult>;
+  hasChanges(repoPath: string): Promise<boolean>;
+  stageChanges(repoPath: string): Promise<boolean>;
+}
+
+export class GitService implements IGitService {
+  async clone(cloneUrl: string, repoPath: string, accessToken: string | null, defaultBranch: string): Promise<void> {
+    return cloneRepository(cloneUrl, repoPath, accessToken, defaultBranch);
+  }
+
+  async createBranch(repoPath: string, branchName: string): Promise<void> {
+    return createBranch(repoPath, branchName);
+  }
+
+  async commitAndPush(repoPath: string, branchName: string, taskTitle: string, accessToken: string | null = null): Promise<CommitPushResult> {
+    return commitAndPush(repoPath, branchName, taskTitle, accessToken);
+  }
+
+  async createPullRequest(fullName: string, branchName: string, defaultBranch: string, taskTitle: string, taskDescription: string | null, accessToken: string | null): Promise<PullRequestResult> {
+    return createPullRequest(fullName, branchName, defaultBranch, taskTitle, taskDescription, accessToken);
+  }
+
+  async hasChanges(repoPath: string): Promise<boolean> {
+    return hasCommittableChanges(repoPath);
+  }
+
+  async stageChanges(repoPath: string): Promise<boolean> {
+    return stageCommittableChanges(repoPath);
+  }
+}
+
+export const gitService = new GitService();
