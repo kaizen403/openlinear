@@ -73,19 +73,143 @@ export interface PullRequestResult {
   type: 'pr' | 'compare';
 }
 
-export const activeExecutions = new Map<string, ExecutionState>();
-export const sessionToTask = new Map<string, string>();
+// --- ExecutionStateStore: encapsulates global execution state ---
+
+export class ExecutionStateStore {
+  private executions = new Map<string, ExecutionState>();
+  private sessionToTaskMap = new Map<string, string>();
+
+  get(taskId: string): ExecutionState | undefined {
+    return this.executions.get(taskId);
+  }
+
+  has(taskId: string): boolean {
+    return this.executions.has(taskId);
+  }
+
+  set(taskId: string, state: ExecutionState): void {
+    this.executions.set(taskId, state);
+    this.sessionToTaskMap.set(state.sessionId, taskId);
+  }
+
+  getBySession(sessionId: string): ExecutionState | undefined {
+    const taskId = this.sessionToTaskMap.get(sessionId);
+    if (taskId) return this.executions.get(taskId);
+    // Fallback: scan (shouldn't be needed)
+    for (const [tid, execution] of this.executions.entries()) {
+      if (execution.sessionId === sessionId) {
+        this.sessionToTaskMap.set(sessionId, tid);
+        return execution;
+      }
+    }
+    return undefined;
+  }
+
+  getTaskIdBySession(sessionId: string): string | undefined {
+    const taskId = this.sessionToTaskMap.get(sessionId);
+    if (taskId) return taskId;
+    for (const [tid, execution] of this.executions.entries()) {
+      if (execution.sessionId === sessionId) {
+        this.sessionToTaskMap.set(sessionId, tid);
+        return tid;
+      }
+    }
+    return undefined;
+  }
+
+  remove(taskId: string): void {
+    const execution = this.executions.get(taskId);
+    if (execution) {
+      this.sessionToTaskMap.delete(execution.sessionId);
+    }
+    this.executions.delete(taskId);
+  }
+
+  count(): number {
+    return this.executions.size;
+  }
+
+  reset(): void {
+    this.executions.clear();
+    this.sessionToTaskMap.clear();
+  }
+
+  entries(): IterableIterator<[string, ExecutionState]> {
+    return this.executions.entries();
+  }
+
+  values(): IterableIterator<ExecutionState> {
+    return this.executions.values();
+  }
+}
+
+/** Singleton store instance — import this instead of raw Maps */
+export const executionStore = new ExecutionStateStore();
+
+// --- Backward-compatible exports (delegate to store) ---
+
+/**
+ * @deprecated Use executionStore directly.
+ * Proxy that delegates Map operations to the ExecutionStateStore singleton.
+ */
+export const activeExecutions: Map<string, ExecutionState> = new Proxy(new Map<string, ExecutionState>(), {
+  get(_target, prop: string | symbol) {
+    switch (prop) {
+      case 'get': return (key: string) => executionStore.get(key);
+      case 'has': return (key: string) => executionStore.has(key);
+      case 'set': return (key: string, value: ExecutionState) => { executionStore.set(key, value); return activeExecutions; };
+      case 'delete': return (key: string) => { executionStore.remove(key); return true; };
+      case 'size': return executionStore.count();
+      case 'entries': return () => executionStore.entries();
+      case 'values': return () => executionStore.values();
+      case 'keys': return () => {
+        const keys: string[] = [];
+        for (const [k] of executionStore.entries()) keys.push(k);
+        return keys[Symbol.iterator]();
+      };
+      case 'forEach': return (fn: (value: ExecutionState, key: string, map: Map<string, ExecutionState>) => void) => {
+        for (const [k, v] of executionStore.entries()) fn(v, k, activeExecutions);
+      };
+      case Symbol.iterator: return () => executionStore.entries();
+      case Symbol.toStringTag: return 'Map';
+      default: return undefined;
+    }
+  },
+}) as unknown as Map<string, ExecutionState>;
+
+/**
+ * @deprecated Use executionStore directly.
+ * Proxy that delegates to ExecutionStateStore for session→task lookups.
+ */
+export const sessionToTask: Map<string, string> = new Proxy(new Map<string, string>(), {
+  get(_target, prop: string | symbol) {
+    switch (prop) {
+      case 'get': return (sessionId: string) => executionStore.getTaskIdBySession(sessionId);
+      case 'set': return (sessionId: string, _taskId: string) => {
+        // no-op: managed by executionStore.set()
+        return sessionToTask;
+      };
+      case 'delete': return (_sessionId: string) => {
+        // no-op: managed by executionStore.remove()
+        return true;
+      };
+      case 'has': return (sessionId: string) => executionStore.getTaskIdBySession(sessionId) !== undefined;
+      case Symbol.toStringTag: return 'Map';
+      default: return undefined;
+    }
+  },
+}) as unknown as Map<string, string>;
 
 export function getRunningTaskCount(): number {
-  return activeExecutions.size;
+  return executionStore.count();
 }
 
 export function isTaskRunning(taskId: string): boolean {
-  return activeExecutions.has(taskId);
+  return executionStore.has(taskId);
 }
 
 export function getExecutionStatus(taskId: string): ExecutionState | undefined {
-  return activeExecutions.get(taskId);
+  return executionStore.get(taskId);
 }
 
 function scheduleTaskBroadcast(
@@ -122,7 +246,7 @@ export function broadcastProgress(taskId: string, status: string, message: strin
 }
 
 export function addLogEntry(taskId: string, type: ExecutionLogEntry['type'], message: string, details?: string) {
-  const execution = activeExecutions.get(taskId);
+  const execution = executionStore.get(taskId);
   if (!execution) {
     console.log(`[Execution] Warning: No execution found for task ${taskId.slice(0, 8)} when adding log`);
     return;
@@ -145,7 +269,7 @@ export function addLogEntry(taskId: string, type: ExecutionLogEntry['type'], mes
 }
 
 export function getExecutionLogs(taskId: string): ExecutionLogEntry[] {
-  const execution = activeExecutions.get(taskId);
+  const execution = executionStore.get(taskId);
   return execution?.logs || [];
 }
 
@@ -193,7 +317,7 @@ export function estimateProgress(execution: ExecutionState): number {
 }
 
 export async function persistLogs(taskId: string): Promise<void> {
-  const execution = activeExecutions.get(taskId);
+  const execution = executionStore.get(taskId);
   if (!execution || execution.logs.length === 0) return;
   try {
     await prisma.$executeRaw`
@@ -205,7 +329,7 @@ export async function persistLogs(taskId: string): Promise<void> {
 }
 
 export async function cleanupExecution(taskId: string): Promise<void> {
-  const execution = activeExecutions.get(taskId);
+  const execution = executionStore.get(taskId);
   if (execution) {
     flushDeltaBuffer(taskId);
     cleanupDeltaBuffer(taskId);
@@ -222,9 +346,8 @@ export async function cleanupExecution(taskId: string): Promise<void> {
       }
       execution.eventStreamCleanup = undefined;
     }
-    sessionToTask.delete(execution.sessionId);
-    activeExecutions.delete(taskId);
-    console.log(`[Execution] Cleaned up task ${taskId.slice(0, 8)}, remaining: ${activeExecutions.size}`);
+    executionStore.remove(taskId);
+    console.log(`[Execution] Cleaned up task ${taskId.slice(0, 8)}, remaining: ${executionStore.count()}`);
   }
 }
 
@@ -234,17 +357,5 @@ export async function getTaskTitle(taskId: string): Promise<string> {
 }
 
 export function findTaskBySessionId(sessionId: string): string | undefined {
-  // Fast path: use the lookup map
-  const taskId = sessionToTask.get(sessionId);
-  if (taskId) return taskId;
-  
-  // Fallback: scan activeExecutions (shouldn't be needed)
-  for (const [tid, execution] of activeExecutions.entries()) {
-    if (execution.sessionId === sessionId) {
-      // Update the lookup map
-      sessionToTask.set(sessionId, tid);
-      return tid;
-    }
-  }
-  return undefined;
+  return executionStore.getTaskIdBySession(sessionId);
 }
