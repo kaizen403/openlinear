@@ -10,6 +10,7 @@
     "build:app:linux": "pnpm build && electron-builder --linux",
     "build:app:mac": "pnpm build && electron-builder --mac",
     "build:app:win": "pnpm build && electron-builder --win",
+    "start": "pnpm build && electron .",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

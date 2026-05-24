@@ -20,7 +20,9 @@
     "build:sidecar": "./scripts/build-sidecar.sh",
     "build:desktop": "pnpm --filter @openlinear/desktop tauri build",
     "build:electron": "pnpm --filter @openlinear/desktop-ui build:electron && pnpm --filter @openlinear/desktop-electron build:app",
-    "build:electron:linux": "pnpm --filter @openlinear/desktop-ui build:electron && pnpm --filter @openlinear/desktop-electron build:app:linux"
+    "build:electron:linux": "pnpm --filter @openlinear/desktop-ui build:electron && pnpm --filter @openlinear/desktop-electron build:app:linux",
+    "dev:electron": "pnpm --filter @openlinear/desktop-electron dev",
+    "start:electron": "pnpm --filter @openlinear/desktop-ui build:electron && pnpm --filter @openlinear/desktop-electron start"
   },
   "devDependencies": {
     "@opencode-ai/sdk": "^1.2.5",
