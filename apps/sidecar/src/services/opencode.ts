@@ -295,3 +295,35 @@ export function registerShutdownHandlers(): void {
   process.on('SIGTERM', () => void shutdown('SIGTERM'));
   process.on('beforeExit', () => void shutdownOpenCode());
 }
+
+export interface IOpenCodeAdapter {
+  init(opts?: { restart?: boolean }): Promise<void>;
+  shutdown(): Promise<void>;
+  getClient(userId: string, directory?: string): Promise<OpencodeClient>;
+  getStatus(): OpenCodeStatus;
+  isRunning(): boolean;
+}
+
+export class OpenCodeAdapter implements IOpenCodeAdapter {
+  async init(opts: { restart?: boolean } = {}): Promise<void> {
+    return initOpenCode(opts);
+  }
+
+  async shutdown(): Promise<void> {
+    return shutdownOpenCode();
+  }
+
+  async getClient(userId: string, directory?: string): Promise<OpencodeClient> {
+    return getClientForUser(userId, directory);
+  }
+
+  getStatus(): OpenCodeStatus {
+    return getOpenCodeStatus();
+  }
+
+  isRunning(): boolean {
+    return serverHandle !== null;
+  }
+}
+
+export const openCodeAdapter = new OpenCodeAdapter();
