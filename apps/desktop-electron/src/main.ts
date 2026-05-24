@@ -4,20 +4,23 @@ import {
   ipcMain,
   shell,
   dialog,
-  protocol,
 } from "electron";
 import * as path from "node:path";
+import * as http from "node:http";
+import * as fs from "node:fs";
+import * as net from "node:net";
 import {
   launchSidecar,
   shutdownSidecar,
   getSidecarPort,
-  SidecarReady,
-  SidecarOutput,
-  SidecarExit,
 } from "./sidecar";
 
 const isDev = process.argv.includes("--dev");
 const gotTheLock = app.requestSingleInstanceLock();
+
+if (process.platform === "linux") {
+  app.disableHardwareAcceleration();
+}
 
 let mainWindow: BrowserWindow | null = null;
 let pendingAuthCallback: {
@@ -25,23 +28,93 @@ let pendingAuthCallback: {
   token?: string;
   error?: string;
 } | null = null;
+let staticServer: http.Server | null = null;
 
-function getFrontendPath(): string {
-  if (isDev) {
-    return "http://127.0.0.1:3000";
+function findFrontendDir(): string {
+  const candidates = [
+    path.join(__dirname, "../frontend"),
+    path.join(__dirname, "../../desktop-ui/out"),
+  ];
+  for (const dir of candidates) {
+    if (fs.existsSync(path.join(dir, "index.html"))) {
+      return dir;
+    }
   }
-  return path.join(__dirname, "../frontend/index.html");
+  throw new Error(
+    `Frontend build not found. Tried: ${candidates.join(", ")}. ` +
+    `Run pnpm --filter @openlinear/desktop-ui build:electron first.`
+  );
 }
 
-function createWindow(): BrowserWindow {
+async function pickFreePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const srv = net.createServer();
+    srv.listen(0, "127.0.0.1", () => {
+      const addr = srv.address();
+      if (addr && typeof addr === "object" && addr.port) {
+        const port = addr.port;
+        srv.close(() => resolve(port));
+      } else {
+        srv.close(() => reject(new Error("Failed to get ephemeral port")));
+      }
+    });
+    srv.on("error", (err) => reject(err));
+  });
+}
+
+async function startStaticServer(): Promise<number> {
+  if (isDev) return 3000;
+  const staticDir = findFrontendDir();
+  const port = await pickFreePort();
+
+  staticServer = http.createServer((req, res) => {
+    const reqPath = decodeURIComponent(req.url || "/");
+    let filePath = path.join(staticDir, reqPath);
+    if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
+      filePath = path.join(staticDir, "index.html");
+    }
+    fs.readFile(filePath, (err, data) => {
+      if (err) {
+        res.writeHead(404);
+        res.end("Not found");
+        return;
+      }
+      const ext = path.extname(filePath);
+      const mime: Record<string, string> = {
+        ".html": "text/html",
+        ".js": "application/javascript",
+        ".css": "text/css",
+        ".json": "application/json",
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".svg": "image/svg+xml",
+        ".woff2": "font/woff2",
+      };
+      res.writeHead(200, { "Content-Type": mime[ext] || "application/octet-stream" });
+      res.end(data);
+    });
+  });
+
+  return new Promise((resolve, reject) => {
+    staticServer!.listen(port, "127.0.0.1", () => {
+      console.log(`[Static] Serving ${staticDir} on http://127.0.0.1:${port}`);
+      resolve(port);
+    });
+    staticServer!.on("error", reject);
+  });
+}
+
+function createWindow(url: string): BrowserWindow {
   const win = new BrowserWindow({
     width: 1200,
     height: 800,
     minWidth: 800,
     minHeight: 500,
     center: true,
-    frame: false,
-    titleBarStyle: "hidden",
+    show: false,
+    backgroundColor: "#0a0a0a",
+    frame: process.platform === "darwin" ? false : true,
+    titleBarStyle: process.platform === "darwin" ? "hidden" : "default",
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -49,14 +122,20 @@ function createWindow(): BrowserWindow {
       sandbox: true,
       allowRunningInsecureContent: false,
       experimentalFeatures: false,
+      offscreen: false,
     },
   });
 
-  const frontendPath = getFrontendPath();
-  if (frontendPath.startsWith("http")) {
-    win.loadURL(frontendPath);
-  } else {
-    win.loadFile(frontendPath);
+  win.loadURL(url);
+
+  win.once("ready-to-show", () => {
+    win.show();
+    win.focus();
+    console.log("[Window] Ready and shown");
+  });
+
+  if (isDev) {
+    win.webContents.openDevTools();
   }
 
   return win;
@@ -70,7 +149,7 @@ function emitToWindow(channel: string, payload: unknown): void {
 
 function focusMainWindow(): void {
   if (!mainWindow || mainWindow.isDestroyed()) {
-    mainWindow = createWindow();
+    return;
   }
   if (mainWindow.isMinimized()) mainWindow.restore();
   mainWindow.show();
@@ -120,7 +199,13 @@ app.whenReady().then(async () => {
     app.setAsDefaultProtocolClient("openlinear");
   }
 
-  mainWindow = createWindow();
+  const staticPort = await startStaticServer();
+  const frontendUrl = isDev
+    ? "http://127.0.0.1:3000"
+    : `http://127.0.0.1:${staticPort}`;
+
+  console.log(`[App] Loading frontend from ${frontendUrl}`);
+  mainWindow = createWindow(frontendUrl);
 
   try {
     const port = await launchSidecar(emitToWindow);
@@ -136,12 +221,16 @@ app.whenReady().then(async () => {
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
-      mainWindow = createWindow();
+      mainWindow = createWindow(frontendUrl);
     }
   });
 });
 
 app.on("window-all-closed", () => {
+  if (staticServer) {
+    staticServer.close();
+    staticServer = null;
+  }
   if (process.platform !== "darwin") {
     shutdownSidecar();
     app.quit();
@@ -150,6 +239,10 @@ app.on("window-all-closed", () => {
 
 app.on("before-quit", () => {
   shutdownSidecar();
+  if (staticServer) {
+    staticServer.close();
+    staticServer = null;
+  }
 });
 
 app.on("open-url", (_event, url) => {
@@ -234,10 +327,10 @@ ipcMain.handle("get-arch", () => {
 const storeCache = new Map<string, Map<string, unknown>>();
 
 ipcMain.handle("store-load", async (_event, filename: string) => {
-  const fs = await import("node:fs/promises");
+  const fsPromises = await import("node:fs/promises");
   const storePath = path.join(app.getPath("userData"), filename);
   try {
-    const data = await fs.readFile(storePath, "utf-8");
+    const data = await fsPromises.readFile(storePath, "utf-8");
     const parsed = JSON.parse(data) as Record<string, unknown>;
     storeCache.set(filename, new Map(Object.entries(parsed)));
   } catch {
@@ -271,12 +364,12 @@ ipcMain.handle(
 );
 
 ipcMain.handle("store-save", async (_event, filename: string) => {
-  const fs = await import("node:fs/promises");
+  const fsPromises = await import("node:fs/promises");
   const store = storeCache.get(filename);
   if (!store) return;
   const storePath = path.join(app.getPath("userData"), filename);
   const data = Object.fromEntries(store.entries());
-  await fs.writeFile(storePath, JSON.stringify(data, null, 2), "utf-8");
+  await fsPromises.writeFile(storePath, JSON.stringify(data, null, 2), "utf-8");
 });
 
 ipcMain.handle("consume_pending_auth_callback", async () => {

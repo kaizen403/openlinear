@@ -5,12 +5,12 @@
   "main": "dist/main.js",
   "scripts": {
     "build": "tsc",
-    "dev": "tsc && electron . --dev",
-    "build:app": "pnpm build && electron-builder",
-    "build:app:linux": "pnpm build && electron-builder --linux",
-    "build:app:mac": "pnpm build && electron-builder --mac",
-    "build:app:win": "pnpm build && electron-builder --win",
-    "start": "pnpm build && electron .",
+    "dev": "tsc && /usr/bin/electron . --dev",
+    "build:app": "pnpm build && /usr/bin/electron-builder",
+    "build:app:linux": "pnpm build && /usr/bin/electron-builder --linux",
+    "build:app:mac": "pnpm build && /usr/bin/electron-builder --mac",
+    "build:app:win": "pnpm build && /usr/bin/electron-builder --win",
+    "start": "pnpm build && /usr/bin/electron .",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
