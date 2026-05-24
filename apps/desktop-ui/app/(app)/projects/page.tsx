@@ -283,8 +283,13 @@ function ProjectsContent() {
     }
 
     try {
-      const { invoke } = await import("@tauri-apps/api/core")
-      const selectedPath = await invoke<string | null>("pick_local_folder")
+      let selectedPath: string | null = null
+      if (typeof window !== 'undefined' && 'electronAPI' in window && window.electronAPI?.isElectron) {
+        selectedPath = await window.electronAPI.pickFolder()
+      } else {
+        const { invoke } = await import("@tauri-apps/api/core")
+        selectedPath = await invoke<string | null>("pick_local_folder")
+      }
       if (!selectedPath) return
 
       if (isEdit) {

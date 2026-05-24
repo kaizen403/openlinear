@@ -217,19 +217,24 @@ export function Sidebar({ open, onClose, width }: SidebarProps) {
     const [eventSourceToken, setEventSourceToken] = useState<string | null>(null)
 
     useEffect(() => {
-        const tauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
-        setIsTauri(tauri)
-        if (!tauri) return
+        const desktop = typeof window !== 'undefined' && (('__TAURI_INTERNALS__' in window) || ('electronAPI' in window && window.electronAPI?.isElectron === true))
+        setIsTauri(desktop)
+        if (!desktop) return
 
         let unlisten: (() => void) | undefined
 
         const setup = async () => {
-            const { getCurrentWindow } = await import('@tauri-apps/api/window')
-            const win = getCurrentWindow()
-            setIsFullscreen(await win.isFullscreen())
-            unlisten = await win.onResized(async () => {
+            if (typeof window !== 'undefined' && 'electronAPI' in window && window.electronAPI?.isElectron) {
+                const fs = await window.electronAPI.invoke("window-is-fullscreen") as boolean | undefined
+                setIsFullscreen(fs ?? false)
+            } else {
+                const { getCurrentWindow } = await import('@tauri-apps/api/window')
+                const win = getCurrentWindow()
                 setIsFullscreen(await win.isFullscreen())
-            })
+                unlisten = await win.onResized(async () => {
+                    setIsFullscreen(await win.isFullscreen())
+                })
+            }
         }
         setup()
         return () => { unlisten?.() }
@@ -274,16 +279,28 @@ export function Sidebar({ open, onClose, width }: SidebarProps) {
     }, [eventSourceToken])
 
     const handleClose = async () => {
+        if (typeof window !== 'undefined' && 'electronAPI' in window && window.electronAPI?.isElectron) {
+            await window.electronAPI.invoke("window-close")
+            return
+        }
         const { getCurrentWindow } = await import('@tauri-apps/api/window')
         await getCurrentWindow().close()
     }
 
     const handleMinimize = async () => {
+        if (typeof window !== 'undefined' && 'electronAPI' in window && window.electronAPI?.isElectron) {
+            await window.electronAPI.invoke("window-minimize")
+            return
+        }
         const { getCurrentWindow } = await import('@tauri-apps/api/window')
         getCurrentWindow().minimize()
     }
 
     const handleMaximize = async () => {
+        if (typeof window !== 'undefined' && 'electronAPI' in window && window.electronAPI?.isElectron) {
+            await window.electronAPI.invoke("window-maximize")
+            return
+        }
         const { getCurrentWindow } = await import('@tauri-apps/api/window')
         const isMac = navigator.platform.toUpperCase().includes('MAC')
         if (isMac) {

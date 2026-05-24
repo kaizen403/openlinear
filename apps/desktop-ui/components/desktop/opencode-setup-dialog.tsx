@@ -43,7 +43,12 @@ export function OpencodeSetupDialog({
   const checkOpencode = React.useCallback(async () => {
     setChecking(true)
     try {
-      const result = await invoke<OpencodeStatus>("check_opencode")
+      let result: OpencodeStatus;
+      if (typeof window !== 'undefined' && 'electronAPI' in window && window.electronAPI?.isElectron) {
+        result = await window.electronAPI.invoke("check_opencode") as OpencodeStatus;
+      } else {
+        result = await invoke<OpencodeStatus>("check_opencode");
+      }
       setStatus(result)
       if (result.found && onComplete) {
         onComplete()
@@ -58,16 +63,23 @@ export function OpencodeSetupDialog({
 
   const detectPlatform = React.useCallback(async () => {
     try {
-      // Dynamic import for Tauri plugins
-      const { platform, arch } = await import("@tauri-apps/plugin-os")
-      const os = await platform()
-      const cpuArch = await arch()
-      setPlatform({
-        os: os as PlatformInfo["os"],
-        arch: cpuArch as PlatformInfo["arch"],
-      })
+      if (typeof window !== 'undefined' && 'electronAPI' in window && window.electronAPI?.isElectron) {
+        const os = await window.electronAPI.platform()
+        const cpuArch = await window.electronAPI.arch()
+        setPlatform({
+          os: os as PlatformInfo["os"],
+          arch: cpuArch as PlatformInfo["arch"],
+        })
+      } else {
+        const { platform, arch } = await import("@tauri-apps/plugin-os")
+        const os = await platform()
+        const cpuArch = await arch()
+        setPlatform({
+          os: os as PlatformInfo["os"],
+          arch: cpuArch as PlatformInfo["arch"],
+        })
+      }
     } catch {
-      // Not running in Tauri
       setPlatform({ os: "unknown", arch: "unknown" })
     }
   }, [])

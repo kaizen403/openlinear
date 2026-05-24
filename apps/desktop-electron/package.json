@@ -1,0 +1,23 @@
+{
+  "name": "@openlinear/desktop-electron",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc && electron . --dev",
+    "build:app": "pnpm build && electron-builder",
+    "build:app:linux": "pnpm build && electron-builder --linux",
+    "build:app:mac": "pnpm build && electron-builder --mac",
+    "build:app:win": "pnpm build && electron-builder --win",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "electron": "^35.0.0"
+  },
+  "devDependencies": {
+    "electron-builder": "^26.0.0",
+    "typescript": "^5.9.3",
+    "@types/node": "^20.19.32"
+  }
+}

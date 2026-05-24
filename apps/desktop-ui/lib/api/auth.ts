@@ -10,8 +10,8 @@ const TOKEN_VERIFY_TIMEOUT_MS = 15_000;
 const TOKEN_VERIFY_MIN_RETRY_MS = 300;
 const TOKEN_VERIFY_MAX_RETRY_MS = 1_250;
 
-function isTauriRuntime(): boolean {
-  return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+function isDesktopRuntime(): boolean {
+  return typeof window !== 'undefined' && (('__TAURI_INTERNALS__' in window) || ('electronAPI' in window && window.electronAPI?.isElectron === true));
 }
 
 function removeTokenIfCurrent(token: string): void {
@@ -44,7 +44,7 @@ function isRetryableTokenVerificationError(err: unknown): boolean {
 }
 
 async function getAuthApiUrl(): Promise<string> {
-  if (!isTauriRuntime()) return getApiUrl();
+  if (!isDesktopRuntime()) return getApiUrl();
   return resolveKnownSidecarApiUrl();
 }
 
@@ -130,7 +130,7 @@ export async function verifyCallbackToken(token: string): Promise<User> {
 }
 
 export function getLoginUrl(): string {
-  if (isTauriRuntime()) {
+  if (isDesktopRuntime()) {
     return `${getSidecarApiUrl()}/api/auth/github?client=desktop`;
   }
   return `${getApiUrl()}/api/auth/github`;
@@ -161,8 +161,16 @@ async function getDesktopLoginUrl(): Promise<string> {
 }
 
 export async function startLogin(): Promise<boolean> {
-  if (isTauriRuntime()) {
+  if (isDesktopRuntime()) {
     const url = await getDesktopLoginUrl();
+    if (typeof window !== 'undefined' && 'electronAPI' in window && window.electronAPI?.isElectron) {
+      try {
+        await window.electronAPI.openExternal(url);
+        return true;
+      } catch (err) {
+        console.warn('[Auth] Failed to open desktop GitHub login via Electron:', err);
+      }
+    }
     void import('@tauri-apps/plugin-shell')
       .then(({ open }) => open(url))
       .catch((err) => {
