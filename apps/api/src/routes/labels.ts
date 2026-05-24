@@ -1,4 +1,4 @@
-import { Router, Response, NextFunction } from 'express';
+import { Router, Response } from 'express';
 import { prisma } from '@openlinear/db';
 import { broadcastToProject, broadcastToTaskById } from '../sse';
 import { requireAuth, AuthRequest } from '../middleware/auth';
@@ -37,19 +37,17 @@ router.get(
   '/',
   requireAuth,
   validateQuery(listLabelsQuerySchema),
-  async (req: AuthRequest & ValidatedRequest<unknown, ListLabelsQuery>, res: Response, next: NextFunction) => {
-    try {
-      const { projectId } = req.validQuery!;
-      await assertProjectMember(projectId, req.userId!);
+  async (req: AuthRequest & ValidatedRequest<unknown, ListLabelsQuery>, res: Response) => {
 
-      const labels = await prisma.label.findMany({
-        where: { projectId },
-        orderBy: { priority: 'desc' },
-      });
-      res.json(labels);
-    } catch (error) {
-      next(error);
-    }
+    const { projectId } = req.validQuery!;
+    await assertProjectMember(projectId, req.userId!);
+
+    const labels = await prisma.label.findMany({
+      where: { projectId },
+      orderBy: { priority: 'desc' },
+    });
+    res.json(labels);
+    
   },
 );
 
@@ -57,20 +55,18 @@ router.post(
   '/',
   requireAuth,
   validateBody(createLabelBodySchema),
-  async (req: AuthRequest & ValidatedRequest<CreateLabelBody>, res: Response, next: NextFunction) => {
-    try {
-      const { projectId, ...rest } = req.validBody!;
-      await assertProjectMember(projectId, req.userId!);
+  async (req: AuthRequest & ValidatedRequest<CreateLabelBody>, res: Response) => {
 
-      const label = await prisma.label.create({
-        data: { ...rest, projectId },
-      });
+    const { projectId, ...rest } = req.validBody!;
+    await assertProjectMember(projectId, req.userId!);
 
-      broadcastToProject(projectId, 'label:created', label);
-      res.status(201).json(label);
-    } catch (error) {
-      next(error);
-    }
+    const label = await prisma.label.create({
+      data: { ...rest, projectId },
+    });
+
+    broadcastToProject(projectId, 'label:created', label);
+    res.status(201).json(label);
+    
   },
 );
 
@@ -78,78 +74,70 @@ router.patch(
   '/:id',
   requireAuth,
   validateBody(updateLabelBodySchema),
-  async (req: AuthRequest & ValidatedRequest<UpdateLabelBody>, res: Response, next: NextFunction) => {
-    try {
-      const id = req.params.id as string;
-      const projectId = await assertLabelAccess(id, req.userId!);
+  async (req: AuthRequest & ValidatedRequest<UpdateLabelBody>, res: Response) => {
 
-      const label = await prisma.label.update({
-        where: { id },
-        data: req.validBody!,
-      });
-
-      broadcastToProject(projectId, 'label:updated', label);
-      res.json(label);
-    } catch (error) {
-      next(error);
-    }
-  },
-);
-
-router.delete('/:id', requireAuth, async (req: AuthRequest, res: Response, next: NextFunction) => {
-  try {
     const id = req.params.id as string;
     const projectId = await assertLabelAccess(id, req.userId!);
 
-    await prisma.label.delete({ where: { id } });
-    broadcastToProject(projectId, 'label:deleted', { id });
-    res.status(204).send();
-  } catch (error) {
-    next(error);
-  }
+    const label = await prisma.label.update({
+      where: { id },
+      data: req.validBody!,
+    });
+
+    broadcastToProject(projectId, 'label:updated', label);
+    res.json(label);
+    
+  },
+);
+
+router.delete('/:id', requireAuth, async (req: AuthRequest, res: Response) => {
+
+  const id = req.params.id as string;
+  const projectId = await assertLabelAccess(id, req.userId!);
+
+  await prisma.label.delete({ where: { id } });
+  broadcastToProject(projectId, 'label:deleted', { id });
+  res.status(204).send();
+  
 });
 
 router.post(
   '/tasks/:id/labels',
   requireAuth,
   validateBody(assignLabelBodySchema),
-  async (req: AuthRequest & ValidatedRequest<AssignLabelBody>, res: Response, next: NextFunction) => {
-    try {
-      const taskId = req.params.id as string;
-      const { labelId } = req.validBody!;
+  async (req: AuthRequest & ValidatedRequest<AssignLabelBody>, res: Response) => {
 
-      await assertTaskOwned(taskId, req.userId!);
-      await assertLabelAccess(labelId, req.userId!);
+    const taskId = req.params.id as string;
+    const { labelId } = req.validBody!;
 
-      const taskLabel = await prisma.taskLabel.create({
-        data: { taskId, labelId },
-        include: { label: true },
-      });
+    await assertTaskOwned(taskId, req.userId!);
+    await assertLabelAccess(labelId, req.userId!);
 
-      broadcastToTaskById(taskId, 'task:label:assigned', { taskId, label: taskLabel.label });
-      res.status(201).json(taskLabel);
-    } catch (error) {
-      next(error);
-    }
+    const taskLabel = await prisma.taskLabel.create({
+      data: { taskId, labelId },
+      include: { label: true },
+    });
+
+    broadcastToTaskById(taskId, 'task:label:assigned', { taskId, label: taskLabel.label });
+    res.status(201).json(taskLabel);
+    
   },
 );
 
-router.delete('/tasks/:id/labels/:labelId', requireAuth, async (req: AuthRequest, res: Response, next: NextFunction) => {
-  try {
-    const taskId = req.params.id as string;
-    const labelId = req.params.labelId as string;
+router.delete('/tasks/:id/labels/:labelId', requireAuth, async (req: AuthRequest, res: Response) => {
 
-    await assertTaskOwned(taskId, req.userId!);
+  const taskId = req.params.id as string;
+  const labelId = req.params.labelId as string;
 
-    await prisma.taskLabel.delete({
-      where: { taskId_labelId: { taskId, labelId } },
-    });
+  await assertTaskOwned(taskId, req.userId!);
 
-    broadcastToTaskById(taskId, 'task:label:removed', { taskId, labelId });
-    res.status(204).send();
-  } catch (error) {
-    next(error);
-  }
+  await prisma.taskLabel.delete({
+    where: { taskId_labelId: { taskId, labelId } },
+  });
+
+  broadcastToTaskById(taskId, 'task:label:removed', { taskId, labelId });
+  res.status(204).send();
+  
 });
 
 export default router;
