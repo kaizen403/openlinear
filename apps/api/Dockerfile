@@ -39,8 +39,6 @@ RUN pnpm --filter @openlinear/api build
 
 RUN pnpm --filter @openlinear/api --prod deploy /app/pruned
 
-RUN cp -r node_modules/.prisma /app/pruned/node_modules/.prisma 2>/dev/null || true
-
 FROM node:22-bookworm-slim AS runtime
 
 ENV NODE_ENV=production
@@ -57,11 +55,7 @@ WORKDIR /app
 
 COPY --from=build /app/pruned/node_modules ./node_modules
 COPY --from=build /app/apps/api/dist       ./dist
-COPY --from=build /app/node_modules/.prisma ./node_modules/.prisma
-
-COPY --from=build /app/node_modules/@prisma ./node_modules/@prisma
-
-COPY packages/db/prisma ./prisma
+COPY --from=build /app/packages/db/prisma  ./prisma
 
 EXPOSE 3001
 
