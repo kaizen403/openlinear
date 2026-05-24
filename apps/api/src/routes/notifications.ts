@@ -1,4 +1,4 @@
-import { Router, Response, NextFunction } from 'express';
+import { Router, Response } from 'express';
 import { prisma } from '@openlinear/db';
 import { z } from 'zod';
 import { requireAuth, AuthRequest } from '../middleware/auth';
@@ -15,81 +15,75 @@ const listQuerySchema = paginationQuerySchema.extend({
     .transform((v) => v === '1' || v === 'true'),
 });
 
-router.get('/', requireAuth, async (req: AuthRequest, res: Response, next: NextFunction) => {
-  try {
-    const parsed = listQuerySchema.safeParse(req.query);
-    if (!parsed.success) {
-      throw ValidationError.fromZod(parsed.error);
-    }
-    const { page, pageSize, unreadOnly } = parsed.data;
+router.get('/', requireAuth, async (req: AuthRequest, res: Response) => {
 
-    const where = {
-      userId: req.userId!,
-      ...(unreadOnly ? { readAt: null } : {}),
-    };
-
-    const [notifications, total, unreadCount] = await prisma.$transaction(
-      async (tx) => {
-        const items = await tx.notification.findMany({
-          where,
-          orderBy: { createdAt: 'desc' },
-          ...paginationSkipTake(page, pageSize),
-          include: {
-            actor: { select: { id: true, username: true, avatarUrl: true } },
-          },
-        });
-        const count = await tx.notification.count({ where });
-        const unread = await tx.notification.count({
-          where: { userId: req.userId!, readAt: null },
-        });
-        return [items, count, unread] as const;
-      },
-      { timeout: 15000, maxWait: 5000 },
-    );
-
-    res.json({ ...paginated(notifications, total, page, pageSize), unreadCount });
-  } catch (error) {
-    next(error);
+  const parsed = listQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    throw ValidationError.fromZod(parsed.error);
   }
+  const { page, pageSize, unreadOnly } = parsed.data;
+
+  const where = {
+    userId: req.userId!,
+    ...(unreadOnly ? { readAt: null } : {}),
+  };
+
+  const [notifications, total, unreadCount] = await prisma.$transaction(
+    async (tx) => {
+      const items = await tx.notification.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        ...paginationSkipTake(page, pageSize),
+        include: {
+          actor: { select: { id: true, username: true, avatarUrl: true } },
+        },
+      });
+      const count = await tx.notification.count({ where });
+      const unread = await tx.notification.count({
+        where: { userId: req.userId!, readAt: null },
+      });
+      return [items, count, unread] as const;
+    },
+    { timeout: 15000, maxWait: 5000 },
+  );
+
+  res.json({ ...paginated(notifications, total, page, pageSize), unreadCount });
+  
 });
 
 router.patch(
   '/:id/read',
   requireAuth,
-  async (req: AuthRequest, res: Response, next: NextFunction) => {
-    try {
-      const id = req.params.id as string;
-      const existing = await prisma.notification.findUnique({
-        where: { id },
-        select: { id: true, userId: true, readAt: true },
-      });
-      if (!existing || existing.userId !== req.userId) {
-        throw new HttpError(404, 'NOT_FOUND', 'Notification not found');
-      }
-      const updated = await prisma.notification.update({
-        where: { id },
-        data: { readAt: existing.readAt ?? new Date() },
-      });
-      res.json(updated);
-    } catch (error) {
-      next(error);
+  async (req: AuthRequest, res: Response) => {
+
+    const id = req.params.id as string;
+    const existing = await prisma.notification.findUnique({
+      where: { id },
+      select: { id: true, userId: true, readAt: true },
+    });
+    if (!existing || existing.userId !== req.userId) {
+      throw new HttpError(404, 'NOT_FOUND', 'Notification not found');
     }
+    const updated = await prisma.notification.update({
+      where: { id },
+      data: { readAt: existing.readAt ?? new Date() },
+    });
+    res.json(updated);
+    
   },
 );
 
 router.post(
   '/read-all',
   requireAuth,
-  async (req: AuthRequest, res: Response, next: NextFunction) => {
-    try {
-      const result = await prisma.notification.updateMany({
-        where: { userId: req.userId!, readAt: null },
-        data: { readAt: new Date() },
-      });
-      res.json({ updated: result.count });
-    } catch (error) {
-      next(error);
-    }
+  async (req: AuthRequest, res: Response) => {
+
+    const result = await prisma.notification.updateMany({
+      where: { userId: req.userId!, readAt: null },
+      data: { readAt: new Date() },
+    });
+    res.json({ updated: result.count });
+    
   },
 );
 
