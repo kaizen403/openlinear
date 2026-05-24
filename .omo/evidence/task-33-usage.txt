@@ -1,0 +1,77 @@
+T33 — /usage analytics page (cost + token tracking)
+=====================================================
+
+FILES CHANGED (this task):
+  apps/api/src/app.ts                            | +2 lines (mount usage router)
+  apps/api/src/routes/usage.ts                   | NEW (193 lines)
+  apps/desktop-ui/app/usage/page.tsx             | NEW (~370 lines)
+  apps/desktop-ui/components/layout/sidebar.tsx  | +5 lines (Usage nav link + BarChart3 icon)
+  apps/desktop-ui/package.json                   | +1 line (recharts 2.15.0)
+  pnpm-lock.yaml                                 | recharts dep tree
+
+ENDPOINTS ADDED (apps/api/src/routes/usage.ts)
+----------------------------------------------
+  GET /api/usage/summary
+    - requireAuth
+    - Scope: AgentRuns where userId === req.userId OR task.teamId IN getUserTeamIds(req.userId)
+    - Window: last 30 days (UTC midnight aligned)
+    - Returns: { totalCostUsd, totalRuns, totalInputTokens, totalOutputTokens,
+                 avgCostPerRun, daily: [{date, costUsd, runs}] }
+    - daily series is zero-filled across all 30 days so the chart is dense
+
+  GET /api/usage/by-task?page=&pageSize=&sort=cost|runs|recent
+    - requireAuth + validateQuery(zod)
+    - Same scope as /summary
+    - Prisma groupBy by taskId with _sum(cost,tokens), _count, _max(startedAt)
+    - sort: cost  -> orderBy { _sum: { costUsd: 'desc' } }
+            runs  -> orderBy { _count: { taskId: 'desc' } }
+            recent-> orderBy { _max:   { startedAt: 'desc' } }
+    - Joins Task title/identifier separately (no relation include in groupBy)
+    - Returns: { items: [{taskId, taskTitle, taskIdentifier, runs, totalCostUsd,
+                          totalInputTokens, totalOutputTokens, lastRunAt}],
+                 page, pageSize, total, sort }
+
+SECURITY / TENANCY
+------------------
+  - Scope filter is { OR: [{ userId }, { task: { teamId: { in: teamIds } } }] }
+  - When teamIds is empty, only userId clause is used (own runs still visible).
+  - No raw SQL; no `as any`; no `@ts-ignore`.
+  - Decimal -> number conversion via Prisma Decimal.toNumber() (with toString
+    fallback) and rounded to 6 decimal places to match @db.Decimal(12,6).
+
+DESKTOP UI (apps/desktop-ui/app/usage/page.tsx)
+-----------------------------------------------
+  Header: "Usage" title with "last 30 days" pill, BarChart3 icon, drag region.
+
+  4 stat cards (responsive grid 2-cols mobile / 4-cols desktop):
+    - Total cost            (emerald accent)  -> formatUsd(summary.totalCostUsd)
+    - Total runs            (blue accent)     -> count + "avg $X / run" sublabel
+    - Input tokens          (violet accent)   -> formatNumber (K/M abbrev)
+    - Output tokens         (amber accent)    -> formatNumber
+
+  Cost-over-time chart (recharts AreaChart):
+    - Emerald gradient fill (#10b981 -> transparent)
+    - Custom dark Tooltip showing date, cost, run count
+    - X-axis: short month/day, Y-axis: usd format
+    - Subtle CartesianGrid, no axis lines (linear-style minimalism)
+
+  By-task table:
+    - Sortable header (cost / runs / recent) via dropdown menu
+    - Cols: Task (identifier + title), Runs, Cost, Input, Output, Last run
+    - Hover row reveals "open task" external link icon
+    - Pagination: 25/page with prev/next, hidden when single page
+    - Empty state: BarChart3 icon + "No agent runs yet" copy
+
+  Loading: Loader2 spinner; Error: red message; both centered.
+
+NAV (apps/desktop-ui/components/layout/sidebar.tsx)
+---------------------------------------------------
+  Inserted "Usage" link below "Archived" and above "Connect Provider"
+  in the bottom utility section. BarChart3 icon, active state on /usage.
+
+VERIFICATION
+------------
+  $ cd apps/api && npx tsc --noEmit         -> EXIT 0  (clean)
+  $ cd apps/desktop-ui && npx tsc --noEmit  -> EXIT 0  (clean)
+
+  Playwright skipped per task instructions (typecheck + code review sufficient).

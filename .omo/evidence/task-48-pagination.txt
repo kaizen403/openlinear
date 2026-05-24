@@ -1,0 +1,81 @@
+T48 — Pagination on list endpoints
+====================================
+
+SCOPE
+-----
+Added `?page=&pageSize=` (default 50, max 200, min 1) zod-coerced query params
+and `{items, total, page, pageSize, hasMore}` response shape to:
+
+- GET /api/tasks                 (apps/api/src/routes/tasks.ts)
+- GET /api/tasks/archived        (apps/api/src/routes/tasks.ts)
+- GET /api/inbox                 (apps/api/src/routes/inbox.ts)
+- GET /api/notifications         (apps/api/src/routes/notifications.ts)  [+ unreadCount preserved]
+- GET /api/activity              (apps/api/src/routes/activity-log.ts)
+- GET /api/agent-runs            (apps/api/src/routes/agent-runs.ts)
+
+Shared helper added: apps/api/src/schemas/pagination.ts
+  - paginationQuerySchema (zod, page>=1, pageSize 1..200, defaults 1/50)
+  - paginated<T>(items, total, page, pageSize) -> {items,total,page,pageSize,hasMore}
+  - paginationSkipTake(page, pageSize) -> {skip, take}
+
+ATOMIC FETCH
+------------
+All list endpoints use prisma.$transaction(async (tx) => ..., {timeout:15000, maxWait:5000})
+to fetch findMany + count atomically (per notepad guidance).
+
+Notifications also fetches unreadCount inside the same transaction.
+
+UI CONSUMERS UPDATED
+--------------------
+Each consumer accepts both legacy array AND new {items, ...} shape (defensive
+unwrap) so the change is backward-compatible if a stale response is in flight:
+
+- apps/desktop-ui/components/board/use-kanban-board.ts   (kanban board)
+- apps/desktop-ui/lib/api/tasks.ts                        (fetchMyIssues, fetchInboxTasks)
+- apps/desktop-ui/app/archived/page.tsx                   (archived list)
+- apps/desktop-ui/app/teams/manage/page.tsx               (team task list)
+- apps/desktop-ui/app/inbox/page.tsx                      (notifications: renamed
+                                                           NotificationsListResponse.notifications -> items)
+
+Sidebar already only consumed {unreadCount}, untouched.
+agent-runs and /api/activity have no UI callers in desktop-ui (verified via grep).
+
+DEFAULT BEHAVIOR
+----------------
+- Absent query params => page=1, pageSize=50 (matches prior implicit behavior).
+- pageSize > 200 => zod 400 ValidationError (was 100 cap on notifications/activity/agent-runs;
+  new shared cap is 200 per task spec).
+
+TYPECHECK
+---------
+Baseline (HEAD before changes):
+  @openlinear/api      : 76 errors (pre-existing: missing @types/express, jsonwebtoken, etc.)
+  @openlinear/desktop-ui: 799 errors (pre-existing: missing react/express types)
+
+After changes:
+  @openlinear/api      : 76 errors  (delta = 0)
+  @openlinear/desktop-ui: 799 errors (delta = 0)
+
+==> ZERO new typecheck errors introduced. All pre-existing errors are
+    @types-related and unrelated to this task.
+
+NOT DONE (per spec)
+-------------------
+- No Playwright run.
+- No infinite-scroll UI; UI consumers fetch first page (50 items) and accept the
+  new shape. Adding pagination UI is out of scope for T48.
+
+FILES CHANGED
+-------------
+A apps/api/src/schemas/pagination.ts
+M apps/api/src/schemas/tasks.ts
+M apps/api/src/routes/tasks.ts
+M apps/api/src/routes/inbox.ts
+M apps/api/src/routes/notifications.ts
+M apps/api/src/routes/activity-log.ts
+M apps/api/src/routes/agent-runs.ts
+M apps/desktop-ui/components/board/use-kanban-board.ts
+M apps/desktop-ui/lib/api/tasks.ts
+M apps/desktop-ui/app/archived/page.tsx
+M apps/desktop-ui/app/teams/manage/page.tsx
+M apps/desktop-ui/app/inbox/page.tsx

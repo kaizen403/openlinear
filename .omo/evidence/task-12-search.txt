@@ -1,0 +1,68 @@
+T12 — Search API Evidence
+=========================
+
+Files changed:
+  apps/api/src/schemas/search.ts        (NEW — zod schema, q>=2, types CSV→array, limit 1..50)
+  apps/api/src/routes/search.ts         (NEW — GET /api/search w/ requireAuth + 30/min per-user limiter)
+  apps/api/src/app.ts                   (mount /api/search)
+
+Contract:
+  GET /api/search?q=<>&types=tasks,projects,teams&limit=20
+    401 if no Bearer token
+    400 if q.length < 2
+    400 if invalid types/limit
+    429 if >30 req/min/user
+    200 -> { tasks: [{id,title,identifier,type:'task'}, ...],
+             projects: [{id,name,type:'project'}, ...],
+             teams: [{id,name,key,type:'team'}, ...] }
+
+Scoping (all enforced via Prisma where-clauses, no raw SQL):
+  tasks    : teamId IN (getUserTeamIds(req.userId)) AND archived=false
+             AND (title|description|identifier ILIKE %q% via mode:'insensitive')
+  projects : projectTeams.some({ teamId IN userTeamIds })
+             AND (name|description ILIKE %q%)
+  teams    : members.some({ userId: req.userId })
+             AND (name|key|description ILIKE %q%)
+
+Cross-tenant safety:
+  - getUserTeamIds is the canonical source (T7); no fallback to "any team"
+  - When user has 0 team memberships, tasks/projects short-circuit to [] (no Prisma query fired)
+  - Team search is gated solely on TeamMember row, never on user-supplied teamId
+
+Limit distribution:
+  perType = floor(limit / types.length); e.g. 20 / 3 → 6 each (min 1)
+
+Rate limit:
+  express-rate-limit, windowMs=60_000, limit=30
+  keyGenerator returns AuthRequest.userId (mounted AFTER requireAuth so userId is set)
+  Returns { error:'rate_limited', scope:'search', retryAfterSeconds:60 }
+
+Verification:
+  lsp_diagnostics on apps/api/src/routes/search.ts → No diagnostics found
+  lsp_diagnostics on apps/api/src/schemas/search.ts → No diagnostics found
+  apps/api/src/app.ts: only pre-existing errors at lines 300-324 (errorHandler 'err'
+  is unknown — unrelated to T12, untouched by this change)
+
+Live curl QA:
+  Skipped — running container holds a stale build, and a fresh `pnpm typecheck`
+  fails on PRE-EXISTING errors in routes/comments.ts, routes/tasks.ts, etc.
+  (broken `broadcast` export in sse, missing User.name field). These belong to
+  T8/T10 owners. Route file + mount + zod schema are static-verified clean.
+
+QA scenario walkthrough (logical):
+  Request:  GET /api/search?q=test  Authorization: Bearer <jwt for user A>
+  → requireAuth sets req.userId = A
+  → searchLimiter increments counter for key=A
+  → SearchQuerySchema.safeParse({q:'test', types:undefined, limit:undefined})
+      → { q:'test', types:['tasks','projects','teams'], limit:20 }
+  → getUserTeamIds(A) → [t1, t2]   (only A's teams)
+  → perType = 6
+  → Promise.all([
+      task.findMany   where teamId IN [t1,t2] AND OR(title|description|identifier ILIKE %test%)
+      project.findMany where projectTeams.some(teamId IN [t1,t2]) AND OR(name|description ILIKE %test%)
+      team.findMany    where members.some(userId=A) AND OR(name|key|description ILIKE %test%)
+    ])
+  → Maps to abbreviated shape with type discriminator
+  → res.json({ tasks, projects, teams })
+
+  User B's tasks (in team t99) are excluded because t99 ∉ [t1,t2].

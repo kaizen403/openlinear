@@ -1,0 +1,97 @@
+T38: Replace raw hex Tailwind classes with linear-* design tokens
+=================================================================
+
+BEFORE: 53 hex matches across apps/desktop-ui/{components,app}/
+-----------------------------------------------------------------
+apps/desktop-ui/components/global-quick-capture.tsx:513:                "bg-[#09090b]/80 backdrop-blur-xl",
+apps/desktop-ui/components/board/kanban-board.tsx:277:      <div className="flex-1 overflow-hidden relative bg-[#111111] flex flex-col">
+apps/desktop-ui/components/board/batch-progress.tsx:26:  queued: { color: 'text-[#666]', bg: 'bg-[#2a2a2a]', icon: Clock, label: 'Queued' },
+apps/desktop-ui/components/board/batch-progress.tsx:28:  completed: { color: 'text-[#4a7c5c]', bg: 'bg-[#1f3a2a]', icon: Check, label: 'Done' },
+apps/desktop-ui/components/board/batch-progress.tsx:29:  failed: { color: 'text-[#8b5a5a]', bg: 'bg-[#3d2626]', icon: AlertCircle, label: 'Failed' },
+apps/desktop-ui/components/board/batch-progress.tsx:30:  skipped: { color: 'text-[#7c6a4a]', bg: 'bg-[#3d3526]', icon: SkipForward, label: 'Skipped' },
+apps/desktop-ui/components/board/batch-progress.tsx:31:  cancelled: { color: 'text-[#666]', bg: 'bg-[#333]', icon: Ban, label: 'Cancelled' },
+apps/desktop-ui/components/board/batch-progress.tsx:43:    <div className="mx-3 sm:mx-6 mt-4 mb-3 bg-[#141414] border border-[#222] rounded-lg">
+apps/desktop-ui/components/board/batch-progress.tsx:53:              <div className={cn("w-2 h-2 rounded-full", status === 'completed' ? 'bg-[#2d5a3d]' : status === 'failed' ? 'bg-[#5a2d2d]' : 'bg-[#444]')} />
+apps/desktop-ui/components/board/batch-progress.tsx:57:              {failed > 0 && <span className="text-[#8b5a5a] ml-1">({failed} failed)</span>}
+apps/desktop-ui/components/board/batch-progress.tsx:71:              className="h-7 text-xs text-[#666] hover:text-[#8b5a5a]"
+apps/desktop-ui/components/board/batch-progress.tsx:136:        <div className="border-t border-[#222] px-3 py-2 space-y-2">
+apps/desktop-ui/components/board/batch-progress.tsx:143:                className="bg-[#141414] border border-[#222] rounded-lg p-3 hover:border-[#333] transition-colors"
+apps/desktop-ui/components/board/task-card.tsx:120:          ? "bg-[#1a1a1a] border border-white/[0.12] shadow-2xl"
+apps/desktop-ui/components/board/dashboard-loading.tsx:21:          <div className="w-16 h-3 bg-[#2a2a2a] rounded flex-shrink-0" />
+apps/desktop-ui/components/board/dashboard-loading.tsx:22:          <div className="w-6 h-4 bg-[#1f1f1f] rounded-full flex-shrink-0" />
+apps/desktop-ui/components/board/dashboard-loading.tsx:24:        <div className="w-6 h-6 rounded bg-[#1f1f1f] flex-shrink-0" />
+apps/desktop-ui/components/board/dashboard-loading.tsx:38:    <div className="bg-[#141414] rounded-lg p-4 border border-[#2a2a2a]">
+apps/desktop-ui/components/board/dashboard-loading.tsx:40:        <div className="h-4 bg-[#2a2a2a] rounded w-3/4" />
+apps/desktop-ui/components/board/dashboard-loading.tsx:43:          <div className="h-3 bg-[#1f1f1f] rounded w-full" />
+apps/desktop-ui/components/board/dashboard-loading.tsx:44:          <div className="h-3 bg-[#1f1f1f] rounded w-2/3" />
+apps/desktop-ui/components/board/dashboard-loading.tsx:49:            <div className="w-12 h-5 bg-[#1f1f1f] rounded" />
+apps/desktop-ui/components/board/dashboard-loading.tsx:50:            <div className="w-14 h-5 bg-[#1f1f1f] rounded" />
+apps/desktop-ui/components/board/dashboard-loading.tsx:52:          <div className="w-6 h-6 rounded-full bg-[#2a2a2a]" />
+apps/desktop-ui/components/board/dashboard-loading.tsx:61:    <div className="flex-1 overflow-hidden relative bg-[#111111] flex flex-col">
+apps/desktop-ui/components/layout/sidebar.tsx:267:                                className="w-[12px] h-[12px] rounded-full bg-[#ff5f57] hover:brightness-110 transition-all flex-shrink-0"
+apps/desktop-ui/components/layout/sidebar.tsx:272:                                className="w-[12px] h-[12px] rounded-full bg-[#febc2e] hover:brightness-110 transition-all flex-shrink-0"
+apps/desktop-ui/components/layout/sidebar.tsx:277:                                className="w-[12px] h-[12px] rounded-full bg-[#28c840] hover:brightness-110 transition-all flex-shrink-0"
+apps/desktop-ui/components/task-form.tsx:176:      <DialogContent className="sm:max-w-[520px] bg-[#1a1a1a] border-[#2a2a2a] p-0 gap-0 overflow-hidden">
+apps/desktop-ui/components/task-form.tsx:194:                        className="w-full bg-transparent text-lg font-semibold text-[#f5f5f5] placeholder:text-[#6a6a6a] outline-none border-none focus:ring-0 p-0"
+apps/desktop-ui/components/task-form.tsx:211:                        className="w-full bg-transparent text-sm text-[#a0a0a0] placeholder:text-[#6a6a6a] outline-none border-none resize-none focus:ring-0 p-0 min-h-[60px] max-h-[200px] overflow-y-auto"
+apps/desktop-ui/components/task-form.tsx:223:            <div className="border-b border-[#2a2a2a]" />
+apps/desktop-ui/components/task-form.tsx:236:                        <SelectTrigger className="h-7 w-auto px-2.5 text-xs rounded-md bg-transparent border-none hover:bg-white/[0.06] text-[#a0a0a0] gap-1.5 focus:ring-0 shadow-none">
+apps/desktop-ui/components/task-form.tsx:250:                      <SelectContent className="bg-[#1a1a1a] border-[#2a2a2a]">
+apps/desktop-ui/components/task-form.tsx:253:                          className="text-[#f5f5f5] focus:bg-white/[0.06] focus:text-[#f5f5f5] text-xs"
+apps/desktop-ui/components/task-form.tsx:262:                          className="text-[#f5f5f5] focus:bg-white/[0.06] focus:text-[#f5f5f5] text-xs"
+apps/desktop-ui/components/task-form.tsx:271:                          className="text-[#f5f5f5] focus:bg-white/[0.06] focus:text-[#f5f5f5] text-xs"
+apps/desktop-ui/components/task-form.tsx:280:                          className="text-[#f5f5f5] focus:bg-white/[0.06] focus:text-[#f5f5f5] text-xs"
+apps/desktop-ui/components/task-form.tsx:303:                        triggerClassName="h-7 w-auto px-2.5 text-xs rounded-md bg-transparent border-none hover:bg-white/[0.06] hover:border-none text-[#a0a0a0] shadow-none"
+apps/desktop-ui/components/task-form.tsx:320:                          className="h-7 w-auto px-2.5 text-xs rounded-md bg-transparent border-none hover:bg-white/[0.06] text-[#a0a0a0] flex items-center gap-1.5 cursor-pointer"
+apps/desktop-ui/components/task-form.tsx:327:                          <CalendarDays className="w-3 h-3 text-[#6a6a6a]" />
+apps/desktop-ui/components/task-form.tsx:355:                          <SelectTrigger className="h-7 w-auto px-2.5 text-xs rounded-md bg-transparent border-none hover:bg-white/[0.06] text-[#a0a0a0] gap-1.5 focus:ring-0 shadow-none data-[state=error]:border-red-500">
+apps/desktop-ui/components/task-form.tsx:357:                              <FolderKanban className="w-3 h-3 text-[#6a6a6a]" />
+apps/desktop-ui/components/task-form.tsx:366:                        <SelectContent className="bg-[#1a1a1a] border-[#2a2a2a]">
+apps/desktop-ui/components/task-form.tsx:371:                              className="text-[#f5f5f5] focus:bg-white/[0.06] focus:text-[#f5f5f5] text-xs"
+apps/desktop-ui/components/task-form.tsx:391:            <div className="border-b border-[#2a2a2a]" />
+apps/desktop-ui/components/task-form.tsx:405:                className="h-8 px-3 text-xs bg-transparent text-[#a0a0a0] hover:bg-white/[0.06] hover:text-[#f5f5f5]"
+apps/desktop-ui/components/task-form.tsx:410:                <span className="text-[10px] text-[#6a6a6a]">⌘ Enter</span>
+apps/desktop-ui/components/task-detail-view.tsx:302:                        className="mt-3 inline-flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-medium text-white bg-[#8957e5] hover:bg-[#7c4dcc] transition-colors"
+apps/desktop-ui/app/inbox/page.tsx:376:      <div className="flex-1 overflow-y-auto bg-[#111111]">
+apps/desktop-ui/app/my-issues/page.tsx:165:      <div className="flex-1 overflow-y-auto bg-[#111111]">
+apps/desktop-ui/app/usage/page.tsx:171:      <div className="flex-1 overflow-y-auto bg-[#111111]">
+apps/desktop-ui/app/login/page.tsx:46:            className="w-full bg-[#24292e] hover:bg-[#1b1f23] text-white"
+
+BEFORE COUNT: 53
+
+AFTER: 0 hex matches in apps/desktop-ui/{components,app}/
+---------------------------------------------------------
+(grep returned no results)
+
+REPLACEMENTS APPLIED: 53
+
+Mapping summary:
+  #111111 → bg-linear-bg
+  #141414 / #1a1a1a → bg-linear-bg-secondary
+  #1f1f1f / #0f0f0f → bg-linear-bg-tertiary
+  #2a2a2a / #222 → bg-linear-border / border-linear-border
+  #3a3a3a / #333 / #444 → bg-linear-border-hover / border-linear-border-hover
+  #f5f5f5 → text-linear-text
+  #a0a0a0 → text-linear-text-secondary
+  #6a6a6a / #666 → text-linear-text-tertiary
+
+god-mode-overlay.tsx zinc-950/80 → linear-bg-secondary/80 (line 145, 167)
+
+Status colors extracted into lib/design-tokens.ts STATUS_COLORS:
+  - task-card.tsx progressConfig: cloning/executing/committing/creating_pr/done/cancelled/error
+  - execution-drawer.tsx statusConfig + logColors
+
+Brand/non-token hex extracted into lib/design-tokens.ts:
+  - BRAND_COLORS: macClose/macMinimize/macMaximize, githubBg/githubBgHover, githubPurple/githubPurpleHover, overlaySurface
+    → consumed via inline style in: sidebar.tsx (mac dots), login/page.tsx (GitHub btn),
+      task-detail-view.tsx (PR btn), global-quick-capture.tsx (overlay surface)
+  - BATCH_STATUS_COLORS: queued/running/completed/failed/skipped/cancelled
+    → consumed via class+inline style in batch-progress.tsx
+
+VERIFICATION
+============
+$ grep -rEn 'bg-\[#|text-\[#|border-\[#' apps/desktop-ui/components/ apps/desktop-ui/app/
+(0 matches; exit 1)
+
+Typecheck: 752 errors before, 752 errors after — no new errors introduced
+(pre-existing baseline issue: monorepo @types/react resolution under tsc --noEmit)

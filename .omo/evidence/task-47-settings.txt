@@ -1,0 +1,61 @@
+T47 — Settings cleanup: hide fake mocks + add real Profile tab
+================================================================
+
+Scope
+-----
+apps/desktop-ui/app/settings/page.tsx
+
+Changes
+-------
+1. New "Profile" tab (FIRST in nav, default initial section).
+   - Renders avatar, username, email, GitHub ID from useAuth().user
+     (read-only — GitHub is source of truth).
+   - "Reconnect GitHub" button calls existing OAuth start (startLogin from
+     @/lib/api), reusing the same flow as login. Same button surfaces in
+     an EmptyState when the user is not signed in.
+   - No PATCH /api/auth/me route was added — task notes that since
+     GitHub is source of truth, read-only + reconnect is sufficient.
+     This avoids drift between local edits and GitHub profile data.
+
+2. Security tab — Two-factor toggle is now disabled with a "Coming soon"
+   note in the description. State kept (read-only) so Switch still renders.
+
+3. Security tab — "Active Sessions" hardcoded MacBook/iPhone/Windows
+   mock removed. Replaced with EmptyState
+   ("No active session data yet" + Shield icon + explanatory copy).
+
+4. API Keys tab — fake "sk-ol-************…a3f7" string + show/copy/
+   regenerate buttons replaced with EmptyState
+   ("No API keys yet" + Key icon + explanatory copy).
+   Removed dead state: showApiKey / maskedKey / fullKey / handleCopyApiKey.
+
+5. Notifications tab — no per-user notification preferences exist on the
+   backend (apps/api/src/routes/notifications.ts has no preferences
+   handlers — verified). All toggles set to disabled, wrapped Cards in
+   opacity-60, and added a "Coming soon" banner Card explaining that
+   in-app notifications still work via the inbox.
+
+Imports
+-------
++ User as UserIcon, Github (lucide-react)
++ startLogin (@/lib/api)
++ useAuth (@/hooks/use-auth)
++ EmptyState (@/components/empty-state)
+
+Type checks
+-----------
+- apps/desktop-ui: typecheck — only pre-existing errors remain
+  (missing react/jsx-runtime declaration types, plus implicit-any
+  setState callbacks). Verified via `git stash` baseline diff:
+  same errors exist on HEAD without my changes. No new errors from
+  app/settings/page.tsx introduced by this change (filtered for
+  non-noise: zero new errors).
+- apps/api: not modified (no PATCH /me route added per task bonus
+  guidance). Pre-existing api errors unchanged.
+
+Notes
+-----
+- EmptyState is the new shared component (T44 parallel).
+- apiFetch import preserved (used by general settings PATCH).
+- Initial active section now defaults to "profile" (was "general")
+  so the new tab is the landing surface.

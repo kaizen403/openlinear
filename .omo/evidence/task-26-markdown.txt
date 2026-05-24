@@ -1,0 +1,32 @@
+Task 26: Markdown Rendering for Descriptions + Comments
+=========================================================
+Commit: ecd48dc
+Branch: dev
+
+Files changed:
+- apps/desktop-ui/components/markdown-view.tsx (new)
+- apps/desktop-ui/components/task-detail-view.tsx (description view mode swap)
+- apps/desktop-ui/package.json (+react-markdown, +remark-gfm)
+- pnpm-lock.yaml
+
+Implementation:
+- New <MarkdownView body={...} /> component, exported for T27 (comments) reuse.
+- Uses react-markdown + remark-gfm (GFM tables, strikethrough, autolinks, task lists).
+- NO rehype-raw — react-markdown's safe defaults block raw HTML, preventing XSS.
+- Inline component map (no @tailwindcss/typography plugin in this app):
+  h1-h4, p, ul/ol/li, code (inline + block via pre), strong/em, a, blockquote,
+  hr, table/th/td — all themed with Linear dark tokens (text-linear-text,
+  bg-linear-bg-secondary, border-linear-border, etc.).
+- Anchor handler routes through openExternal() so links open in the system
+  browser via Tauri shell (same pattern as existing description link handling).
+- TaskDetailView: editingDescription=true still uses the existing <textarea>;
+  view mode now renders <MarkdownView>. Click-to-edit preserved with the same
+  "ignore clicks on <a>" guard so users can interact with markdown links.
+
+Verification:
+- pnpm --filter @openlinear/desktop-ui typecheck → clean (tsc --noEmit, no errors).
+- No `as any`, no rehype-raw, no files touched outside the allowed list.
+
+Out of scope (per plan):
+- Comments UI itself (T27 will import MarkdownView).
+- Playwright (skipped per instructions).

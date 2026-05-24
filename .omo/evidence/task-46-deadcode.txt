@@ -1,0 +1,43 @@
+T46 - Dead Code Removal
+========================
+
+Goal: delete unused use-sse hook, ensure god-mode-overlay does not bind Cmd+K (T25 owns that hotkey).
+
+Changes:
+1. DELETED apps/desktop-ui/hooks/use-sse.ts
+   - 379-line standalone hook, never invoked anywhere
+   - Only its exported types (SSEEventType, SSEEventData) were imported by 3 files
+2. INLINED SSEEventType + SSEEventData into apps/desktop-ui/providers/sse-provider.tsx
+   - These are SSE-domain types, the provider is their natural home now that the hook is gone
+3. UPDATED imports in:
+   - apps/desktop-ui/providers/sse-provider.tsx (was: type-only import from @/hooks/use-sse)
+   - apps/desktop-ui/app/my-issues/page.tsx (was: type-only import from @/hooks/use-sse)
+   - apps/desktop-ui/components/board/use-kanban-board.ts (was: value import; corrected to type-only)
+4. AUDITED apps/desktop-ui/components/god-mode-overlay.tsx
+   - Already cedes Cmd+K to CommandPalette (T25). Comment at line 81:
+       "Cmd+K / Ctrl+K is owned by CommandPalette (T25); god-mode keeps Alt+Space on mac only."
+   - Hotkey check: `isMac && e.altKey && e.code === "Space"` (no Cmd+K binding)
+   - No further change required
+
+Consumer verification (post-change grep "hooks/use-sse"):
+   No matches found - dead reference fully purged.
+
+SSE provider integrity:
+   T8/T28 consumers of useSSESubscription / useSSEStatus unchanged.
+   Per-user filtering, reconnect backoff, dual cloud+sidecar streams: untouched.
+
+Build / typecheck status:
+   `pnpm --filter @openlinear/desktop-ui typecheck` and `... build` BOTH fail with the
+   SAME pre-existing errors on the baseline commit (031a3fb, before any T46 changes):
+     - "Could not find a declaration file for module 'react'" (missing @types/react in workspace)
+     - "Cannot find module 'tailwindcss'"
+     - next build: "Please install typescript by running: pnpm install --save-dev typescript"
+   This is a workspace install issue (apps/desktop-ui/node_modules lacks typescript/@types),
+   NOT introduced by T46. Verified by stashing T46 changes and re-running both commands -
+   identical errors. Next.js compilation itself reports "✓ Compiled successfully in 3.1s".
+
+Files changed in this commit:
+   D apps/desktop-ui/hooks/use-sse.ts
+   M apps/desktop-ui/providers/sse-provider.tsx
+   M apps/desktop-ui/app/my-issues/page.tsx
+   M apps/desktop-ui/components/board/use-kanban-board.ts

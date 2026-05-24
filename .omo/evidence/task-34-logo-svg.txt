@@ -1,0 +1,32 @@
+T34 - Replace /logo.png with SVG from T5
+==========================================
+
+CHANGES:
+- apps/desktop-ui/components/layout/sidebar.tsx:282
+    /logo.png -> /brand/logomark.svg (h-[16px])
+- apps/desktop-ui/app/login/page.tsx:34
+    /logo.png -> /brand/wordmark.svg (h-12, login splash)
+
+LANDING APP:
+- header.tsx & footer.tsx are text-only branding, no PNG refs (verified via grep)
+
+DELETED:
+- apps/desktop-ui/public/logo.png  (4.1 MB placeholder)
+- ./logo.png                       (4.1 MB)
+- ./logo.jpg                       (1.9 MB)
+- ./logo-trimmed.png               (765 KB)
+
+VERIFICATION:
+$ grep -rn "logo\.png\|logo\.jpg" apps/desktop-ui/components apps/desktop-ui/app apps/desktop-ui/lib apps/landing/components apps/landing/app apps/api
+(0 matches in source)
+
+(Note: matches in apps/desktop-ui/out/ are stale Next.js build artifacts — gitignored, will be regenerated on next build.)
+
+TYPECHECK:
+$ pnpm --filter @openlinear/desktop-ui typecheck
+> tsc --noEmit
+(passed, no errors)
+
+FAVICON:
+- T5 set favicon to /favicon.ico — left untouched.
+

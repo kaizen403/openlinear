@@ -1,0 +1,23 @@
+T40 — Landing footer link wiring + domain unification
+
+Files modified:
+- apps/landing/components/footer.tsx     (footer link map: real /product, /pricing, /enterprise, /docs, /contact, GitHub external)
+- apps/landing/components/hero.tsx       (browser chrome: openlinear.dev → openlinear.tech)
+- apps/landing/app/contact/page.tsx      (4 spots: hello@openlinear.dev → hello@openlinear.tech)
+- apps/landing/app/pricing/page.tsx      (2 spots: hello@openlinear.dev → hello@openlinear.tech)
+
+Verification:
+- grep -rn 'openlinear\.dev' apps/landing/  → 0 results
+- grep -rn 'href="#"' apps/landing/         → 1 result in app/product/page.tsx (OUT OF SCOPE for T40; spec only listed footer.tsx)
+- typecheck error count: 727 before → 727 after (no new errors from T40 changes; all errors are pre-existing react types resolution issues)
+
+Footer link map:
+  Product  → /product, /pricing, /enterprise, /docs
+  Company  → /contact
+  Connect  → GitHub (https://github.com/kaizen403/openlinear, placeholder pending T41)
+
+Removed entries (no real pages):
+  Products: Batch Execution, GitHub Integration, Desktop App, Agent Store
+  Company:  Help Center, Careers, Partners
+  Legal:    Terms, Privacy Policy, Trust, Legal Notices
+  Social:   LinkedIn, X, Discord

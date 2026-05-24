@@ -1,0 +1,42 @@
+Task T2 — Typecheck Evidence
+============================
+
+Verification approach:
+- Ran `pnpm --filter @openlinear/desktop-ui exec tsc --noEmit`
+- Ran `pnpm --filter @openlinear/desktop-ui build` (uses Next.js Turbopack)
+
+T2-introduced typecheck errors: 0
+T2-introduced build errors:     0
+
+Pre-existing errors NOT caused by T2 (in-progress T3 work by another agent;
+files modified in workspace before T2 started):
+  - lib/api/fetch.ts (untracked, T3 WIP)
+  - components/board/use-kanban-board.ts (modified, T3-WIP migration)
+  - app/archived/page.tsx (modified, T3-WIP migration)
+
+Build proof (next build with TypeScript validation):
+  Collecting page data using 7 workers ...
+  Generating static pages using 7 workers (0/13) ...
+  Generating static pages using 7 workers (3/13) 
+  Generating static pages using 7 workers (6/13) 
+  Generating static pages using 7 workers (9/13) 
+✓ Generating static pages using 7 workers (13/13) in 148.9ms
+  Finalizing page optimization ...
+
+Route (app)
+┌ ○ /
+├ ○ /_not-found
+├ ○ /archived
+├ ○ /auth/callback
+├ ○ /dev-primitives
+├ ○ /inbox
+├ ○ /login
+├ ○ /my-issues
+├ ○ /projects
+├ ○ /settings
+├ ○ /teams
+└ ○ /teams/manage
+
+
+○  (Static)  prerendered as static content
+

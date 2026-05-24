@@ -1,0 +1,46 @@
+diff --git a/apps/desktop-ui/app/globals.css b/apps/desktop-ui/app/globals.css
+index 5fbb43a..26fe8e8 100644
+--- a/apps/desktop-ui/app/globals.css
++++ b/apps/desktop-ui/app/globals.css
+@@ -140,5 +140,17 @@ code,
+ input:focus-visible,
+ textarea:focus-visible,
+ select:focus-visible {
+-  outline: none;
++  outline: 2px solid var(--linear-accent);
++  outline-offset: 1px;
++}
++
++/* ── Reduced motion ──────────────────────────────────── */
++@media (prefers-reduced-motion: reduce) {
++  *,
++  *::before,
++  *::after {
++    animation-duration: 0.01ms !important;
++    transition-duration: 0.01ms !important;
++    scroll-behavior: auto !important;
++  }
+ }
+diff --git a/apps/landing/app/globals.css b/apps/landing/app/globals.css
+index 8bf54cb..a91089a 100644
+--- a/apps/landing/app/globals.css
++++ b/apps/landing/app/globals.css
+@@ -426,3 +426,18 @@ html {
+       hsl(var(--border) / 0.25) 70%,
+       transparent 100%);
+ }
++
++:focus-visible {
++  outline: 2px solid hsl(var(--ring));
++  outline-offset: 1px;
++}
++
++@media (prefers-reduced-motion: reduce) {
++  *,
++  *::before,
++  *::after {
++    animation-duration: 0.01ms !important;
++    transition-duration: 0.01ms !important;
++    scroll-behavior: auto !important;
++  }
++}

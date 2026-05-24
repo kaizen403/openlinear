@@ -1,0 +1,36 @@
+T41 — kaizen403 → openlinear org migration
+==========================================
+
+Decision applied (per orchestrator default): kaizen403/openlinear → openlinear/openlinear
+NPM scope: @kaizen403/openlinear-cli → @openlinear/cli
+NPM scope (legacy publish script): @kaizen403/openlinear → @openlinear/openlinear
+
+Files modified (T41 scope only):
+- README.md (5 sites + npm install line)
+- docs/CICD.md (2 sites)
+- packaging/aur/openlinear-bin/PKGBUILD (3 sites)
+- packaging/aur/openlinear-bin/.SRCINFO (3 sites — kept in sync with PKGBUILD)
+- packages/openlinear-cli/package.json (name + repo url)
+- packages/openlinear-cli/scripts/postinstall.js (1 site)
+- packages/openlinear/publish-github.sh (3 sites)
+- apps/landing/components/vision-section.tsx
+- apps/landing/components/final-cta-section.tsx
+- apps/landing/components/header.tsx
+- apps/landing/components/hero.tsx
+- apps/landing/components/footer.tsx (caught by verification grep)
+- apps/landing/app/contact/page.tsx (4 sites)
+- apps/landing/app/docs/page.tsx (1 site)
+- .github/README.md (8 sites — caught by verification grep)
+- .github/workflows/release.yml (npm scope for publishing)
+
+Verification:
+$ grep -rin "kaizen403" --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=.sisyphus .
+(0 matches)
+
+Remaining `kaizen403` mentions live only in `.sisyphus/{plans,notepads,evidence}/`,
+which document the task itself and are intentionally untouched.
+
+Typecheck: preexisting tsc errors in apps/landing (missing @types/react,
+tailwindcss types) are unrelated to this brand rename — only string
+literals in URLs and the npm package name were modified. No TS-affecting
+identifiers were renamed.

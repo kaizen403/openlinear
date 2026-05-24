@@ -1,0 +1,38 @@
+T45 — Sidebar polish
+=====================
+
+Changes:
+1. apps/desktop-ui/components/layout/sidebar.tsx
+   - VERIFIED: handleClose / handleMinimize already correctly split by T23
+     (lines 221-229). Red traffic light → close(), yellow → minimize(),
+     green → toggleMaximize/setFullscreen on macOS. No change needed.
+   - Replaced bottom auth section with DropdownMenu user menu:
+     * Avatar (AvatarImage from user.avatarUrl + AvatarFallback initial)
+     * Profile (Link → /settings; ready to swap to /settings/profile when T47 lands)
+     * Settings (Link → /settings)
+     * Theme submenu: Light / Dark / System (uses next-themes useTheme)
+     * Sign out (calls logout() from useAuth)
+   - Added imports: useTheme, Avatar primitives, DropdownMenu primitives,
+     UserIcon, Sun, Moon, Monitor, ChevronsUpDown.
+
+2. apps/desktop-ui/app/page.tsx
+   - Removed defensive headerLabel.replace(/openlinear/gi, "Dashboard").
+     Post-rebrand (T34 logo migration done), stale "openlinear" strings
+     no longer appear in team/project/repo names that we render here.
+
+Typecheck:
+- Pre-edit baseline: 801 errors (all pre-existing react/jsx-runtime
+  module-resolution issues + implicit-any from broken @types/react env).
+- Post-edit: 811 errors. Delta = 10, all of the same pre-existing
+  category (cascading from new imports of next-themes, avatar, dropdown).
+- Filtered changed files (sidebar.tsx + page.tsx) for real errors
+  (excluding "Could not find a declaration"/"implicitly has an 'any'"):
+  ZERO new errors introduced.
+- The environment has broken react type resolution unrelated to T45.
+
+DO NOT broken:
+- macOS traffic-light buttons untouched. Close/minimize/maximize handlers
+  unchanged. data-tauri-drag-region preserved on header strip.
+- No Playwright run.
+
+Time: ~12 min.

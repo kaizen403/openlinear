@@ -1,0 +1,33 @@
+T36 — Font cleanup (Geist + Caveat removal)
+
+BEFORE (pre-cleanup):
+  820K	apps/desktop-ui/public/fonts/   (Geist-{Bold,Medium,Regular,SemiBold}.otf + GeistMono-{Bold,Medium,Regular,SemiBold}.woff2)
+  960K	apps/desktop-ui/app/fonts/      (Geist-{...}.otf + Geist-Variable.woff2 + GeistMono-{...}.woff2 + GeistMono-Variable.woff2)
+
+AFTER (post-cleanup):
+  0B	apps/desktop-ui/public/fonts/
+  0B	apps/desktop-ui/app/fonts/
+
+CHANGES (already in commit 117d517):
+  - Deleted all Geist*.otf / Geist*.woff2 / GeistMono*.woff2 from public/fonts/ and app/fonts/
+  - Removed `geist` (^1.3.0) from apps/desktop-ui/package.json deps
+  - Removed `<link href="...Caveat...">` from apps/desktop-ui/app/layout.tsx
+  - Removed EB_Garamond import + ebGaramond font + variable wiring from apps/desktop-ui/app/layout.tsx
+  - Removed font preconnect <link>s no longer needed in desktop-ui
+
+KEPT (CONFIRMED IN USE):
+  - Space Grotesk (--font-space-grotesk)  — desktop-ui + landing
+  - DM Sans       (--font-dm-sans)        — desktop-ui + landing
+  - DM Mono       (--font-dm-mono)        — desktop-ui + landing
+  - EB_Garamond   (--font-eb-garamond)    — landing ONLY (font-editorial italic across product/pricing/enterprise/contact pages)
+
+AUDIT EVIDENCE:
+  $ grep -rn "Caveat" apps/desktop-ui/{app,components,lib} → 0 matches
+  $ grep -rn "EB_Garamond\|font-editorial" apps/desktop-ui/{app,components,lib} → 0 matches
+  $ grep -rn "from ['\"]geist" apps/desktop-ui/ → 0 matches
+  $ grep -n "geist" apps/desktop-ui/package.json → 0 matches
+  $ grep -rn "font-editorial" apps/landing/ → 18 substantive usages (kept)
+
+NOTE: This task was effectively completed as part of commit 117d517 ("refactor(brand): replace PNG logos with SVG everywhere"). No further code changes required for T36.
+
+Working tree status after re-verification: CLEAN.

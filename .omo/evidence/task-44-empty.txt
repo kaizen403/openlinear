@@ -1,0 +1,83 @@
+T44. Reusable EmptyState component + replace ad-hoc empty strings
+===================================================================
+
+Date: 2026-05-06
+Branch: dev
+
+Summary
+-------
+Built a single themed `<EmptyState>` component for dark surfaces and replaced
+seven ad-hoc empty-state markup blocks across the desktop UI. Added matching
+`<Skeleton>` loading states (from T2) on five list/page surfaces, replacing
+the centered Loader2 spinners that did not communicate the eventual layout.
+
+Files added
+-----------
+- apps/desktop-ui/components/empty-state.tsx   (new — 80 lines)
+
+Files modified (empty state replacements)
+-----------------------------------------
+1. apps/desktop-ui/app/inbox/page.tsx
+   - "No notifications yet" / "all caught up" → <EmptyState icon={Bell} ... />
+   - Loader2 spinner → 6 skeleton notification rows matching final layout
+   - Removed unused Loader2 import
+2. apps/desktop-ui/app/my-issues/page.tsx
+   - "No issues yet" → <EmptyState icon={Layers} ... />
+   - Loader2 spinner → grouped skeleton (header + 3 task rows × 2 groups)
+   - Removed unused Loader2 import
+3. apps/desktop-ui/app/projects/page.tsx
+   - Table empty state → <EmptyState icon={FolderKanban} ... /> in <td colSpan={6}>
+   - Mobile-card empty state → <EmptyState icon={FolderKanban} ... />
+   - Loader2 (table) → 5 skeleton rows matching column structure
+   - Loader2 (mobile) → 4 skeleton cards
+4. apps/desktop-ui/app/teams/page.tsx
+   - "No teams yet" / "No teams found" → <EmptyState icon={Users} action={Create team button} ... />
+   - "Loading teams..." text → 5 table skeleton rows + 4 mobile card skeletons
+5. apps/desktop-ui/app/archived/page.tsx
+   - "No archived tasks" → <EmptyState icon={Archive} ... />
+   - Loader2 spinner → 6 skeleton task rows
+6. apps/desktop-ui/components/board/kanban-board.tsx
+   - Per-column empty board → <EmptyState size="compact" icon={Inbox} action={Add task button} />
+7. apps/desktop-ui/components/label-picker.tsx
+   - "No labels available" → <EmptyState size="compact" icon={Tag} ... />
+
+Component API
+-------------
+EmptyStateProps:
+  icon?: LucideIcon
+  title: string
+  description?: string
+  action?: React.ReactNode
+  size?: "default" | "compact"   // default for full-page, compact for popovers/columns
+  className?: string
+
+Design tokens used (consistent with codebase):
+  bg-linear-bg-tertiary, border-linear-border, text-linear-text,
+  text-linear-text-tertiary
+
+Typecheck
+---------
+Pre-existing typecheck failures in this workspace are caused by React types
+not resolving from pnpm (`Could not find a declaration file for module 'react'`
+errors across nearly every file). This is a baseline workspace issue, NOT
+introduced by these changes.
+
+Verification (compared error counts before/after with `git stash`):
+  HEAD baseline:  800 typescript errors
+  After T44:      799 typescript errors  (one fewer — Loader2 removals)
+
+Net regression: 0 (zero new typecheck errors introduced).
+
+LSP diagnostics on each modified file: only the pre-existing
+"Could not find a declaration file for module 'react'" errors and their
+implicit-any cascades. No errors introduced by EmptyState component or
+its call sites.
+
+Out of scope (per task spec)
+----------------------------
+- Error states left untouched (different component / different task)
+- No Playwright run
+
+Commit
+------
+See `git log -1` after commit step.

@@ -1,0 +1,215 @@
+=== \dt (all tables) ===
+                List of relations
+ Schema |        Name        | Type  |   Owner    
+--------+--------------------+-------+------------
+ public | _prisma_migrations | table | openlinear
+ public | activity_logs      | table | openlinear
+ public | agent_runs         | table | openlinear
+ public | comments           | table | openlinear
+ public | labels             | table | openlinear
+ public | linear_projects    | table | openlinear
+ public | notifications      | table | openlinear
+ public | project_teams      | table | openlinear
+ public | repositories       | table | openlinear
+ public | settings           | table | openlinear
+ public | task_labels        | table | openlinear
+ public | tasks              | table | openlinear
+ public | team_members       | table | openlinear
+ public | teams              | table | openlinear
+ public | users              | table | openlinear
+(15 rows)
+
+
+=== \d tasks (Task columns + indexes) ===
+                                       Table "public.tasks"
+       Column       |              Type              | Collation | Nullable |       Default        
+--------------------+--------------------------------+-----------+----------+----------------------
+ id                 | text                           |           | not null | 
+ title              | text                           |           | not null | 
+ description        | text                           |           |          | 
+ priority           | "Priority"                     |           | not null | 'medium'::"Priority"
+ status             | "Status"                       |           | not null | 'todo'::"Status"
+ sessionId          | text                           |           |          | 
+ createdAt          | timestamp(3) without time zone |           | not null | CURRENT_TIMESTAMP
+ updatedAt          | timestamp(3) without time zone |           | not null | 
+ executionStartedAt | timestamp(3) without time zone |           |          | 
+ executionPausedAt  | timestamp(3) without time zone |           |          | 
+ executionElapsedMs | integer                        |           | not null | 0
+ executionProgress  | integer                        |           |          | 
+ prUrl              | text                           |           |          | 
+ outcome            | text                           |           |          | 
+ executionLogs      | jsonb                          |           |          | 
+ archived           | boolean                        |           | not null | false
+ inboxRead          | boolean                        |           | not null | false
+ batchId            | text                           |           |          | 
+ teamId             | text                           |           |          | 
+ projectId          | text                           |           |          | 
+ number             | integer                        |           |          | 
+ identifier         | text                           |           |          | 
+ dueDate            | timestamp(3) without time zone |           |          | 
+ assigneeId         | text                           |           |          | 
+ creatorId          | text                           |           |          | 
+ parentId           | text                           |           |          | 
+Indexes:
+    "tasks_pkey" PRIMARY KEY, btree (id)
+    "tasks_assigneeId_idx" btree ("assigneeId")
+    "tasks_creatorId_idx" btree ("creatorId")
+    "tasks_projectId_idx" btree ("projectId")
+    "tasks_status_idx" btree (status)
+    "tasks_teamId_archived_idx" btree ("teamId", archived)
+    "tasks_teamId_number_key" UNIQUE, btree ("teamId", number)
+Foreign-key constraints:
+    "tasks_assigneeId_fkey" FOREIGN KEY ("assigneeId") REFERENCES users(id) ON UPDATE CASCADE ON DELETE SET NULL
+    "tasks_creatorId_fkey" FOREIGN KEY ("creatorId") REFERENCES users(id) ON UPDATE CASCADE ON DELETE SET NULL
+    "tasks_parentId_fkey" FOREIGN KEY ("parentId") REFERENCES tasks(id) ON UPDATE CASCADE ON DELETE SET NULL
+    "tasks_projectId_fkey" FOREIGN KEY ("projectId") REFERENCES linear_projects(id) ON UPDATE CASCADE ON DELETE SET NULL
+    "tasks_teamId_fkey" FOREIGN KEY ("teamId") REFERENCES teams(id) ON UPDATE CASCADE ON DELETE SET NULL
+Referenced by:
+    TABLE "activity_logs" CONSTRAINT "activity_logs_taskId_fkey" FOREIGN KEY ("taskId") REFERENCES tasks(id) ON UPDATE CASCADE ON DELETE SET NULL
+    TABLE "agent_runs" CONSTRAINT "agent_runs_taskId_fkey" FOREIGN KEY ("taskId") REFERENCES tasks(id) ON UPDATE CASCADE ON DELETE CASCADE
+    TABLE "comments" CONSTRAINT "comments_taskId_fkey" FOREIGN KEY ("taskId") REFERENCES tasks(id) ON UPDATE CASCADE ON DELETE CASCADE
+    TABLE "task_labels" CONSTRAINT "task_labels_taskId_fkey" FOREIGN KEY ("taskId") REFERENCES tasks(id) ON UPDATE CASCADE ON DELETE CASCADE
+    TABLE "tasks" CONSTRAINT "tasks_parentId_fkey" FOREIGN KEY ("parentId") REFERENCES tasks(id) ON UPDATE CASCADE ON DELETE SET NULL
+
+
+=== \d comments ===
+                                Table "public.comments"
+  Column   |              Type              | Collation | Nullable |      Default      
+-----------+--------------------------------+-----------+----------+-------------------
+ id        | text                           |           | not null | 
+ taskId    | text                           |           | not null | 
+ userId    | text                           |           | not null | 
+ body      | text                           |           | not null | 
+ mentions  | text[]                         |           |          | ARRAY[]::text[]
+ createdAt | timestamp(3) without time zone |           | not null | CURRENT_TIMESTAMP
+ updatedAt | timestamp(3) without time zone |           | not null | 
+Indexes:
+    "comments_pkey" PRIMARY KEY, btree (id)
+    "comments_taskId_createdAt_idx" btree ("taskId", "createdAt")
+Foreign-key constraints:
+    "comments_taskId_fkey" FOREIGN KEY ("taskId") REFERENCES tasks(id) ON UPDATE CASCADE ON DELETE CASCADE
+    "comments_userId_fkey" FOREIGN KEY ("userId") REFERENCES users(id) ON UPDATE CASCADE ON DELETE CASCADE
+
+
+=== \d agent_runs ===
+                                      Table "public.agent_runs"
+    Column    |              Type              | Collation | Nullable |            Default            
+--------------+--------------------------------+-----------+----------+-------------------------------
+ id           | text                           |           | not null | 
+ taskId       | text                           |           | not null | 
+ userId       | text                           |           |          | 
+ agent        | text                           |           | not null | 
+ model        | text                           |           | not null | 
+ startedAt    | timestamp(3) without time zone |           | not null | CURRENT_TIMESTAMP
+ endedAt      | timestamp(3) without time zone |           |          | 
+ costUsd      | numeric(12,6)                  |           |          | 
+ inputTokens  | integer                        |           |          | 
+ outputTokens | integer                        |           |          | 
+ status       | agent_run_statuses             |           | not null | 'pending'::agent_run_statuses
+ prUrl        | text                           |           |          | 
+ errorMessage | text                           |           |          | 
+Indexes:
+    "agent_runs_pkey" PRIMARY KEY, btree (id)
+    "agent_runs_taskId_startedAt_idx" btree ("taskId", "startedAt")
+    "agent_runs_userId_startedAt_idx" btree ("userId", "startedAt")
+Foreign-key constraints:
+    "agent_runs_taskId_fkey" FOREIGN KEY ("taskId") REFERENCES tasks(id) ON UPDATE CASCADE ON DELETE CASCADE
+    "agent_runs_userId_fkey" FOREIGN KEY ("userId") REFERENCES users(id) ON UPDATE CASCADE ON DELETE SET NULL
+
+
+=== \d notifications ===
+                              Table "public.notifications"
+   Column    |              Type              | Collation | Nullable |      Default      
+-------------+--------------------------------+-----------+----------+-------------------
+ id          | text                           |           | not null | 
+ userId      | text                           |           | not null | 
+ type        | notification_types             |           | not null | 
+ taskId      | text                           |           |          | 
+ commentId   | text                           |           |          | 
+ actorUserId | text                           |           |          | 
+ body        | text                           |           | not null | 
+ readAt      | timestamp(3) without time zone |           |          | 
+ createdAt   | timestamp(3) without time zone |           | not null | CURRENT_TIMESTAMP
+Indexes:
+    "notifications_pkey" PRIMARY KEY, btree (id)
+    "notifications_userId_readAt_createdAt_idx" btree ("userId", "readAt", "createdAt")
+Foreign-key constraints:
+    "notifications_actorUserId_fkey" FOREIGN KEY ("actorUserId") REFERENCES users(id) ON UPDATE CASCADE ON DELETE SET NULL
+    "notifications_userId_fkey" FOREIGN KEY ("userId") REFERENCES users(id) ON UPDATE CASCADE ON DELETE CASCADE
+
+
+=== \d activity_logs ===
+                             Table "public.activity_logs"
+  Column   |              Type              | Collation | Nullable |      Default      
+-----------+--------------------------------+-----------+----------+-------------------
+ id        | text                           |           | not null | 
+ taskId    | text                           |           |          | 
+ projectId | text                           |           |          | 
+ teamId    | text                           |           |          | 
+ userId    | text                           |           | not null | 
+ action    | activity_actions               |           | not null | 
+ payload   | jsonb                          |           | not null | 
+ createdAt | timestamp(3) without time zone |           | not null | CURRENT_TIMESTAMP
+Indexes:
+    "activity_logs_pkey" PRIMARY KEY, btree (id)
+    "activity_logs_projectId_createdAt_idx" btree ("projectId", "createdAt")
+    "activity_logs_taskId_createdAt_idx" btree ("taskId", "createdAt")
+Foreign-key constraints:
+    "activity_logs_projectId_fkey" FOREIGN KEY ("projectId") REFERENCES linear_projects(id) ON UPDATE CASCADE ON DELETE SET NULL
+    "activity_logs_taskId_fkey" FOREIGN KEY ("taskId") REFERENCES tasks(id) ON UPDATE CASCADE ON DELETE SET NULL
+    "activity_logs_teamId_fkey" FOREIGN KEY ("teamId") REFERENCES teams(id) ON UPDATE CASCADE ON DELETE SET NULL
+    "activity_logs_userId_fkey" FOREIGN KEY ("userId") REFERENCES users(id) ON UPDATE CASCADE ON DELETE CASCADE
+
+
+=== \d users (email unique) ===
+                                  Table "public.users"
+   Column    |              Type              | Collation | Nullable |      Default      
+-------------+--------------------------------+-----------+----------+-------------------
+ id          | text                           |           | not null | 
+ githubId    | integer                        |           |          | 
+ username    | text                           |           | not null | 
+ email       | text                           |           |          | 
+ avatarUrl   | text                           |           |          | 
+ accessToken | text                           |           |          | 
+ createdAt   | timestamp(3) without time zone |           | not null | CURRENT_TIMESTAMP
+ updatedAt   | timestamp(3) without time zone |           | not null | 
+Indexes:
+    "users_pkey" PRIMARY KEY, btree (id)
+    "users_email_key" UNIQUE, btree (email)
+    "users_githubId_key" UNIQUE, btree ("githubId")
+    "users_username_key" UNIQUE, btree (username)
+Referenced by:
+    TABLE "activity_logs" CONSTRAINT "activity_logs_userId_fkey" FOREIGN KEY ("userId") REFERENCES users(id) ON UPDATE CASCADE ON DELETE CASCADE
+    TABLE "agent_runs" CONSTRAINT "agent_runs_userId_fkey" FOREIGN KEY ("userId") REFERENCES users(id) ON UPDATE CASCADE ON DELETE SET NULL
+    TABLE "comments" CONSTRAINT "comments_userId_fkey" FOREIGN KEY ("userId") REFERENCES users(id) ON UPDATE CASCADE ON DELETE CASCADE
+    TABLE "linear_projects" CONSTRAINT "linear_projects_leadId_fkey" FOREIGN KEY ("leadId") REFERENCES users(id) ON UPDATE CASCADE ON DELETE SET NULL
+    TABLE "notifications" CONSTRAINT "notifications_actorUserId_fkey" FOREIGN KEY ("actorUserId") REFERENCES users(id) ON UPDATE CASCADE ON DELETE SET NULL
+    TABLE "notifications" CONSTRAINT "notifications_userId_fkey" FOREIGN KEY ("userId") REFERENCES users(id) ON UPDATE CASCADE ON DELETE CASCADE
+    TABLE "repositories" CONSTRAINT "repositories_userId_fkey" FOREIGN KEY ("userId") REFERENCES users(id) ON UPDATE CASCADE ON DELETE CASCADE
+    TABLE "tasks" CONSTRAINT "tasks_assigneeId_fkey" FOREIGN KEY ("assigneeId") REFERENCES users(id) ON UPDATE CASCADE ON DELETE SET NULL
+    TABLE "tasks" CONSTRAINT "tasks_creatorId_fkey" FOREIGN KEY ("creatorId") REFERENCES users(id) ON UPDATE CASCADE ON DELETE SET NULL
+    TABLE "team_members" CONSTRAINT "team_members_userId_fkey" FOREIGN KEY ("userId") REFERENCES users(id) ON UPDATE CASCADE ON DELETE CASCADE
+
+
+=== \d repositories (renamed from projects) ===
+                                Table "public.repositories"
+    Column     |              Type              | Collation | Nullable |      Default      
+---------------+--------------------------------+-----------+----------+-------------------
+ id            | text                           |           | not null | 
+ githubRepoId  | integer                        |           | not null | 
+ name          | text                           |           | not null | 
+ fullName      | text                           |           | not null | 
+ cloneUrl      | text                           |           | not null | 
+ defaultBranch | text                           |           | not null | 'main'::text
+ userId        | text                           |           |          | 
+ isActive      | boolean                        |           | not null | false
+ createdAt     | timestamp(3) without time zone |           | not null | CURRENT_TIMESTAMP
+ updatedAt     | timestamp(3) without time zone |           | not null | 
+Indexes:
+    "repositories_pkey" PRIMARY KEY, btree (id)
+    "repositories_userId_githubRepoId_key" UNIQUE, btree ("userId", "githubRepoId")
+Foreign-key constraints:
+    "repositories_userId_fkey" FOREIGN KEY ("userId") REFERENCES users(id) ON UPDATE CASCADE ON DELETE CASCADE
+Referenced by:
+    TABLE "linear_projects" CONSTRAINT "linear_projects_repositoryId_fkey" FOREIGN KEY ("repositoryId") REFERENCES repositories(id) ON UPDATE CASCADE ON DELETE SET NULL
+

@@ -1,0 +1,39 @@
+=== T4 QA: Global error middleware catches uncaught throw + header redaction ===
+Date: 2026-04-30T21:38:13Z
+
+--- Request: GET /api/_test/throw with secret Authorization + Cookie ---
+HTTP/1.1 500 Internal Server Error
+Cross-Origin-Opener-Policy: same-origin
+Cross-Origin-Resource-Policy: same-origin
+Origin-Agent-Cluster: ?1
+Referrer-Policy: no-referrer
+Strict-Transport-Security: max-age=31536000; includeSubDomains
+X-Content-Type-Options: nosniff
+X-DNS-Prefetch-Control: off
+X-Download-Options: noopen
+X-Frame-Options: SAMEORIGIN
+X-Permitted-Cross-Domain-Policies: none
+X-XSS-Protection: 0
+x-request-id: d8d622b7-d4c5-4201-a842-8ddc6d951b4f
+RateLimit-Policy: 100;w=60
+RateLimit: limit=100, remaining=98, reset=47
+Vary: Origin
+Access-Control-Allow-Credentials: true
+Content-Type: application/json; charset=utf-8
+Content-Length: 77
+ETag: W/"4d-kdW7mO3ojip6dik2YRVuv/zY9Yc"
+Date: Thu, 30 Apr 2026 21:38:13 GMT
+Connection: keep-alive
+Keep-Alive: timeout=5
+
+{"error":"internal_error","requestId":"d8d622b7-d4c5-4201-a842-8ddc6d951b4f"}
+--- Server log entry (note 'authorization' and 'cookie' must show [REDACTED]) ---
+{"level":50,"time":1777585080066,"pid":28228,"hostname":"Sris-MacBook-Air.local","err":{"type":"Error","message":"intentional QA throw","stack":"Error: intentional QA throw\n    at <anonymous> (/Users/sriharsha/Developer/openlinear/apps/api/qa-server.ts:15:9)\n    at Layer.handleRequest (/Users/sriharsha/Developer/openlinear/node_modules/.pnpm/router@2.2.0/node_modules/router/lib/layer.js:152:17)\n    at next (/Users/sriharsha/Developer/openlinear/node_modules/.pnpm/router@2.2.0/node_modules/router/lib/route.js:157:13)\n    at Route.dispatch (/Users/sriharsha/Developer/openlinear/node_modules/.pnpm/router@2.2.0/node_modules/router/lib/route.js:117:3)\n    at handle (/Users/sriharsha/Developer/openlinear/node_modules/.pnpm/router@2.2.0/node_modules/router/index.js:435:11)\n    at Layer.handleRequest (/Users/sriharsha/Developer/openlinear/node_modules/.pnpm/router@2.2.0/node_modules/router/lib/layer.js:152:17)\n    at /Users/sriharsha/Developer/openlinear/node_modules/.pnpm/router@2.2.0/node_modules/router/index.js:295:15\n    at processParams (/Users/sriharsha/Developer/openlinear/node_modules/.pnpm/router@2.2.0/node_modules/router/index.js:582:12)\n    at next (/Users/sriharsha/Developer/openlinear/node_modules/.pnpm/router@2.2.0/node_modules/router/index.js:291:5)\n    at router.handle (/Users/sriharsha/Developer/openlinear/node_modules/.pnpm/router@2.2.0/node_modules/router/index.js:186:3)"},"requestId":"f67e25a1-2732-458a-8e1f-14239764366a","msg":"[QA] error mw caught"}
+{"level":50,"time":1777585080068,"pid":28228,"hostname":"Sris-MacBook-Air.local","req":{"id":"f67e25a1-2732-458a-8e1f-14239764366a","method":"GET","url":"/api/_test/throw","query":{},"params":{},"headers":{"host":"localhost:3099","user-agent":"curl/8.7.1","accept":"*/*","authorization":"[REDACTED]","cookie":"[REDACTED]"},"remoteAddress":"::1","remotePort":53500},"res":{"statusCode":500,"headers":{"cross-origin-opener-policy":"same-origin","cross-origin-resource-policy":"same-origin","origin-agent-cluster":"?1","referrer-policy":"no-referrer","strict-transport-security":"max-age=31536000; includeSubDomains","x-content-type-options":"nosniff","x-dns-prefetch-control":"off","x-download-options":"noopen","x-frame-options":"SAMEORIGIN","x-permitted-cross-domain-policies":"none","x-xss-protection":"0","x-request-id":"f67e25a1-2732-458a-8e1f-14239764366a","ratelimit-policy":"100;w=60","ratelimit":"limit=100, remaining=99, reset=60","vary":"Origin","access-control-allow-credentials":"true","content-type":"application/json; charset=utf-8","content-length":"77","etag":"W/\"4d-CzILRi0V2StGIxBE9UjcHk93Fu0\""}},"err":{"type":"Error","message":"failed with status code 500","stack":"Error: failed with status code 500\n    at onResFinished (/Users/sriharsha/Developer/openlinear/node_modules/.pnpm/pino-http@11.0.0/node_modules/pino-http/logger.js:115:39)\n    at ServerResponse.onResponseComplete (/Users/sriharsha/Developer/openlinear/node_modules/.pnpm/pino-http@11.0.0/node_modules/pino-http/logger.js:178:14)\n    at ServerResponse.emit (node:events:520:22)\n    at onFinish (node:_http_outgoing:1026:10)\n    at callback (node:internal/streams/writable:764:21)\n    at afterWrite (node:internal/streams/writable:708:5)\n    at afterWriteTick (node:internal/streams/writable:694:10)\n    at process.processTicksAndRejections (node:internal/process/task_queues:89:21)"},"responseTime":8,"msg":"request errored"}
+{"level":50,"time":1777585093366,"pid":28228,"hostname":"Sris-MacBook-Air.local","err":{"type":"Error","message":"intentional QA throw","stack":"Error: intentional QA throw\n    at <anonymous> (/Users/sriharsha/Developer/openlinear/apps/api/qa-server.ts:15:9)\n    at Layer.handleRequest (/Users/sriharsha/Developer/openlinear/node_modules/.pnpm/router@2.2.0/node_modules/router/lib/layer.js:152:17)\n    at next (/Users/sriharsha/Developer/openlinear/node_modules/.pnpm/router@2.2.0/node_modules/router/lib/route.js:157:13)\n    at Route.dispatch (/Users/sriharsha/Developer/openlinear/node_modules/.pnpm/router@2.2.0/node_modules/router/lib/route.js:117:3)\n    at handle (/Users/sriharsha/Developer/openlinear/node_modules/.pnpm/router@2.2.0/node_modules/router/index.js:435:11)\n    at Layer.handleRequest (/Users/sriharsha/Developer/openlinear/node_modules/.pnpm/router@2.2.0/node_modules/router/lib/layer.js:152:17)\n    at /Users/sriharsha/Developer/openlinear/node_modules/.pnpm/router@2.2.0/node_modules/router/index.js:295:15\n    at processParams (/Users/sriharsha/Developer/openlinear/node_modules/.pnpm/router@2.2.0/node_modules/router/index.js:582:12)\n    at next (/Users/sriharsha/Developer/openlinear/node_modules/.pnpm/router@2.2.0/node_modules/router/index.js:291:5)\n    at router.handle (/Users/sriharsha/Developer/openlinear/node_modules/.pnpm/router@2.2.0/node_modules/router/index.js:186:3)"},"requestId":"d8d622b7-d4c5-4201-a842-8ddc6d951b4f","msg":"[QA] error mw caught"}
+
+PASS CRITERIA:
+  - HTTP 500 with JSON {error:'internal_error', requestId:<uuid>} (NOT default Express HTML)
+  - x-request-id header in response
+  - Log entry has authorization=[REDACTED] and cookie=[REDACTED]
+  - Log entry has matching requestId

@@ -1,0 +1,60 @@
+# T16 — Wire header search to KanbanBoard filter
+
+## Date
+2026-05-01
+
+## Changes
+
+### apps/desktop-ui/app/page.tsx
+- Pass `searchQuery` state (already managed via `useState("")` at line 27 and bound to header `<input value={searchQuery}>` at line 197) into `<KanbanBoard searchQuery={searchQuery} />` prop.
+
+### apps/desktop-ui/components/board/use-kanban-board.ts
+- Imported `useDeferredValue, useMemo` from React.
+- Added `searchQuery?: string` to `KanbanBoardProps` interface.
+- Destructured `searchQuery = ""` in hook signature.
+- Added derivation:
+  ```ts
+  const deferredSearchQuery = useDeferredValue(searchQuery)
+  const filteredTasks = useMemo(() => {
+    const q = deferredSearchQuery.trim().toLowerCase()
+    if (q.length < 1) return tasks
+    return tasks.filter((task) => {
+      const title = (task.title || "").toLowerCase()
+      const identifier = (task.identifier || "").toLowerCase()
+      return title.includes(q) || identifier.includes(q)
+    })
+  }, [tasks, deferredSearchQuery])
+  ```
+- Updated `getTasksByStatus` to filter from `filteredTasks` instead of `tasks` — preserves existing column groupings while applying search.
+
+### apps/desktop-ui/components/board/kanban-board.tsx
+- No code change needed: `KanbanBoard(props: KanbanBoardProps)` already spreads props through to `useKanbanBoard(props)`. Adding `searchQuery` to `KanbanBoardProps` automatically propagates.
+
+## Behaviour
+
+- Empty search ("") → returns full `tasks` (no filtering).
+- Non-empty (length ≥ 1) → case-insensitive substring match on `title` OR `identifier` (e.g. "OL-12").
+- Filter is debounced via React's `useDeferredValue` — keystrokes do not block the input, board updates lazily.
+- Status grouping (todo/in_progress/done/cancelled) unchanged — applied AFTER search filter via `getTasksByStatus`.
+- Pure client-side; no new fetch path. No new API surface.
+
+## Verification
+
+### Typecheck
+```
+$ pnpm --filter @openlinear/desktop-ui exec tsc --noEmit
+(exit 0, no output)
+```
+
+### Code review
+- `tasks` state is the only source mutated by SSE; `filteredTasks` is a pure derivation, so SSE updates flow through.
+- Drag-end / status update paths still call `setTasks(...)` directly — search re-applies on next render.
+- Selection / batch logic still operates on `tasks` (correct: selection should not be limited by transient search filter).
+- ProjectConfigPanel shows total counts using `tasks` (unchanged) — correct, panel is repo-level metadata not search-scoped.
+
+### Container QA
+Skipped per task spec ("Container QA NOT REQUIRED — preview container would need rebuild").
+
+## Files Touched
+- apps/desktop-ui/app/page.tsx (1 line added)
+- apps/desktop-ui/components/board/use-kanban-board.ts (3 imports, 1 prop, derivation block)

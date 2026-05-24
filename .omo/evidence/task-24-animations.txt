@@ -1,0 +1,97 @@
+T24 — Animation polish: useReducedMotion + stop infinite brain pulse + coordinate sidebar transitions
+======================================================================================================
+
+Verification: pnpm --filter @openlinear/desktop-ui has no `typecheck` script, so ran:
+  cd apps/desktop-ui && rm -rf .next && npx tsc --noEmit  → exit 0 (clean)
+  pnpm typecheck (workspace)                              → 5/5 successful (FULL TURBO)
+
+Files changed (6):
+----------------------------------------------------------------------------------
+1. apps/desktop-ui/components/global-quick-capture.tsx
+   - Added `useReducedMotion` import.
+   - TaskCard subcomponent: `const reduceMotion = useReducedMotion()`.
+   - Removed `whileHover={{ boxShadow, borderColor }}` (paint-property animations
+     that trigger composite + paint per frame).
+   - Replaced with CSS-only `hover:border-white/10` (composite-only) plus an
+     optional reduced-motion-gated framer `whileHover={{ scale: 1.005 }}`
+     (transform = GPU).
+   - Gated `initial`/`animate`/`exit`/`transition` props through reduceMotion
+     guard. When reduced: `initial={false}`, `transition={{ duration: 0 }}`,
+     opacity-only exit.
+
+2. apps/desktop-ui/components/god-mode-overlay.tsx
+   - Added `useReducedMotion` import + hook in component.
+   - Brain pulse button (lines 132-153 originally): `animate={[1,1.05,1]}` with
+     `repeat: Infinity` now gated → ONLY animates when `state === "idle"` (i.e.
+     overlay closed). When `state === "pill"` (overlay open) OR reduce-motion:
+     `scale: 1` + `duration: 0`. Stops the GPU-burning infinite loop while the
+     pill is on screen.
+   - Pill panel motion.div: gated initial/exit/transition.
+
+3. apps/desktop-ui/components/onboarding/onboarding-wizard.tsx
+   - Added `useReducedMotion` import.
+   - WelcomeStep: 3 motion.divs gated.
+   - ProjectStep: AnimatePresence inner motion.div gated.
+   - StepIndicator: `transition={{ duration: 0 }}` when reduced (backgroundColor
+     animations are paint, but tiny one-shots — gated for consistency).
+   - OnboardingWizard top-level AnimatePresence motion.div gated.
+
+4. apps/desktop-ui/components/layout/sidebar.tsx
+   - Replaced `style={{ width: open ? width : 0, transition: 'width 150ms …' }}`
+     on outer <aside> with `width: 'var(--sidebar-width, 0px)'` (instant — no
+     CSS transition on layout property).
+   - Wrapped all sidebar children in a new inner <div> with:
+       width: ${width}px (fixed)
+       transform: translateX(open ? 0 : -${width}px)
+       transition: transform 150ms cubic-bezier(...)
+       willChange: transform when animating
+   - The inner panel slides via GPU-composited transform; the outer aside snaps
+     width instantly so content area reflows in one shot (browser layout cost
+     paid once at start of animation, not per frame).
+   - Added `aria-hidden={!open}` for a11y when closed.
+   - Outer <aside> changed from `flex flex-col` to `relative overflow-hidden`
+     (the inner div now owns the flex layout).
+
+5. apps/desktop-ui/components/layout/app-shell.tsx
+   - Added shared CSS variable `--sidebar-width` on the root flex container.
+   - Computed `effectiveSidebarWidth = sidebarOpen ? (isMobile ? 300 : sidebarWidth) : 0`.
+   - Variable is set to `0px` on mobile (overlay mode) and `${effectiveSidebarWidth}px`
+     otherwise.
+   - Sidebar reads `var(--sidebar-width)` directly → both elements driven from
+     a single source of truth. No prop-drilling for the width value into CSS;
+     the existing `width` prop still passes the numeric value for the inner
+     panel's fixed width + transform calc.
+
+6. apps/desktop-ui/components/board/task-card.tsx
+   - Card-level `backdrop-blur-md` was already gated by `isDragging` (the
+     dragging branch swaps to a solid `bg-[#1a1a1a]` with no blur). Verified.
+   - Found additional `backdrop-blur-sm` on label spans (line 162). Wrapped
+     with `cn(... !isDragging && "backdrop-blur-sm")` — labels now drop blur
+     during drag too, removing the per-frame backdrop-filter cost on the dragged
+     ghost element. Backdrop-filter forces an offscreen render pass behind every
+     blurred element; eliminating it during the high-frame-rate drag interaction
+     is the targeted win here.
+
+Performance reasoning per change:
+----------------------------------
+- transform/opacity → composite-only (GPU). No layout, no paint.
+- width/height/box-shadow/border-color → trigger layout and/or paint per frame.
+- backdrop-filter → expensive offscreen pass; defer during drag.
+- prefers-reduced-motion (CSS, T21) handles browser default. The framer-motion
+  hook complements that by NOT scheduling animation frames at all when the user
+  prefers reduced motion — saves CPU even when CSS would no-op the visual.
+- Infinite brain pulse running while overlay is open was wasting a render frame
+  every ~8ms on a 240Hz display for an animation the user can't see (covered
+  by the pill). Gated to idle state only.
+
+Diff summary (line counts):
+  global-quick-capture.tsx   ~10 lines changed in TaskCard
+  god-mode-overlay.tsx       ~8 lines changed (brain pulse + pill)
+  onboarding-wizard.tsx     ~25 lines changed (4 motion sites)
+  sidebar.tsx                ~12 lines changed (outer + inner wrapper)
+  app-shell.tsx              ~5 lines changed (CSS var on root)
+  task-card.tsx              ~5 lines changed (label cn)
+
+All files compile clean (tsc --noEmit, exit 0).
+No `as any`, no `@ts-ignore`, no removal of motion (only gating).
+Width/box-shadow/border-color animations eliminated from interactive paths.

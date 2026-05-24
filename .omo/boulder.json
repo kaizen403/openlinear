@@ -1,0 +1,79 @@
+{
+  "active_plan": "/Users/sriharsha/Developer/openlinear/.sisyphus/plans/openlinear-80-percent.md",
+  "started_at": "2026-05-01T02:55:00.000Z",
+  "session_ids": [
+    "ses_220ad9b78ffeOgu93ZgpAjy9By",
+    "ses_21fb4c421ffeO8ja0mRhs26Spm",
+    "ses_21fb47f24ffeIHX7l4owEPpkh0",
+    "ses_21fb41eb2ffetNWEzukaKSaAnh",
+    "ses_21fb3d16cffe3po6ihSusknR6Q",
+    "ses_21fb384b0ffeodCEE8aP2DX2hM",
+    "ses_21f91cc30ffen5zUsaYTRR2HPb",
+    "ses_21f917275ffeNbzF5wrSVcWV7l",
+    "ses_21f911881ffe9NzF3NjF5uzXzT",
+    "ses_21f90c412ffeolTftDWrS8OWar",
+    "ses_21f90925cffe2MPLh8UB9g9M5F",
+    "ses_21f339e0bffe4bbGF6L1hH6hQ2",
+    "ses_21f33694bffeskAphs3VQi6z46",
+    "ses_21f333ffaffeTBRU5LhWGj8bJh",
+    "ses_21f331d27ffebZQa7xZmpLEWEX",
+    "ses_21f32fa57ffegZeIuzQ24y8gIh",
+    "ses_21f3284dfffeIDXyoST1AQqyo4"
+  ],
+  "plan_name": "openlinear-80-percent",
+  "agent": "atlas",
+  "session_origins": {
+    "ses_220ad9b78ffeOgu93ZgpAjy9By": "direct",
+    "ses_21fb4c421ffeO8ja0mRhs26Spm": "appended",
+    "ses_21fb47f24ffeIHX7l4owEPpkh0": "appended",
+    "ses_21fb41eb2ffetNWEzukaKSaAnh": "appended",
+    "ses_21fb3d16cffe3po6ihSusknR6Q": "appended",
+    "ses_21fb384b0ffeodCEE8aP2DX2hM": "appended",
+    "ses_21f91cc30ffen5zUsaYTRR2HPb": "appended",
+    "ses_21f917275ffeNbzF5wrSVcWV7l": "appended",
+    "ses_21f911881ffe9NzF3NjF5uzXzT": "appended",
+    "ses_21f90c412ffeolTftDWrS8OWar": "appended",
+    "ses_21f90925cffe2MPLh8UB9g9M5F": "appended",
+    "ses_21f339e0bffe4bbGF6L1hH6hQ2": "appended",
+    "ses_21f33694bffeskAphs3VQi6z46": "appended",
+    "ses_21f333ffaffeTBRU5LhWGj8bJh": "appended",
+    "ses_21f331d27ffebZQa7xZmpLEWEX": "appended",
+    "ses_21f32fa57ffegZeIuzQ24y8gIh": "appended",
+    "ses_21f3284dfffeIDXyoST1AQqyo4": "appended"
+  },
+  "task_sessions": {
+    "todo:1": {
+      "task_key": "todo:1",
+      "task_label": "1",
+      "task_title": "**Schema migration: add Comment, AgentRun, Notification, ActivityLog + assigneeId/creatorId/parentId on Task + indexes + uniques**",
+      "session_id": "ses_21fa9e8b0ffehy2nrVGOdMVxvB",
+      "agent": "Sisyphus-Junior",
+      "category": "deep",
+      "updated_at": "2026-04-30T22:04:09.181Z"
+    },
+    "todo:8": {
+      "task_key": "todo:8",
+      "task_label": "8",
+      "task_title": "**SSE per-user filtering + auth on /api/events + reconnect with jitter**",
+      "session_id": "ses_21f91cc30ffen5zUsaYTRR2HPb",
+      "agent": "Sisyphus-Junior",
+      "category": "unspecified-high",
+      "updated_at": "2026-04-30T23:46:48.253Z"
+    },
+    "todo:16": {
+      "task_key": "todo:16",
+      "task_label": "16",
+      "task_title": "**Wire header search to KanbanBoard filter (currently does nothing)**",
+      "session_id": "ses_21f3284dfffeIDXyoST1AQqyo4",
+      "agent": "Sisyphus-Junior",
+      "category": "quick",
+      "updated_at": "2026-04-30T23:50:56.161Z"
+    }
+  },
+  "previous_boulder_archived": {
+    "plan": "god-mode-web-search-voice",
+    "progress": "8/75",
+    "started_at": "2026-02-17T08:20:33.282Z",
+    "reason": "User explicitly approved new plan openlinear-80-percent which supersedes earlier work"
+  }
+}

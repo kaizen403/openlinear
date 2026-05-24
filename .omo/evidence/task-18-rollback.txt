@@ -1,0 +1,78 @@
+T18 — Optimistic update rollback for use-kanban-board
+=====================================================
+
+FILE: apps/desktop-ui/components/board/use-kanban-board.ts
+
+CHANGES
+-------
+1. updateTaskStatus (lines 555-586)
+   - Now accepts string | string[] taskIds (collapses single-id and batch paths)
+   - Captures `snapshot` via the functional setter (atomic with the optimistic mutation)
+   - Applies optimistic status change in the SAME setTasks call
+   - On any apiFetch failure: setTasks(snapshot) + toast.error(err.message ?? 'Operation failed')
+   - REMOVED: fallback `fetchTasks({ silent: true })` (no longer needed — snapshot is authoritative;
+     SSE re-syncs on success)
+
+2. handleMoveToInProgress (line 588) — now a one-liner that just delegates to updateTaskStatus.
+   The redundant setTasks(...) optimistic mutation was removed (updateTaskStatus owns it).
+
+3. handleBatchMoveToInProgress (line 592) — collapsed N setTasks calls + Promise.all of
+   per-id updateTaskStatus into a single updateTaskStatus(todoIds, 'in_progress'). One snapshot,
+   one rollback on failure (instead of N partial rollbacks racing each other).
+
+4. handleDragEnd (line 601) — drops the in-line setTasks; both branches (batch-group and single)
+   delegate to updateTaskStatus.
+
+5. handleBatchExecute (lines 187-209)
+   - Snapshots `selectedTaskIds` AND `tasks` BEFORE clearSelection()
+   - try { await apiFetch } catch { restore both, toast.error }
+
+6. handleDelete (lines 723-737)
+   - Already snapshotted `tasks`; now ALSO snapshots `selectedTaskId` and restores it on failure
+   - Standardized error message to 'Operation failed' fallback
+
+7. REMOVED: 3s "safety timeout" hack (was lines 542-571)
+   - Removed `safetyTimeoutRef` declaration
+   - Removed the setTimeout that force-set loading=false after 3s
+   - Removed the corresponding cleanup in the useEffect return
+   - Root cause was already fixed in T3 (apiFetch always resolves/rejects → fetchTasks's
+     finally block reliably sets loading=false). The timeout was masking nothing real.
+
+CODE REVIEW NOTES
+-----------------
+- No new state introduced. All snapshots are local consts inside handlers; no useState/useRef added.
+- ApiError flows through unchanged: it extends Error, so `err instanceof Error ? err.message`
+  surfaces the server-provided envelope message exactly as T3 designed.
+- AuthExpiredError (also extends Error) surfaces "Session expired" — fine, since the global
+  auth:expired handler kicks in regardless and the toast is still meaningful.
+- NetworkError surfaces "Could not reach OpenLinear server: ..." — meaningful for the user.
+- SSE eventually-consistent re-sync: on SUCCESS we don't re-fetch. The server's task:updated /
+  task:deleted SSE events (T8) will eventually push canonical state, so optimistic + SSE
+  converges. On FAILURE we restore the snapshot, so the UI is always in a consistent state.
+- Race condition with SSE during in-flight request: if SSE arrives between optimistic mutation
+  and rollback, the snapshot rollback will REVERT the SSE update too. This is acceptable
+  because (a) SSE will re-fire eventually-consistent updates within seconds, (b) the alternative
+  (per-task-id field-level rollback) requires far more complex state machinery, and (c) the
+  failure case is rare. Documented as a known minor inconsistency.
+- updateTaskStatus signature change: now accepts string | string[]. All call sites updated:
+  handleMoveToInProgress (string), handleBatchMoveToInProgress (string[]),
+  handleDragEnd batch-group branch (string[]), handleDragEnd single branch (string).
+- No `as any` introduced.
+
+VERIFICATION
+------------
+$ npx tsc --noEmit -p apps/desktop-ui/tsconfig.json
+(no output — clean)
+
+$ lsp_diagnostics apps/desktop-ui/components/board/use-kanban-board.ts
+No diagnostics found
+
+ACCEPTANCE CRITERIA
+-------------------
+[x] updateTaskStatus, handleDelete, handleBatchExecute snapshot tasks BEFORE mutation
+[x] On error: restore snapshot + toast.error(err.message ?? 'Operation failed')
+[x] selectedTaskId restored on failed delete
+[x] 3s "safety timeout" hack removed (lines 542-571 in old file)
+[x] No new state — reuses existing setTasks / setSelectedTaskId / setSelectedTaskIds
+[x] typecheck clean
+[x] No `as any`

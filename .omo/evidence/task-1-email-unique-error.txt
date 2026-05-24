@@ -1,0 +1,6 @@
+=== Test: insert two users with duplicate email ===
+ERROR:  duplicate key value violates unique constraint "users_email_key"
+DETAIL:  Key (email)=(dup@test.com) already exists.
+
+=== Cleanup any partial inserts ===
+DELETE 0

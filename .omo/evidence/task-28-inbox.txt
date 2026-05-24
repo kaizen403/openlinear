@@ -1,0 +1,75 @@
+Task T28 — Inbox backed by real notifications + grouping + filters
+Date: 2026-05-05
+
+## Files modified
+apps/desktop-ui/app/inbox/page.tsx       (rewritten,      419 lines)
+apps/desktop-ui/components/layout/sidebar.tsx (badge count via /api/notifications,      439 lines)
+
+NOTE: app/inbox/page.tsx was deleted by a sibling task pipeline commit (5ca18e6); my work
+re-creates it from scratch with notification-based logic.
+
+## Acceptance criteria
+
+[X] Replace task-based inbox with notifications from GET /api/notifications
+    - apiFetch<NotificationsListResponse>('/api/notifications?pageSize=100')
+    - All Task.inboxRead-based code (InboxTask, batch grouping, PR refresh) removed entirely.
+
+[X] Group: today / this week / older  (native Date + Intl.RelativeTimeFormat)
+    - bucketFor() uses Date.startOfDay() (local time) and 6-day rolling window.
+    - timeAgo() via new Intl.RelativeTimeFormat('en', { numeric: 'auto' }).
+    - Sticky bucket headers with item counts; renders only non-empty buckets in fixed order.
+
+[X] Filter chips: all / @mentions / assignments / status changes
+    - FILTER_CHIPS array → state setFilter() → useMemo filtered + grouped.
+    - filter values map directly to Notification.type ('mention' | 'assignment' | 'status_change').
+
+[X] Click → navigate to source task
+    - if (n.taskId) router.push(`/?task=${n.taskId}`)
+    - if (n.commentId) setTimeout(400) → document.getElementById(`comment-${cid}`)?.scrollIntoView()
+
+[X] Mark-read on click (PATCH /api/notifications/:id/read)
+    - Optimistic readAt + unreadCount update, then apiFetch PATCH (errors logged, UI not reverted).
+
+[X] Bulk mark-all-read button (POST /api/notifications/read-all)
+    - Visible only when unreadCount > 0; optimistic local update.
+
+[X] SSE notification:created prepends new ones live
+    - Local useNotificationStream() opens its own EventSource(`/api/events?token=...`) and
+      subscribes to 'notification:created'.
+    - Constraint workaround: providers/sse-provider.tsx is OUT OF SCOPE per the task's
+      "do not touch files outside inbox/page.tsx and sidebar.tsx" rule, and its
+      ALL_EVENT_TYPES list does not yet include 'notification:created'. Therefore both
+      inbox/page.tsx and sidebar.tsx open dedicated EventSource connections for this single
+      event using the existing token-query-param auth path.
+    - Dedupe by id; only increments unreadCount when readAt is null.
+
+[X] Sidebar badge count of unread from API
+    - apiFetch<{ unreadCount }>('/api/notifications?pageSize=1') replaces fetchInboxCount().
+    - Live increments via dedicated EventSource on 'notification:created'.
+    - Old dual-style badge (linear-accent vs linear-bg-tertiary based on read state) replaced
+      with single linear-accent style — there is no "total" concept anymore, only unread.
+
+## DO checks
+
+[X] pnpm --filter @openlinear/desktop-ui typecheck → no typecheck script exists.
+    Equivalent: `cd apps/desktop-ui && NODE_ENV=development npx tsc --noEmit`
+    Total project errors: 1
+    Errors in inbox/page.tsx + sidebar.tsx: 0
+
+[X] Commit message: feat(ui): inbox backed by real notifications + grouping + filters
+
+## DO NOT checks
+
+[X] Old Task.inboxRead-based logic fully removed:
+    $ grep -n 'inboxRead\|fetchInboxCount\|fetchInboxTasks\|markInboxRead\|InboxTask' \
+        apps/desktop-ui/app/inbox/page.tsx apps/desktop-ui/components/layout/sidebar.tsx
+    (no matches)
+
+[X] Playwright not run.
+
+[X] Only inbox/page.tsx and sidebar.tsx modified by this task. (column.tsx, package.json
+    appear in 'git status' but are from a sibling task pipeline running concurrently — not staged.)
+
+[X] No 'as any' or @ts-ignore introduced:
+    $ grep -n 'as any\|@ts-ignore' apps/desktop-ui/app/inbox/page.tsx apps/desktop-ui/components/layout/sidebar.tsx
+    (no matches)

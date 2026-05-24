@@ -1,0 +1,60 @@
+T31 — Inline task creation in board columns + bulk-select + bulk actions
+========================================================================
+
+Files changed:
+- apps/desktop-ui/components/board/column.tsx (added InlineAddTask row)
+- apps/desktop-ui/components/board/use-kanban-board.ts (handleInlineCreateTask,
+  handleBulkDelete, handleBulkChangeStatus, selectAllVisible, range-select via
+  lastSelectedIdRef, modifier-aware toggleTaskSelect, derived selectionActive)
+- apps/desktop-ui/components/board/task-card.tsx (modifier-aware onToggleSelect
+  signature; cmd/shift-click on card body bypasses task-detail open)
+- apps/desktop-ui/components/board/kanban-board.tsx (cmd+a + esc global handler,
+  isDragDisabled when selectionActive, BulkSelectionToolbar wired, Column
+  onInlineCreate wired)
+- apps/desktop-ui/components/board/bulk-selection-toolbar.tsx (NEW — Archive +
+  Status dropdown + Clear actions)
+
+Behavior:
+- "+ Add task" row at bottom of each column. Click → inline <input>. Enter →
+  POST /api/tasks via apiFetch (status from column, projectId/teamId from board
+  context). Optimistic insert with temp-id, swap with server task on success,
+  rollback on error (T18 pattern). Esc cancels. Empty + blur cancels. Submit
+  keeps input focused for fast successive entry (Linear-style).
+- Bulk selection:
+  * Plain click on card → opens task detail (existing behavior preserved).
+  * Cmd/Ctrl+click → toggles selection without opening detail.
+  * Shift+click → range select from last anchor across visible kanban order.
+  * Cmd/Ctrl+A (when not in input) → select all visible (filtered) tasks
+    excluding active batch tasks.
+  * Esc → clears selection.
+  * Per-column "Select" / "All" buttons preserved as before.
+- Bulk toolbar (BulkSelectionToolbar) appears when selectedIds.size > 0 with:
+  Archive (Promise.allSettled DELETE w/ snapshot rollback), Status dropdown
+  (PATCH status, Promise.allSettled), Clear. Shows summary toast for
+  partial-failure cases (>0 failures of N).
+- BatchControls (Execute Parallel/Queue + Move) still appears, stacked above
+  the new toolbar, only when todo or in_progress tasks are selected.
+- Drag-and-drop: Draggable.isDragDisabled = selectionActive. Optimistic temp-id
+  tasks are also drag-disabled until server replaces them (prevents racing the
+  POST).
+- Activity log: T13 server middleware emits task:created / task:updated /
+  task:deleted events for every mutation — no UI changes needed.
+
+Anti-conflict notes:
+- toggleTaskSelect signature change is backward-compatible (modifiers optional).
+- selectionMode prop on TaskCard now derived from (selectionActive ||
+  selectingColumns.has(status)) so checkbox shows whenever any selection exists,
+  not just per-column select mode.
+- Local `selectionActive` shadow inside the columns .map() is intentional —
+  controls the "Cancel/All" header buttons (per-column select mode), separate
+  from the global selection.
+
+Verification:
+- pnpm --filter @openlinear/desktop-ui typecheck → PASS (no errors)
+- LSP diagnostics on board/ → 0 errors across 11 files
+
+Constraints honored:
+- No Playwright runs (forbidden)
+- No `as any`
+- No modal opened for inline create
+- DnD preserved when selectionActive=false

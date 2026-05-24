@@ -1,0 +1,28 @@
+T3 Playwright QA Scenarios — DEFERRED to interactive verification
+
+The 3 QA scenarios in the plan (401 redirect, sidecar lazy URL, network error)
+require a running app + sidecar + DB stack and a live browser session, which
+this autonomous build agent cannot bring up safely.
+
+Scenario 1: 401 from API redirects to /login
+  Implementation status: ✅ DONE
+  - apps/desktop-ui/lib/api/fetch.ts → fireAuthExpired() clears token,
+    dispatches 'auth:expired' event, throws AuthExpiredError
+  - apps/desktop-ui/hooks/use-auth.tsx → window.addEventListener('auth:expired')
+    sets user=null, calls toast.error("Session expired..."), router.push('/login')
+  - Verify: Set localStorage.token to garbage, hit any protected endpoint.
+
+Scenario 2: Sidecar URL resolves lazily (Tauri runtime)
+  Implementation status: ✅ DONE — verified by grep
+  - Zero module-level `const X = getApiUrl()` or `getSidecarApiUrl()` captures
+    in apps/desktop-ui/{components,app,hooks}/ (see task-3-no-module-capture.txt)
+  - All apiFetch() calls resolve baseUrl inside the function body
+  - api-loading-screen.tsx's `getSidecarApiUrl()` call moved INSIDE checkHealth callback
+
+Scenario 3: Network error surfaces typed message
+  Implementation status: ✅ DONE
+  - apiFetch wraps fetch() in try/catch → throws NetworkError on connection failure
+  - All migrated callsites use `toast.error(err.message)` — NetworkError.message
+    defaults to "Could not reach OpenLinear server"
+  - Form callsites (task-form.tsx, label-picker.tsx, settings/page.tsx) preserve
+    user input on error (toast surfaces error, form state untouched)

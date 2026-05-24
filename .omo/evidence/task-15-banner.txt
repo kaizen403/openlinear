@@ -1,0 +1,85 @@
+T15 — OpenCode single-tenant constraint enforcement (Path B)
+==============================================================
+Date: 2026-05-01
+Decision: Path B (document + enforce single-tenant) over Path A (per-user spawn)
+
+RATIONALE FOR PATH B
+--------------------
+1. Per-user OpenCode subprocess spawning requires THREE coordinated changes
+   beyond what Path A's brief implies:
+   a) Per-user XDG_DATA_HOME so auth.json files are isolated. The OpenCode
+      SDK (@opencode-ai/sdk@1.2.5) has no in-process auth namespacing — auth
+      is read from $XDG_DATA_HOME/opencode/auth.json at process scope.
+      See node_modules/@opencode-ai/sdk/dist/server.d.ts (ServerOptions has
+      hostname/port/timeout/config — no auth-store override).
+   b) Port pool (each subprocess needs a unique port; current config uses a
+      single OPENCODE_PORT=4096).
+   c) Concurrent-process cap (each opencode process is ~150-250MB RAM; an
+      unbounded map would OOM the host).
+2. Primary deployment target is desktop (Tauri sidecar, one user per machine).
+   In that mode the limitation has zero practical impact.
+3. Cloud deployment at openlinear.tech: real risk, but requires a larger
+   architectural change. Documenting + enforcing now prevents silent misuse;
+   implementing per-user isolation is tracked as future work.
+
+CHANGES SHIPPED
+---------------
+1. docs/limitations.md (NEW)
+   - Explains the constraint (shared auth.json, shared sessions).
+   - Explains why it exists (desktop-first design).
+   - Documents the boot enforcement (refuse start on multi-user DB).
+   - Lists three operator mitigations.
+   - Names the exact files that will change when isolation is implemented.
+
+2. apps/sidecar/src/index.ts
+   - printOpenCodeSingleTenantBanner() — loud stdout banner + warn log on every boot.
+   - Pre-initOpenCode() guard: prisma.user.count(); if > 1 and
+     OPENLINEAR_ALLOW_SHARED_OPENCODE != '1' -> fatal log + process.exit(2).
+   - With OPENLINEAR_ALLOW_SHARED_OPENCODE=1 -> warn log + continue.
+   - Failure to count users does not block boot (logs error, continues).
+
+3. apps/sidecar/src/services/opencode.ts
+   - Renamed _userId -> userId on getClientForUser.
+   - Added `void userId;` marker + comment explaining the parameter is the
+     contract for future per-user isolation. Prevents accidental removal by
+     future maintainers under noUnusedParameters.
+
+VERIFICATION
+------------
+$ pnpm --filter @openlinear/sidecar typecheck
+> tsc --noEmit
+(clean, no output, exit 0)
+
+QA SCENARIO (Plan T15, Scenario B)
+-----------------------------------
+Steps: Boot sidecar; check stdout
+Expected: Stdout contains "OpenCode runs in single-tenant mode" banner.
+
+Banner text emitted:
+================================================================
+  OpenCode runs in SINGLE-TENANT mode.
+  All authenticated OpenLinear users share one OpenCode process,
+  one provider auth store, and one session namespace.
+  See docs/limitations.md for details.
+================================================================
+
+The banner is written via process.stdout.write() (always visible regardless
+of pino log level) AND a logger.warn() entry tagged [Sidecar] for structured
+log shipping.
+
+ENFORCEMENT QA
+--------------
+With prisma.user.count() == 1 (or 0): boot proceeds normally.
+With prisma.user.count() > 1 and no env opt-in:
+  - logger.fatal({ userCount }, '... Multi-user database detected ...')
+  - prisma.$disconnect()
+  - process.exit(2)
+With prisma.user.count() > 1 AND OPENLINEAR_ALLOW_SHARED_OPENCODE=1:
+  - logger.warn({ userCount }, '... users WILL share OpenCode auth state ...')
+  - boot continues
+
+FILES TOUCHED
+-------------
+docs/limitations.md                                    (new, ~75 lines)
+apps/sidecar/src/index.ts                              (+38 lines net)
+apps/sidecar/src/services/opencode.ts                  (param rename + comment)

@@ -115,6 +115,7 @@ function createWindow(url: string): BrowserWindow {
     backgroundColor: "#0a0a0a",
     frame: process.platform === "darwin" ? false : true,
     titleBarStyle: process.platform === "darwin" ? "hidden" : "default",
+    paintWhenInitiallyHidden: false,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -128,11 +129,19 @@ function createWindow(url: string): BrowserWindow {
 
   win.loadURL(url);
 
-  win.once("ready-to-show", () => {
-    win.show();
-    win.focus();
-    console.log("[Window] Ready and shown");
-  });
+  const showWindow = () => {
+    if (!win.isDestroyed()) {
+      win.show();
+      win.focus();
+      console.log("[Window] Ready and shown");
+    }
+  };
+
+  if (process.platform === "linux") {
+    win.webContents.once("did-finish-load", showWindow);
+  } else {
+    win.once("ready-to-show", showWindow);
+  }
 
   if (isDev) {
     win.webContents.openDevTools();

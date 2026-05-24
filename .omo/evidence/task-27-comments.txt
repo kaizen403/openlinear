@@ -1,0 +1,25 @@
+# T27 Evidence — Comments thread UI with @mention autocomplete
+
+## Files
+
+- NEW `apps/desktop-ui/components/comments-thread.tsx` (433 lines)
+- NEW `apps/desktop-ui/lib/api/comments.ts` (client wrapper)
+- MOD `apps/desktop-ui/components/task-detail-view.tsx` (+1 import +1 mount: `<CommentsThread taskId={task.id} />` below description)
+
+## What it does
+
+- Fetches comments via apiFetch from T10 backend `GET /api/tasks/:taskId/comments`
+- Renders thread with author avatar, relative time, body
+- Composer at bottom with `@` autocomplete: triggers Popover listing team members; selecting inserts `@username`
+- Submits via POST /api/tasks/:taskId/comments — T10 backend parses mentions, creates Notification rows
+- Subscribes to SSE `comment:created` (from T8/T10 per-user filtered) → live updates other browser tabs
+- Edit/delete own comments inline (PATCH/DELETE via T10 routes); permission checks server-side via assertCommentOwned
+
+## Verification
+
+- `pnpm --filter @openlinear/desktop-ui typecheck` passes
+- Component is a leaf — only depends on existing primitives (Avatar, Popover, Button, Textarea from T2) and apiFetch (T3)
+
+## Salvage note
+
+T27 subagent timed out after 30min inactivity AFTER the substantive work was complete. Orchestrator added missing `'user'` case to `OwnershipResourceType` union (needed by T32 in same wave) which was the only typecheck blocker. Component itself was implementation-complete.

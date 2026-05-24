@@ -1,0 +1,30 @@
+T30 — Global keyboard shortcuts + ? overlay
+=============================================
+
+Files added/modified:
+- apps/desktop-ui/components/shortcuts-overlay.tsx  (new)
+- apps/desktop-ui/app/layout.tsx                    (mount overlay)
+- apps/desktop-ui/package.json                      (+ react-hotkeys-hook ^5.3.2)
+
+Bindings (root layout, `useHotkeys` from react-hotkeys-hook v5):
+- shift+/  -> toggle overlay
+- c        -> dispatch `openlinear:new-task` window event
+- escape   -> close overlay (when open)
+- g i / g m / g p / g t / g s -> sequence-based router push to inbox/my-issues/projects/teams/settings
+                                  (raw keydown listener, 1.2s timeout reset)
+
+Conflict avoidance:
+- All hotkeys gated by `isTypingTarget(document.activeElement)` (skips INPUT/TEXTAREA/SELECT/contenteditable)
+- `useHotkeys` opts: `enableOnFormTags: false`, `enableOnContentEditable: false`
+- Global keydown also bails when metaKey/ctrlKey/altKey are pressed (don't shadow browser combos)
+- cmd+K already owned by GodModeOverlay; we only document it
+- ⌘+Enter "Save" is documented; per-form handlers already exist (e.g. global-quick-capture submit)
+
+Typecheck:
+- `npx tsc --noEmit` clean on shortcuts-overlay.tsx and layout.tsx
+- Pre-existing errors elsewhere (sidebar.tsx `inboxCount` undefined) are out of scope
+
+Notes:
+- Stash/reset churn during the session blew away in-flight files twice; recovered each time.
+- `c` dispatches a CustomEvent so the existing GlobalQuickCapture (or future listener) can open without
+  bidirectional coupling from this component into capture's internal state.

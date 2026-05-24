@@ -1,0 +1,10 @@
+=== T4 BONUS QA: OPENLINEAR_TRUST_PROXY_AUTH=1 + NODE_ENV=production refuses to boot ===
+Date: 2026-04-30T21:39:04Z
+
+--- Booting QA server with both flags set (should exit 1 with FATAL log) ---
+{"level":60,"time":1777585144881,"pid":29986,"hostname":"Sris-MacBook-Air.local","msg":"[Auth] FATAL: OPENLINEAR_TRUST_PROXY_AUTH=1 is not allowed when NODE_ENV=production"}
+exit=1
+
+--- For comparison: same import without the prod flag should succeed ---
+IMPORT_OK_DEV
+exit=0

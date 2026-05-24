@@ -1,0 +1,40 @@
+T43 — App Router error boundaries
+Generated: 2026-05-05T23:43:33Z
+
+=== desktop-ui boundary files ===
+apps/desktop-ui/app/archived/error.tsx
+apps/desktop-ui/app/archived/loading.tsx
+apps/desktop-ui/app/archived/not-found.tsx
+apps/desktop-ui/app/error.tsx
+apps/desktop-ui/app/inbox/error.tsx
+apps/desktop-ui/app/inbox/loading.tsx
+apps/desktop-ui/app/inbox/not-found.tsx
+apps/desktop-ui/app/loading.tsx
+apps/desktop-ui/app/my-issues/error.tsx
+apps/desktop-ui/app/my-issues/loading.tsx
+apps/desktop-ui/app/my-issues/not-found.tsx
+apps/desktop-ui/app/not-found.tsx
+apps/desktop-ui/app/projects/error.tsx
+apps/desktop-ui/app/projects/loading.tsx
+apps/desktop-ui/app/projects/not-found.tsx
+apps/desktop-ui/app/settings/error.tsx
+apps/desktop-ui/app/settings/loading.tsx
+apps/desktop-ui/app/settings/not-found.tsx
+apps/desktop-ui/app/teams/error.tsx
+apps/desktop-ui/app/teams/loading.tsx
+apps/desktop-ui/app/teams/manage/error.tsx
+apps/desktop-ui/app/teams/manage/loading.tsx
+apps/desktop-ui/app/teams/manage/not-found.tsx
+apps/desktop-ui/app/teams/not-found.tsx
+apps/desktop-ui/app/usage/error.tsx
+apps/desktop-ui/app/usage/loading.tsx
+apps/desktop-ui/app/usage/not-found.tsx
+
+=== landing boundary files ===
+apps/landing/app/error.tsx
+apps/landing/app/loading.tsx
+apps/landing/app/not-found.tsx
+
+=== Typecheck note ===
+Pre-existing baseline @types/react resolution errors affect every file in apps/desktop-ui (env issue, not introduced by T43).
+Diff: 773 errors with T43 vs 774 without — zero net new errors from T43 files.

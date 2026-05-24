@@ -1,0 +1,21 @@
+T17 — TaskDetailView wrapped in Sheet primitive
+
+Status: ALREADY APPLIED in current HEAD (commits 307d68c + 95b706c)
+
+Verification:
+- Sheet/SheetContent/SheetTitle/SheetDescription imported (line 6)
+- Component root <Sheet open={open} onOpenChange=...> (line 165)
+- SheetContent side="right" with custom width override (line 167-172)
+- No custom Escape handler — Radix dialog handles it
+- project?: { id: string; name: string } | null prop (line 21)
+- Caller kanban-board.tsx passes project={selectedProject ? {...} : null} (line 367)
+- projectName = project?.name ?? 'No project' (line 162), rendered at line 498
+- titleSavedRef + descriptionSavedRef guard double-fire on blur+Enter (lines 82-83, 116-140)
+- ⌘+Enter / Ctrl+Enter saves description (lines 340-343)
+- Description click skips when target is <a> or inside <a> (lines 352-353)
+
+Typecheck: PASS
+  cmd: cd apps/desktop-ui && npx tsc --noEmit
+  result: clean (no output, exit 0)
+
+Diff vs HEAD: 0 lines (work committed in earlier history)

@@ -1,0 +1,30 @@
+=== T39 Landing Copy Purge - Evidence ===
+
+=== BEFORE: grep -rin 'zep|mem0|google drive|onedrive|notion' apps/landing/ ===
+apps/landing/components/performance-section.tsx:20:                {/* mem0 bar */}
+apps/landing/components/performance-section.tsx:24:                    <span className="text-xs text-white/70">mem0</span>
+apps/landing/components/performance-section.tsx:29:                {/* zep bar */}
+apps/landing/components/performance-section.tsx:33:                    <span className="text-xs text-white/70">zep</span>
+apps/landing/components/performance-section.tsx:55:                OpenLinear retrieves memories in milliseconds — up to 10× faster than Zep and 25× faster than Mem0.
+apps/landing/components/integrations-section.tsx:51:              OpenLinear connects to Google Drive, Notion, Onedrive and more and syncs user context.
+
+=== AFTER: grep -rin --include='*.tsx' --include='*.ts' --include='*.md' (source files) ===
+(no matches; exit code 1 = clean)
+
+=== TASK TARGETS - DISK STATE ===
+1. header.tsx:48     -> Github icon + "GitHub" label (no "X 1.2k"). Already at target via prior commit 5b6f39b (brand migration).
+2. perf-section.tsx  -> REWRITTEN by this task. Cards: "Parallel agent execution" / "Human-in-the-loop via PRs" / "Cost tracked per AgentRun". Headline: "Built for shipping, not just tracking."
+3. integrations.tsx  -> REWRITTEN by this task. Headline: "Connect your repo. Pick your model. Ship." Body: GitHub OAuth + OpenAI/Anthropic/local LLMs via OpenCode SDK. Orbit icons replaced (Drive/X/N -> GPT/C/OC).
+4. hero.tsx:35       -> "AI-powered project management that writes the code". Already at target via prior commit.
+5. docs/page.tsx:888 -> Tauri sidecar architecture (no Docker-in-prod claim). Container-per-User subsection (1117) also rewritten to Per-User Isolation (worktrees + ephemeral ports).
+6. docs/page.tsx:173 -> Prereqs updated to Node 22+ / pnpm 9+ / Docker for local Postgres only. URL kept as kaizen403/openlinear (current working repo; T41 brand commit handles long-term).
+7. grep verify       -> 0 matches across .tsx/.ts/.md.
+
+=== BUILD ===
+next build: "✓ Compiled successfully in 1520.9ms"
+(typescript validation skipped via next.config; pre-existing tsc react-types errors are environmental, not from this change)
+
+=== GIT DIFF STAT (this task's net contribution) ===
+ apps/landing/components/integrations-section.tsx | 12 +++++-----
+ apps/landing/components/performance-section.tsx  | 30 ++++++++++++------------
+ 2 files changed, 21 insertions(+), 21 deletions(-)

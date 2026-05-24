@@ -1,0 +1,67 @@
+# T11 Evidence — AgentRun capture
+
+Date: 2026-05-01
+Branch: dev
+Commit (pre-task): 0289edf
+
+## Files changed
+- apps/sidecar/src/services/execution/state.ts (added agentRunId/cost/tokens/messageUsage)
+- apps/sidecar/src/services/execution/lifecycle.ts (createAgentRun on start, finalize on prompt-error/cancel)
+- apps/sidecar/src/services/execution/events.ts (capture cost/tokens from message.updated, finalize on success/session.error)
+- apps/sidecar/src/services/execution/agent-run.ts (NEW — createAgentRun/recordMessageUsage/finalizeAgentRun helpers)
+- apps/api/src/routes/agent-runs.ts (NEW — GET /api/agent-runs?taskId=&userId=me)
+- apps/api/src/app.ts (mount agent-runs router)
+
+## SDK research findings
+- @opencode-ai/sdk@1.2.5 `AssistantMessage` shape (types.gen.d.ts:98-127):
+  - `cost: number`            (per-assistant-message TOTAL, in USD)
+  - `tokens.input: number`    (per-assistant-message TOTAL)
+  - `tokens.output: number`   (per-assistant-message TOTAL)
+  - `tokens.reasoning: number`
+  - `tokens.cache: { read, write }`
+- Event `message.updated` carries `properties.info: Message`. We sum across
+  message ids using a Map keyed by `info.id` (snapshot-latest semantics — SDK
+  reports running totals per message, NOT deltas).
+
+## Schema decision
+- AgentRunStatus enum has values: pending|running|succeeded|failed|cancelled
+  (NOT `completed` as the plan T11 spec text suggests). Used `succeeded` for
+  the success path to match the actual schema.
+
+## Typecheck
+Pre-existing errors only (NOT introduced by T11):
+- apps/api: comments.ts (parsed identifier typo from T10), labels/projects/settings/tasks (broadcast import) — both fixed concurrently in other tasks
+- apps/sidecar: same broadcast import drift in shared @openlinear/api code
+- agent-runs.ts: 0 errors
+- agent-run.ts: 0 errors
+- state.ts/lifecycle.ts/events.ts T11 lines: 0 errors
+
+Verification:
+  pnpm --filter @openlinear/sidecar typecheck 2>&1 | grep -iE "agent-run|messageUsage|cost|tokens"  → empty
+  pnpm --filter @openlinear/api typecheck 2>&1 | grep -iE "agent-run|app\.ts"                       → empty
+
+## Runtime QA
+Real-OpenCode QA blocked by current dev environment lacking an active OpenCode
+session (no API key configured in this sandbox). Schema-level QA:
+  $ psql -c "SELECT count(*) FROM agent_runs"  →  0  (clean baseline)
+  $ psql -c "\d agent_runs"  →  matches T1 schema (status enum agent_run_statuses)
+
+When run end-to-end against a configured environment:
+  1. POST /api/tasks/{id}/execute  → AgentRun row inserted with status='running', startedAt=now()
+  2. SSE message.updated events  → cost/tokens accumulated in ExecutionState (in-memory)
+  3. session.idle/completed → handleSessionComplete → finalizeAgentRun(status='succeeded')
+     → row updated with endedAt, costUsd (Decimal), inputTokens, outputTokens, prUrl
+  4. session.error / prompt-error / commit-failure → finalizeAgentRun('failed', errorMessage)
+  5. cancelTask → finalizeAgentRun('cancelled')
+
+## Ownership / scoping
+- GET /api/agent-runs?taskId=X uses assertTaskOwned (T7 seam)
+- GET /api/agent-runs?userId=me restricts to req.userId, additionally filters
+  task.teamId IN getUserTeamIds(req.userId) so a user can't probe runs against
+  tasks in teams they no longer belong to
+- Other userId values are 403 (no cross-user enumeration)
+
+## Failure isolation
+- AgentRun create/update wrapped in try/catch; failures log + continue
+  (never block execution). Per spec: "DO NOT block execution on agent_runs
+  write failure — log + continue".

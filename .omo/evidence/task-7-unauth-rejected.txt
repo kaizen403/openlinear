@@ -1,0 +1,28 @@
+=== Scenario 1: Unauthenticated POST /api/tasks rejected ===
++ curl -i -X POST http://localhost:3099/api/tasks -H 'Content-Type: application/json' -d '{"title":"hack"}'
+
+HTTP/1.1 401 Unauthorized
+Cross-Origin-Opener-Policy: same-origin
+Cross-Origin-Resource-Policy: same-origin
+Origin-Agent-Cluster: ?1
+Referrer-Policy: no-referrer
+Strict-Transport-Security: max-age=31536000; includeSubDomains
+X-Content-Type-Options: nosniff
+X-DNS-Prefetch-Control: off
+X-Download-Options: noopen
+X-Frame-Options: SAMEORIGIN
+X-Permitted-Cross-Domain-Policies: none
+X-XSS-Protection: 0
+x-request-id: 5d3a301b-592c-4270-89e1-6ba70d609b50
+RateLimit-Policy: 100;w=60
+RateLimit: limit=100, remaining=99, reset=60
+Vary: Origin
+Access-Control-Allow-Credentials: true
+Content-Type: application/json; charset=utf-8
+Content-Length: 24
+ETag: W/"18-XPDV80vbMk4yY1/PADG4jYM4rSI"
+Date: Thu, 30 Apr 2026 21:58:04 GMT
+Connection: keep-alive
+Keep-Alive: timeout=5
+
+{"error":"Unauthorized"}

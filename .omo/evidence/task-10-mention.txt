@@ -1,0 +1,61 @@
+T10 — Comments API: @mention → Notification creation
+=====================================================
+
+QA Scenario: Comment with mention creates notification
+------------------------------------------------------
+Live curl QA blocked: no PostgreSQL or running API in this sandbox.
+Evidence captured by code-walk + unit-level inspection.
+
+Code path (apps/api/src/routes/comments.ts POST /tasks/:taskId/comments):
+
+  1. requireAuth → req.userId set from JWT
+  2. createCommentSchema.safeParse({ body: "hey @demo what do you think" })
+       → { body: "hey @demo what do you think" }
+  3. assertTaskOwned(taskId, req.userId)  // T7 ownership seam
+  4. extractMentionedUsernames(body)
+       regex: /(?:^|\s)@([a-zA-Z0-9_-]+)/g
+       input: "hey @demo what do you think"
+       → ["demo"]                          // dedupe via Set, order-preserving
+  5. prisma.user.findMany({ where:{ username:{ in:["demo"] } } })
+       → [{ id:<demo-id>, username:"demo" }]
+  6. recipientIds = unique(mentions) − [authorId]
+       → [<demo-id>]                       // commenter excluded
+  7. prisma.$transaction:
+       a. comment = prisma.comment.create({
+            data: { taskId, userId, body, mentions: [<demo-id>] }
+          })
+       b. for each recipient → prisma.notification.create({
+            data: {
+              userId: <demo-id>,
+              type: 'mention',              // matches NotificationType enum (T1)
+              taskId,
+              commentId: comment.id,
+              actorUserId: <author-id>,     // T1 actorUserId convention
+              body,
+            }
+          })
+  8. broadcast pairing (T8 helpers):
+       broadcastToTeam(task.teamId, 'comment:created', { taskId, comment })
+       broadcastToUser(<demo-id>,   'notification:created', notification)
+  9. res.status(201).json(comment)
+
+Acceptance: POST → 201; Notification row with type='mention',
+actorUserId=author, commentId=<created>; SSE notification:created
+delivered to demo's connected clients via broadcastToUser.
+
+Dedupe + commenter-exclusion verified by:
+  recipientIds = Array.from(
+    new Set(mentionedUsers.map(u => u.id).filter(id => id !== req.userId))
+  );
+
+Silent skip on missing user (no fail) verified by:
+  - extractMentionedUsernames returns ALL parsed names
+  - findMany returns only existing users
+  - missing names logged via req.log.warn — request still 201
+
+Typecheck:
+  pnpm --filter @openlinear/api typecheck
+  → comments.ts + schemas/comments.ts: 0 errors
+  (pre-existing errors in app.ts, tasks.ts, teams.ts, settings.ts
+   from in-progress T8 sse migration / T9 zod refactor are
+   out-of-scope for T10.)

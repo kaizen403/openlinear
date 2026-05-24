@@ -1,0 +1,30 @@
+Task T42 — rename seed user kaz → demo
+
+Status: prior commits already migrated id "seed-user-kaz" → "seed-user-demo" and
+username "kaz" → "demo". This change finishes the rename:
+
+- packages/db/prisma/seed.ts:
+  - User.create now sets email: "demo@openlinear.tech"
+  - Comment "// 4. Link kaz to Default team" → "// 4. Link demo user to Default team"
+
+Schema notes:
+- prisma User model has no `name` field, so "Demo User" cannot be set; only
+  `email` is added per schema columns (id, githubId, username, email, avatarUrl,
+  accessToken, createdAt, updatedAt).
+
+Seed run: SKIPPED. Local Postgres not running.
+  $ pg_isready -h 127.0.0.1 -p 5432
+  127.0.0.1:5432 - no response
+  $ docker ps  → docker daemon not running
+Plan permits skipping when Postgres is unavailable ("if Postgres running").
+
+psql verify: SKIPPED for the same reason.
+
+Typecheck: pre-existing failures in packages/db/src/client.ts (missing
+@types/node for `process`), unrelated to seed.ts. seed.ts itself has no new
+type errors introduced by this change.
+
+Diff:
+  +      email: "demo@openlinear.tech",
+  -  // 4. Link kaz to Default team
+  +  // 4. Link demo user to Default team

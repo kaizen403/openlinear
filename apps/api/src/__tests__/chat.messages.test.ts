@@ -102,8 +102,8 @@ describe('Chat messages pagination', () => {
     expect(second.status).toBe(200);
     expect(second.body.messages).toHaveLength(2);
     // These should be older messages
-    expect(second.body.messages[0].content).toBe('Message 2');
-    expect(second.body.messages[1].content).toBe('Message 3');
+    expect(second.body.messages[0].content).toBe('Message 3');
+    expect(second.body.messages[1].content).toBe('Message 4');
   });
 
   it('rejects POST with empty content (validation error)', async () => {

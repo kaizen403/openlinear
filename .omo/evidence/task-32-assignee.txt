@@ -1,0 +1,24 @@
+# T32 Evidence — Assignee/creator picker + my-issues real filter
+
+## Backend changes
+
+- `apps/api/src/routes/tasks.ts`:
+  - Include `assignee` + `creator` (id/username/avatarUrl) in task SELECT
+  - GET /api/tasks supports `?assignee=me|<userId>` and `?creator=me|<userId>` query params (validated via T9 zod in apps/api/src/schemas/tasks.ts)
+  - Combined assignee+creator filter via OR clause for "all my tasks"
+  - PATCH /api/tasks/:id supports `assigneeId` field; validates target user is in task's team (else throws OwnershipError('user', ...))
+- `apps/api/src/services/ownership.ts`: extended `OwnershipResourceType` union with `'user'` (orchestrator fix)
+
+## Frontend changes
+
+- `apps/desktop-ui/components/task-detail-view.tsx`: assignee picker added
+- `apps/desktop-ui/lib/api/tasks.ts` + `lib/api/types.ts` + `types/task.ts`: assignee/creator fields wired through types
+
+## Verification
+
+- `pnpm --filter @openlinear/api typecheck` passes
+- `pnpm --filter @openlinear/desktop-ui typecheck` passes
+
+## Salvage note
+
+T32 subagent timed out after 30min inactivity. The backend filter logic + schema updates are complete. UI picker integration in task-detail-view is committed alongside. The only blocker was the missing `'user'` case in OwnershipResourceType which the orchestrator added.

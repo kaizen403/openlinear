@@ -1,0 +1,28 @@
+T22 — surface form errors via toast + inline (RETRY)
+
+Diff stat (only T22 files):
+ apps/desktop-ui/app/inbox/page.tsx                 | 27 ++++++++++++-
+ apps/desktop-ui/app/projects/page.tsx              | 18 +++++++--
+ apps/desktop-ui/app/teams/page.tsx                 |  8 +++-
+ apps/desktop-ui/components/global-quick-capture.tsx| 47 +++++++++++++++++++---
+ apps/desktop-ui/components/label-picker.tsx        | 28 +++++++++++--
+ apps/desktop-ui/components/task-form.tsx           | 31 ++++++++++++--
+ 6 files changed, 138 insertions(+), 21 deletions(-)
+
+Per-file summary (one sentence each):
+
+- apps/desktop-ui/app/projects/page.tsx — replaced 3 silent console.error swallows in pickLocalFolder/loadProjects/loadTeams with mapErrorToForm + toast.error using the existing local helper that already maps ApiError details (fieldErrors, OWNERSHIP_REQUIRED) to inline form state.
+- apps/desktop-ui/app/teams/page.tsx — replaced 2 silent console.error swallows in confirmDeleteTeam and handleEditTeam with describeApiError + toast.error; handleEditTeam now also writes to existing editError state for inline display.
+- apps/desktop-ui/components/task-form.tsx — switched from generic Error.message toast to ApiError-aware handler that calls form.setError per zod fieldError (title/description/status/projectId/dueDate) and surfaces ApiError.message inline via FormMessage + new root-level error banner; non-ApiError falls back to a network-error toast.
+- apps/desktop-ui/components/label-picker.tsx — replaced console.error + transient toast with persistent loadError state, ApiError-aware message, and a new "Retry" button rendered inside the popover so users can recover without remounting the form.
+- apps/desktop-ui/app/inbox/page.tsx — replaced silent console.error in loadData with loadError state + toast and a full-width retry CTA in the empty-state slot; handleRefreshPr now toasts ApiError.message instead of swallowing.
+- apps/desktop-ui/components/global-quick-capture.tsx — rewrote handleAddToProject to use Promise.allSettled, surface per-task failure toasts with the failing task title, and a summary toast ("Added X of Y tasks. Z failed"); successful all-clear path now shows a toast.success and only then closes the dialog.
+
+Verification:
+- `npx tsc --noEmit` from apps/desktop-ui: 0 errors (clean baseline).
+- All 6 plan files: zero remaining console.error in catch blocks (verified via grep).
+- Out-of-scope console.errors in global-quick-capture (questions generation L274/326, stream L364, fetchProjects.catch L435, transcription L905) intentionally untouched per plan scope.
+
+Notes:
+- Plan-listed line numbers were stale by the time I read the files (concurrent edits had shifted them); fixed by ripgrep + structural matching against the catch blocks rather than line ranges.
+- Repo working tree was modified externally during the edit pass (other agents) which silently reverted some edits between rounds; re-applied all edits after verifying via grep that the silent swallows had returned.

@@ -1,0 +1,8 @@
+=== T3 verification: localStorage.getItem('token') in components/ + app/ (must be 0) ===
+
+=== module-level URL captures (must be 0) ===
+
+=== module-level = getApiUrl() captures (must be 0) ===
+
+=== TS exit code ===
+tsc --noEmit: PASS (exit 0)

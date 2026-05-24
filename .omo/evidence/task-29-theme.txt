@@ -1,0 +1,30 @@
+T29 — Functional Theme Switcher (Dark + System; Light deferred)
+================================================================
+
+Changes:
+- apps/desktop-ui/package.json: + next-themes ^0.4.6
+- apps/desktop-ui/app/layout.tsx:
+  * Import ThemeProvider from next-themes
+  * Removed hardcoded `dark` className on <html>; ThemeProvider now manages it via attribute="class"
+  * Wrapped body content in <ThemeProvider attribute="class" defaultTheme="dark" enableSystem>
+  * Replaced <Toaster theme="dark" /> with <ThemedToaster /> (reactive to resolvedTheme)
+  * Mounted <ThemeMeta /> to update <meta name="theme-color"> reactively
+- apps/desktop-ui/components/themed-toaster.tsx (new):
+  * Client wrapper around sonner Toaster, theme bound to useTheme().resolvedTheme
+- apps/desktop-ui/components/theme-meta.tsx (new):
+  * Client component; effect updates meta[name=theme-color] content based on resolvedTheme
+    (#ffffff for light, #111111 otherwise)
+- apps/desktop-ui/app/settings/page.tsx:
+  * Replaced local useState theme with `const { theme, setTheme } = useTheme()` from next-themes
+  * Theme picker now functional; Light option disabled with "Coming soon" badge + tooltip
+  * Dark + System fully wired
+
+Out of scope (deferred per task):
+- Light theme tokens / globals.css edits — explicitly NOT touched
+- Light option is disabled with visual cue, ready to enable when design tokens land
+
+Verification:
+- pnpm exec tsc --noEmit on apps/desktop-ui: 0 new errors introduced by this task
+  (2 remaining errors are in untracked components/shortcuts-overlay.tsx from T28, unrelated)
+- next-themes installed and resolves correctly
+- ThemeProvider wraps all client tree; suppressHydrationWarning already on <html>

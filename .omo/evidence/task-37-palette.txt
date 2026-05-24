@@ -1,0 +1,103 @@
+T37 — Unified accent palette across desktop + landing
+=====================================================
+
+DECISION: `#1d4ed8` (Linear blue) is the canonical OpenLinear brand accent.
+          Runtime-themable in desktop-ui via the in-app accent picker.
+
+ACTIONS TAKEN
+-------------
+1. apps/landing/app/globals.css
+   - Replaced purple/indigo primary (`243 40% 46%`) with canonical blue
+     (`224 76% 48%` = `#1d4ed8`) in BOTH `:root` (light) and `.dark` blocks.
+   - Updated all CTA-adjacent tokens: --primary, --accent, --ring, --chart-1,
+     --sidebar-primary, --sidebar-ring.
+   - Demoted dark-mode warm cream (`49 35% 72%`) from primary/accent to
+     decorative-only via NEW landing-scoped tokens:
+       --landing-warm-cream: #ede8d0;
+       --landing-warm-cream-rgb: 237, 232, 208;
+   - Added canonical accent tokens (matching desktop-ui defaults):
+       --linear-accent: #1d4ed8;
+       --linear-accent-hover: #1e40af;
+
+2. apps/desktop-ui/app/globals.css — UNCHANGED (already correct):
+       --linear-accent: #1d4ed8;
+       --linear-accent-hover: #1e40af;
+   These are runtime-overridden by the accent picker.
+
+3. docs/brand.md — NEW. Documents:
+   - Canonical accent hex values + when each token applies
+   - Runtime themability mechanism (desktop-ui only)
+   - Landing-only warm-cream decoration scope (forbidden for CTAs)
+   - Per-app surface palette
+   - Audit checklist for new UI work
+
+HEX VALUE TABLE (post-T37)
+--------------------------
+| Token                   | Desktop-UI         | Landing            | Role                          |
+|-------------------------|--------------------|--------------------|-------------------------------|
+| --linear-accent         | #1d4ed8            | #1d4ed8            | CTA fill, focus ring (canon)  |
+| --linear-accent-hover   | #1e40af            | #1e40af            | CTA hover                     |
+| --primary (HSL)         | 217 91% 60% (#3b82f6) | 224 76% 48% (#1d4ed8) | shadcn primary             |
+| --accent (HSL)          | 217 91% 60%        | 224 76% 48%        | shadcn accent                 |
+| --ring (HSL)            | 217 91% 60%        | 224 76% 48%        | shadcn focus ring             |
+| --landing-warm-cream    | (not present)      | #ede8d0            | landing decoration ONLY       |
+
+Note: desktop-ui --primary stays at `217 91% 60%` (a brighter `#3b82f6`)
+because desktop CTAs/focus-rings read `var(--linear-accent)` directly.
+Landing has no runtime accent picker, so its --primary is bound to the
+canonical hex via HSL.
+
+CSS DIFF (landing/app/globals.css — applied in commit 117d517)
+--------------------------------------------------------------
+@@ :root {
+-    --primary: 243 40% 46%;
++    /* Canonical OpenLinear blue accent — synced with desktop-ui (#1d4ed8) */
++    --primary: 224 76% 48%;
+-    --accent: 243 40% 46%;
++    --accent: 224 76% 48%;
+-    --ring: 243 40% 46%;
+-    --chart-1: 243 40% 46%;
++    --ring: 224 76% 48%;
++    --chart-1: 224 76% 48%;
+-    --sidebar-primary: 243 40% 46%;
++    --sidebar-primary: 224 76% 48%;
+-    --sidebar-ring: 243 40% 46%;
++    --sidebar-ring: 224 76% 48%;
++
++    /* Canonical brand accent (hex) — must match desktop-ui. */
++    --linear-accent: #1d4ed8;
++    --linear-accent-hover: #1e40af;
++
++    /* Landing-only secondary decoration (warm cream/gold). */
++    --landing-warm-cream: #ede8d0;
++    --landing-warm-cream-rgb: 237, 232, 208;
+
+@@ .dark {
+-    --primary: 49 35% 72%;
+-    --primary-foreground: 228 18% 11%;
++    --primary: 224 76% 48%;
++    --primary-foreground: 0 0% 100%;
+-    --accent: 49 35% 72%;
+-    --accent-foreground: 228 18% 11%;
++    --accent: 224 76% 48%;
++    --accent-foreground: 0 0% 100%;
+-    --ring: 49 35% 72%;
+-    --chart-1: 49 43% 87%;
++    --ring: 224 76% 48%;
++    --chart-1: 224 76% 48%;
+-    --sidebar-primary: 49 35% 72%;
+-    --sidebar-primary-foreground: 228 18% 11%;
++    --sidebar-primary: 224 76% 48%;
++    --sidebar-primary-foreground: 0 0% 100%;
+-    --sidebar-ring: 49 35% 72%;
++    --sidebar-ring: 224 76% 48%;
+
+VERIFICATION
+------------
+- grep "1d4ed8" both globals.css → match in both apps
+- grep "243 40% 46%" landing → 0 matches (purple retired)
+- grep "49 35% 72%" landing → 0 matches (warm-cream removed from interactive tokens)
+- desktop-ui globals.css: untouched
+- No JS files modified by this task
+
+JS REGRESSIONS: none (CSS-only change + new markdown doc)

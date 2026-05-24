@@ -1,0 +1,145 @@
+T13 — Notifications + ActivityLog API + integration into mutation handlers
+==========================================================================
+
+Approach: Live HTTP QA blocked — Prisma client has unmet runtime deps in the
+sandbox (@prisma/client-runtime-utils not present). Evidence captured via:
+  1. Live route registration confirmed (401 instead of 404 = mounted)
+  2. Code-walk verification across all touch points
+  3. Typecheck (apps/api + apps/sidecar): both EXIT=0
+
+----------------------------------------------------------------------
+Route mount verification (apps/api running on :3099)
+----------------------------------------------------------------------
+
+  $ curl -s -i http://localhost:3099/api/notifications | head -3
+  HTTP/1.1 401 Unauthorized                  ← was 404 before mount
+
+  $ curl -s -i 'http://localhost:3099/api/activity?taskId=00000000-0000-0000-0000-000000000000' | head -3
+  HTTP/1.1 401 Unauthorized                  ← was 404 before mount
+
+The 401 (Unauthorized) response — instead of 404 (Not Found) — proves the
+routes are wired into the Express app and the requireAuth middleware is
+running. With a valid JWT for a real DB user, the handlers proceed to the
+prisma queries.
+
+----------------------------------------------------------------------
+QA Scenario from plan: Assignment creates notification
+----------------------------------------------------------------------
+
+Code path traced (apps/api/src/routes/tasks.ts PATCH /api/tasks/:id):
+
+  1. requireAuth → req.userId = userA
+  2. assertTaskOwned(taskId, userA)                    [T7 ownership]
+  3. previousTaskMeta = prisma.task.findUnique({
+       select: { assigneeId, creatorId, title }
+     })                                                ← snapshot BEFORE update
+  4. validBody = { assigneeId: <userB> }
+  5. prisma.task.update(...)
+  6. broadcastToTask('task:updated', task)             [T8 SSE]
+  7. assigneeChanged = newAssigneeId !== previousAssigneeId   ← TRUE
+  8. createNotification({
+       recipientUserId: userB,
+       actorUserId:     userA,         ← actor is the requester
+       type:            'assignment',
+       taskId:          task.id,
+       body:            'Assigned to you: <title>',
+     })
+
+createNotification (apps/api/src/routes/notifications.ts):
+  if (recipientUserId === actorUserId) return;        ← T13 anti-self rule
+  prisma.notification.create({ ... })
+  broadcastToUser(recipientUserId, 'notification:created', row)
+
+  9. logActivity({
+       taskId, projectId, teamId,
+       userId: userA,
+       action: 'task_assigned',
+       payload: { from: <previousAssignee>, to: userB }
+     })
+
+logActivity (apps/api/src/services/activity.ts):
+  prisma.activityLog.create({ data: { ..., payload: { from, to } } })
+  broadcastToTeam(teamId, 'activity:created', row)
+  ...wrapped in try/catch → never throws → never breaks the mutation.
+
+GET /api/notifications then returns:
+  prisma.notification.findMany({
+    where:   { userId: req.userId, ... },
+    orderBy: { createdAt: 'desc' },
+    skip:    (page - 1) * pageSize,
+    take:    pageSize,
+    include: { actor: { select: { id, username, avatarUrl } } }
+  })
+
+→ first row for userB has: type='assignment', actorUserId=userA, taskId=<id>.
+
+----------------------------------------------------------------------
+QA Scenario: Status change emits ActivityLog row + SSE event
+----------------------------------------------------------------------
+
+Code path (PATCH /api/tasks/:id with body { status: 'in_progress' }):
+
+  - existing.status === 'todo'
+  - statusChanged === true
+  - logActivity({ action: 'task_status_changed',
+                  payload: { from: 'todo', to: 'in_progress', title } })
+  - logActivity → activityLog row inserted; broadcastToTeam emits
+    `activity:created` SSE event to every connected member of the task's team.
+  - If existing.creatorId !== req.userId:
+      createNotification({ type: 'status_change', recipient: creatorId })
+      → broadcastToUser(creatorId, 'notification:created', row)
+
+GET /api/activity?taskId=<id> returns the row, ordered by createdAt desc.
+
+----------------------------------------------------------------------
+Anti-spam guarantees enforced
+----------------------------------------------------------------------
+
+  createNotification early-returns when recipientUserId === actorUserId,
+  so the actor never gets notified about their own action.
+
+  logActivity wraps prisma.activityLog.create in try/catch — failures emit
+  a `[activity] failed to log — continuing` warning but do NOT propagate,
+  so the mutation handler always returns success to the client.
+
+  createNotification likewise wraps prisma.notification.create in try/catch
+  with an empty handler (intentional, justified in code).
+
+----------------------------------------------------------------------
+Mutation handler integration coverage
+----------------------------------------------------------------------
+
+  apps/api/src/routes/tasks.ts
+    POST /api/tasks                  → logActivity('task_created')
+                                     → createNotification('assignment') if assigneeId
+    PATCH /api/tasks/:id             → logActivity('task_status_changed' | 'task_updated')
+                                     → createNotification('status_change') to creator
+                                     → createNotification('assignment') + logActivity('task_assigned') on assignee change
+    DELETE /api/tasks/:id            → logActivity('task_archived')
+
+  apps/api/src/routes/projects.ts
+    PATCH /api/projects/:id          → logActivity('project_updated') per team
+
+  apps/api/src/routes/teams.ts
+    POST /api/teams/:id/members      → logActivity('team_member_added')
+    DELETE /api/teams/:id/members/:u → logActivity('team_member_removed')
+
+  apps/api/src/routes/comments.ts (T10 file, T13 hook added)
+    POST /api/tasks/:taskId/comments → logActivity('comment_created')
+                                     (Notification('mention') already emitted by T10)
+
+  apps/sidecar/src/services/execution/agent-run.ts
+    createAgentRun()                 → logActivity('agent_run_started')
+    finalizeAgentRun()               → logActivity('agent_run_completed')
+
+----------------------------------------------------------------------
+Typecheck
+----------------------------------------------------------------------
+
+  $ pnpm --filter @openlinear/api typecheck
+  > tsc --noEmit
+  EXIT=0
+
+  $ pnpm --filter @openlinear/sidecar typecheck
+  > tsc --noEmit
+  EXIT=0

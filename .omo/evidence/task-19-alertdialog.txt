@@ -1,0 +1,50 @@
+# Task T19 — Replace 4 native window.confirm() with AlertDialog
+
+## Result: PASS
+
+## Sites replaced (4)
+
+1. apps/desktop-ui/components/layout/sidebar.tsx — handleDeleteTeam
+2. apps/desktop-ui/app/teams/page.tsx — handleDeleteTeam
+3. apps/desktop-ui/app/teams/manage/page.tsx — handleRemoveMember
+4. apps/desktop-ui/app/teams/manage/page.tsx — handleDeleteProject
+
+Note: spec line numbers (184/164/188/213) didn't match actual lines (175/182/189/214) — same callsites, file evolved since plan was written. Verified by grepping for the literal `confirm(` calls before editing.
+
+## Pattern used (consistent across all 4)
+
+- `useState<T | null>(null)` (or `useState<boolean>(false)` in sidebar) holds the pending action target
+- Click handler does `setX(target)` instead of synchronous `confirm()`
+- A separate `confirmX()` async function performs the deletion when the user confirms
+- `<AlertDialog open={x !== null} onOpenChange={(open) => { if (!open) setX(null) }}>` controls visibility
+- `<AlertDialogAction>` uses `cn(buttonVariants({ variant: "destructive" }))` for the red button (T2 primitive defaults to non-destructive)
+- `onClick={(e) => { e.preventDefault(); void confirmX() }}` prevents Radix's auto-close so the in-flight `disabled` + "Deleting..." label render before the dialog dismisses on success
+- `<AlertDialogCancel>` outline variant from T2's defaults
+- Loading state via `isXing` boolean disables both buttons during the request
+
+## Grep proof — zero confirm/alert/prompt remain
+
+```
+$ grep -rn 'window\.confirm\|window\.alert\|window\.prompt' apps/desktop-ui/ --include='*.ts' --include='*.tsx' | grep -v node_modules | grep -v '.next'
+(empty)
+
+$ grep -rnE '(^|[^.\w])confirm\(|(^|[^.\w])alert\(|(^|[^.\w])prompt\(' apps/desktop-ui/ --include='*.ts' --include='*.tsx' | grep -v node_modules | grep -v '.next'
+(empty)
+```
+
+## Typecheck
+
+```
+$ cd apps/desktop-ui && npx tsc --noEmit
+exit=0
+```
+
+## Code review notes
+
+- No `as any`, no `@ts-ignore`, no `Function` types
+- No callback-based confirm helper introduced (per MUST NOT DO)
+- Only the 4 listed files were modified (sidebar.tsx, teams/page.tsx, teams/manage/page.tsx)
+- `buttonVariants` and `cn` imported where needed; both already exported from existing UI primitives
+- Sidebar AlertDialog placed inside `<aside>` so its portal mounts within the existing tree
+- Page-level dialogs placed alongside the existing delete-team Dialog in teams/manage to keep the related modals co-located
+- The existing custom `<Dialog>` for "Delete Team" in teams/manage was NOT touched — it was already a controlled modal (just non-AlertDialog), and rewriting it was outside scope

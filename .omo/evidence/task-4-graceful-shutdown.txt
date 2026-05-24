@@ -1,0 +1,19 @@
+=== T4 QA: Graceful shutdown (SIGTERM) ===
+Date: 2026-04-30T21:38:37Z
+
+--- Pre-shutdown: process alive on :3099 ---
+PID: 29075
+{"status":"ok","timestamp":"2026-04-30T21:38:37.889Z","clients":0}
+
+--- Sending SIGTERM ---
+Process exited after 0.213s
+
+--- Shutdown log lines ---
+{"level":30,"time":1777585116101,"pid":29075,"hostname":"Sris-MacBook-Air.local","port":3099,"msg":"[API:QA] listening"}
+{"level":30,"time":1777585117917,"pid":29075,"hostname":"Sris-MacBook-Air.local","signal":"SIGTERM","msg":"[API:QA] SIGTERM received, draining..."}
+{"level":30,"time":1777585117919,"pid":29075,"hostname":"Sris-MacBook-Air.local","msg":"[API:QA] prisma disconnected"}
+
+PASS CRITERIA:
+  - Log shows 'SIGTERM received, draining...'
+  - Log shows 'prisma disconnected'
+  - Process exits well within 10s force-exit window

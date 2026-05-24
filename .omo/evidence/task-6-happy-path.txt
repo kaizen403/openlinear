@@ -1,0 +1,17 @@
+=== .git/config ===
+[core]
+	repositoryformatversion = 0
+	filemode = true
+	bare = false
+	logallrefupdates = true
+	ignorecase = true
+	precomposeunicode = true
+[remote "origin"]
+	url = /tmp/openlinear-t6-src.git
+	fetch = +refs/heads/main:refs/remotes/origin/main
+[branch "main"]
+	remote = origin
+	merge = refs/heads/main
+
+PASS: no oauth2: token in .git/config
+PASS: push --force-with-lease succeeded against bare upstream

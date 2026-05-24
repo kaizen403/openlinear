@@ -1,0 +1,72 @@
+=== T4 QA: Rate limit on /api/auth/* (5/min) ===
+Date: 2026-04-30T21:36:55Z
+
+Request 1 -> HTTP 404  body=<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Error</title>
+</head>
+<body>
+<pre>Cannot GET /api/auth/github/start</pre>
+</body>
+</html>
+Request 2 -> HTTP 404  body=<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Error</title>
+</head>
+<body>
+<pre>Cannot GET /api/auth/github/start</pre>
+</body>
+</html>
+Request 3 -> HTTP 404  body=<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Error</title>
+</head>
+<body>
+<pre>Cannot GET /api/auth/github/start</pre>
+</body>
+</html>
+Request 4 -> HTTP 404  body=<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Error</title>
+</head>
+<body>
+<pre>Cannot GET /api/auth/github/start</pre>
+</body>
+</html>
+Request 5 -> HTTP 404  body=<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Error</title>
+</head>
+<body>
+<pre>Cannot GET /api/auth/github/start</pre>
+</body>
+</html>
+Request 6 -> HTTP 429  body={"error":"rate_limited","scope":"auth","retryAfterSeconds":60}
+Request 7 -> HTTP 429  body={"error":"rate_limited","scope":"auth","retryAfterSeconds":60}
+
+EXPECT: First 5 -> 200/302/404, requests 6 and 7 -> 429
+
+=== T4 BONUS QA: SSE not rate-limited ===
+Connecting to SSE 12 times rapidly (would 429 if not skipped)...
+SSE conn 1 -> TIMEOUT(SSE-OPEN-OK)
+SSE conn 2 -> TIMEOUT(SSE-OPEN-OK)
+SSE conn 3 -> TIMEOUT(SSE-OPEN-OK)
+SSE conn 4 -> TIMEOUT(SSE-OPEN-OK)
+SSE conn 5 -> TIMEOUT(SSE-OPEN-OK)
+SSE conn 6 -> TIMEOUT(SSE-OPEN-OK)
+SSE conn 7 -> TIMEOUT(SSE-OPEN-OK)
+SSE conn 8 -> TIMEOUT(SSE-OPEN-OK)
+SSE conn 9 -> TIMEOUT(SSE-OPEN-OK)
+SSE conn 10 -> TIMEOUT(SSE-OPEN-OK)
+SSE conn 11 -> TIMEOUT(SSE-OPEN-OK)
+SSE conn 12 -> TIMEOUT(SSE-OPEN-OK)

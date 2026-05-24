@@ -1,0 +1,220 @@
+=== T9 QA Evidence: validation pass ===
+Date: Fri May  1 04:04:29 IST 2026
+API: http://localhost:3091 (NODE_ENV=development OPENLINEAR_TRUST_PROXY_AUTH=1)
+
+=== Scenario 1: POST /api/tasks with empty body → 400 VALIDATION_ERROR with details ===
+HTTP/1.1 400 Bad Request
+Cross-Origin-Opener-Policy: same-origin
+Cross-Origin-Resource-Policy: same-origin
+Origin-Agent-Cluster: ?1
+Referrer-Policy: no-referrer
+Strict-Transport-Security: max-age=31536000; includeSubDomains
+X-Content-Type-Options: nosniff
+X-DNS-Prefetch-Control: off
+X-Download-Options: noopen
+X-Frame-Options: SAMEORIGIN
+X-Permitted-Cross-Domain-Policies: none
+X-XSS-Protection: 0
+x-request-id: d0340368-7ba5-4d8d-b195-ae0614a7c4c0
+RateLimit-Policy: 100;w=60
+RateLimit: limit=100, remaining=98, reset=31
+Vary: Origin
+Access-Control-Allow-Credentials: true
+Content-Type: application/json; charset=utf-8
+Content-Length: 170
+ETag: W/"aa-jq0BVoCCeH+tTIhCxcGXRzjb2WY"
+Date: Thu, 30 Apr 2026 22:34:29 GMT
+Connection: keep-alive
+Keep-Alive: timeout=5
+
+{"error":"validation_error","code":"VALIDATION_ERROR","details":{"formErrors":[],"fieldErrors":{"title":["Required"]}},"requestId":"d0340368-7ba5-4d8d-b195-ae0614a7c4c0"}
+
+=== Scenario 2: POST /api/teams with empty body → 400 VALIDATION_ERROR ===
+HTTP/1.1 400 Bad Request
+Cross-Origin-Opener-Policy: same-origin
+Cross-Origin-Resource-Policy: same-origin
+Origin-Agent-Cluster: ?1
+Referrer-Policy: no-referrer
+Strict-Transport-Security: max-age=31536000; includeSubDomains
+X-Content-Type-Options: nosniff
+X-DNS-Prefetch-Control: off
+X-Download-Options: noopen
+X-Frame-Options: SAMEORIGIN
+X-Permitted-Cross-Domain-Policies: none
+X-XSS-Protection: 0
+x-request-id: 5d5cc8e9-b0c7-497e-af34-cb8eb8b15ae9
+RateLimit-Policy: 100;w=60
+RateLimit: limit=100, remaining=97, reset=31
+Vary: Origin
+Access-Control-Allow-Credentials: true
+Content-Type: application/json; charset=utf-8
+Content-Length: 188
+ETag: W/"bc-y40zxfSwi0bcWH+Mayh2pz41MNs"
+Date: Thu, 30 Apr 2026 22:34:29 GMT
+Connection: keep-alive
+Keep-Alive: timeout=5
+
+{"error":"validation_error","code":"VALIDATION_ERROR","details":{"formErrors":[],"fieldErrors":{"name":["Required"],"key":["Required"]}},"requestId":"5d5cc8e9-b0c7-497e-af34-cb8eb8b15ae9"}
+
+=== Scenario 3: POST /api/labels with empty body → 400 VALIDATION_ERROR ===
+HTTP/1.1 400 Bad Request
+Cross-Origin-Opener-Policy: same-origin
+Cross-Origin-Resource-Policy: same-origin
+Origin-Agent-Cluster: ?1
+Referrer-Policy: no-referrer
+Strict-Transport-Security: max-age=31536000; includeSubDomains
+X-Content-Type-Options: nosniff
+X-DNS-Prefetch-Control: off
+X-Download-Options: noopen
+X-Frame-Options: SAMEORIGIN
+X-Permitted-Cross-Domain-Policies: none
+X-XSS-Protection: 0
+x-request-id: 578d1c97-9eb8-4bf6-83d4-a6a3747208e7
+RateLimit-Policy: 100;w=60
+RateLimit: limit=100, remaining=96, reset=31
+Vary: Origin
+Access-Control-Allow-Credentials: true
+Content-Type: application/json; charset=utf-8
+Content-Length: 190
+ETag: W/"be-NBSlYYuFsBricj7CTXQiw2EXXso"
+Date: Thu, 30 Apr 2026 22:34:29 GMT
+Connection: keep-alive
+Keep-Alive: timeout=5
+
+{"error":"validation_error","code":"VALIDATION_ERROR","details":{"formErrors":[],"fieldErrors":{"name":["Required"],"color":["Required"]}},"requestId":"578d1c97-9eb8-4bf6-83d4-a6a3747208e7"}
+
+=== Scenario 4: POST /api/projects with bad teamIds (not uuid) → 400 VALIDATION_ERROR ===
+HTTP/1.1 400 Bad Request
+Cross-Origin-Opener-Policy: same-origin
+Cross-Origin-Resource-Policy: same-origin
+Origin-Agent-Cluster: ?1
+Referrer-Policy: no-referrer
+Strict-Transport-Security: max-age=31536000; includeSubDomains
+X-Content-Type-Options: nosniff
+X-DNS-Prefetch-Control: off
+X-Download-Options: noopen
+X-Frame-Options: SAMEORIGIN
+X-Permitted-Cross-Domain-Policies: none
+X-XSS-Protection: 0
+x-request-id: cae4517a-659b-47b6-8272-b759105a9c13
+RateLimit-Policy: 100;w=60
+RateLimit: limit=100, remaining=95, reset=31
+Vary: Origin
+Access-Control-Allow-Credentials: true
+Content-Type: application/json; charset=utf-8
+Content-Length: 176
+ETag: W/"b0-4fqyaM/bvQc6DXU+d3EjMuRrb2M"
+Date: Thu, 30 Apr 2026 22:34:29 GMT
+Connection: keep-alive
+Keep-Alive: timeout=5
+
+{"error":"validation_error","code":"VALIDATION_ERROR","details":{"formErrors":[],"fieldErrors":{"teamIds":["Invalid uuid"]}},"requestId":"cae4517a-659b-47b6-8272-b759105a9c13"}
+
+=== Scenario 5: PATCH /api/settings with empty body → 400 VALIDATION_ERROR ===
+HTTP/1.1 400 Bad Request
+Cross-Origin-Opener-Policy: same-origin
+Cross-Origin-Resource-Policy: same-origin
+Origin-Agent-Cluster: ?1
+Referrer-Policy: no-referrer
+Strict-Transport-Security: max-age=31536000; includeSubDomains
+X-Content-Type-Options: nosniff
+X-DNS-Prefetch-Control: off
+X-Download-Options: noopen
+X-Frame-Options: SAMEORIGIN
+X-Permitted-Cross-Domain-Policies: none
+X-XSS-Protection: 0
+x-request-id: c14d3781-aa7d-40ea-9af4-b2ad75442601
+RateLimit-Policy: 100;w=60
+RateLimit: limit=100, remaining=94, reset=31
+Vary: Origin
+Access-Control-Allow-Credentials: true
+Content-Type: application/json; charset=utf-8
+Content-Length: 179
+ETag: W/"b3-kIvHqaaozNZPk/on2XJqOmrqN8A"
+Date: Thu, 30 Apr 2026 22:34:29 GMT
+Connection: keep-alive
+Keep-Alive: timeout=5
+
+{"error":"validation_error","code":"VALIDATION_ERROR","details":{"formErrors":["At least one field required"],"fieldErrors":{}},"requestId":"c14d3781-aa7d-40ea-9af4-b2ad75442601"}
+
+=== Scenario 6: POST /api/repos/url with empty body → 400 VALIDATION_ERROR ===
+HTTP/1.1 400 Bad Request
+Cross-Origin-Opener-Policy: same-origin
+Cross-Origin-Resource-Policy: same-origin
+Origin-Agent-Cluster: ?1
+Referrer-Policy: no-referrer
+Strict-Transport-Security: max-age=31536000; includeSubDomains
+X-Content-Type-Options: nosniff
+X-DNS-Prefetch-Control: off
+X-Download-Options: noopen
+X-Frame-Options: SAMEORIGIN
+X-Permitted-Cross-Domain-Policies: none
+X-XSS-Protection: 0
+x-request-id: f3282e49-1913-476a-940f-77354bd42e3e
+RateLimit-Policy: 10;w=60
+RateLimit: limit=10, remaining=9, reset=60
+Vary: Origin
+Access-Control-Allow-Credentials: true
+Content-Type: application/json; charset=utf-8
+Content-Length: 168
+ETag: W/"a8-/Gaphi41H4yV9EBnsoBPasqbWuM"
+Date: Thu, 30 Apr 2026 22:34:29 GMT
+Connection: keep-alive
+Keep-Alive: timeout=5
+
+{"error":"validation_error","code":"VALIDATION_ERROR","details":{"formErrors":[],"fieldErrors":{"url":["Required"]}},"requestId":"f3282e49-1913-476a-940f-77354bd42e3e"}
+
+=== Scenario 7: POST /api/tasks orphan (no team, no project) → 400 VALIDATION_ERROR ===
+HTTP/1.1 400 Bad Request
+Cross-Origin-Opener-Policy: same-origin
+Cross-Origin-Resource-Policy: same-origin
+Origin-Agent-Cluster: ?1
+Referrer-Policy: no-referrer
+Strict-Transport-Security: max-age=31536000; includeSubDomains
+X-Content-Type-Options: nosniff
+X-DNS-Prefetch-Control: off
+X-Download-Options: noopen
+X-Frame-Options: SAMEORIGIN
+X-Permitted-Cross-Domain-Policies: none
+X-XSS-Protection: 0
+x-request-id: 37f89771-83bb-4cae-b86e-c881ddfe2e30
+RateLimit-Policy: 100;w=60
+RateLimit: limit=100, remaining=92, reset=31
+Vary: Origin
+Access-Control-Allow-Credentials: true
+Content-Type: application/json; charset=utf-8
+Content-Length: 202
+ETag: W/"ca-QPnas1p98urtFBszRJmloXJSaFA"
+Date: Thu, 30 Apr 2026 22:34:29 GMT
+Connection: keep-alive
+Keep-Alive: timeout=5
+
+{"error":"validation_error","code":"VALIDATION_ERROR","details":{"formErrors":[],"fieldErrors":{"teamId":["Task must belong to a team or a project"]}},"requestId":"37f89771-83bb-4cae-b86e-c881ddfe2e30"}
+
+=== Scenario 8: POST /api/repos/url with bad URL → 400 VALIDATION_ERROR (zod url() check) ===
+HTTP/1.1 400 Bad Request
+Cross-Origin-Opener-Policy: same-origin
+Cross-Origin-Resource-Policy: same-origin
+Origin-Agent-Cluster: ?1
+Referrer-Policy: no-referrer
+Strict-Transport-Security: max-age=31536000; includeSubDomains
+X-Content-Type-Options: nosniff
+X-DNS-Prefetch-Control: off
+X-Download-Options: noopen
+X-Frame-Options: SAMEORIGIN
+X-Permitted-Cross-Domain-Policies: none
+X-XSS-Protection: 0
+x-request-id: 1c7c0d74-47c4-4cb7-af96-9b8ae5593db1
+RateLimit-Policy: 10;w=60
+RateLimit: limit=10, remaining=8, reset=60
+Vary: Origin
+Access-Control-Allow-Credentials: true
+Content-Type: application/json; charset=utf-8
+Content-Length: 179
+ETag: W/"b3-F/qOgM4uYp1BPcg93ZGkl1OuReo"
+Date: Thu, 30 Apr 2026 22:34:29 GMT
+Connection: keep-alive
+Keep-Alive: timeout=5
+
+{"error":"validation_error","code":"VALIDATION_ERROR","details":{"formErrors":[],"fieldErrors":{"url":["Must be a valid URL"]}},"requestId":"1c7c0d74-47c4-4cb7-af96-9b8ae5593db1"}
+

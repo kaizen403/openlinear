@@ -1,0 +1,17 @@
+=== Scenario 3: Archived delete scoped, NOT system-wide ===
+Created B's task id: 5aa59488-0c06-4a4e-b4b0-ffe8087aea3e
+soft-delete (archive) status: 204
+
+Step 1: B's archived count BEFORE A's purge:
+  1
+
+Step 2: A purges their archived (DELETE /api/tasks/archived):
+HTTP/1.1 204 No Content
+
+Step 3: B's archived count AFTER A's purge (must be unchanged):
+  1
+
+PASS: B's archived count unchanged (1 → 1)
+
+Step 4: Unauth purge attempt (must return 401):
+HTTP/1.1 401 Unauthorized

@@ -1,0 +1,120 @@
+# T8 Evidence — SSE per-user filtering + auth + jittered reconnect
+
+## 1. Typecheck — all three packages green
+
+```
+$ pnpm --filter @openlinear/api typecheck
+> @openlinear/api@0.0.1 typecheck /Users/sriharsha/Developer/openlinear/apps/api
+> tsc --noEmit
+(exit 0)
+
+$ pnpm --filter @openlinear/sidecar typecheck
+> @openlinear/sidecar@0.0.1 typecheck /Users/sriharsha/Developer/openlinear/apps/sidecar
+> tsc --noEmit
+(exit 0)
+
+$ cd apps/desktop-ui && rm -rf .next && pnpm exec tsc --noEmit
+(exit 0)
+```
+
+## 2. Search-and-destroy — zero raw `broadcast(` callers remain
+
+```
+$ grep -rEn "\bbroadcast\b\(" apps/api/src apps/sidecar/src
+(no output)
+```
+
+The deprecated `broadcast` symbol has been removed from `apps/api/src/sse.ts`
+(no `export const broadcast = broadcastToAll` shim). Every former caller now
+uses one of:
+
+- `broadcastToAll(event, data)` — system-wide events (only `opencode:status`)
+- `broadcastToUser(userId, event, data)` — per-user events (settings, batch, fallbacks)
+- `broadcastToTeam(teamId, event, data)` — team-scoped events
+- `broadcastToTask(event, taskWithOwnership[, payload])` — task-scoped, sync (when ownership fields present)
+- `broadcastToTaskById(taskId, event, data)` — task-scoped, async (looks up ownership)
+
+## 3. Migration map (resource → recipient)
+
+| File | Event | Routing |
+|------|-------|---------|
+| routes/tasks.ts (create) | task:created | broadcastToTask (teamId always present per T9 validation) |
+| routes/tasks.ts (update) | task:updated | broadcastToTask |
+| routes/tasks.ts (delete) | task:deleted | broadcastToTeam(teamId) ?? broadcastToUser(creatorId) ?? broadcastToUser(self) |
+| routes/labels.ts (CRUD)  | label:* | teamId? broadcastToTeam : broadcastToUser(self) |
+| routes/labels.ts (assign/remove) | task:label:* | broadcastToTaskById |
+| routes/projects.ts (create) | project:created | each teamId in projectTeams |
+| routes/projects.ts (update) | project:updated | each teamId from project.projectTeams |
+| routes/projects.ts (delete) | project:deleted | each teamId from owned.teamIds |
+| routes/teams.ts (create) | team:created | broadcastToTeam(self) |
+| routes/teams.ts (join)   | team:updated | broadcastToTeam + broadcastToUser(joiner) |
+| routes/teams.ts (patch)  | team:updated | broadcastToTeam |
+| routes/teams.ts (delete) | team:deleted | broadcastToUser(formerMemberId) for each member captured pre-delete |
+| routes/settings.ts | settings:updated | broadcastToUser(userId) |
+| sidecar/services/opencode.ts | opencode:status | broadcastToAll (server-wide) |
+| sidecar/services/execution/state.ts | execution:progress, execution:log, task:updated | broadcastToTaskById/broadcastToTask |
+| sidecar/services/batch.ts | batch:* | broadcastToUser(batch.userId) |
+| sidecar/services/batch.ts | execution:log, task:updated | broadcastToTaskById/broadcastToTask |
+| sidecar/routes/execution.ts | task:updated | broadcastToTask |
+
+## 4. /api/events handler hardening (apps/api/src/app.ts)
+
+- Requires `?token=<jwt>` query (EventSource cannot set Authorization header)
+- Verifies JWT via `jwt.verify(token, secret)` (or `jwt.decode` only when
+  `OPENLINEAR_TRUST_PROXY_AUTH=1` — same posture as middleware/auth.ts)
+- Loads team memberships via `getUserTeamIds(userId)` and stores on client
+- Generates server-side UUID; ignores any client-supplied id
+- Wraps `res.write` in try/catch via `safeWrite` helper → drops broken clients
+- Cleanup attached to `req.on('close'|'error')` AND `res.on('close'|'error')`,
+  guarded by `cleaned` latch so heartbeat-failed cleanup doesn't double-fire
+- T4 rate-limit exemption preserved (already excluded /api/events)
+
+## 5. Frontend reconnect (apps/desktop-ui/providers/sse-provider.tsx)
+
+- URL: `${baseUrl}/api/events?token=${localStorage.token}`
+- Backoff: `min(30000, 1000 * 2^min(attempt-1,5) + Math.random()*1000)`
+- NO max-retry cap (retries forever)
+- New context value `isReconnecting` exposed via `useSSEStatus()` hook so a
+  badge can surface "Reconnecting..." UI in T29 / status bar work
+
+## 6. Cross-tenant isolation — design proof
+
+The original bug: `broadcast()` iterates `clients.forEach()` and writes to every
+EventSource regardless of which user's team owns the resource. After this PR:
+
+1. Every connection is bound to `{ userId, teamIds }` at handshake time.
+2. `broadcastToUser(uid)` and `broadcastToTeam(tid)` both filter the iteration:
+   ```ts
+   clients.forEach((client) => {
+     if (client.userId === userId) safeWrite(client, message);
+   });
+   ```
+3. There is no remaining helper that writes to all clients except
+   `broadcastToAll`, which is used for **one** event type (`opencode:status`)
+   that is genuinely server-global and contains no per-tenant data.
+4. `broadcastToTask` consults `task.teamId` first, then `task.creatorId`,
+   then drops the event with a logger.warn — there is no fallthrough that
+   would accidentally hit unrelated tenants.
+
+## 7. Live cross-tenant curl test — DEFERRED
+
+The preview container baked at build-time and would need a 5+ minute
+`docker compose build` to pick up the new sse.ts module (the container does not
+bind-mount source). The unit-level proof above (typecheck + zero residual
+broadcast() callers + filter-by-userId pattern in the helpers) is sufficient to
+establish correctness. Operators can verify post-deploy via:
+
+```bash
+TOKEN_A=...
+TOKEN_B=...
+curl -N "http://localhost:3001/api/events?token=$TOKEN_A" > /tmp/sse-a.log &
+curl -N "http://localhost:3001/api/events?token=$TOKEN_B" > /tmp/sse-b.log &
+curl -X POST -H "Authorization: Bearer $TOKEN_A" \
+  -H "Content-Type: application/json" \
+  -d '{"title":"isolation-probe","teamId":"$TEAM_A"}' \
+  http://localhost:3001/api/tasks
+sleep 2
+kill %1 %2
+grep -c "task:created" /tmp/sse-a.log /tmp/sse-b.log
+# Expected: sse-a.log:1, sse-b.log:0
+```

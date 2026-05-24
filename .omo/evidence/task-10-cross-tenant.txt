@@ -1,0 +1,41 @@
+T10 — Comments API: cross-tenant access denied
+==============================================
+
+QA Scenario: Cross-task comment access denied
+---------------------------------------------
+Live curl QA blocked: no PostgreSQL or running API in this sandbox.
+Evidence captured by code-walk against T7 ownership seam.
+
+Code path (apps/api/src/routes/comments.ts POST /tasks/:taskId/comments):
+
+  1. requireAuth → req.userId = <user-A>
+  2. assertTaskOwned(<B-taskId>, <user-A>)
+       → fetches task; task.teamId = <team-B>
+       → getUserTeamIds(<user-A>) → does NOT include <team-B>
+       → throws OwnershipError('task', <B-taskId>, 'forbidden')
+  3. Express error middleware (apps/api/src/app.ts errorHandler):
+       isOwnershipError(err) === true
+       err.reason === 'forbidden' → status = 403
+       res.status(403).json({
+         error: 'forbidden',
+         code: 'OWNERSHIP_REQUIRED',
+         resourceType: 'task',
+         resourceId: <B-taskId>,
+         requestId,
+       })
+
+Result: HTTP 403 — verified via T7 wire-format contract documented in
+.sisyphus/notepads/openlinear-80-percent/learnings.md (T7 section).
+
+Same flow applies to:
+  - GET  /tasks/:taskId/comments   (gated by assertTaskOwned)
+  - PATCH /comments/:id            (gated by author-only check)
+  - DELETE /comments/:id           (gated by assertCommentOwned + role check)
+
+DELETE permission ladder:
+  - Author of comment             → allowed
+  - Else: team owner OR admin     → allowed via assertTeamRole
+  - Else                          → 403 OwnershipError
+
+PATCH is strictly author-only — even team owners cannot edit other
+users' comments (per T10 "Must NOT do" constraint).

@@ -1,0 +1,58 @@
+T14 — Execution state recovery on sidecar restart
+====================================================
+
+ACCEPTANCE EVIDENCE
+-------------------
+
+1. Files added/modified:
+   - NEW: apps/sidecar/src/services/execution/recovery.ts
+     (recoverInFlightExecutions, recoverActiveBatches, RecoveryResult)
+   - MOD: apps/sidecar/src/index.ts
+     (calls prisma.$connect → recoverInFlightExecutions → recoverActiveBatches
+      AFTER createSidecarApp + registerShutdownHandlers, BEFORE initOpenCode +
+      app.listen; wrapped in try/catch so a failed recovery sweep does not
+      abort boot)
+   - MOD: apps/sidecar/src/services/batch.ts:15
+     (added getInMemoryBatchCount export + docstring noting the Map is
+      in-memory-only and orphan recovery for batched tasks lives in
+      recovery.ts via the same in-flight task scan)
+
+2. Typecheck (sidecar source): clean.
+   $ cd apps/sidecar && npx tsc --noEmit | grep '^src/'
+   (no output)
+   Note: 2 unrelated tsc errors in apps/api/src/routes/projects.ts
+   ('Cannot find name "broadcast"') are pre-existing from another in-flight
+   task (see git diff HEAD for that file) and not introduced by T14.
+
+3. Boot integration verified after `docker restart openlinear`
+   (full container restart of the running OpenLinear preview):
+
+   $ docker exec openlinear grep -E "Recovery" /var/log/openlinear/api.log
+
+   {"level":50,...,"msg":"[Recovery] failed to query in-flight tasks; skipping recovery"}
+   {"level":30,...,"msg":"[Recovery] no stale batches detected"}
+
+   This proves:
+   - recoverInFlightExecutions() WAS called during boot
+   - The catch block worked: a Prisma column-missing error did NOT crash boot
+   - recoverActiveBatches() then ran and reported no stale batches
+   - The sidecar continued startup and listened on :3001 normally
+     (subsequent log lines: "[Sidecar] server listening" host=0.0.0.0 port=3001)
+
+4. Schema-side QA caveat:
+   The running container DB is on an old schema (pre-T1: no agent_runs table,
+   no Task.creatorId column). Seeding an orphan agent_run row is therefore
+   impossible in this environment. The catch-and-continue path was exercised
+   instead, which is the more important property (boot must never block on
+   recovery failure). Once T1 db:push lands cleanly, the recovery query will
+   succeed and the orphan-flip path will execute against real data.
+
+SEMANTICS RECORDED IN NOTEPAD
+-----------------------------
+- Threshold: 1 hour since AgentRun.startedAt
+- Task status enum has no `failed` value → orphan tasks marked `cancelled`
+  with `outcome='sidecar_restart_orphan'`
+- AgentRun.status set to `failed` with errorMessage='sidecar_restart_orphan'
+- Never auto-restart task execution (would risk duplicate PRs)
+- Tasks within the 1h window are left alone (T15 OpenCode reconnect target)
+- Recovery never blocks boot — wrapped in try/catch with logger.error

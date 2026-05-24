@@ -1,0 +1,58 @@
+=== Scenario 2: Cross-tenant access rejected ===
+User B tries to create a task in Team A:
++ curl -i -X POST http://localhost:3099/api/tasks -H 'Authorization: Bearer $TOKEN_B' -d '{"title":"x","teamId":"409ccd83-b31c-4e93-bbdb-480f8e5a410a"}'
+
+HTTP/1.1 404 Not Found
+Cross-Origin-Opener-Policy: same-origin
+Cross-Origin-Resource-Policy: same-origin
+Origin-Agent-Cluster: ?1
+Referrer-Policy: no-referrer
+Strict-Transport-Security: max-age=31536000; includeSubDomains
+X-Content-Type-Options: nosniff
+X-DNS-Prefetch-Control: off
+X-Download-Options: noopen
+X-Frame-Options: SAMEORIGIN
+X-Permitted-Cross-Domain-Policies: none
+X-XSS-Protection: 0
+x-request-id: cc57f812-6628-47e6-8033-818d1ccfc5b3
+RateLimit-Policy: 100;w=60
+RateLimit: limit=100, remaining=98, reset=47
+Vary: Origin
+Access-Control-Allow-Credentials: true
+Content-Type: application/json; charset=utf-8
+Content-Length: 174
+ETag: W/"ae-G5jKjWHKi3YFs9Q/T30lBVB1Ado"
+Date: Thu, 30 Apr 2026 21:58:18 GMT
+Connection: keep-alive
+Keep-Alive: timeout=5
+
+{"error":"not_found","code":"OWNERSHIP_REQUIRED","resourceType":"team","resourceId":"409ccd83-b31c-4e93-bbdb-480f8e5a410a","requestId":"cc57f812-6628-47e6-8033-818d1ccfc5b3"}
+
+User B tries to PATCH a task they don't own (create task as A first):
+Created A's task id: 47dae78e-9ee2-4df2-a52a-51de42f2ef03
++ curl -i -X PATCH http://localhost:3099/api/tasks/$TASK_A -H 'Authorization: Bearer $TOKEN_B' -d '{"title":"hijacked"}'
+HTTP/1.1 403 Forbidden
+Cross-Origin-Opener-Policy: same-origin
+Cross-Origin-Resource-Policy: same-origin
+Origin-Agent-Cluster: ?1
+Referrer-Policy: no-referrer
+Strict-Transport-Security: max-age=31536000; includeSubDomains
+X-Content-Type-Options: nosniff
+X-DNS-Prefetch-Control: off
+X-Download-Options: noopen
+X-Frame-Options: SAMEORIGIN
+X-Permitted-Cross-Domain-Policies: none
+X-XSS-Protection: 0
+x-request-id: fbb0dc61-5556-43e5-8038-e9b036d92ee5
+RateLimit-Policy: 100;w=60
+RateLimit: limit=100, remaining=96, reset=46
+Vary: Origin
+Access-Control-Allow-Credentials: true
+Content-Type: application/json; charset=utf-8
+Content-Length: 174
+ETag: W/"ae-hVZuwRR87PAWv+r4B4te7BduXtg"
+Date: Thu, 30 Apr 2026 21:58:18 GMT
+Connection: keep-alive
+Keep-Alive: timeout=5
+
+{"error":"forbidden","code":"OWNERSHIP_REQUIRED","resourceType":"task","resourceId":"47dae78e-9ee2-4df2-a52a-51de42f2ef03","requestId":"fbb0dc61-5556-43e5-8038-e9b036d92ee5"}

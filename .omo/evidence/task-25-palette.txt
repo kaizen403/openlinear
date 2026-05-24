@@ -1,0 +1,49 @@
+T25 — Cmd+K Command Palette
+============================
+
+Files changed:
+  A apps/desktop-ui/components/command-palette.tsx   (+283 lines, new)
+  M apps/desktop-ui/app/layout.tsx                   (+2 / -0)   import + mount <CommandPalette />
+  M apps/desktop-ui/components/god-mode-overlay.tsx  (+2 / -3)   unbind Ctrl+K (mac keeps Alt+Space)
+  M apps/desktop-ui/package.json                     (+1 / -0)   add "typecheck": "tsc --noEmit"
+
+Sections / items:
+  Navigate:
+    - Inbox        -> /inbox
+    - My Issues    -> /my-issues
+    - Projects     -> /projects
+    - Teams        -> /teams
+    - Archived     -> /archived
+    - Settings     -> /settings
+
+  Quick Actions:
+    - New Task        -> /inbox?new=task
+    - New Project     -> /projects?new=project
+    - New Team        -> /teams/manage
+    - Toggle Theme    -> document.documentElement.classList.toggle("dark")
+
+  Search (live, GET /api/search?q=, via apiFetch from T3):
+    - Tasks       grouped (with identifier shortcut)   -> /inbox?taskId=:id
+    - Projects    grouped                              -> /projects?projectId=:id
+    - Teams       grouped (with team key shortcut)     -> /teams/manage?id=:id
+
+Implementation notes:
+  - Hotkey: plain window keydown listener checking (e.metaKey || e.ctrlKey) && e.key === "k"
+    (react-hotkeys-hook intentionally NOT added — extra dep not needed)
+  - useDeferredValue(query) + 200ms setTimeout debounce on the deferred value
+  - AbortController cancels in-flight searches on new keystrokes / close
+  - cmdk's built-in fuzzy filter is preserved for static items;
+    search items use unique `value` strings so cmdk doesn't fold matching titles
+  - runCommand(fn) defers navigation to next tick so Dialog close completes first
+    (prevents focus / route flicker)
+  - Empty state, loading state, and per-type sections all handled
+
+Typecheck:
+  $ pnpm --filter @openlinear/desktop-ui typecheck
+  > tsc --noEmit
+  (clean — 0 errors on T25 files)
+
+God-mode unbind:
+  Before:  isMac ? (Alt+Space) : (Ctrl+K)
+  After:   isMac && Alt+Space    -- windows binding removed entirely
+           Comment added pointing to T25 owner; T46 will cull god-mode entirely.

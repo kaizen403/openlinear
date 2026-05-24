@@ -34,7 +34,7 @@ export function ChatMessageList({
 }: ChatMessageListProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const hasStreamingMessage = Boolean(streamingContent) || activeToolCalls.length > 0;
-  const showThinking = isThinking && !hasStreamingMessage;
+  const showThinking = isThinking;
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -48,13 +48,13 @@ export function ChatMessageList({
         {messages.map((msg, i) => (
           <ChatMessage key={i} message={msg} />
         ))}
-        {showThinking && <ChatThinkingIndicator />}
         {hasStreamingMessage && (
           <ChatMessage
             message={{ role: "assistant", content: streamingContent || "", toolCalls: activeToolCalls, createdAt: new Date().toISOString() }}
             isStreaming
           />
         )}
+        {showThinking && <ChatThinkingIndicator />}
         <div ref={bottomRef} />
       </div>
     </div>

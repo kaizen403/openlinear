@@ -5,6 +5,44 @@
 
 ---
 
+## [2026-05-24] — Add Electron desktop wrapper for Linux (fixing WebKitGTK scroll/font issues)
+
+**Status:** Done
+**Agent:** Sisyphus (OpenCode)
+
+### What was done
+- Created `apps/desktop-electron/` — a minimal Electron main process that wraps the existing Next.js frontend.
+- Electron bundles Chromium, eliminating WebKitGTK flexbox scroll bugs, font rendering issues, and compositor stalls on Linux.
+- The Electron wrapper replicates all Tauri native APIs via IPC: sidecar spawning, auth deep-link callbacks, window controls (close/minimize/maximize), file picker, external URL open, and store persistence.
+- Patched the frontend (`desktop-ui`) to detect Electron runtime and use `window.electronAPI` for all desktop-native operations, while preserving full Tauri compatibility.
+- Added `pnpm build:electron:linux` to produce AppImage and .deb packages via `electron-builder`.
+- Existing Tauri desktop app is completely preserved; Electron is an additional build target.
+
+### Files changed
+- `apps/desktop-electron/src/main.ts` — Electron main process with IPC handlers
+- `apps/desktop-electron/src/preload.ts` — contextBridge exposing `electronAPI`
+- `apps/desktop-electron/src/sidecar.ts` — sidecar spawning (same binary discovery as Tauri)
+- `apps/desktop-electron/electron-builder.json` — build config for Linux/macOS/Windows
+- `apps/desktop-ui/lib/api/client.ts` — Electron runtime detection + sidecar URL resolution
+- `apps/desktop-ui/lib/api/auth.ts` — desktop login via Electron `shell.openExternal`
+- `apps/desktop-ui/hooks/use-auth.tsx` — auth callback via Electron IPC
+- `apps/desktop-ui/components/layout/sidebar.tsx` — window controls via Electron IPC
+- `apps/desktop-ui/components/desktop/database-settings.tsx` — store via Electron IPC
+- `apps/desktop-ui/components/desktop/opencode-setup-dialog.tsx` — opencode check via Electron IPC
+- `apps/desktop-ui/app/(app)/projects/page.tsx` — folder picker via Electron dialog
+- `apps/desktop-ui/lib/utils.ts` — `openExternal` via Electron API
+- `package.json` — added `build:electron` and `build:electron:linux` scripts
+
+### Issues encountered
+- WebKitGTK on Linux is fundamentally broken for modern CSS (flexbox scroll, variable fonts, backdrop filters). The only real fix is replacing the webview engine.
+- TypeScript strict mode required careful null checks for `window.electronAPI` optional property.
+
+### Next steps / blockers
+- Test the Electron build on a real Linux machine. The AppImage should work out of the box.
+- Evaluate installer size tradeoff (~150MB Electron vs ~15MB Tauri) for Linux users.
+
+---
+
 ## [2026-05-23] — Add onboarding back controls and chat thinking loader
 
 **Status:** Done

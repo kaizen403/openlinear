@@ -1,0 +1,43 @@
+T23 — Sidebar fixes evidence
+=============================
+
+CHANGES:
+1. NEW: apps/desktop-ui/providers/teams-provider.tsx
+   - Per-user TeamsProvider context (teams state + reload + isLoading)
+   - Reloads on user.id change (per-user isolation)
+   - Listens to `auth:expired` window event (dispatched by T3 apiFetch on 401) → clears teams state
+   - Subscribes to SSE team:created/updated/deleted → reload
+   - Skips fetch when not authenticated
+
+2. EDIT: apps/desktop-ui/app/layout.tsx
+   - Wired <TeamsProvider> inside SSEProvider, around children
+     (TeamsProvider needs both AuthProvider and SSEProvider as ancestors)
+
+3. EDIT: apps/desktop-ui/components/layout/sidebar.tsx
+   - DELETED module-level `let cachedTeams: Team[] = []` (line 18-19) — eliminates cross-user leakage
+   - DELETED local `loadTeams` callback + `useEffect` calling it + `useSSESubscription` block
+   - DELETED local `teams` state (`useState<Team[]>(cachedTeams)`)
+   - REPLACED with `const { teams, reload: reloadTeams } = useTeams()`
+   - handleDeleteTeam now calls `reloadTeams()` instead of `loadTeams()`
+   - FIXED handleClose bug (line 198 was calling minimize): now calls real `getCurrentWindow().close()`
+   - handleMinimize unchanged
+   - TeamSection (lines 50-99) HTML structure verified: outer flex div with TWO sibling buttons (chevron-toggle + Popover-trigger). NOT nested. Already valid HTML.
+
+DIAGNOSTICS:
+- lsp_diagnostics on sidebar.tsx: clean (no errors)
+- lsp_diagnostics on teams-provider.tsx: clean (no errors)
+- lsp_diagnostics on layout.tsx: clean (no errors)
+- `npx tsc --noEmit` in apps/desktop-ui: only pre-existing errors in task-detail-view.tsx (VisuallyHidden missing import — unrelated to T23)
+
+VERIFICATION OF auth:expired CONTRACT (T3):
+- apps/desktop-ui/hooks/use-auth.tsx already has window.addEventListener('auth:expired', ...) (lines 110-124)
+- TeamsProvider subscribes to the same event independently → defense in depth
+- On 401, both AuthProvider clears user AND TeamsProvider clears teams; user.id change also triggers reload-with-empty-result
+
+QA — manual code review:
+- No `as any` introduced
+- No mutable module-level state remains
+- Sidebar resize/collapse behavior untouched (props open/onClose/width/animating + onResized listener intact)
+- Sign-in flow: TeamsProvider re-fetches when user.id transitions null→id
+- Sign-out flow: AuthProvider.logout() clears user; user.id change triggers TeamsProvider.reload() which short-circuits (isAuthenticated false) and sets teams=[]
+- Close button (red traffic light) now actually closes the window instead of minimizing (UX fix)

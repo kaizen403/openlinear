@@ -1,0 +1,40 @@
+=== T35 Tauri Icon Verification ===
+Wed May  6 04:57:53 IST 2026
+
+=== ls apps/desktop/src-tauri/icons/ ===
+total 672
+drwxr-xr-x@ 22 sriharsha  staff     704  1 May 03:03 .
+drwxr-xr-x@ 12 sriharsha  staff     384  1 May 03:47 ..
+-rw-r--r--@  1 sriharsha  staff       0 30 Apr 22:02 .gitkeep
+-rw-r--r--@  1 sriharsha  staff    7105  1 May 03:03 128x128.png
+-rw-r--r--@  1 sriharsha  staff   14903  1 May 03:03 128x128@2x.png
+-rw-r--r--@  1 sriharsha  staff    1441  1 May 03:03 32x32.png
+-rw-r--r--@  1 sriharsha  staff    3039  1 May 03:03 64x64.png
+drwxr-xr-x@  9 sriharsha  staff     288  1 May 03:03 android
+-rw-r--r--@  1 sriharsha  staff  154363  1 May 03:03 icon.icns
+-rw-r--r--@  1 sriharsha  staff   26720  1 May 03:03 icon.ico
+-rw-r--r--@  1 sriharsha  staff   32215  1 May 03:03 icon.png
+drwxr-xr-x@ 20 sriharsha  staff     640  1 May 03:03 ios
+-rw-r--r--@  1 sriharsha  staff    5493  1 May 03:03 Square107x107Logo.png
+-rw-r--r--@  1 sriharsha  staff    7962  1 May 03:03 Square142x142Logo.png
+-rw-r--r--@  1 sriharsha  staff    8412  1 May 03:03 Square150x150Logo.png
+-rw-r--r--@  1 sriharsha  staff   16812  1 May 03:03 Square284x284Logo.png
+-rw-r--r--@  1 sriharsha  staff    1275  1 May 03:03 Square30x30Logo.png
+-rw-r--r--@  1 sriharsha  staff   18520  1 May 03:03 Square310x310Logo.png
+-rw-r--r--@  1 sriharsha  staff    1988  1 May 03:03 Square44x44Logo.png
+-rw-r--r--@  1 sriharsha  staff    3367  1 May 03:03 Square71x71Logo.png
+-rw-r--r--@  1 sriharsha  staff    4452  1 May 03:03 Square89x89Logo.png
+-rw-r--r--@  1 sriharsha  staff    2390  1 May 03:03 StoreLogo.png
+
+=== file icon.icns ===
+apps/desktop/src-tauri/icons/icon.icns: Mac OS X icon, 154363 bytes, "ic13" type
+
+=== Required files check ===
+OK: 32x32.png (1441 bytes)
+OK: 128x128.png (7105 bytes)
+OK: 128x128@2x.png (14903 bytes)
+OK: icon.icns (154363 bytes)
+OK: icon.ico (26720 bytes)
+OK: icon.png (32215 bytes)
+
+Status: All required icons present and valid. T5 already generated. No regeneration needed.

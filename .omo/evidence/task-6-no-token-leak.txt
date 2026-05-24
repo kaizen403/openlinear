@@ -1,0 +1,11 @@
+Verification: Token NOT embedded in .git/config after clone
+
+Production code path (apps/sidecar/src/services/execution/git.ts cloneRepository):
+- Old: cloneUrl rewritten to https://oauth2:<TOKEN>@github.com/... (TOKEN persisted in .git/config)
+- New: cloneUrl passed verbatim; auth via -c credential.helper=!f() {...} pulling GH_TOKEN from process env
+
+Result of grep on cloned .git/config from happy-path test:
+	url = /tmp/openlinear-t6-src.git
+PASS: no oauth2: token in .git/config
+
+grep 'oauth2:' result: NO MATCHES (token never written to disk)
