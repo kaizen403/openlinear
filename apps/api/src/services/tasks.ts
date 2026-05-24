@@ -726,3 +726,487 @@ export async function countWritableTasksForUser(userId: string) {
     },
   });
 }
+
+// ─── Route-facing functions ──────────────────────────────────────────────────
+
+export async function listTasksPaginated(input: {
+  userId: string;
+  teamId?: string;
+  projectId?: string;
+  assignee?: string;
+  creator?: string;
+  page: number;
+  pageSize: number;
+}) {
+  const userTeamIds = await getUserTeamIds(input.userId);
+  const filters: Prisma.TaskWhereInput[] = [
+    { archived: false },
+    await buildTaskProjectAccessWhere(input.userId, userTeamIds),
+  ];
+
+  if (input.teamId) {
+    if (!userTeamIds.includes(input.teamId)) {
+      throw new OwnershipError('team', input.teamId, 'forbidden');
+    }
+    filters.push({ teamId: input.teamId });
+  }
+  if (input.projectId) {
+    await assertProjectAccess(input.projectId, input.userId, 'view');
+    filters.push({ projectId: input.projectId });
+  }
+
+  const resolveUserFilter = async (value: string): Promise<string> => {
+    if (value === 'me') return input.userId;
+    const member = await prisma.teamMember.findFirst({
+      where: { userId: value, teamId: { in: userTeamIds } },
+      select: { userId: true },
+    });
+    if (!member) throw new OwnershipError('user', value, 'forbidden');
+    return value;
+  };
+
+  if (input.assignee && input.creator) {
+    const [assigneeId, creatorId] = await Promise.all([
+      resolveUserFilter(input.assignee),
+      resolveUserFilter(input.creator),
+    ]);
+    filters.push({ OR: [{ assigneeId }, { creatorId }] });
+  } else if (input.assignee) {
+    filters.push({ assigneeId: await resolveUserFilter(input.assignee) });
+  } else if (input.creator) {
+    filters.push({ creatorId: await resolveUserFilter(input.creator) });
+  }
+
+  const where: Prisma.TaskWhereInput = { AND: filters };
+  const [tasks, total] = await prisma.$transaction(
+    async (tx) => {
+      const items = await tx.task.findMany({
+        where,
+        include: taskInclude,
+        orderBy: { createdAt: 'desc' },
+        skip: (input.page - 1) * input.pageSize,
+        take: input.pageSize,
+      });
+      const count = await tx.task.count({ where });
+      return [items, count] as const;
+    },
+    { timeout: 15000, maxWait: 5000 },
+  );
+
+  return { items: tasks.map(flattenTaskLabels), total };
+}
+
+export async function listArchivedTasksPaginated(input: {
+  userId: string;
+  page: number;
+  pageSize: number;
+}) {
+  const teamIds = await getUserTeamIds(input.userId);
+  const where: Prisma.TaskWhereInput = {
+    AND: [
+      { archived: true },
+      await buildTaskProjectAccessWhere(input.userId, teamIds),
+    ],
+  };
+  const [tasks, total] = await prisma.$transaction(
+    async (tx) => {
+      const items = await tx.task.findMany({
+        where,
+        include: taskInclude,
+        orderBy: { updatedAt: 'desc' },
+        skip: (input.page - 1) * input.pageSize,
+        take: input.pageSize,
+      });
+      const count = await tx.task.count({ where });
+      return [items, count] as const;
+    },
+    { timeout: 15000, maxWait: 5000 },
+  );
+  return { items: tasks.map(flattenTaskLabels), total };
+}
+
+export async function deleteAllArchivedTasks(userId: string): Promise<void> {
+  const teamIds = await getUserTeamIds(userId);
+  const where: Prisma.TaskWhereInput = {
+    AND: [
+      { archived: true },
+      await buildTaskProjectFullAccessWhere(userId, teamIds),
+    ],
+  };
+  await prisma.task.deleteMany({ where });
+}
+
+export async function deleteArchivedTask(input: { taskId: string; userId: string }): Promise<void> {
+  const owned = await assertTaskOwned(input.taskId, input.userId);
+  if (!owned.archived) {
+    throw new OwnershipError('task', input.taskId, 'not_found');
+  }
+  await prisma.task.delete({ where: { id: input.taskId } });
+}
+
+export async function createTaskRoute(input: {
+  userId: string;
+  title: string;
+  description?: string;
+  priority?: Priority;
+  status?: Status;
+  labelIds: string[];
+  teamId?: string;
+  projectId?: string;
+  dueDate?: string | null;
+  model?: string | null;
+}) {
+  let resolvedTeamId = input.teamId;
+
+  if (input.projectId) {
+    await assertProjectOwned(input.projectId, input.userId);
+    resolvedTeamId = await resolveProjectTeamId(input.projectId);
+  }
+  if (!resolvedTeamId) {
+    throw new ValidationError('Task must belong to a team or a project');
+  }
+  await assertTeamRole(resolvedTeamId, input.userId, ['owner', 'admin', 'member']);
+
+  const task = await prisma.$transaction(async (tx) => {
+    const team = await tx.team.update({
+      where: { id: resolvedTeamId },
+      data: { nextIssueNumber: { increment: 1 } },
+      select: { key: true, nextIssueNumber: true },
+    });
+    const number = team.nextIssueNumber - 1;
+    const identifier = `${team.key}-${number}`;
+
+    return tx.task.create({
+      data: {
+        title: input.title,
+        description: input.description,
+        priority: input.priority,
+        status: input.status,
+        teamId: resolvedTeamId,
+        projectId: input.projectId || undefined,
+        number,
+        identifier,
+        dueDate: input.dueDate ? new Date(input.dueDate) : undefined,
+        model: input.model ?? undefined,
+        creatorId: input.userId,
+        labels: {
+          create: input.labelIds.map((labelId) => ({ labelId })),
+        },
+      },
+      include: taskInclude,
+    });
+  }, { timeout: 15000, maxWait: 5000 });
+
+  const transformed = flattenTaskLabels(task);
+  broadcastToTask('task:created', transformed);
+
+  await logActivity({
+    taskId: task.id,
+    projectId: task.projectId,
+    teamId: task.teamId,
+    userId: input.userId,
+    action: 'task_created',
+    payload: { title: task.title, status: task.status, priority: task.priority, identifier: task.identifier },
+  });
+
+  const taskAssigneeId = (task as { assigneeId?: string | null }).assigneeId;
+  if (taskAssigneeId && taskAssigneeId !== input.userId) {
+    await createNotification({
+      recipientUserId: taskAssigneeId,
+      actorUserId: input.userId,
+      type: 'assignment',
+      taskId: task.id,
+      body: `Assigned to you: ${task.title}`,
+    });
+  }
+
+  return transformed;
+}
+
+export async function updateTaskRoute(input: {
+  userId: string;
+  taskId: string;
+  title?: string;
+  description?: string | null;
+  priority?: Priority;
+  status?: Status;
+  labelIds?: string[];
+  teamId?: string | null;
+  projectId?: string | null;
+  dueDate?: string | null;
+  assigneeId?: string | null;
+  model?: string | null;
+}) {
+  const existing = await assertTaskOwned(input.taskId, input.userId);
+  const previousTaskMeta = await prisma.task.findUnique({
+    where: { id: input.taskId },
+    select: { assigneeId: true, creatorId: true, title: true },
+  });
+
+  const data: Record<string, unknown> = {};
+  if (input.title !== undefined) data.title = input.title;
+  if (input.description !== undefined) data.description = input.description;
+  if (input.priority !== undefined) data.priority = input.priority;
+  if (input.model !== undefined) data.model = input.model;
+
+  if (input.status !== undefined) {
+    data.status = input.status;
+    const shouldResetExecutionState =
+      input.status !== existing.status &&
+      ['done', 'cancelled', 'todo'].includes(input.status);
+    if (shouldResetExecutionState) {
+      data.sessionId = null;
+      data.executionStartedAt = null;
+      data.executionPausedAt = null;
+      data.executionElapsedMs = 0;
+      data.executionProgress = null;
+      data.batchId = null;
+    }
+  }
+
+  if (input.dueDate !== undefined) {
+    data.dueDate = input.dueDate ? new Date(input.dueDate) : null;
+  }
+
+  if (input.projectId !== undefined) {
+    if (input.projectId) {
+      await assertProjectOwned(input.projectId, input.userId);
+      const projectTeamId = await resolveProjectTeamId(input.projectId);
+      data.projectId = input.projectId;
+      data.teamId = projectTeamId;
+    } else {
+      data.projectId = null;
+      data.teamId = null;
+    }
+  } else if (input.teamId !== undefined) {
+    if (input.teamId) {
+      await assertTeamRole(input.teamId, input.userId, ['owner', 'admin', 'member']);
+    }
+    data.teamId = input.teamId;
+  }
+
+  if (input.assigneeId !== undefined) {
+    if (input.assigneeId === null) {
+      data.assigneeId = null;
+    } else {
+      const effectiveTeamId = (data.teamId as string | null | undefined) ?? existing.teamId ?? null;
+      if (!effectiveTeamId) {
+        throw new ValidationError('Cannot assign user: task has no team');
+      }
+      const member = await prisma.teamMember.findFirst({
+        where: { teamId: effectiveTeamId, userId: input.assigneeId },
+        select: { userId: true },
+      });
+      if (!member) throw new OwnershipError('user', input.assigneeId, 'forbidden');
+      data.assigneeId = input.assigneeId;
+    }
+  }
+
+  if (input.labelIds !== undefined) {
+    data.labels = {
+      deleteMany: {},
+      create: input.labelIds.map((labelId) => ({ labelId })),
+    };
+  }
+
+  const task = await prisma.task.update({
+    where: { id: input.taskId },
+    data,
+    include: taskInclude,
+  });
+
+  const transformed = flattenTaskLabels(task);
+  broadcastToTask('task:updated', transformed);
+
+  const statusChanged = input.status !== undefined && input.status !== existing.status;
+  const newAssigneeId = input.assigneeId;
+  const previousAssigneeId = previousTaskMeta?.assigneeId ?? null;
+  const assigneeChanged = newAssigneeId !== undefined && newAssigneeId !== previousAssigneeId;
+
+  if (statusChanged) {
+    await logActivity({
+      taskId: task.id, projectId: task.projectId, teamId: task.teamId, userId: input.userId,
+      action: 'task_status_changed',
+      payload: { from: existing.status, to: task.status, title: task.title },
+    });
+    const creatorId = previousTaskMeta?.creatorId ?? null;
+    if (creatorId && creatorId !== input.userId) {
+      await createNotification({
+        recipientUserId: creatorId, actorUserId: input.userId,
+        type: 'status_change', taskId: task.id,
+        body: `Status changed: ${task.title} → ${task.status}`,
+      });
+    }
+  } else {
+    await logActivity({
+      taskId: task.id, projectId: task.projectId, teamId: task.teamId, userId: input.userId,
+      action: 'task_updated',
+      payload: { fields: Object.keys(input).filter((k) => k !== 'userId' && k !== 'taskId' && (input as Record<string, unknown>)[k] !== undefined) },
+    });
+  }
+
+  if (assigneeChanged && newAssigneeId && newAssigneeId !== input.userId) {
+    await createNotification({
+      recipientUserId: newAssigneeId, actorUserId: input.userId,
+      type: 'assignment', taskId: task.id,
+      body: `Assigned to you: ${task.title}`,
+    });
+    await logActivity({
+      taskId: task.id, projectId: task.projectId, teamId: task.teamId, userId: input.userId,
+      action: 'task_assigned',
+      payload: { from: previousAssigneeId, to: newAssigneeId },
+    });
+  }
+
+  return transformed;
+}
+
+export async function bulkCreateTasksRoute(input: {
+  userId: string;
+  projectId: string;
+  tasks: Array<{
+    title: string;
+    description?: string;
+    priority?: Priority;
+    status?: Status;
+    labelIds: string[];
+    parentId?: string;
+    dueDate?: string;
+  }>;
+}) {
+  await assertProjectAccess(input.projectId, input.userId, 'full');
+
+  const project = await prisma.project.findUnique({
+    where: { id: input.projectId },
+    select: { id: true, teams: { take: 1, select: { id: true } } },
+  });
+  if (!project) throw new OwnershipError('project', input.projectId, 'not_found');
+  const resolvedTeamId = project.teams[0]?.id;
+  if (!resolvedTeamId) throw new ValidationError('Project must have a team');
+  await assertTeamRole(resolvedTeamId, input.userId, ['owner', 'admin', 'member']);
+
+  const labelIds = [...new Set(input.tasks.flatMap((t) => t.labelIds))];
+  const labels = labelIds.length
+    ? await prisma.label.findMany({ where: { id: { in: labelIds }, projectId: input.projectId }, select: { id: true } })
+    : [];
+  const validLabelIds = new Set(labels.map((l) => l.id));
+
+  const parentIds = [...new Set(input.tasks.map((t) => t.parentId).filter((id): id is string => Boolean(id)))];
+  const parentTasks = parentIds.length
+    ? await prisma.task.findMany({
+        where: { id: { in: parentIds }, OR: [{ projectId: input.projectId }, { teamId: resolvedTeamId }] },
+        select: { id: true },
+      })
+    : [];
+  const validParentIds = new Set(parentTasks.map((t) => t.id));
+
+  const failed: Array<{ index: number; error: string }> = [];
+  const validTasks = input.tasks
+    .map((task, index) => ({ task, index }))
+    .filter(({ task, index }) => {
+      const invalidLabels = task.labelIds.filter((id) => !validLabelIds.has(id));
+      if (invalidLabels.length > 0) {
+        failed.push({ index, error: `Invalid labelIds: ${invalidLabels.join(', ')}` });
+        return false;
+      }
+      if (task.parentId && !validParentIds.has(task.parentId)) {
+        failed.push({ index, error: 'parentId must reference an existing accessible task' });
+        return false;
+      }
+      return true;
+    });
+
+  const created: TaskWithInclude[] = validTasks.length
+    ? await prisma.$transaction(async (tx) => {
+        const team = await tx.team.update({
+          where: { id: resolvedTeamId },
+          data: { nextIssueNumber: { increment: validTasks.length } },
+          select: { key: true, nextIssueNumber: true },
+        });
+        const startNumber = team.nextIssueNumber - validTasks.length;
+        const createdTasks: TaskWithInclude[] = [];
+        for (let i = 0; i < validTasks.length; i += 1) {
+          const { task } = validTasks[i];
+          const number = startNumber + i;
+          createdTasks.push(await tx.task.create({
+            data: {
+              title: task.title,
+              description: task.description,
+              priority: task.priority,
+              status: task.status,
+              teamId: resolvedTeamId,
+              projectId: input.projectId,
+              parentId: task.parentId,
+              number,
+              identifier: `${team.key}-${number}`,
+              dueDate: task.dueDate ? new Date(task.dueDate) : undefined,
+              creatorId: input.userId,
+              labels: task.labelIds.length
+                ? { create: task.labelIds.map((labelId) => ({ labelId })) }
+                : undefined,
+            },
+            include: taskInclude,
+          }));
+        }
+        return createdTasks;
+      }, { timeout: 15000, maxWait: 5000 })
+    : [];
+
+  const transformed = created.map(flattenTaskLabels);
+  await broadcastToProject(input.projectId, 'tasks:bulk-created', {
+    type: 'tasks:bulk-created',
+    projectId: input.projectId,
+    count: transformed.length,
+    taskIds: transformed.map((t) => t.id),
+  });
+
+  await Promise.all(created.map((task) => logActivity({
+    taskId: task.id, projectId: task.projectId, teamId: task.teamId, userId: input.userId,
+    action: 'task_created',
+    payload: { title: task.title, status: task.status, priority: task.priority, identifier: task.identifier, source: 'bulk' },
+  })));
+
+  return { created: transformed, failed };
+}
+
+export async function deleteTaskRoute(input: {
+  userId: string;
+  taskId: string;
+  permanent: boolean;
+}): Promise<void> {
+  const owned = await assertTaskOwned(input.taskId, input.userId);
+  const fullTask = await prisma.task.findUnique({
+    where: { id: input.taskId },
+    select: { teamId: true, creatorId: true },
+  });
+
+  if (input.permanent) {
+    await logActivity({
+      taskId: input.taskId, projectId: owned.projectId,
+      teamId: fullTask?.teamId ?? owned.teamId ?? null,
+      userId: input.userId, action: 'task_deleted',
+      payload: { id: input.taskId },
+    });
+    await prisma.task.delete({ where: { id: input.taskId } });
+  } else {
+    await prisma.task.update({ where: { id: input.taskId }, data: { archived: true } });
+  }
+
+  const teamId = fullTask?.teamId ?? owned.teamId ?? null;
+  const creatorId = fullTask?.creatorId ?? null;
+  if (teamId) {
+    broadcastToTeam(teamId, 'task:deleted', { id: input.taskId });
+  } else if (creatorId) {
+    broadcastToUser(creatorId, 'task:deleted', { id: input.taskId });
+  } else {
+    broadcastToUser(input.userId, 'task:deleted', { id: input.taskId });
+  }
+
+  if (!input.permanent) {
+    await logActivity({
+      taskId: input.taskId, projectId: owned.projectId, teamId,
+      userId: input.userId, action: 'task_archived',
+      payload: { id: input.taskId },
+    });
+  }
+}
