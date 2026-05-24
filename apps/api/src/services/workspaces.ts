@@ -360,3 +360,263 @@ export async function updateWorkspace(input: {
   broadcastToWorkspace(input.workspaceId, 'workspace:updated', workspace);
   return workspace;
 }
+
+// ─── Route-facing functions ──────────────────────────────────────────────────
+
+import { HttpError } from '../errors';
+import { broadcastToUser } from '../sse';
+import { userSelect } from '../lib/selects';
+
+const memberInclude = { user: { select: userSelect } } as const;
+
+const workspaceStructureInclude = {
+  _count: { select: { members: true, projects: true } },
+  members: {
+    include: memberInclude,
+    orderBy: [{ invitedAt: 'asc' }, { id: 'asc' }],
+  },
+  projects: {
+    include: {
+      repository: {
+        select: { id: true, name: true, fullName: true, cloneUrl: true, defaultBranch: true },
+      },
+      teams: {
+        include: {
+          members: {
+            include: memberInclude,
+            orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+          },
+          _count: { select: { members: true, tasks: true } },
+        },
+        orderBy: { createdAt: 'asc' },
+      },
+      _count: { select: { tasks: true } },
+    },
+    orderBy: { updatedAt: 'desc' },
+  },
+} satisfies Prisma.WorkspaceInclude;
+
+type WorkspaceMemberWithUser = Prisma.WorkspaceMemberGetPayload<{ include: typeof memberInclude }>;
+
+async function loadWorkspaceDetail(workspaceId: string, userId: string) {
+  const membership = await prisma.workspaceMember.findUnique({
+    where: { workspaceId_userId: { workspaceId, userId } },
+    select: { id: true, role: true, invitedAt: true, joinedAt: true },
+  });
+  if (!membership) throw new OwnershipError('workspace', workspaceId, 'not_found');
+
+  const workspace = await prisma.workspace.findUnique({
+    where: { id: workspaceId },
+    include: workspaceDetailInclude,
+  });
+  if (!workspace) throw new OwnershipError('workspace', workspaceId, 'not_found');
+  return { ...workspace, currentMember: membership };
+}
+
+async function ensureNotLastOwner(workspaceId: string, userId: string, nextRole?: WorkspaceRole): Promise<void> {
+  const current = await prisma.workspaceMember.findUnique({
+    where: { workspaceId_userId: { workspaceId, userId } },
+    select: { role: true },
+  });
+  if (!current) throw new OwnershipError('workspace', workspaceId, 'not_found');
+  if (current.role !== 'owner') return;
+  if (nextRole === 'owner') return;
+
+  const ownerCount = await prisma.workspaceMember.count({ where: { workspaceId, role: 'owner' } });
+  if (ownerCount <= 1) {
+    throw new HttpError(409, 'LAST_OWNER', 'Cannot remove or demote the last workspace owner', { workspaceId, userId });
+  }
+}
+
+export async function createWorkspaceRoute(input: { userId: string; name: string }) {
+  const trimmed = input.name;
+  const baseSlug = slugify(trimmed);
+  let slug = baseSlug;
+  let suffix = 1;
+
+  while (await prisma.workspace.findUnique({ where: { slug }, select: { id: true } })) {
+    suffix += 1;
+    slug = `${baseSlug}-${suffix}`;
+  }
+
+  const workspace = await prisma.$transaction(async (tx) => {
+    const created = await tx.workspace.create({ data: { name: trimmed, slug } });
+    await tx.workspaceMember.create({
+      data: { workspaceId: created.id, userId: input.userId, role: 'owner', joinedAt: new Date() },
+    });
+    return created;
+  });
+
+  const detail = await loadWorkspaceDetail(workspace.id, input.userId);
+  broadcastToUser(input.userId, 'workspace:joined', detail);
+  return detail;
+}
+
+export async function getWorkspaceStructure(input: { workspaceId: string; userId: string }) {
+  const currentMember = await assertWorkspaceRole(input.workspaceId, input.userId, ['owner', 'admin', 'member', 'viewer']);
+  const workspace = await prisma.workspace.findUnique({
+    where: { id: input.workspaceId },
+    include: workspaceStructureInclude,
+  });
+  if (!workspace) throw new OwnershipError('workspace', input.workspaceId, 'not_found');
+  return {
+    ...workspace,
+    role: currentMember.role,
+    currentMember: workspace.members.find((m) => m.userId === input.userId) ?? null,
+  };
+}
+
+export async function listWorkspaceMembers(input: {
+  workspaceId: string;
+  userId: string;
+  limit: number;
+  cursor?: string;
+}) {
+  await assertWorkspaceRole(input.workspaceId, input.userId, ['owner', 'admin', 'member', 'viewer']);
+  const members = await prisma.workspaceMember.findMany({
+    where: { workspaceId: input.workspaceId },
+    include: memberInclude,
+    orderBy: [{ id: 'asc' }],
+    take: input.limit + 1,
+    ...(input.cursor ? { cursor: { id: input.cursor }, skip: 1 } : {}),
+  });
+  const page = members.slice(0, input.limit);
+  return { data: page, nextCursor: members.length > input.limit ? page.at(-1)?.id ?? null : null };
+}
+
+export async function addWorkspaceMember(input: {
+  workspaceId: string;
+  actorUserId: string;
+  username: string;
+  role: 'admin' | 'member' | 'viewer';
+}): Promise<{ member: WorkspaceMemberWithUser; isNew: boolean }> {
+  await assertWorkspaceRole(input.workspaceId, input.actorUserId, ['owner', 'admin']);
+  const user = await prisma.user.findUnique({ where: { username: input.username }, select: userSelect });
+  if (!user) throw new HttpError(404, 'USER_NOT_FOUND', 'User not found', { username: input.username });
+
+  const existing = await prisma.workspaceMember.findUnique({
+    where: { workspaceId_userId: { workspaceId: input.workspaceId, userId: user.id } },
+    include: memberInclude,
+  });
+  if (existing) return { member: existing, isNew: false };
+
+  const member = await prisma.workspaceMember.create({
+    data: { workspaceId: input.workspaceId, userId: user.id, role: input.role, joinedAt: new Date() },
+    include: memberInclude,
+  });
+  const workspace = await loadWorkspaceDetail(input.workspaceId, user.id);
+  broadcastToUser(user.id, 'workspace:joined', workspace);
+  broadcastToWorkspace(input.workspaceId, 'workspace:member-added', member);
+  return { member, isNew: true };
+}
+
+export async function bulkAddWorkspaceMembers(input: {
+  workspaceId: string;
+  actorUserId: string;
+  invites: Array<{ username: string; role: WorkspaceRole }>;
+}) {
+  const caller = await assertWorkspaceRole(input.workspaceId, input.actorUserId, ['owner', 'admin']);
+  if (caller.role !== 'owner' && input.invites.some((i) => i.role === 'owner')) {
+    throw new OwnershipError('workspace', input.workspaceId, 'role_required', ['owner']);
+  }
+
+  const usernames = [...new Set(input.invites.map((i) => i.username))];
+  const users = await prisma.user.findMany({ where: { username: { in: usernames } }, select: userSelect });
+  const usersByUsername = new Map(users.map((u) => [u.username, u]));
+  const added: WorkspaceMemberWithUser[] = [];
+  const skipped: Array<{ username: string; reason: string }> = [];
+
+  await prisma.$transaction(async (tx) => {
+    for (const invite of input.invites) {
+      const user = usersByUsername.get(invite.username);
+      if (!user) { skipped.push({ username: invite.username, reason: 'USER_NOT_FOUND' }); continue; }
+      const existing = await tx.workspaceMember.findUnique({
+        where: { workspaceId_userId: { workspaceId: input.workspaceId, userId: user.id } },
+        include: memberInclude,
+      });
+      if (existing) { skipped.push({ username: invite.username, reason: 'ALREADY_MEMBER' }); continue; }
+      const member = await tx.workspaceMember.create({
+        data: { workspaceId: input.workspaceId, userId: user.id, role: invite.role, joinedAt: new Date() },
+        include: memberInclude,
+      });
+      added.push(member);
+    }
+  });
+
+  for (const member of added) {
+    const workspace = await loadWorkspaceDetail(input.workspaceId, member.userId);
+    broadcastToUser(member.userId, 'workspace:joined', workspace);
+    broadcastToWorkspace(input.workspaceId, 'workspace:member-added', member);
+  }
+  return { added, skipped };
+}
+
+export async function updateWorkspaceMember(input: {
+  workspaceId: string;
+  actorUserId: string;
+  targetUserId: string;
+  role: WorkspaceRole;
+}) {
+  await assertWorkspaceRole(input.workspaceId, input.actorUserId, ['owner']);
+  await ensureNotLastOwner(input.workspaceId, input.targetUserId, input.role);
+
+  const member = await prisma.workspaceMember.update({
+    where: { workspaceId_userId: { workspaceId: input.workspaceId, userId: input.targetUserId } },
+    data: { role: input.role },
+    include: memberInclude,
+  });
+  broadcastToWorkspace(input.workspaceId, 'workspace:member-updated', member);
+  return member;
+}
+
+export async function removeWorkspaceMember(input: {
+  workspaceId: string;
+  actorUserId: string;
+  targetUserId: string;
+}): Promise<void> {
+  if (input.targetUserId !== input.actorUserId) {
+    await assertWorkspaceRole(input.workspaceId, input.actorUserId, ['owner']);
+  } else {
+    await assertWorkspaceRole(input.workspaceId, input.actorUserId, ['owner', 'admin', 'member', 'viewer']);
+  }
+  await ensureNotLastOwner(input.workspaceId, input.targetUserId);
+
+  await prisma.$transaction(async (tx) => {
+    await tx.projectAccess.deleteMany({ where: { userId: input.targetUserId, project: { workspaceId: input.workspaceId } } });
+    await tx.workspaceMember.delete({ where: { workspaceId_userId: { workspaceId: input.workspaceId, userId: input.targetUserId } } });
+  });
+
+  broadcastToUser(input.targetUserId, 'workspace:left', { workspaceId: input.workspaceId });
+  broadcastToWorkspace(input.workspaceId, 'workspace:member-removed', { userId: input.targetUserId });
+}
+
+export async function deleteWorkspaceRoute(input: { workspaceId: string; userId: string }): Promise<void> {
+  await assertWorkspaceRole(input.workspaceId, input.userId, ['owner']);
+  const projectCount = await prisma.project.count({ where: { workspaceId: input.workspaceId } });
+  if (projectCount > 0) {
+    throw new HttpError(409, 'WORKSPACE_HAS_PROJECTS', 'Cannot delete workspace with projects', { projectCount });
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.workspaceMember.deleteMany({ where: { workspaceId: input.workspaceId } });
+    await tx.workspace.delete({ where: { id: input.workspaceId } });
+  });
+
+  broadcastToWorkspace(input.workspaceId, 'workspace:deleted', { id: input.workspaceId });
+}
+
+export async function updateWorkspaceRoute(input: {
+  workspaceId: string;
+  userId: string;
+  data: Record<string, unknown>;
+}) {
+  await assertWorkspaceRole(input.workspaceId, input.userId, ['owner', 'admin']);
+  if (Object.keys(input.data).length === 0) {
+    throw new HttpError(400, 'NO_VALID_FIELDS', 'No valid fields to update');
+  }
+
+  await prisma.workspace.update({ where: { id: input.workspaceId }, data: input.data });
+  const detail = await loadWorkspaceDetail(input.workspaceId, input.userId);
+  broadcastToWorkspace(input.workspaceId, 'workspace:updated', detail);
+  return detail;
+}
