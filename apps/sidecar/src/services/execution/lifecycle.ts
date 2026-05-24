@@ -22,21 +22,39 @@ import {
   buildReposPath,
 } from './state';
 
-export async function executeTask({ taskId, userId }: ExecuteTaskParams): Promise<{ success: boolean; error?: string }> {
+import type { OpencodeClient } from '@opencode-ai/sdk';
+
+interface ExecutionInputs {
+  taskId: string;
+  userId: string;
+  accessToken: string | null;
+  project: { id: string; name: string; fullName: string; cloneUrl: string; defaultBranch: string } | null;
+  useLocalPath: string | null;
+  taskRecord: {
+    id: string;
+    title: string;
+    description: string | null;
+    model: string | null;
+    project: { id: string; localPath: string | null; repository: { id: string; name: string; fullName: string; cloneUrl: string; defaultBranch: string } | null } | null;
+    labels: Array<{ taskId: string; labelId: string; label: { id: string; name: string; color: string } }>;
+  };
+  branchName: string;
+  repoPath: string;
+}
+
+async function gatherExecutionInputs({ taskId, userId }: ExecuteTaskParams): Promise<{ inputs?: ExecutionInputs; error?: string }> {
   if (activeExecutions.has(taskId)) {
-    return { success: false, error: 'Task is already running' };
+    return { error: 'Task is already running' };
   }
 
   const settings = await getExecutionSettings(userId);
   const parallelLimit = settings.parallelLimit;
 
   if (activeExecutions.size >= parallelLimit) {
-    return { success: false, error: `Parallel limit reached (${parallelLimit} tasks max)` };
+    return { error: `Parallel limit reached (${parallelLimit} tasks max)` };
   }
 
   let accessToken: string | null = null;
-  let useLocalPath: string | null = null;
-  let project: { id: string; name: string; fullName: string; cloneUrl: string; defaultBranch: string } | null = null;
 
   if (userId) {
     const user = await prisma.user.findUnique({
@@ -60,8 +78,11 @@ export async function executeTask({ taskId, userId }: ExecuteTaskParams): Promis
   });
 
   if (!taskWithProject) {
-    return { success: false, error: 'Task not found' };
+    return { error: 'Task not found' };
   }
+
+  let useLocalPath: string | null = null;
+  let project: { id: string; name: string; fullName: string; cloneUrl: string; defaultBranch: string } | null = null;
 
   if (taskWithProject.project?.localPath) {
     useLocalPath = taskWithProject.project.localPath;
@@ -78,45 +99,212 @@ export async function executeTask({ taskId, userId }: ExecuteTaskParams): Promis
   }
 
   if (!project && !useLocalPath) {
-    return { success: false, error: 'No active project selected' };
+    return { error: 'No active project selected' };
+  }
+
+  if (!userId) {
+    return { error: 'userId is required for execution' };
   }
 
   const branchName = `openlinear/${taskId.slice(0, 8)}`;
-  let repoPath: string;
+  const repoPath = useLocalPath || buildReposPath(project!.name, taskId.slice(0, 8));
+
+  return {
+    inputs: {
+      taskId,
+      userId,
+      accessToken,
+      project,
+      useLocalPath,
+      taskRecord: taskWithProject as unknown as ExecutionInputs['taskRecord'],
+      branchName,
+      repoPath,
+    },
+  };
+}
+
+async function setupRepository(inputs: ExecutionInputs): Promise<void> {
+  const { taskId, useLocalPath, project, repoPath, branchName, accessToken } = inputs;
 
   if (useLocalPath) {
-    repoPath = useLocalPath;
+    broadcastProgress(taskId, 'cloning', 'Preparing local repository...');
+    await createBranch(repoPath, branchName);
   } else {
-    repoPath = buildReposPath(project!.name, taskId.slice(0, 8));
+    const repository = project!;
+    broadcastProgress(taskId, 'cloning', 'Cloning repository...');
+    await cloneRepository(repository.cloneUrl, repoPath, accessToken, repository.defaultBranch);
+    await createBranch(repoPath, branchName);
+  }
+}
+
+function initializeExecution(
+  inputs: ExecutionInputs,
+  client: OpencodeClient,
+  sessionId: string,
+  agentRunId: string | null,
+): ExecutionState {
+  const { taskId, project, useLocalPath, repoPath, branchName, userId, accessToken, taskRecord } = inputs;
+
+  const timeoutId = setTimeout(async () => {
+    console.log(`[Execution] Task ${taskId} timed out`);
+    await cancelTask(taskId);
+  }, TASK_TIMEOUT_MS);
+
+  return {
+    taskId,
+    projectId: project?.id || taskRecord.project?.id || 'local',
+    sessionId,
+    repoPath,
+    branchName,
+    userId,
+    accessToken,
+    timeoutId,
+    streamTimeoutId: null,
+    status: 'executing',
+    logs: [],
+    client,
+    startedAt: new Date(),
+    filesChanged: 0,
+    toolsExecuted: 0,
+    promptSent: false,
+    backgroundTaskRunning: false,
+    backgroundTaskFailure: null,
+    backgroundTaskIds: [],
+    backgroundTaskResultBuffer: '',
+    completedToolKeys: new Set(),
+    cancelled: false,
+    agentRunId,
+    cost: { input: 0, output: 0, total: 0 },
+    tokens: { input: 0, output: 0 },
+    messageUsage: new Map(),
+  };
+}
+
+async function startAgentSession(inputs: ExecutionInputs, executionState: ExecutionState): Promise<void> {
+  const { taskId, useLocalPath, repoPath, branchName, taskRecord } = inputs;
+  const { client, sessionId } = executionState;
+
+  activeExecutions.set(taskId, executionState);
+  sessionToTask.set(sessionId, taskId);
+  getOrCreateBuffer(taskId, (msg) => addLogEntry(taskId, 'agent', msg));
+
+  if (useLocalPath) {
+    addLogEntry(taskId, 'info', `Using local repository: ${repoPath}`);
+    addLogEntry(taskId, 'info', `Branch created: ${branchName}`);
+  } else {
+    addLogEntry(taskId, 'info', 'Repository cloned successfully');
+    addLogEntry(taskId, 'info', `Branch created: ${branchName}`);
+  }
+  addLogEntry(taskId, 'info', 'OpenCode agent started');
+
+  await updateTaskStatus(taskId, 'in_progress', sessionId, {
+    executionStartedAt: executionState.startedAt,
+    executionPausedAt: null,
+    executionElapsedMs: 0,
+    executionProgress: 0,
+  });
+
+  await prisma.task.update({
+    where: { id: taskId },
+    data: { batchId: null },
+  });
+
+  let prompt = taskRecord.title;
+  if (taskRecord.description) {
+    prompt += `\n\n${taskRecord.description}`;
+  }
+  if (taskRecord.labels.length > 0) {
+    const labelNames = taskRecord.labels.map((tl: { label: { name: string } }) => tl.label.name).join(', ');
+    prompt += `\n\nLabels: ${labelNames}`;
+  }
+  prompt += [
+    '',
+    '',
+    'Execution contract:',
+    '- Make the requested code changes directly in this repository before finishing.',
+    '- If you use a background subtask, wait for its result and apply any required changes before completing.',
+    '- Do not mark the task complete unless the repository contains the requested changes or you can explain why no code change is valid.',
+  ].join('\n');
+
+  subscribeToSessionEvents(taskId, client, sessionId);
+
+  const modelOverride = executionState.agentRunId ? getModelOverride(taskRecord, client) : undefined;
+  const resolvedOverride = await modelOverride;
+
+  if (resolvedOverride) {
+    addLogEntry(taskId, 'info', `Using model: ${resolvedOverride.label}`);
   }
 
-  try {
-    // Step 1: Clone
-    if (useLocalPath) {
-      broadcastProgress(taskId, 'cloning', 'Preparing local repository...');
-      await createBranch(repoPath, branchName);
-    } else {
-      const repository = project!;
-      broadcastProgress(taskId, 'cloning', 'Cloning repository...');
-      await cloneRepository(repository.cloneUrl, repoPath, accessToken, repository.defaultBranch);
-      await createBranch(repoPath, branchName);
+  client.session.prompt({
+    path: { id: sessionId },
+    body: {
+      parts: [{ type: 'text', text: prompt }],
+      ...(resolvedOverride?.override ? { model: resolvedOverride.override } : {}),
+    },
+  }).then(() => {
+    console.log(`[Execution] Prompt sent to session ${sessionId}`);
+    executionState.promptSent = true;
+    addLogEntry(taskId, 'info', 'Task prompt sent to agent');
+  }).catch(async (err: Error) => {
+    console.error(`[Execution] Prompt error for task ${taskId}:`, err);
+    const msg = err.message || 'Unknown error';
+    const isAuth = msg.toLowerCase().includes('api key') || msg.toLowerCase().includes('unauthorized') || msg.toLowerCase().includes('401');
+    const headline = isAuth
+      ? 'Invalid API key — update it in Settings → AI Providers'
+      : 'Failed to send prompt to agent';
+    addLogEntry(taskId, 'error', headline, msg);
+    broadcastProgress(taskId, 'error', headline);
+    await finalizeAgentRun(executionState, 'failed', { errorMessage: msg });
+    await updateTaskStatus(taskId, 'cancelled', null);
+    await persistLogs(taskId);
+    await cleanupExecution(taskId);
+  });
+}
+
+async function getModelOverride(
+  taskRecord: ExecutionInputs['taskRecord'],
+  client: OpencodeClient,
+): Promise<{ override: { providerID: string; modelID: string }; label: string } | undefined> {
+  let modelStr: string | null | undefined = taskRecord.model;
+  if (!modelStr) {
+    try {
+      const config = await client.config.get();
+      modelStr = config.data?.model;
+    } catch (err) {
+      console.debug(`[Execution] Could not read model config for task ${taskRecord.id}:`, err);
     }
+  }
+  if (modelStr && modelStr.includes('/')) {
+    const slashIdx = modelStr.indexOf('/');
+    return {
+      override: {
+        providerID: modelStr.slice(0, slashIdx),
+        modelID: modelStr.slice(slashIdx + 1),
+      },
+      label: modelStr,
+    };
+  }
+  return undefined;
+}
+
+export async function executeTask({ taskId, userId }: ExecuteTaskParams): Promise<{ success: boolean; error?: string }> {
+  const result = await gatherExecutionInputs({ taskId, userId });
+  if (result.error || !result.inputs) {
+    return { success: false, error: result.error };
+  }
+
+  const inputs = result.inputs;
+
+  try {
+    await setupRepository(inputs);
 
     broadcastProgress(taskId, 'executing', 'Starting OpenCode agent...');
 
-    if (!userId) {
-      return { success: false, error: 'userId is required for execution' };
-    }
+    const client = await getClientForUser(inputs.userId, inputs.repoPath);
 
-    const client = await getClientForUser(userId, repoPath);
-    
     const sessionResponse = await client.session.create({
-      body: { 
-        title: taskWithProject.title,
-      },
-      query: {
-        directory: repoPath,
-      },
+      body: { title: inputs.taskRecord.title },
+      query: { directory: inputs.repoPath },
     });
 
     const sessionId = sessionResponse.data?.id;
@@ -127,145 +315,21 @@ export async function executeTask({ taskId, userId }: ExecuteTaskParams): Promis
 
     console.log(`[Execution] Session ${sessionId} created for task ${taskId.slice(0, 8)}`);
 
-    let modelOverride: { providerID: string; modelID: string } | undefined;
-    let modelLabel = 'unknown';
-    let modelStr: string | null | undefined = taskWithProject.model;
-    if (!modelStr) {
-      try {
-        const config = await client.config.get();
-        modelStr = config.data?.model;
-      } catch (err) {
-        console.debug(`[Execution] Could not read model config for task ${taskId.slice(0, 8)}:`, err);
-      }
-    }
-    if (modelStr && modelStr.includes('/')) {
-      const slashIdx = modelStr.indexOf('/');
-      modelOverride = {
-        providerID: modelStr.slice(0, slashIdx),
-        modelID: modelStr.slice(slashIdx + 1),
-      };
-      modelLabel = modelStr;
-    }
+    const modelInfo = await getModelOverride(inputs.taskRecord, client);
+    const modelLabel = modelInfo?.label || 'unknown';
 
     const agentRunId = await createAgentRun({
       taskId,
-      userId,
+      userId: inputs.userId,
       agent: 'opencode',
       model: modelLabel,
     });
 
-    // Set up timeout
-    const timeoutId = setTimeout(async () => {
-      console.log(`[Execution] Task ${taskId} timed out`);
-      await cancelTask(taskId);
-    }, TASK_TIMEOUT_MS);
+    const executionState = initializeExecution(inputs, client, sessionId, agentRunId);
 
-    // Register in both maps
-    const executionState: ExecutionState = {
-      taskId,
-      projectId: project?.id || taskWithProject?.project?.id || 'local',
-      sessionId,
-      repoPath,
-      branchName,
-      userId,
-      accessToken,
-      timeoutId,
-      streamTimeoutId: null,
-      status: 'executing',
-      logs: [],
-      client,
-      startedAt: new Date(),
-      filesChanged: 0,
-      toolsExecuted: 0,
-      promptSent: false,
-      backgroundTaskRunning: false,
-      backgroundTaskFailure: null,
-      backgroundTaskIds: [],
-      backgroundTaskResultBuffer: '',
-      completedToolKeys: new Set(),
-      cancelled: false,
-      agentRunId,
-      cost: { input: 0, output: 0, total: 0 },
-      tokens: { input: 0, output: 0 },
-      messageUsage: new Map(),
-    };
+    await startAgentSession(inputs, executionState);
 
-    activeExecutions.set(taskId, executionState);
-    sessionToTask.set(sessionId, taskId);
-    getOrCreateBuffer(taskId, (msg) => addLogEntry(taskId, 'agent', msg));
-
-    // Add initial log entries
-    if (useLocalPath) {
-      addLogEntry(taskId, 'info', `Using local repository: ${repoPath}`);
-      addLogEntry(taskId, 'info', `Branch created: ${branchName}`);
-    } else {
-      addLogEntry(taskId, 'info', 'Repository cloned successfully');
-      addLogEntry(taskId, 'info', `Branch created: ${branchName}`);
-    }
-    addLogEntry(taskId, 'info', 'OpenCode agent started');
-
-    await updateTaskStatus(taskId, 'in_progress', sessionId, {
-      executionStartedAt: executionState.startedAt,
-      executionPausedAt: null,
-      executionElapsedMs: 0,
-      executionProgress: 0,
-    });
-
-    await prisma.task.update({
-      where: { id: taskId },
-      data: { batchId: null },
-    });
-
-    // Build prompt
-    let prompt = taskWithProject.title;
-    if (taskWithProject.description) {
-      prompt += `\n\n${taskWithProject.description}`;
-    }
-    if (taskWithProject.labels.length > 0) {
-      const labelNames = taskWithProject.labels.map((tl: TaskLabelRelation) => tl.label.name).join(', ');
-      prompt += `\n\nLabels: ${labelNames}`;
-    }
-    prompt += [
-      '',
-      '',
-      'Execution contract:',
-      '- Make the requested code changes directly in this repository before finishing.',
-      '- If you use a background subtask, wait for its result and apply any required changes before completing.',
-      '- Do not mark the task complete unless the repository contains the requested changes or you can explain why no code change is valid.',
-    ].join('\n');
-
-    subscribeToSessionEvents(taskId, client, sessionId);
-
-    if (modelOverride) {
-      addLogEntry(taskId, 'info', `Using model: ${modelLabel}`);
-    }
-
-    client.session.prompt({
-      path: { id: sessionId },
-      body: {
-        parts: [{ type: 'text', text: prompt }],
-        ...(modelOverride ? { model: modelOverride } : {}),
-      },
-    }).then(() => {
-      console.log(`[Execution] Prompt sent to session ${sessionId}`);
-      executionState.promptSent = true;
-      addLogEntry(taskId, 'info', 'Task prompt sent to agent');
-    }).catch(async (err: Error) => {
-      console.error(`[Execution] Prompt error for task ${taskId}:`, err);
-      const msg = err.message || 'Unknown error';
-      const isAuth = msg.toLowerCase().includes('api key') || msg.toLowerCase().includes('unauthorized') || msg.toLowerCase().includes('401');
-      const headline = isAuth
-        ? 'Invalid API key — update it in Settings → AI Providers'
-        : 'Failed to send prompt to agent';
-      addLogEntry(taskId, 'error', headline, msg);
-      broadcastProgress(taskId, 'error', headline);
-      await finalizeAgentRun(executionState, 'failed', { errorMessage: msg });
-      await updateTaskStatus(taskId, 'cancelled', null);
-      await persistLogs(taskId);
-      await cleanupExecution(taskId);
-    });
-
-    console.log(`[Execution] Started for task ${taskId} in ${repoPath}`);
+    console.log(`[Execution] Started for task ${taskId} in ${inputs.repoPath}`);
     return { success: true };
   } catch (error) {
     console.error(`[Execution] Failed to execute task ${taskId}:`, error);
