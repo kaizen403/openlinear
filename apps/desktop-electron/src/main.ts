@@ -19,14 +19,7 @@ const isDev = process.argv.includes("--dev");
 const gotTheLock = app.requestSingleInstanceLock();
 
 if (process.platform === "linux") {
-  app.disableHardwareAcceleration();
-  app.commandLine.appendSwitch("disable-gpu-vsync");
-  app.commandLine.appendSwitch("disable-software-rasterizer");
-  // Force XWayland on Hyprland/Wayland — native Wayland is broken in Electron
-  app.commandLine.appendSwitch("ozone-platform", "x11");
-  app.commandLine.appendSwitch("ozone-platform-hint", "x11");
-  process.env.ELECTRON_OZONE_PLATFORM_HINT = "x11";
-  app.commandLine.appendSwitch("enable-features", "VaapiVideoDecodeLinuxGL");
+  app.commandLine.appendSwitch("ozone-platform-hint", "auto");
 }
 
 let mainWindow: BrowserWindow | null = null;
@@ -120,11 +113,8 @@ function createWindow(url: string): BrowserWindow {
     center: true,
     show: false,
     backgroundColor: "#0a0a0a",
-    transparent: false,
-    hasShadow: false,
     frame: true,
     titleBarStyle: "default",
-    paintWhenInitiallyHidden: false,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -138,28 +128,13 @@ function createWindow(url: string): BrowserWindow {
 
   win.loadURL(url);
 
-  const showWindow = () => {
-    if (win.isDestroyed()) return;
-    if (process.platform === "linux") {
-      setTimeout(() => {
-        if (!win.isDestroyed()) {
-          win.show();
-          win.focus();
-          console.log("[Window] Ready and shown");
-        }
-      }, 250);
-    } else {
+  win.once("ready-to-show", () => {
+    if (!win.isDestroyed()) {
       win.show();
       win.focus();
       console.log("[Window] Ready and shown");
     }
-  };
-
-  if (process.platform === "linux") {
-    win.webContents.once("did-finish-load", showWindow);
-  } else {
-    win.once("ready-to-show", showWindow);
-  }
+  });
 
   if (isDev) {
     win.webContents.openDevTools();
