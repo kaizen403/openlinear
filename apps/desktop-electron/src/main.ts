@@ -20,6 +20,10 @@ const gotTheLock = app.requestSingleInstanceLock();
 
 if (process.platform === "linux") {
   app.disableHardwareAcceleration();
+  app.commandLine.appendSwitch("disable-gpu-vsync");
+  app.commandLine.appendSwitch("disable-software-rasterizer");
+  app.commandLine.appendSwitch("ozone-platform", "x11");
+  app.commandLine.appendSwitch("enable-features", "VaapiVideoDecodeLinuxGL");
 }
 
 let mainWindow: BrowserWindow | null = null;
@@ -113,8 +117,10 @@ function createWindow(url: string): BrowserWindow {
     center: true,
     show: false,
     backgroundColor: "#0a0a0a",
-    frame: process.platform === "darwin" ? false : true,
-    titleBarStyle: process.platform === "darwin" ? "hidden" : "default",
+    transparent: false,
+    hasShadow: false,
+    frame: true,
+    titleBarStyle: "default",
     paintWhenInitiallyHidden: false,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
@@ -130,7 +136,16 @@ function createWindow(url: string): BrowserWindow {
   win.loadURL(url);
 
   const showWindow = () => {
-    if (!win.isDestroyed()) {
+    if (win.isDestroyed()) return;
+    if (process.platform === "linux") {
+      setTimeout(() => {
+        if (!win.isDestroyed()) {
+          win.show();
+          win.focus();
+          console.log("[Window] Ready and shown");
+        }
+      }, 250);
+    } else {
       win.show();
       win.focus();
       console.log("[Window] Ready and shown");
