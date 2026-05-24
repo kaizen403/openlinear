@@ -1,8 +1,6 @@
-name: Deploy to Production
+name: Deploy to VPS (Legacy - Disabled)
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 concurrency:
@@ -64,53 +62,13 @@ jobs:
       - name: Test
         run: pnpm --filter @openlinear/api test
 
-  deploy:
-    name: Deploy
-    needs: checks
-    runs-on: ubuntu-latest
-    environment: production
-    steps:
-      - name: Deploy to droplet
-        uses: appleboy/ssh-action@v1
-        with:
-          host: ${{ secrets.DEPLOY_HOST }}
-          username: ${{ secrets.DEPLOY_USER }}
-          key: ${{ secrets.DEPLOY_SSH_KEY }}
-          command_timeout: 15m
-          script: |
-            set -e
-            export CI=true
-            cd /opt/openlinear && git reset --hard HEAD
-            /opt/openlinear/scripts/deploy.sh
-
-      - name: Diagnostics (pm2 + port + local health)
-        if: ${{ always() }}
-        uses: appleboy/ssh-action@v1
-        with:
-          host: ${{ secrets.DEPLOY_HOST }}
-          username: ${{ secrets.DEPLOY_USER }}
-          key: ${{ secrets.DEPLOY_SSH_KEY }}
-          command_timeout: 2m
-          script: |
-            set -e
-            echo "== pm2 show =="
-            pm2 show openlinear-api || true
-            pm2 show openlinear-web || true
-            echo "== port 3001 listener =="
-            (command -v ss >/dev/null 2>&1 && ss -ltnp | grep ':3001' && exit 0) || true
-            (command -v lsof >/dev/null 2>&1 && lsof -iTCP:3001 -sTCP:LISTEN -nP && exit 0) || true
-            echo "== localhost health =="
-            curl -sS -D- -o /dev/null --max-time 5 http://localhost:3001/health || true
-            echo "== localhost web =="
-            curl -sS -D- -o /dev/null --max-time 10 http://localhost:3000/ || true
-
-      - name: Verify deployment
+      - name: Verify API health
         run: |
-          sleep 30
-          HTTP_STATUS=$(curl -s -o /dev/null -w '%{http_code}' https://openlinear.tech/health)
+          echo "API deployed via Azure Container Apps (see deploy-azure.yml)"
+          echo "This legacy workflow no longer deploys to VPS"
+          HTTP_STATUS=$(curl -s -o /dev/null -w '%{http_code}' https://api.openlinear.tech/health)
           if [ "$HTTP_STATUS" = "200" ]; then
-            echo "✓ Deployment verified — health check returned $HTTP_STATUS"
+            echo "✓ API is healthy on Azure"
           else
-            echo "✗ Health check failed — returned $HTTP_STATUS"
-            exit 1
+            echo "⚠ API health check returned $HTTP_STATUS"
           fi
