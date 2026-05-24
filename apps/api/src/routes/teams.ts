@@ -1,12 +1,7 @@
-import { Router, Response, NextFunction } from 'express';
-import { Prisma, prisma, type TeamRole } from '@openlinear/db';
-import crypto from 'crypto';
-import { broadcastToTeam, broadcastToUser } from '../sse';
+import { Router, Response } from 'express';
+import { Prisma, prisma } from '@openlinear/db';
 import { requireAuth, optionalAuth, AuthRequest } from '../middleware/auth';
 import { validateBody, ValidatedRequest } from '../middleware/validate';
-import { assertTeamRole, assertProjectAccess, OwnershipError } from '../services/ownership';
-import { logActivity } from '../services/activity';
-import { HttpError } from '../errors';
 import { makeEtag } from '../lib/etag';
 import {
   getIdempotencyRecord,
@@ -16,6 +11,20 @@ import {
   replayIdempotencyRecord,
   storeIdempotencyRecord,
 } from '../lib/http';
+import { buildSelect } from '../lib/field-select';
+import {
+  addTeamMemberRoute,
+  changeTeamMemberRole,
+  createTeam,
+  deleteTeamRoute,
+  getTeam,
+  joinTeamRoute,
+  listTeamMembers,
+  removeTeamMemberRoute,
+  updateTeam,
+  teamFullInclude,
+  teamMemberInclude,
+} from '../services/teams';
 import {
   createTeamBodySchema,
   updateTeamBodySchema,
@@ -31,466 +40,129 @@ import {
 
 const router: Router = Router();
 
-const userSelect = { id: true, username: true, email: true, avatarUrl: true } as const;
-const memberInclude = { user: { select: userSelect } } as const;
-const teamFullInclude = {
-  members: { include: memberInclude },
-  _count: { select: { members: true } },
-  project: {
-    select: { id: true, name: true, status: true, color: true, icon: true },
-  },
-} satisfies Prisma.TeamInclude;
-const teamDetailInclude = {
-  members: { include: { user: true } },
-  project: true,
-  _count: { select: { members: true } },
-} satisfies Prisma.TeamInclude;
-
 const teamListFields = [
-  'id',
-  'name',
-  'key',
-  'description',
-  'color',
-  'icon',
-  'private',
-  'inviteCode',
-  'nextIssueNumber',
-  'projectId',
-  'createdAt',
-  'updatedAt',
-  'members',
-  'project',
-  '_count',
+  'id', 'name', 'key', 'description', 'color', 'icon', 'private', 'inviteCode',
+  'nextIssueNumber', 'projectId', 'createdAt', 'updatedAt', 'members', 'project', '_count',
 ] as const;
 
 const teamMemberFields = ['id', 'teamId', 'userId', 'role', 'sortOrder', 'createdAt', 'user'] as const;
 
 const teamScalarFields = new Set<string>([
-  'id',
-  'name',
-  'key',
-  'description',
-  'color',
-  'icon',
-  'private',
-  'inviteCode',
-  'nextIssueNumber',
-  'projectId',
-  'createdAt',
-  'updatedAt',
+  'id', 'name', 'key', 'description', 'color', 'icon', 'private', 'inviteCode',
+  'nextIssueNumber', 'projectId', 'createdAt', 'updatedAt',
 ]);
 
-type TeamMemberWithUser = Prisma.TeamMemberGetPayload<{ include: typeof memberInclude }>;
-
-function generateInviteCode(key: string): string {
-  const random = crypto.randomBytes(4).toString('hex').toUpperCase();
-  return `${key}-${random}`;
-}
+const teamRelationMap = {
+  members: { include: teamMemberInclude },
+  project: { select: { id: true, name: true, status: true, color: true, icon: true } },
+  _count: { select: { members: true } },
+} as const;
 
 function buildTeamSelect(fields: string[]): Prisma.TeamSelect {
-  const select: Prisma.TeamSelect = {};
-  for (const field of fields) {
-    if (teamScalarFields.has(field)) {
-      (select as Record<string, unknown>)[field] = true;
-      continue;
-    }
-    if (field === 'members') {
-      select.members = { include: memberInclude };
-    } else if (field === 'project') {
-      select.project = {
-        select: { id: true, name: true, status: true, color: true, icon: true },
-      };
-    } else if (field === '_count') {
-      select._count = { select: { members: true } };
-    }
-  }
-  return select;
+  return buildSelect(fields, teamScalarFields, teamRelationMap) as Prisma.TeamSelect;
 }
 
-function teamMemberToRecord(member: TeamMemberWithUser): Record<string, unknown> {
-  return {
-    id: member.id,
-    teamId: member.teamId,
-    userId: member.userId,
-    role: member.role,
-    sortOrder: member.sortOrder,
-    createdAt: member.createdAt,
-    user: member.user,
+function memberToRecord(member: Record<string, unknown>): Record<string, unknown> {
+  return { id: member.id, teamId: member.teamId, userId: member.userId, role: member.role, sortOrder: member.sortOrder, createdAt: member.createdAt, user: member.user };
+}
+
+router.get('/', optionalAuth, async (req: AuthRequest, res: Response) => {
+  res.setHeader('Cache-Control', 'private, max-age=0, must-revalidate');
+  if (!req.userId) { res.json([]); return; }
+  const fields = parseFields(req.query.fields, teamListFields);
+  const projectId = req.query.projectId as string | undefined;
+  const workspaceId = req.query.workspaceId as string | undefined;
+  const where: Prisma.TeamWhereInput = {
+    members: { some: { userId: req.userId } },
+    ...(projectId ? { projectId } : {}),
+    ...(workspaceId ? { project: { workspaceId } } : {}),
   };
-}
-
-async function loadTeamFull(teamId: string) {
-  const team = await prisma.team.findUnique({
-    where: { id: teamId },
-    include: teamFullInclude,
-  });
-  if (!team) {
-    throw new OwnershipError('team', teamId, 'not_found');
-  }
-  return team;
-}
-
-async function ensureNotLastOwner(teamId: string, userId: string, nextRole?: TeamRole): Promise<void> {
-  const current = await prisma.teamMember.findUnique({
-    where: { teamId_userId: { teamId, userId } },
-    select: { role: true },
-  });
-  if (!current) {
-    throw new OwnershipError('team', teamId, 'not_found');
-  }
-  if (current.role !== 'owner') return;
-  if (nextRole === 'owner') return;
-
-  const ownerCount = await prisma.teamMember.count({ where: { teamId, role: 'owner' } });
-  if (ownerCount <= 1) {
-    throw new HttpError(409, 'LAST_OWNER', 'Cannot remove or demote the last team owner', {
-      teamId,
-      userId,
-    });
-  }
-}
-
-router.get('/', optionalAuth, async (req: AuthRequest, res: Response, next: NextFunction) => {
-  try {
-    res.setHeader('Cache-Control', 'private, max-age=0, must-revalidate');
-    if (!req.userId) {
-      res.json([]);
-      return;
-    }
-
-    const fields = parseFields(req.query.fields, teamListFields);
-    const projectId = req.query.projectId as string | undefined;
-    const workspaceId = req.query.workspaceId as string | undefined;
-    const where: Prisma.TeamWhereInput = {
-      members: { some: { userId: req.userId } },
-      ...(projectId ? { projectId } : {}),
-      ...(workspaceId ? { project: { workspaceId } } : {}),
-    };
-    const teams = fields
-      ? await prisma.team.findMany({
-          where,
-          select: buildTeamSelect(fields),
-          orderBy: { createdAt: 'asc' },
-        })
-      : await prisma.team.findMany({
-          where,
-          include: teamFullInclude,
-          orderBy: { createdAt: 'asc' },
-        });
-    res.json(fields ? teams : teams.map((team) => pickFields({ ...team }, fields)));
-  } catch (error) {
-    next(error);
-  }
+  const teams = fields
+    ? await prisma.team.findMany({ where, select: buildTeamSelect(fields), orderBy: { createdAt: 'asc' } })
+    : await prisma.team.findMany({ where, include: teamFullInclude, orderBy: { createdAt: 'asc' } });
+  res.json(fields ? teams : teams.map((t) => pickFields({ ...t }, fields)));
 });
 
-router.post(
-  '/',
-  requireAuth,
-  validateBody(createTeamBodySchema),
-  async (req: AuthRequest & ValidatedRequest<CreateTeamBody>, res: Response, next: NextFunction) => {
-    try {
-      const replay = getIdempotencyRecord(req, req.userId!, 'POST /api/teams');
-      if (replay) {
-        replayIdempotencyRecord(res, replay);
-        return;
-      }
-
-      const data = req.validBody!;
-
-      await assertProjectAccess(data.projectId, req.userId!, 'full');
-
-      const existingKey = await prisma.team.findFirst({
-        where: { projectId: data.projectId, key: data.key },
-        select: { id: true },
-      });
-      if (existingKey) {
-        throw new HttpError(409, 'TEAM_KEY_TAKEN', `Team key "${data.key}" is already used in this project`);
-      }
-
-      const created = await prisma.team.create({
-        data: {
-          ...data,
-          inviteCode: generateInviteCode(data.key),
-          members: {
-            create: {
-              userId: req.userId!,
-              role: 'owner',
-            },
-          },
-        },
-        include: teamFullInclude,
-      });
-
-      broadcastToTeam(created.id, 'team:created', created);
-      broadcastToUser(req.userId!, 'team:created', created);
-      storeIdempotencyRecord(req, req.userId!, 'POST /api/teams', 201, created);
-      res.status(201).json(created);
-    } catch (error) {
-      next(error);
-    }
+router.post('/', requireAuth, validateBody(createTeamBodySchema),
+  async (req: AuthRequest & ValidatedRequest<CreateTeamBody>, res: Response) => {
+    const replay = getIdempotencyRecord(req, req.userId!, 'POST /api/teams');
+    if (replay) { replayIdempotencyRecord(res, replay); return; }
+    const team = await createTeam({ userId: req.userId!, ...req.validBody! });
+    storeIdempotencyRecord(req, req.userId!, 'POST /api/teams', 201, team);
+    res.status(201).json(team);
   },
 );
 
-router.post(
-  '/join',
-  requireAuth,
-  validateBody(joinTeamBodySchema),
-  async (req: AuthRequest & ValidatedRequest<JoinTeamBody>, res: Response, next: NextFunction) => {
-    try {
-      const replay = getIdempotencyRecord(req, req.userId!, 'POST /api/teams/join');
-      if (replay) {
-        replayIdempotencyRecord(res, replay);
-        return;
-      }
-
-      const { inviteCode } = req.validBody!;
-      const team = await prisma.team.findUnique({ where: { inviteCode } });
-      if (!team) {
-        throw new OwnershipError('team', inviteCode, 'not_found');
-      }
-
-      const existing = await prisma.teamMember.findUnique({
-        where: { teamId_userId: { teamId: team.id, userId: req.userId! } },
-      });
-      if (existing) {
-        throw new HttpError(409, 'ALREADY_MEMBER', 'You are already a member of this team');
-      }
-
-      await prisma.teamMember.create({
-        data: { teamId: team.id, userId: req.userId!, role: 'member' },
-      });
-
-      const result = await loadTeamFull(team.id);
-      broadcastToTeam(team.id, 'team:updated', result);
-      broadcastToUser(req.userId!, 'team:updated', result);
-      storeIdempotencyRecord(req, req.userId!, 'POST /api/teams/join', 200, result);
-      res.json(result);
-    } catch (error) {
-      next(error);
-    }
+router.post('/join', requireAuth, validateBody(joinTeamBodySchema),
+  async (req: AuthRequest & ValidatedRequest<JoinTeamBody>, res: Response) => {
+    const replay = getIdempotencyRecord(req, req.userId!, 'POST /api/teams/join');
+    if (replay) { replayIdempotencyRecord(res, replay); return; }
+    const result = await joinTeamRoute({ userId: req.userId!, inviteCode: req.validBody!.inviteCode });
+    storeIdempotencyRecord(req, req.userId!, 'POST /api/teams/join', 200, result);
+    res.json(result);
   },
 );
 
-router.patch(
-  '/:id',
-  requireAuth,
-  validateBody(updateTeamBodySchema),
-  async (req: AuthRequest & ValidatedRequest<UpdateTeamBody>, res: Response, next: NextFunction) => {
-    try {
-      const id = req.params.id as string;
-      await assertTeamRole(id, req.userId!, ['owner', 'admin']);
-
-      const existing = await prisma.team.findUnique({ where: { id } });
-      if (!existing) {
-        throw new OwnershipError('team', id, 'not_found');
-      }
-
-      const body = req.validBody!;
-      const updateData: Prisma.TeamUpdateInput = { ...body };
-      if (body.key && body.key !== existing.key) {
-        updateData.inviteCode = generateInviteCode(body.key);
-      }
-
-      await prisma.team.update({ where: { id }, data: updateData });
-      const team = await loadTeamFull(id);
-      broadcastToTeam(team.id, 'team:updated', team);
-      res.json(team);
-    } catch (error) {
-      next(error);
-    }
-  },
-);
-
-router.delete('/:id', requireAuth, async (req: AuthRequest, res: Response, next: NextFunction) => {
-  try {
-    const id = req.params.id as string;
-    await assertTeamRole(id, req.userId!, ['owner']);
-    const memberUserIds: string[] = [];
-    await prisma.$transaction(async (tx) => {
-      const team = await tx.team.findUnique({ where: { id } });
-      if (!team) throw new OwnershipError('team', id, 'not_found');
-      const members = await tx.teamMember.findMany({
-        where: { teamId: id },
-        select: { userId: true },
-      });
-      const taskCount = await tx.task.count({ where: { teamId: id } });
-      if (taskCount > 0) {
-        throw new HttpError(409, 'TEAM_HAS_TASKS', 'Cannot delete a team that still has tasks');
-      }
-      memberUserIds.push(...members.map((member) => member.userId));
-      await tx.teamMember.deleteMany({ where: { teamId: id } });
-      await tx.team.delete({ where: { id } });
-    }, { timeout: 15000, maxWait: 5000 });
-    for (const uid of memberUserIds) {
-      broadcastToUser(uid, 'team:deleted', { id });
-    }
-    res.status(204).send();
-  } catch (error) {
-    next(error);
-  }
-});
-
-router.get('/:id', requireAuth, async (req: AuthRequest, res: Response, next: NextFunction) => {
-  try {
-    const id = req.params.id as string;
-    await assertTeamRole(id, req.userId!, ['owner', 'admin', 'member']);
-
-    const team = await prisma.team.findUnique({
-      where: { id },
-      include: teamDetailInclude,
-    });
-    if (!team) {
-      throw new OwnershipError('team', id, 'not_found');
-    }
-
-    const etag = makeEtag([team.updatedAt, team._count.members]);
-    res.setHeader('ETag', etag);
-    res.setHeader('Cache-Control', 'private, max-age=0, must-revalidate');
-    if (req.header('If-None-Match') === etag) {
-      res.status(304).send();
-      return;
-    }
+router.patch('/:id', requireAuth, validateBody(updateTeamBodySchema),
+  async (req: AuthRequest & ValidatedRequest<UpdateTeamBody>, res: Response) => {
+    const team = await updateTeam({ userId: req.userId!, teamId: req.params.id as string, ...req.validBody! });
     res.json(team);
-  } catch (error) {
-    next(error);
-  }
-});
-
-router.get('/:id/members', requireAuth, async (req: AuthRequest, res: Response, next: NextFunction) => {
-  try {
-    const id = req.params.id as string;
-    await assertTeamRole(id, req.userId!, ['owner', 'admin', 'member']);
-    const fields = parseFields(req.query.fields, teamMemberFields);
-    const { limit, cursor } = parsePagination(req.query);
-
-    const members = await prisma.teamMember.findMany({
-      where: { teamId: id },
-      include: memberInclude,
-      orderBy: { id: 'asc' },
-      take: limit + 1,
-      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
-    });
-    const page = members.slice(0, limit);
-    const nextCursor = members.length > limit ? page.at(-1)?.id ?? null : null;
-    res.json({
-      data: page.map((member) => pickFields(teamMemberToRecord(member), fields)),
-      nextCursor,
-    });
-  } catch (error) {
-    next(error);
-  }
-});
-
-router.post(
-  '/:id/members',
-  requireAuth,
-  validateBody(addMemberBodySchema),
-  async (req: AuthRequest & ValidatedRequest<AddMemberBody>, res: Response, next: NextFunction) => {
-    try {
-      const id = req.params.id as string;
-      const replay = getIdempotencyRecord(req, req.userId!, `POST /api/teams/${id}/members`);
-      if (replay) {
-        replayIdempotencyRecord(res, replay);
-        return;
-      }
-
-      const { email, userId, role } = req.validBody!;
-      const caller = await assertTeamRole(id, req.userId!, ['owner', 'admin']);
-      if (role === 'owner' && caller.role !== 'owner') {
-        throw new OwnershipError('team', id, 'role_required', ['owner']);
-      }
-
-      const user = userId
-        ? await prisma.user.findUnique({ where: { id: userId }, select: userSelect })
-        : email
-          ? await prisma.user.findFirst({ where: { email }, select: userSelect })
-          : null;
-      if (!user) {
-        throw new HttpError(404, 'USER_NOT_FOUND', 'User not found');
-      }
-
-      const member = await prisma.teamMember.upsert({
-        where: { teamId_userId: { teamId: id, userId: user.id } },
-        update: {},
-        create: { teamId: id, userId: user.id, role },
-        include: memberInclude,
-      });
-
-      await logActivity({
-        teamId: id,
-        userId: req.userId!,
-        action: 'team_member_added',
-        payload: { addedUserId: user.id, role: member.role },
-      });
-
-      broadcastToTeam(id, 'team:member-added', member);
-      broadcastToUser(user.id, 'team:joined', { teamId: id });
-      storeIdempotencyRecord(req, req.userId!, `POST /api/teams/${id}/members`, 201, member);
-      res.status(201).json(member);
-    } catch (error) {
-      next(error);
-    }
   },
 );
 
-router.patch(
-  '/:id/members/:userId',
-  requireAuth,
-  validateBody(updateTeamMemberBodySchema),
-  async (req: AuthRequest & ValidatedRequest<UpdateTeamMemberBody>, res: Response, next: NextFunction) => {
-    try {
-      const id = req.params.id as string;
-      const targetUserId = req.params.userId as string;
-      const caller = await assertTeamRole(id, req.userId!, ['owner', 'admin']);
-      const nextRole = req.validBody!.role;
-      if (nextRole === 'owner' && caller.role !== 'owner') {
-        throw new OwnershipError('team', id, 'role_required', ['owner']);
-      }
-      await ensureNotLastOwner(id, targetUserId, nextRole);
+router.delete('/:id', requireAuth, async (req: AuthRequest, res: Response) => {
+  await deleteTeamRoute({ teamId: req.params.id as string, userId: req.userId! });
+  res.status(204).send();
+});
 
-      const member = await prisma.teamMember.update({
-        where: { teamId_userId: { teamId: id, userId: targetUserId } },
-        data: { role: nextRole },
-        include: memberInclude,
-      });
-      broadcastToTeam(id, 'team:member-updated', member);
-      res.json(member);
-    } catch (error) {
-      next(error);
-    }
+router.get('/:id', requireAuth, async (req: AuthRequest, res: Response) => {
+  const team = await getTeam({ teamId: req.params.id as string, userId: req.userId! });
+  const etag = makeEtag([team.updatedAt, team._count.members]);
+  res.setHeader('ETag', etag);
+  res.setHeader('Cache-Control', 'private, max-age=0, must-revalidate');
+  if (req.header('If-None-Match') === etag) { res.status(304).send(); return; }
+  res.json(team);
+});
+
+router.get('/:id/members', requireAuth, async (req: AuthRequest, res: Response) => {
+  const id = req.params.id as string;
+  const fields = parseFields(req.query.fields, teamMemberFields);
+  const { limit, cursor } = parsePagination(req.query);
+  const result = await listTeamMembers({ teamId: id, userId: req.userId!, limit, cursor });
+  res.json({
+    data: result.data.map((m) => pickFields(memberToRecord(m as unknown as Record<string, unknown>), fields)),
+    nextCursor: result.nextCursor,
+  });
+});
+
+router.post('/:id/members', requireAuth, validateBody(addMemberBodySchema),
+  async (req: AuthRequest & ValidatedRequest<AddMemberBody>, res: Response) => {
+    const id = req.params.id as string;
+    const replay = getIdempotencyRecord(req, req.userId!, `POST /api/teams/${id}/members`);
+    if (replay) { replayIdempotencyRecord(res, replay); return; }
+    const { email, userId, role } = req.validBody!;
+    const member = await addTeamMemberRoute({ teamId: id, actorUserId: req.userId!, email, userId, role });
+    storeIdempotencyRecord(req, req.userId!, `POST /api/teams/${id}/members`, 201, member);
+    res.status(201).json(member);
   },
 );
 
-router.delete('/:id/members/:userId', requireAuth, async (req: AuthRequest, res: Response, next: NextFunction) => {
-  try {
-    const id = req.params.id as string;
-    const targetUserId = req.params.userId as string;
-
-    if (targetUserId !== req.userId) {
-      await assertTeamRole(id, req.userId!, ['owner']);
-    } else {
-      await assertTeamRole(id, req.userId!, ['owner', 'admin', 'member']);
-    }
-    await ensureNotLastOwner(id, targetUserId);
-
-    await prisma.teamMember.delete({
-      where: { teamId_userId: { teamId: id, userId: targetUserId } },
+router.patch('/:id/members/:userId', requireAuth, validateBody(updateTeamMemberBodySchema),
+  async (req: AuthRequest & ValidatedRequest<UpdateTeamMemberBody>, res: Response) => {
+    const member = await changeTeamMemberRole({
+      teamId: req.params.id as string, actorUserId: req.userId!,
+      targetUserId: req.params.userId as string, role: req.validBody!.role,
     });
+    res.json(member);
+  },
+);
 
-    await logActivity({
-      teamId: id,
-      userId: req.userId!,
-      action: 'team_member_removed',
-      payload: { removedUserId: targetUserId },
-    });
-
-    broadcastToTeam(id, 'team:member-removed', { userId: targetUserId });
-    broadcastToUser(targetUserId, 'team:left', { teamId: id });
-    res.status(204).send();
-  } catch (error) {
-    next(error);
-  }
+router.delete('/:id/members/:userId', requireAuth, async (req: AuthRequest, res: Response) => {
+  await removeTeamMemberRoute({
+    teamId: req.params.id as string, actorUserId: req.userId!,
+    targetUserId: req.params.userId as string,
+  });
+  res.status(204).send();
 });
 
 export default router;

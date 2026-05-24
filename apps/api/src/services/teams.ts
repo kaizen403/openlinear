@@ -209,3 +209,100 @@ export async function changeTeamMemberRole(input: {
   broadcastToTeam(input.teamId, 'team:member-updated', member);
   return member;
 }
+
+export async function joinTeamRoute(input: { userId: string; inviteCode: string }) {
+  const team = await prisma.team.findUnique({ where: { inviteCode: input.inviteCode } });
+  if (!team) throw new OwnershipError('team', input.inviteCode, 'not_found');
+
+  const existing = await prisma.teamMember.findUnique({
+    where: { teamId_userId: { teamId: team.id, userId: input.userId } },
+  });
+  if (existing) throw new HttpError(409, 'ALREADY_MEMBER', 'You are already a member of this team');
+
+  await prisma.teamMember.create({ data: { teamId: team.id, userId: input.userId, role: 'member' } });
+  const result = await loadTeam(team.id);
+  broadcastToTeam(team.id, 'team:updated', result);
+  broadcastToUser(input.userId, 'team:updated', result);
+  return result;
+}
+
+export async function deleteTeamRoute(input: { teamId: string; userId: string }): Promise<void> {
+  await assertTeamRole(input.teamId, input.userId, ['owner']);
+  const memberUserIds: string[] = [];
+  await prisma.$transaction(async (tx) => {
+    const team = await tx.team.findUnique({ where: { id: input.teamId } });
+    if (!team) throw new OwnershipError('team', input.teamId, 'not_found');
+    const members = await tx.teamMember.findMany({ where: { teamId: input.teamId }, select: { userId: true } });
+    const taskCount = await tx.task.count({ where: { teamId: input.teamId } });
+    if (taskCount > 0) throw new HttpError(409, 'TEAM_HAS_TASKS', 'Cannot delete a team that still has tasks');
+    memberUserIds.push(...members.map((m) => m.userId));
+    await tx.teamMember.deleteMany({ where: { teamId: input.teamId } });
+    await tx.team.delete({ where: { id: input.teamId } });
+  }, { timeout: 15000, maxWait: 5000 });
+  for (const uid of memberUserIds) {
+    broadcastToUser(uid, 'team:deleted', { id: input.teamId });
+  }
+}
+
+export async function addTeamMemberRoute(input: {
+  teamId: string;
+  actorUserId: string;
+  email?: string;
+  userId?: string;
+  role: TeamRole;
+}) {
+  const caller = await assertTeamRole(input.teamId, input.actorUserId, ['owner', 'admin']);
+  if (input.role === 'owner' && caller.role !== 'owner') {
+    throw new OwnershipError('team', input.teamId, 'role_required', ['owner']);
+  }
+
+  const user = input.userId
+    ? await prisma.user.findUnique({ where: { id: input.userId }, select: userSelect })
+    : input.email
+      ? await prisma.user.findFirst({ where: { email: input.email }, select: userSelect })
+      : null;
+  if (!user) throw new HttpError(404, 'USER_NOT_FOUND', 'User not found');
+
+  const member = await prisma.teamMember.upsert({
+    where: { teamId_userId: { teamId: input.teamId, userId: user.id } },
+    update: {},
+    create: { teamId: input.teamId, userId: user.id, role: input.role },
+    include: memberInclude,
+  });
+
+  await logActivity({
+    teamId: input.teamId, userId: input.actorUserId,
+    action: 'team_member_added',
+    payload: { addedUserId: user.id, role: member.role },
+  });
+  broadcastToTeam(input.teamId, 'team:member-added', member);
+  broadcastToUser(user.id, 'team:joined', { teamId: input.teamId });
+  return member;
+}
+
+export async function removeTeamMemberRoute(input: {
+  teamId: string;
+  actorUserId: string;
+  targetUserId: string;
+}): Promise<void> {
+  if (input.targetUserId !== input.actorUserId) {
+    await assertTeamRole(input.teamId, input.actorUserId, ['owner']);
+  } else {
+    await assertTeamRole(input.teamId, input.actorUserId, ['owner', 'admin', 'member']);
+  }
+  await ensureNotLastTeamOwner(input.teamId, input.targetUserId);
+
+  await prisma.teamMember.delete({
+    where: { teamId_userId: { teamId: input.teamId, userId: input.targetUserId } },
+  });
+
+  await logActivity({
+    teamId: input.teamId, userId: input.actorUserId,
+    action: 'team_member_removed',
+    payload: { removedUserId: input.targetUserId },
+  });
+  broadcastToTeam(input.teamId, 'team:member-removed', { userId: input.targetUserId });
+  broadcastToUser(input.targetUserId, 'team:left', { teamId: input.teamId });
+}
+
+export { teamFullInclude, memberInclude as teamMemberInclude };
