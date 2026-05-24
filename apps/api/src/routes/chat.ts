@@ -74,20 +74,18 @@ router.get(
   requireAuth,
   validateQuery(chatSessionListQuerySchema),
   async (req: AuthValidated<unknown, ChatSessionListQuery>, res: Response, next: NextFunction) => {
-    try {
-      const { workspaceId, cursor, limit } = req.validQuery!;
-      await assertWorkspaceRole(workspaceId, req.userId!, ['owner', 'admin', 'member', 'viewer']);
-      const sessions = await prisma.chatSession.findMany({
-        where: { userId: req.userId!, workspaceId, archivedAt: null },
-        orderBy: [{ updatedAt: 'desc' }, { id: 'asc' }],
-        take: limit + 1,
-        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
-      });
-      const page = sessions.slice(0, limit);
-      res.json({ data: page, nextCursor: sessions.length > limit ? page.at(-1)?.id ?? null : null });
-    } catch (error) {
-      next(error);
-    }
+
+    const { workspaceId, cursor, limit } = req.validQuery!;
+    await assertWorkspaceRole(workspaceId, req.userId!, ['owner', 'admin', 'member', 'viewer']);
+    const sessions = await prisma.chatSession.findMany({
+      where: { userId: req.userId!, workspaceId, archivedAt: null },
+      orderBy: [{ updatedAt: 'desc' }, { id: 'asc' }],
+      take: limit + 1,
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+    });
+    const page = sessions.slice(0, limit);
+    res.json({ data: page, nextCursor: sessions.length > limit ? page.at(-1)?.id ?? null : null });
+    
   },
 );
 
@@ -96,22 +94,20 @@ router.post(
   requireAuth,
   validateBody(createChatSessionBodySchema),
   async (req: AuthValidated<CreateChatSessionBody>, res: Response, next: NextFunction) => {
-    try {
-      const { workspaceId, projectId, title } = req.validBody!;
-      await assertWorkspaceRole(workspaceId, req.userId!, ['owner', 'admin', 'member', 'viewer']);
-      if (projectId) await assertProjectInWorkspace(projectId, workspaceId, req.userId!);
-      const session = await prisma.chatSession.create({
-        data: {
-          userId: req.userId!,
-          workspaceId,
-          projectId,
-          title: title ?? 'New chat',
-        },
-      });
-      res.status(201).json(session);
-    } catch (error) {
-      next(error);
-    }
+
+    const { workspaceId, projectId, title } = req.validBody!;
+    await assertWorkspaceRole(workspaceId, req.userId!, ['owner', 'admin', 'member', 'viewer']);
+    if (projectId) await assertProjectInWorkspace(projectId, workspaceId, req.userId!);
+    const session = await prisma.chatSession.create({
+      data: {
+        userId: req.userId!,
+        workspaceId,
+        projectId,
+        title: title ?? 'New chat',
+      },
+    });
+    res.status(201).json(session);
+    
   },
 );
 
@@ -120,21 +116,19 @@ router.get(
   requireAuth,
   validateQuery(chatMessagesQuerySchema),
   async (req: AuthValidated<unknown, ChatMessagesQuery>, res: Response, next: NextFunction) => {
-    try {
-      const id = req.params.id as string;
-      const { before, limit } = req.validQuery!;
-      const session = await loadOwnedSession(id, req.userId!);
-      const messages = await prisma.chatMessage.findMany({
-        where: { sessionId: id },
-        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-        take: limit + 1,
-        ...(before ? { cursor: { id: before }, skip: 1 } : {}),
-      });
-      const page = messages.slice(0, limit);
-      res.json({ session, messages: page.reverse(), nextCursor: messages.length > limit ? page.at(-1)?.id ?? null : null });
-    } catch (error) {
-      next(error);
-    }
+
+    const id = req.params.id as string;
+    const { before, limit } = req.validQuery!;
+    const session = await loadOwnedSession(id, req.userId!);
+    const messages = await prisma.chatMessage.findMany({
+      where: { sessionId: id },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: limit + 1,
+      ...(before ? { cursor: { id: before }, skip: 1 } : {}),
+    });
+    const page = messages.slice(0, limit);
+    res.json({ session, messages: page.reverse(), nextCursor: messages.length > limit ? page.at(-1)?.id ?? null : null });
+    
   },
 );
 
@@ -143,34 +137,30 @@ router.patch(
   requireAuth,
   validateBody(updateChatSessionBodySchema),
   async (req: AuthValidated<UpdateChatSessionBody>, res: Response, next: NextFunction) => {
-    try {
-      const id = req.params.id as string;
-      const session = await loadOwnedSession(id, req.userId!);
-      const { title, projectId } = req.validBody!;
-      if (projectId) await assertProjectInWorkspace(projectId, session.workspaceId, req.userId!);
-      const updated = await prisma.chatSession.update({
-        where: { id },
-        data: {
-          ...(title !== undefined ? { title } : {}),
-          ...(projectId !== undefined ? { projectId } : {}),
-        },
-      });
-      res.json(updated);
-    } catch (error) {
-      next(error);
-    }
+
+    const id = req.params.id as string;
+    const session = await loadOwnedSession(id, req.userId!);
+    const { title, projectId } = req.validBody!;
+    if (projectId) await assertProjectInWorkspace(projectId, session.workspaceId, req.userId!);
+    const updated = await prisma.chatSession.update({
+      where: { id },
+      data: {
+        ...(title !== undefined ? { title } : {}),
+        ...(projectId !== undefined ? { projectId } : {}),
+      },
+    });
+    res.json(updated);
+    
   },
 );
 
 router.delete('/sessions/:id', requireAuth, async (req: AuthRequest, res: Response, next: NextFunction) => {
-  try {
-    const id = req.params.id as string;
-    await loadOwnedSession(id, req.userId!);
-    await prisma.chatSession.update({ where: { id }, data: { archivedAt: new Date() } });
-    res.status(204).send();
-  } catch (error) {
-    next(error);
-  }
+
+  const id = req.params.id as string;
+  await loadOwnedSession(id, req.userId!);
+  await prisma.chatSession.update({ where: { id }, data: { archivedAt: new Date() } });
+  res.status(204).send();
+  
 });
 
 function writeChunk(res: Response, chunk: ChatChunk): void {
