@@ -1,191 +1,39 @@
 "use client"
 
 import { useState, useEffect, useCallback, Suspense } from "react"
-import { useSearchParams } from "next/navigation"
-import { useRouter } from "next/navigation"
-import {
-  Search,
-  Plus,
-  FolderKanban,
-  Target,
-  Hexagon,
-  Filter,
-  Calendar,
-  TrendingUp,
-  Trash2,
-  Loader2,
-  Pencil,
-  GitBranch,
-  Lock,
-  FolderOpen,
-  Settings,
-} from "lucide-react"
+import { useSearchParams, useRouter } from "next/navigation"
+import { Search, Plus, Filter, TrendingUp, Loader2 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { DatePicker } from "@/components/ui/date-picker"
-import { Badge } from "@/components/ui/badge"
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
   DialogFooter,
   DialogDescription,
 } from "@/components/ui/dialog"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
-import {
-  fetchProjects,
-  createProject,
-  updateProject,
-  deleteProject,
-  fetchGitHubRepos,
-  startLogin,
-  ApiError,
-  type Project,
-  type Team,
-  type GitHubRepo,
-} from "@/lib/api"
-import { useSSESubscription } from "@/providers/sse-provider"
-import { useWorkspace } from "@/hooks/use-workspace"
 import { toast } from "sonner"
-import { EmptyState } from "@/components/empty-state"
-import { Skeleton } from "@/components/ui/skeleton"
-
-function mapErrorToForm(
-  err: unknown,
-  fallbackMessage: string,
-): { toastMessage: string; formErrors: Record<string, string> } {
-  if (err instanceof ApiError) {
-    const formErrors: Record<string, string> = {}
-    const details = err.details as
-      | { fieldErrors?: Record<string, string[]>; formErrors?: string[] }
-      | undefined
-    if (details?.fieldErrors && typeof details.fieldErrors === "object") {
-      for (const [field, msgs] of Object.entries(details.fieldErrors)) {
-        if (Array.isArray(msgs) && msgs.length > 0 && typeof msgs[0] === "string") {
-          formErrors[field] = msgs[0]
-        }
-      }
-    }
-    if (err.code === "OWNERSHIP_REQUIRED") {
-      const message =
-        err.status === 404
-          ? "You don't have access to this resource."
-          : "You don't have permission to perform this action."
-      formErrors._root = message
-      return { toastMessage: message, formErrors }
-    }
-    formErrors._root = err.message
-    return { toastMessage: err.message, formErrors }
-  }
-  return {
-    toastMessage: fallbackMessage,
-    formErrors: { _root: fallbackMessage },
-  }
-}
-
-type StatusType = 'planned' | 'in_progress' | 'paused' | 'completed' | 'cancelled'
-
-const statusConfig: Record<StatusType, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
-  planned: { label: "Planned", variant: "outline" },
-  in_progress: { label: "In Progress", variant: "default" },
-  paused: { label: "Paused", variant: "secondary" },
-  completed: { label: "Completed", variant: "default" },
-  cancelled: { label: "Cancelled", variant: "destructive" }
-}
-
-const statusOptions = [
-  { value: "planned", label: "Planned" },
-  { value: "in_progress", label: "In Progress" },
-  { value: "paused", label: "Paused" },
-  { value: "completed", label: "Completed" },
-  { value: "cancelled", label: "Cancelled" },
-] as const
-
-const PROJECT_LIST_FIELDS = [
-  'id',
-  'workspaceId',
-  'key',
-  'name',
-  'description',
-  'status',
-  'color',
-  'icon',
-  'targetDate',
-  'repoUrl',
-  'localPath',
-  'repositoryId',
-  'teams',
-  '_count',
-] as const
-
-function ProjectIcon({ type, color }: { type: string | null; color: string }) {
-  const iconClass = "w-3.5 h-3.5 text-linear-text-secondary"
-  return (
-    <div 
-      className="w-7 h-7 rounded-sm flex items-center justify-center flex-shrink-0 border border-linear-border"
-      style={{ backgroundColor: color || '#10b981' }}
-    >
-      {type === "target" && <Target className={iconClass} />}
-      {type === "hexagon" && <Hexagon className={iconClass} />}
-      {(!type || type === "folder") && <FolderKanban className={iconClass} />}
-    </div>
-  )
-}
-
-function StatusBadge({ status }: { status: StatusType }) {
-  const config = statusConfig[status] || statusConfig.planned
-  return (
-    <Badge variant={config.variant} className="text-xs">
-      {config.label}
-    </Badge>
-  )
-}
-
-function TeamBadges({ teams }: { teams?: Team[] }) {
-  if (!teams || teams.length === 0) return <span className="text-sm text-linear-text-tertiary">—</span>
-  
-  return (
-    <div className="flex items-center gap-1 flex-wrap">
-      {teams.slice(0, 3).map((team) => (
-        <Badge key={team.id} variant="outline" className="text-xs">
-          {team.name}
-        </Badge>
-      ))}
-      {teams.length > 3 && (
-        <Badge variant="outline" className="text-xs">
-          +{teams.length - 3}
-        </Badge>
-      )}
-    </div>
-  )
-}
-
-function formatDate(dateString: string | null): string {
-  if (!dateString) return "—"
-  const date = new Date(dateString)
-  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-}
+import { useProjects, mapErrorToForm, projectToFormData, type ProjectFormData } from "@/hooks/use-projects"
+import { ProjectFormDialog } from "@/components/projects/project-form-dialog"
+import { ProjectList } from "@/components/projects/project-list"
+import type { Project } from "@/lib/api"
 
 function ProjectsContent() {
   const searchParams = useSearchParams()
   const router = useRouter()
-  const { activeWorkspace, isLoading: isWorkspaceLoading } = useWorkspace()
-  const activeWorkspaceId = activeWorkspace?.id
   const filterTeamId = searchParams.get("teamId") || undefined
   const editProjectId = searchParams.get("editProjectId")
+
+  const {
+    projects,
+    isLoading,
+    handleCreateProject,
+    handleUpdateProject,
+    handleDeleteProject,
+  } = useProjects(filterTeamId)
+
   const [activeTab, setActiveTab] = useState("all")
-  const [projects, setProjects] = useState<Project[]>([])
-  const [isLoading, setIsLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState("")
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
@@ -194,198 +42,33 @@ function ProjectsContent() {
   const [editProject, setEditProject] = useState<Project | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isDesktopApp, setIsDesktopApp] = useState(false)
-  const [isPickingLocalPath, setIsPickingLocalPath] = useState(false)
-  const [isPickingEditLocalPath, setIsPickingEditLocalPath] = useState(false)
-  
-  // Form state
-  const [formData, setFormData] = useState({
-    name: "",
-    description: "",
-    status: "planned" as string,
-    targetDate: "",
-    sourceType: "none" as "none" | "repo" | "local",
-    repoUrl: "",
-    localPath: "",
-  })
-  const [editFormData, setEditFormData] = useState({
-    name: "",
-    description: "",
-    status: "planned" as string,
-    targetDate: "",
-    sourceType: "none" as "none" | "repo" | "local",
-    repoUrl: "",
-    localPath: "",
-  })
-  const [formErrors, setFormErrors] = useState<Record<string, string>>({})
-
-  const [repoMode, setRepoMode] = useState<'url' | 'picker'>('url')
-  const [githubRepos, setGithubRepos] = useState<GitHubRepo[]>([])
-  const [reposLoading, setReposLoading] = useState(false)
-  const [repoSearch, setRepoSearch] = useState('')
-  const [githubError, setGithubError] = useState<string | null>(null)
-
-  const [editRepoMode, setEditRepoMode] = useState<'url' | 'picker'>('url')
-  const [editGithubRepos, setEditGithubRepos] = useState<GitHubRepo[]>([])
-  const [editReposLoading, setEditReposLoading] = useState(false)
-  const [editRepoSearch, setEditRepoSearch] = useState('')
-  const [editGithubError, setEditGithubError] = useState<string | null>(null)
-
-  const handleGitHubLogin = useCallback(async () => {
-    const started = await startLogin()
-    if (!started) {
-      toast.error("Could not open GitHub sign-in. Check that the desktop API is running and try again.")
-    }
-  }, [])
-
-  const loadGitHubRepos = useCallback(async (isEdit = false) => {
-    if (isEdit) {
-      setEditReposLoading(true)
-      setEditGithubError(null)
-    } else {
-      setReposLoading(true)
-      setGithubError(null)
-    }
-
-    try {
-      const { repos } = await fetchGitHubRepos({ perPage: 100 })
-      if (isEdit) {
-        setEditGithubRepos(repos)
-      } else {
-        setGithubRepos(repos)
-      }
-    } catch {
-      if (isEdit) {
-        setEditGithubError('Failed to fetch GitHub repos')
-      } else {
-        setGithubError('Failed to fetch GitHub repos')
-      }
-    } finally {
-      if (isEdit) {
-        setEditReposLoading(false)
-      } else {
-        setReposLoading(false)
-      }
-    }
-  }, [])
 
   useEffect(() => {
     const tauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window
     setIsDesktopApp(tauri)
   }, [])
 
-  const pickLocalFolder = useCallback(async (isEdit = false) => {
-    if (!isDesktopApp) return
-
-    if (isEdit) {
-      setIsPickingEditLocalPath(true)
-    } else {
-      setIsPickingLocalPath(true)
-    }
-
-    try {
-      let selectedPath: string | null = null
-      if (typeof window !== 'undefined' && 'electronAPI' in window && window.electronAPI?.isElectron) {
-        selectedPath = await window.electronAPI.pickFolder()
-      } else {
-        const { invoke } = await import("@tauri-apps/api/core")
-        selectedPath = await invoke<string | null>("pick_local_folder")
-      }
-      if (!selectedPath) return
-
-      if (isEdit) {
-        setEditFormData((prev) => ({ ...prev, sourceType: "local", repoUrl: "", localPath: selectedPath }))
-      } else {
-        setFormData((prev) => ({ ...prev, sourceType: "local", repoUrl: "", localPath: selectedPath }))
-      }
-    } catch (error) {
-      const { toastMessage } = mapErrorToForm(
-        error,
-        "Could not open the folder picker. Try again or paste a path manually.",
-      )
-      toast.error(toastMessage)
-    } finally {
-      if (isEdit) {
-        setIsPickingEditLocalPath(false)
-      } else {
-        setIsPickingLocalPath(false)
-      }
-    }
-  }, [isDesktopApp])
-
-  const loadProjects = useCallback(async () => {
-    if (isWorkspaceLoading) return
-    if (!activeWorkspaceId) {
-      setProjects([])
-      return
-    }
-    try {
-      const data = await fetchProjects({
-        teamId: filterTeamId,
-        workspaceId: activeWorkspaceId,
-        fields: [...PROJECT_LIST_FIELDS],
-      })
-      setProjects(data)
-    } catch (error) {
-      const { toastMessage } = mapErrorToForm(
-        error,
-        "Could not reach OpenLinear server. Check your connection and try again.",
-      )
-      toast.error(`Failed to load projects: ${toastMessage}`)
-    }
-  }, [activeWorkspaceId, filterTeamId, isWorkspaceLoading])
-
-  useEffect(() => {
-    if (isWorkspaceLoading) return
-    setIsLoading(true)
-    Promise.all([loadProjects()]).finally(() => {
-      setIsLoading(false)
-    })
-  }, [isWorkspaceLoading, loadProjects])
-
   useEffect(() => {
     if (!editProjectId) return
     if (projects.length === 0) return
-
     const project = projects.find((p) => p.id === editProjectId)
     if (!project) return
-
     setEditProject(project)
-    setEditFormData({
-      name: project.name,
-      description: project.description || "",
-      status: project.status,
-      targetDate: project.targetDate ? project.targetDate.split('T')[0] : "",
-      sourceType: project.repoUrl ? "repo" : project.localPath ? "local" : "none",
-      repoUrl: project.repoUrl || "",
-      localPath: project.localPath || "",
-    })
     setIsEditDialogOpen(true)
   }, [editProjectId, projects])
 
   const handleEditDialogOpenChange = (open: boolean) => {
     setIsEditDialogOpen(open)
-    if (open) {
-      setFormErrors({})
-      return
+    if (!open) {
+      setEditProject(null)
+      const params = new URLSearchParams(searchParams.toString())
+      if (params.has('editProjectId')) {
+        params.delete('editProjectId')
+        const qs = params.toString()
+        router.replace(qs ? `/projects?${qs}` : '/projects', { scroll: false })
+      }
     }
-
-    const params = new URLSearchParams(searchParams.toString())
-    if (!params.has('editProjectId')) return
-    params.delete('editProjectId')
-    const qs = params.toString()
-    router.replace(qs ? `/projects?${qs}` : '/projects', { scroll: false })
   }
-
-  const handleCreateDialogOpenChange = (open: boolean) => {
-    setIsCreateDialogOpen(open)
-    if (open) setFormErrors({})
-  }
-
-  useSSESubscription((eventType) => {
-    if (['project:created', 'project:updated', 'project:deleted'].includes(eventType)) {
-      loadProjects()
-    }
-  })
 
   const filteredProjects = projects.filter((project) => {
     if (activeTab === "active") {
@@ -393,7 +76,6 @@ function ProjectsContent() {
     } else if (activeTab === "archived") {
       if (!["completed", "cancelled"].includes(project.status)) return false
     }
-    
     if (searchQuery) {
       const query = searchQuery.toLowerCase()
       return (
@@ -401,115 +83,31 @@ function ProjectsContent() {
         (project.description?.toLowerCase() || "").includes(query)
       )
     }
-    
     return true
   })
 
-  const validateForm = (): boolean => {
-    const errors: Record<string, string> = {}
-    
-    if (!formData.name.trim()) {
-      errors.name = "Name is required"
-    }
-
-    if (formData.sourceType === "local" && isDesktopApp && !formData.localPath.trim()) {
-      errors.localPath = "Choose a local folder"
-    }
-    
-    setFormErrors(errors)
-    return Object.keys(errors).length === 0
+  const onCreateSubmit = async (formData: ProjectFormData) => {
+    await handleCreateProject(formData, isDesktopApp)
   }
 
-  const handleCreateProject = async (e: React.FormEvent) => {
-    e.preventDefault()
-    
-    if (!validateForm()) return
-    
-    setIsSubmitting(true)
-    try {
-      await createProject({
-        name: formData.name.trim(),
-        workspaceId: activeWorkspaceId,
-        description: formData.description.trim() || undefined,
-        status: formData.status,
-        targetDate: formData.targetDate ? new Date(formData.targetDate).toISOString() : undefined,
-        color: "#10b981",
-        repoUrl: formData.sourceType === "repo" ? formData.repoUrl.trim() : undefined,
-        localPath: formData.sourceType === "local" && isDesktopApp ? formData.localPath.trim() : undefined,
-      })
-
-      setFormData({
-        name: "",
-        description: "",
-        status: "planned",
-        targetDate: "",
-        sourceType: "none",
-        repoUrl: "",
-        localPath: "",
-      })
-      setIsCreateDialogOpen(false)
-      loadProjects()
-    } catch (error) {
-      const { toastMessage, formErrors: nextErrors } = mapErrorToForm(
-        error,
-        "Could not reach OpenLinear server. Check your connection and try again.",
-      )
-      setFormErrors((prev) => ({ ...prev, ...nextErrors }))
-      toast.error(toastMessage)
-    } finally {
-      setIsSubmitting(false)
-    }
+  const onEditSubmit = async (formData: ProjectFormData) => {
+    if (!editProject) return
+    await handleUpdateProject(editProject.id, formData, isDesktopApp, editProject.localPath)
   }
 
-  const handleDeleteProject = async () => {
+  const onDeleteConfirm = async () => {
     if (!projectToDelete) return
-
     setIsSubmitting(true)
     try {
-      await deleteProject(projectToDelete.id)
+      await handleDeleteProject(projectToDelete.id)
       setIsDeleteDialogOpen(false)
       setProjectToDelete(null)
-      loadProjects()
     } catch (error) {
       const { toastMessage } = mapErrorToForm(
         error,
         "Could not reach OpenLinear server. Check your connection and try again.",
       )
       toast.error(`Failed to delete project: ${toastMessage}`)
-    } finally {
-      setIsSubmitting(false)
-    }
-  }
-
-  const handleEditProject = async (e: React.FormEvent) => {
-    e.preventDefault()
-
-    if (!editProject) return
-
-    setIsSubmitting(true)
-    try {
-      await updateProject(editProject.id, {
-        name: editFormData.name.trim(),
-        description: editFormData.description.trim() || null,
-        status: editFormData.status,
-        targetDate: editFormData.targetDate ? new Date(editFormData.targetDate).toISOString() : null,
-        repoUrl: editFormData.sourceType === "repo" ? editFormData.repoUrl.trim() : null,
-        localPath:
-          editFormData.sourceType === "local"
-            ? (isDesktopApp || !!editProject.localPath ? editFormData.localPath.trim() : null)
-            : null,
-      })
-
-      setIsEditDialogOpen(false)
-      setEditProject(null)
-      loadProjects()
-    } catch (error) {
-      const { toastMessage, formErrors: nextErrors } = mapErrorToForm(
-        error,
-        "Could not reach OpenLinear server. Check your connection and try again.",
-      )
-      setFormErrors((prev) => ({ ...prev, ...nextErrors }))
-      toast.error(toastMessage)
     } finally {
       setIsSubmitting(false)
     }
@@ -524,42 +122,21 @@ function ProjectsContent() {
               <div className="flex items-center gap-2 sm:gap-4 overflow-x-auto">
                 <h1 className="text-xl font-semibold text-linear-text flex-shrink-0">Projects</h1>
                 <div className="flex items-center gap-1">
-                  <button 
-                    type="button"
-                    onClick={() => setActiveTab("all")}
-                    className={cn(
-                      "px-3 py-1.5 rounded-sm text-sm font-medium transition-colors whitespace-nowrap",
-                      activeTab === "all" 
-                        ? "bg-linear-bg-tertiary text-linear-text" 
-                        : "text-linear-text-secondary hover:text-linear-text hover:bg-linear-bg-tertiary/50"
-                    )}
-                  >
-                    All projects
-                  </button>
-                  <button 
-                    type="button"
-                    onClick={() => setActiveTab("active")}
-                    className={cn(
-                      "px-3 py-1.5 rounded-sm text-sm font-medium transition-colors whitespace-nowrap",
-                      activeTab === "active" 
-                        ? "bg-linear-bg-tertiary text-linear-text" 
-                        : "text-linear-text-secondary hover:text-linear-text hover:bg-linear-bg-tertiary/50"
-                    )}
-                  >
-                    Active
-                  </button>
-                  <button 
-                    type="button"
-                    onClick={() => setActiveTab("archived")}
-                    className={cn(
-                      "px-3 py-1.5 rounded-sm text-sm font-medium transition-colors whitespace-nowrap",
-                      activeTab === "archived" 
-                        ? "bg-linear-bg-tertiary text-linear-text" 
-                        : "text-linear-text-secondary hover:text-linear-text hover:bg-linear-bg-tertiary/50"
-                    )}
-                  >
-                    Archived
-                  </button>
+                  {(["all", "active", "archived"] as const).map((tab) => (
+                    <button
+                      key={tab}
+                      type="button"
+                      onClick={() => setActiveTab(tab)}
+                      className={cn(
+                        "px-3 py-1.5 rounded-sm text-sm font-medium transition-colors whitespace-nowrap",
+                        activeTab === tab
+                          ? "bg-linear-bg-tertiary text-linear-text"
+                          : "text-linear-text-secondary hover:text-linear-text hover:bg-linear-bg-tertiary/50"
+                      )}
+                    >
+                      {tab === "all" ? "All projects" : tab === "active" ? "Active" : "Archived"}
+                    </button>
+                  ))}
                 </div>
               </div>
               <div className="flex items-center gap-2 flex-shrink-0">
@@ -567,303 +144,14 @@ function ProjectsContent() {
                   <TrendingUp className="w-4 h-4 mr-1.5" />
                   <span className="hidden sm:inline">New view</span>
                 </Button>
-                <Dialog open={isCreateDialogOpen} onOpenChange={handleCreateDialogOpenChange}>
-                  <DialogTrigger asChild>
-                    <Button size="sm" className="h-8 bg-linear-accent hover:bg-linear-accent-hover text-white">
-                      <Plus className="w-4 h-4 mr-1.5" />
-                      <span className="hidden sm:inline">Add project</span>
-                    </Button>
-                  </DialogTrigger>
-                  <DialogContent className="sm:max-w-[500px] bg-linear-bg border-linear-border">
-                    <DialogHeader>
-                      <DialogTitle className="text-linear-text">Create Project</DialogTitle>
-                      <DialogDescription className="text-linear-text-secondary">
-                        Create a new project to organize your tasks.
-                      </DialogDescription>
-                    </DialogHeader>
-                    <form onSubmit={handleCreateProject} className="space-y-4 py-4">
-                      <div className="space-y-2">
-                        <Label htmlFor="name" className="text-linear-text">
-                          Name <span className="text-red-500">*</span>
-                        </Label>
-                        <Input
-                          id="name"
-                          value={formData.name}
-                          onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
-                          placeholder="Project name"
-                          className={cn(
-                            "bg-linear-bg-tertiary border-linear-border text-linear-text placeholder:text-linear-text-tertiary",
-                            formErrors.name && "border-red-500"
-                          )}
-                        />
-                        {formErrors.name && (
-                          <p className="text-xs text-red-500">{formErrors.name}</p>
-                        )}
-                      </div>
-                      
-                      <div className="space-y-2">
-                        <Label htmlFor="description" className="text-linear-text">Description</Label>
-                        <Input
-                          id="description"
-                          value={formData.description}
-                          onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
-                          placeholder="Project description (optional)"
-                          className="bg-linear-bg-tertiary border-linear-border text-linear-text placeholder:text-linear-text-tertiary"
-                        />
-                      </div>
-                      
-                      <div className="space-y-2">
-                        <Label htmlFor="status" className="text-linear-text">Status</Label>
-                        <Select
-                          value={formData.status}
-                          onValueChange={(value) => setFormData(prev => ({ ...prev, status: value as StatusType }))}
-                        >
-                          <SelectTrigger className="bg-linear-bg-tertiary border-linear-border text-linear-text">
-                            <SelectValue placeholder="Select status" />
-                          </SelectTrigger>
-                          <SelectContent className="bg-linear-bg border-linear-border">
-                            {statusOptions.map((option) => (
-                              <SelectItem 
-                                key={option.value} 
-                                value={option.value}
-                                className="text-linear-text focus:bg-linear-bg-tertiary focus:text-linear-text"
-                              >
-                                {option.label}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      
-                      <div className="space-y-2">
-                        <Label htmlFor="targetDate" className="text-linear-text">Target Date</Label>
-                        <DatePicker
-                          value={formData.targetDate}
-                          onChange={(val) => setFormData(prev => ({ ...prev, targetDate: val }))}
-                          placeholder="Select target date"
-                          className="h-8 px-3 text-sm w-full justify-start bg-linear-bg-tertiary border border-linear-border"
-                        />
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label className="text-linear-text">Source</Label>
-                        <div className="flex items-center gap-4">
-                          <label className="flex items-center gap-2 text-sm text-linear-text-secondary cursor-pointer">
-                            <input
-                              type="radio"
-                              name="sourceType"
-                              value="none"
-                              checked={formData.sourceType === "none"}
-                              onChange={() => setFormData(prev => ({ ...prev, sourceType: "none", repoUrl: "", localPath: "" }))}
-                              className="accent-[var(--linear-accent)]"
-                            />
-                            None
-                          </label>
-                          <label className="flex items-center gap-2 text-sm text-linear-text-secondary cursor-pointer">
-                            <input
-                              type="radio"
-                              name="sourceType"
-                              value="repo"
-                              checked={formData.sourceType === "repo"}
-                              onChange={() => {
-                                setFormData(prev => ({ ...prev, sourceType: "repo", localPath: "" }))
-                                setRepoMode('url')
-                              }}
-                              className="accent-[var(--linear-accent)]"
-                            />
-                            GitHub Repo
-                          </label>
-                          {isDesktopApp && (
-                            <label className="flex items-center gap-2 text-sm text-linear-text-secondary cursor-pointer">
-                              <input
-                                type="radio"
-                                name="sourceType"
-                                value="local"
-                                checked={formData.sourceType === "local"}
-                                onChange={() => setFormData(prev => ({ ...prev, sourceType: "local", repoUrl: "" }))}
-                                className="accent-[var(--linear-accent)]"
-                              />
-                              Local Folder
-                            </label>
-                          )}
-                        </div>
-
-                        {!isDesktopApp && (
-                          <p className="text-xs text-linear-text-tertiary">
-                            Local folder source selection is available only in the desktop app.
-                          </p>
-                        )}
-
-                        {formData.sourceType === "repo" && (
-                          <div className="space-y-3">
-                            <div className="flex items-center gap-2">
-                              <button
-                                type="button"
-                                onClick={() => setRepoMode('url')}
-                                className={cn(
-                                  "px-3 py-1.5 rounded-sm text-sm font-medium transition-colors",
-                                  repoMode === 'url'
-                                    ? "bg-linear-bg-tertiary text-linear-text"
-                                    : "text-linear-text-secondary hover:text-linear-text hover:bg-linear-bg-tertiary/50"
-                                )}
-                              >
-                                Enter URL
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setRepoMode('picker')
-                                  if (githubRepos.length === 0 && !githubError) {
-                                    loadGitHubRepos()
-                                  }
-                                }}
-                                className={cn(
-                                  "px-3 py-1.5 rounded-sm text-sm font-medium transition-colors",
-                                  repoMode === 'picker'
-                                    ? "bg-linear-bg-tertiary text-linear-text"
-                                    : "text-linear-text-secondary hover:text-linear-text hover:bg-linear-bg-tertiary/50"
-                                )}
-                              >
-                                My Repos
-                              </button>
-                            </div>
-
-                            {repoMode === 'url' && (
-                              <Input
-                                value={formData.repoUrl}
-                                onChange={(e) => setFormData(prev => ({ ...prev, repoUrl: e.target.value }))}
-                                placeholder="https://github.com/owner/repo"
-                                className="bg-linear-bg-tertiary border-linear-border text-linear-text placeholder:text-linear-text-tertiary"
-                              />
-                            )}
-
-                            {repoMode === 'picker' && (
-                              <div className="space-y-2">
-                                {reposLoading ? (
-                                  <div className="flex items-center justify-center py-8">
-                                    <Loader2 className="w-5 h-5 animate-spin text-linear-text-tertiary" />
-                                  </div>
-                                ) : githubError ? (
-                                  <div className="text-sm text-linear-text-secondary py-4">
-                                    Connect your GitHub account to browse repos.{" "}
-                                    <button
-                                      type="button"
-                                      onClick={() => void handleGitHubLogin()}
-                                      className="text-linear-accent hover:underline"
-                                    >
-                                      Connect GitHub
-                                    </button>
-                                  </div>
-                                ) : (
-                                  <>
-                                    <Input
-                                      value={repoSearch}
-                                      onChange={(e) => setRepoSearch(e.target.value)}
-                                      placeholder="Search repositories..."
-                                      className="bg-linear-bg-tertiary border-linear-border text-linear-text placeholder:text-linear-text-tertiary"
-                                    />
-                                    <div className="max-h-[200px] overflow-y-auto space-y-1">
-                                      {githubRepos
-                                        .filter(repo =>
-                                          repo.full_name.toLowerCase().includes(repoSearch.toLowerCase()) ||
-                                          (repo.description?.toLowerCase() || '').includes(repoSearch.toLowerCase())
-                                        )
-                                        .map(repo => (
-                                          <button
-                                            key={repo.id}
-                                            type="button"
-                                            onClick={() => {
-                                              setFormData(prev => ({ ...prev, repoUrl: `https://github.com/${repo.full_name}` }))
-                                              setRepoMode('url')
-                                            }}
-                                            className="w-full text-left p-2 rounded-sm hover:bg-linear-bg-tertiary transition-colors"
-                                          >
-                                            <div className="flex items-center gap-2">
-                                              <GitBranch className="w-4 h-4 text-linear-text-tertiary" />
-                                              <span className="text-sm font-medium text-linear-text">{repo.full_name}</span>
-                                              {repo.private && (
-                                                <Lock className="w-3 h-3 text-linear-text-tertiary" />
-                                              )}
-                                            </div>
-                                            {repo.description && (
-                                              <p className="text-xs text-linear-text-secondary ml-6 line-clamp-1">
-                                                {repo.description}
-                                              </p>
-                                            )}
-                                          </button>
-                                        ))}
-                                    </div>
-                                  </>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                        )}
-
-                        {formData.sourceType === "local" && (
-                          <div className="space-y-2">
-                            <div className="flex items-center gap-2">
-                              <Input
-                                value={formData.localPath}
-                                readOnly
-                                placeholder="Choose a local folder"
-                                className="bg-linear-bg-tertiary border-linear-border text-linear-text placeholder:text-linear-text-tertiary"
-                              />
-                              <Button
-                                type="button"
-                                variant="outline"
-                                onClick={() => pickLocalFolder(false)}
-                                disabled={isPickingLocalPath}
-                                className="border-linear-border text-linear-text hover:bg-linear-bg-tertiary"
-                              >
-                                {isPickingLocalPath ? (
-                                  <Loader2 className="w-4 h-4 animate-spin" />
-                                ) : (
-                                  <FolderOpen className="w-4 h-4" />
-                                )}
-                                Browse
-                              </Button>
-                            </div>
-                            {formErrors.localPath && (
-                              <p className="text-xs text-red-500">{formErrors.localPath}</p>
-                            )}
-                          </div>
-                        )}
-                      </div>
-
-                      {formErrors._root && (
-                        <div role="alert" className="rounded-sm border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-400">
-                          {formErrors._root}
-                        </div>
-                      )}
-
-                      <DialogFooter className="gap-2">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          onClick={() => setIsCreateDialogOpen(false)}
-                          className="border-linear-border text-linear-text hover:bg-linear-bg-tertiary"
-                        >
-                          Cancel
-                        </Button>
-                        <Button
-                          type="submit"
-                          disabled={isSubmitting}
-                          className="bg-linear-accent hover:bg-linear-accent-hover text-white"
-                        >
-                          {isSubmitting ? (
-                            <>
-                              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                              Creating...
-                            </>
-                          ) : (
-                            "Create Project"
-                          )}
-                        </Button>
-                      </DialogFooter>
-                    </form>
-                  </DialogContent>
-                </Dialog>
+                <Button
+                  size="sm"
+                  className="h-8 bg-linear-accent hover:bg-linear-accent-hover text-white"
+                  onClick={() => setIsCreateDialogOpen(true)}
+                >
+                  <Plus className="w-4 h-4 mr-1.5" />
+                  <span className="hidden sm:inline">Add project</span>
+                </Button>
               </div>
             </div>
 
@@ -886,251 +174,41 @@ function ProjectsContent() {
           </div>
         </div>
 
-        <div className="flex-1 overflow-auto">
-          <div className="hidden md:block">
-            <div className="min-w-[800px]">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-linear-border">
-                    <th className="text-left py-3 px-6 text-xs font-medium text-linear-text-tertiary uppercase tracking-wider">
-                      Name
-                    </th>
-                    <th className="text-left py-3 px-4 text-xs font-medium text-linear-text-tertiary uppercase tracking-wider w-[120px]">
-                      Status
-                    </th>
-                    <th className="text-left py-3 px-4 text-xs font-medium text-linear-text-tertiary uppercase tracking-wider w-[180px]">
-                      Teams
-                    </th>
-                    <th className="text-left py-3 px-4 text-xs font-medium text-linear-text-tertiary uppercase tracking-wider w-[130px]">
-                      Target date
-                    </th>
-                    <th className="text-left py-3 px-4 text-xs font-medium text-linear-text-tertiary uppercase tracking-wider w-[100px]">
-                      Tasks
-                    </th>
-                    <th className="w-12"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {isLoading ? (
-                    Array.from({ length: 5 }).map((_, i) => (
-                      <tr key={i} className="border-b border-linear-border/50">
-                        <td className="py-3 px-6">
-                          <div className="flex items-center gap-3">
-                            <Skeleton className="w-7 h-7 rounded-sm" />
-                            <div className="space-y-1.5">
-                              <Skeleton className="h-3.5 w-40 rounded" />
-                              <Skeleton className="h-2.5 w-56 rounded" />
-                            </div>
-                          </div>
-                        </td>
-                        <td className="py-3 px-4"><Skeleton className="h-5 w-16 rounded" /></td>
-                        <td className="py-3 px-4"><Skeleton className="h-5 w-24 rounded" /></td>
-                        <td className="py-3 px-4"><Skeleton className="h-3 w-20 rounded" /></td>
-                        <td className="py-3 px-4"><Skeleton className="h-3 w-6 rounded" /></td>
-                        <td className="py-3 px-4" />
-                      </tr>
-                    ))
-                  ) : filteredProjects.length === 0 ? (
-                    <tr>
-                      <td colSpan={6} className="py-0">
-                        <EmptyState
-                          icon={FolderKanban}
-                          title={searchQuery ? "No projects match your search" : "No projects yet"}
-                          description={
-                            searchQuery
-                              ? "Try adjusting your search query"
-                              : "Create your first project to start organizing tasks"
-                          }
-                        />
-                      </td>
-                    </tr>
-                  ) : (
-                    filteredProjects.map((project) => (
-                      <tr
-                        key={project.id}
-                        className="border-b border-linear-border/50 hover:bg-linear-bg-secondary/50 transition-colors cursor-pointer group"
-                      >
-                        <td className="py-3 px-6">
-                          <div className="flex items-center gap-3">
-                            <ProjectIcon type={project.icon} color={project.color} />
-                            <div>
-                              <div className="text-sm font-medium text-linear-text">{project.name}</div>
-                              {project.description && (
-                                <div className="text-xs text-linear-text-tertiary line-clamp-1">{project.description}</div>
-                              )}
-                            </div>
-                          </div>
-                        </td>
-                        <td className="py-3 px-4">
-                          <StatusBadge status={project.status} />
-                        </td>
-                        <td className="py-3 px-4">
-                          <TeamBadges teams={project.teams} />
-                        </td>
-                        <td className="py-3 px-4">
-                          <div className="flex items-center gap-2 text-sm text-linear-text-secondary">
-                            <Calendar className="w-3.5 h-3.5 text-linear-text-tertiary" />
-                            {formatDate(project.targetDate)}
-                          </div>
-                        </td>
-                        <td className="py-3 px-4">
-                          <span className="text-sm text-linear-text-secondary">
-                            {project._count?.tasks || 0}
-                          </span>
-                        </td>
-                        <td className="py-3 px-4">
-                          <div className="flex items-center gap-1">
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                setEditProject(project)
-                                setEditFormData({
-                                  name: project.name,
-                                  description: project.description || "",
-                                  status: project.status,
-                                   targetDate: project.targetDate ? project.targetDate.split('T')[0] : "",
-                                  sourceType: project.repoUrl ? "repo" : project.localPath ? "local" : "none",
-                                  repoUrl: project.repoUrl || "",
-                                  localPath: project.localPath || "",
-                                })
-                                setIsEditDialogOpen(true)
-                              }}
-                              className="opacity-0 group-hover:opacity-100 p-1.5 rounded-sm hover:bg-linear-bg-tertiary transition-all"
-                            >
-                              <Pencil className="w-4 h-4 text-linear-text-secondary" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => router.push(`/projects/manage?id=${project.id}`)}
-                              className="opacity-0 group-hover:opacity-100 p-1.5 rounded-sm hover:bg-linear-bg-tertiary transition-all"
-                            >
-                              <Settings className="w-4 h-4 text-linear-text-secondary" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setProjectToDelete(project)
-                                setIsDeleteDialogOpen(true)
-                              }}
-                              className="opacity-0 group-hover:opacity-100 p-1.5 rounded-sm hover:bg-linear-bg-tertiary transition-all"
-                            >
-                              <Trash2 className="w-4 h-4 text-red-400" />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          <div className="block md:hidden space-y-3 p-4">
-            {isLoading ? (
-              Array.from({ length: 4 }).map((_, i) => (
-                <div key={i} className="bg-linear-bg-secondary border border-linear-border rounded-sm p-4">
-                  <div className="flex items-start gap-3">
-                    <Skeleton className="w-7 h-7 rounded-sm" />
-                    <div className="flex-1 space-y-1.5">
-                      <Skeleton className="h-3.5 w-40 rounded" />
-                      <Skeleton className="h-2.5 w-56 rounded" />
-                    </div>
-                  </div>
-                </div>
-              ))
-            ) : filteredProjects.length === 0 ? (
-              <EmptyState
-                icon={FolderKanban}
-                title={searchQuery ? "No projects match your search" : "No projects yet"}
-                description={
-                  searchQuery
-                    ? "Try adjusting your search query"
-                    : "Create your first project to start organizing tasks"
-                }
-              />
-            ) : (
-              filteredProjects.map((project) => (
-                <div
-                  key={project.id}
-                  className="bg-linear-bg-secondary border border-linear-border rounded-sm p-4"
-                >
-                  <div className="flex items-start gap-3">
-                    <ProjectIcon type={project.icon} color={project.color} />
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <div className="text-sm font-medium text-linear-text">{project.name}</div>
-                        <StatusBadge status={project.status} />
-                      </div>
-                      {project.description && (
-                        <div className="text-xs text-linear-text-tertiary line-clamp-1 mt-1">{project.description}</div>
-                      )}
-                      <div className="mt-2">
-                        <TeamBadges teams={project.teams} />
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between mt-3 pt-3 border-t border-linear-border/50">
-                    <div className="flex items-center gap-3">
-                      <div className="flex items-center gap-1.5 text-sm text-linear-text-secondary">
-                        <Calendar className="w-3.5 h-3.5 text-linear-text-tertiary" />
-                        <span className="text-xs">{formatDate(project.targetDate)}</span>
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <FolderKanban className="w-3.5 h-3.5 text-linear-text-tertiary" />
-                        <span className="text-xs text-linear-text-secondary">
-                          {project._count?.tasks || 0}
-                        </span>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setEditProject(project)
-                          setEditFormData({
-                            name: project.name,
-                            description: project.description || "",
-                            status: project.status,
-                            targetDate: project.targetDate ? project.targetDate.split('T')[0] : "",
-                            sourceType: project.repoUrl ? "repo" : project.localPath ? "local" : "none",
-                            repoUrl: project.repoUrl || "",
-                            localPath: project.localPath || "",
-                          })
-                          setIsEditDialogOpen(true)
-                        }}
-                        className="p-1.5 rounded-sm hover:bg-linear-bg-tertiary transition-all"
-                      >
-                        <Pencil className="w-4 h-4 text-linear-text-secondary" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => router.push(`/projects/manage?id=${project.id}`)}
-                        className="p-1.5 rounded-sm hover:bg-linear-bg-tertiary transition-all"
-                      >
-                        <Settings className="w-4 h-4 text-linear-text-secondary" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setProjectToDelete(project)
-                          setIsDeleteDialogOpen(true)
-                        }}
-                        className="p-1.5 rounded-sm hover:bg-linear-bg-tertiary transition-all"
-                      >
-                        <Trash2 className="w-4 h-4 text-red-400" />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
+        <ProjectList
+          projects={filteredProjects}
+          isLoading={isLoading}
+          searchQuery={searchQuery}
+          onEdit={(project) => {
+            setEditProject(project)
+            setIsEditDialogOpen(true)
+          }}
+          onDelete={(project) => {
+            setProjectToDelete(project)
+            setIsDeleteDialogOpen(true)
+          }}
+        />
       </div>
 
+      {/* Create dialog */}
+      <ProjectFormDialog
+        mode="create"
+        open={isCreateDialogOpen}
+        onOpenChange={setIsCreateDialogOpen}
+        isDesktopApp={isDesktopApp}
+        onSubmit={onCreateSubmit}
+      />
+
+      {/* Edit dialog */}
+      <ProjectFormDialog
+        mode="edit"
+        open={isEditDialogOpen}
+        onOpenChange={handleEditDialogOpenChange}
+        project={editProject}
+        isDesktopApp={isDesktopApp}
+        onSubmit={onEditSubmit}
+      />
+
+      {/* Delete confirmation dialog */}
       <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
         <DialogContent className="sm:max-w-[400px] bg-linear-bg border-linear-border">
           <DialogHeader>
@@ -1151,7 +229,7 @@ function ProjectsContent() {
               Cancel
             </Button>
             <Button
-              onClick={handleDeleteProject}
+              onClick={onDeleteConfirm}
               disabled={isSubmitting}
               variant="destructive"
             >
@@ -1165,303 +243,6 @@ function ProjectsContent() {
               )}
             </Button>
           </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-          <Dialog open={isEditDialogOpen} onOpenChange={handleEditDialogOpenChange}>
-        <DialogContent className="sm:max-w-[500px] bg-linear-bg border-linear-border">
-          <DialogHeader>
-            <DialogTitle className="text-linear-text">Edit Project</DialogTitle>
-            <DialogDescription className="text-linear-text-secondary">
-              Update the project details.
-            </DialogDescription>
-          </DialogHeader>
-          <form onSubmit={handleEditProject} className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label htmlFor="edit-name" className="text-linear-text">
-                Name <span className="text-red-500">*</span>
-              </Label>
-              <Input
-                id="edit-name"
-                value={editFormData.name}
-                onChange={(e) => setEditFormData(prev => ({ ...prev, name: e.target.value }))}
-                placeholder="Project name"
-                className="bg-linear-bg-tertiary border-linear-border text-linear-text placeholder:text-linear-text-tertiary"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="edit-description" className="text-linear-text">Description</Label>
-              <Input
-                id="edit-description"
-                value={editFormData.description}
-                onChange={(e) => setEditFormData(prev => ({ ...prev, description: e.target.value }))}
-                placeholder="Project description (optional)"
-                className="bg-linear-bg-tertiary border-linear-border text-linear-text placeholder:text-linear-text-tertiary"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="edit-status" className="text-linear-text">Status</Label>
-              <Select
-                value={editFormData.status}
-                onValueChange={(value) => setEditFormData(prev => ({ ...prev, status: value as StatusType }))}
-              >
-                <SelectTrigger className="bg-linear-bg-tertiary border-linear-border text-linear-text">
-                  <SelectValue placeholder="Select status" />
-                </SelectTrigger>
-                <SelectContent className="bg-linear-bg border-linear-border">
-                  {statusOptions.map((option) => (
-                    <SelectItem
-                      key={option.value}
-                      value={option.value}
-                      className="text-linear-text focus:bg-linear-bg-tertiary focus:text-linear-text"
-                    >
-                      {option.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="edit-targetDate" className="text-linear-text">Target Date</Label>
-              <DatePicker
-                value={editFormData.targetDate}
-                onChange={(val) => setEditFormData(prev => ({ ...prev, targetDate: val }))}
-                placeholder="Select target date"
-                className="h-8 px-3 text-sm w-full justify-start bg-linear-bg-tertiary border border-linear-border"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label className="text-linear-text">Source</Label>
-              <div className="flex items-center gap-4">
-                <label className="flex items-center gap-2 text-sm text-linear-text-secondary cursor-pointer">
-                  <input
-                    type="radio"
-                    name="edit-sourceType"
-                    value="none"
-                    checked={editFormData.sourceType === "none"}
-                    onChange={() => setEditFormData(prev => ({ ...prev, sourceType: "none", repoUrl: "", localPath: "" }))}
-                    className="accent-[var(--linear-accent)]"
-                  />
-                  None
-                </label>
-                <label className="flex items-center gap-2 text-sm text-linear-text-secondary cursor-pointer">
-                  <input
-                    type="radio"
-                    name="edit-sourceType"
-                    value="repo"
-                    checked={editFormData.sourceType === "repo"}
-                    onChange={() => {
-                      setEditFormData(prev => ({ ...prev, sourceType: "repo", localPath: "" }))
-                      setEditRepoMode('url')
-                    }}
-                    className="accent-[var(--linear-accent)]"
-                  />
-                  GitHub Repo
-                </label>
-                {isDesktopApp && (
-                  <label className="flex items-center gap-2 text-sm text-linear-text-secondary cursor-pointer">
-                    <input
-                      type="radio"
-                      name="edit-sourceType"
-                      value="local"
-                      checked={editFormData.sourceType === "local"}
-                      onChange={() => setEditFormData(prev => ({ ...prev, sourceType: "local", repoUrl: "" }))}
-                      className="accent-[var(--linear-accent)]"
-                    />
-                    Local Folder
-                  </label>
-                )}
-              </div>
-
-              {!isDesktopApp && (
-                <p className="text-xs text-linear-text-tertiary">
-                  Local folder source selection is available only in the desktop app.
-                </p>
-              )}
-
-              {editFormData.sourceType === "repo" && (
-                <div className="space-y-3">
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setEditRepoMode('url')}
-                      className={cn(
-                        "px-3 py-1.5 rounded-sm text-sm font-medium transition-colors",
-                        editRepoMode === 'url'
-                          ? "bg-linear-bg-tertiary text-linear-text"
-                          : "text-linear-text-secondary hover:text-linear-text hover:bg-linear-bg-tertiary/50"
-                      )}
-                    >
-                      Enter URL
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setEditRepoMode('picker')
-                        if (editGithubRepos.length === 0 && !editGithubError) {
-                          loadGitHubRepos(true)
-                        }
-                      }}
-                      className={cn(
-                        "px-3 py-1.5 rounded-sm text-sm font-medium transition-colors",
-                        editRepoMode === 'picker'
-                          ? "bg-linear-bg-tertiary text-linear-text"
-                          : "text-linear-text-secondary hover:text-linear-text hover:bg-linear-bg-tertiary/50"
-                      )}
-                    >
-                      My Repos
-                    </button>
-                  </div>
-
-                  {editRepoMode === 'url' && (
-                    <Input
-                      value={editFormData.repoUrl}
-                      onChange={(e) => setEditFormData(prev => ({ ...prev, repoUrl: e.target.value }))}
-                      placeholder="https://github.com/owner/repo"
-                      className="bg-linear-bg-tertiary border-linear-border text-linear-text placeholder:text-linear-text-tertiary"
-                    />
-                  )}
-
-                  {editRepoMode === 'picker' && (
-                    <div className="space-y-2">
-                      {editReposLoading ? (
-                        <div className="flex items-center justify-center py-8">
-                          <Loader2 className="w-5 h-5 animate-spin text-linear-text-tertiary" />
-                        </div>
-                      ) : editGithubError ? (
-                        <div className="text-sm text-linear-text-secondary py-4">
-                          Connect your GitHub account to browse repos.{" "}
-                          <button
-                            type="button"
-                            onClick={() => void handleGitHubLogin()}
-                            className="text-linear-accent hover:underline"
-                          >
-                            Connect GitHub
-                          </button>
-                        </div>
-                      ) : (
-                        <>
-                          <Input
-                            value={editRepoSearch}
-                            onChange={(e) => setEditRepoSearch(e.target.value)}
-                            placeholder="Search repositories..."
-                            className="bg-linear-bg-tertiary border-linear-border text-linear-text placeholder:text-linear-text-tertiary"
-                          />
-                          <div className="max-h-[200px] overflow-y-auto space-y-1">
-                            {editGithubRepos
-                              .filter(repo =>
-                                repo.full_name.toLowerCase().includes(editRepoSearch.toLowerCase()) ||
-                                (repo.description?.toLowerCase() || '').includes(editRepoSearch.toLowerCase())
-                              )
-                              .map(repo => (
-                                <button
-                                  key={repo.id}
-                                  type="button"
-                                  onClick={() => {
-                                    setEditFormData(prev => ({ ...prev, repoUrl: `https://github.com/${repo.full_name}` }))
-                                    setEditRepoMode('url')
-                                  }}
-                                  className="w-full text-left p-2 rounded-sm hover:bg-linear-bg-tertiary transition-colors"
-                                >
-                                  <div className="flex items-center gap-2">
-                                    <GitBranch className="w-4 h-4 text-linear-text-tertiary" />
-                                    <span className="text-sm font-medium text-linear-text">{repo.full_name}</span>
-                                    {repo.private && (
-                                      <Lock className="w-3 h-3 text-linear-text-tertiary" />
-                                    )}
-                                  </div>
-                                  {repo.description && (
-                                    <p className="text-xs text-linear-text-secondary ml-6 line-clamp-1">
-                                      {repo.description}
-                                    </p>
-                                  )}
-                                </button>
-                              ))}
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {editFormData.sourceType === "local" && (
-                isDesktopApp ? (
-                  <div className="flex items-center gap-2">
-                    <Input
-                      value={editFormData.localPath}
-                      readOnly
-                      placeholder="Choose a local folder"
-                      className="bg-linear-bg-tertiary border-linear-border text-linear-text placeholder:text-linear-text-tertiary"
-                    />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => pickLocalFolder(true)}
-                      disabled={isPickingEditLocalPath}
-                      className="border-linear-border text-linear-text hover:bg-linear-bg-tertiary"
-                    >
-                      {isPickingEditLocalPath ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                      ) : (
-                        <FolderOpen className="w-4 h-4" />
-                      )}
-                      Browse
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="space-y-1">
-                    <Input
-                      value={editFormData.localPath}
-                      readOnly
-                      className="bg-linear-bg-tertiary border-linear-border text-linear-text"
-                    />
-                    <p className="text-xs text-linear-text-tertiary">
-                      This local folder was set in the desktop app.
-                    </p>
-                  </div>
-                )
-              )}
-            </div>
-
-            {formErrors._root && (
-              <div role="alert" className="rounded-sm border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-400">
-                {formErrors._root}
-              </div>
-            )}
-
-            <DialogFooter className="gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => {
-                  setIsEditDialogOpen(false)
-                  setEditProject(null)
-                }}
-                className="border-linear-border text-linear-text hover:bg-linear-bg-tertiary"
-              >
-                Cancel
-              </Button>
-              <Button
-                type="submit"
-                disabled={isSubmitting}
-                className="bg-linear-accent hover:bg-linear-accent-hover text-white"
-              >
-                {isSubmitting ? (
-                  <>
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    Saving...
-                  </>
-                ) : (
-                  "Save Changes"
-                )}
-              </Button>
-            </DialogFooter>
-          </form>
         </DialogContent>
       </Dialog>
     </>
