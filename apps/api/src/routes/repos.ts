@@ -68,123 +68,111 @@ router.post(
 );
 
 router.get('/active/public', requireAuth, async (_req: AuthRequest, res: Response, next: NextFunction) => {
-  try {
-    const project = await prisma.repository.findFirst({
-      where: { userId: null, isActive: true },
-    });
-    res.json(project);
-  } catch (err) {
-    next(err);
-  }
+
+  const project = await prisma.repository.findFirst({
+    where: { userId: null, isActive: true },
+  });
+  res.json(project);
+  
 });
 
 router.get('/public', requireAuth, async (_req: AuthRequest, res: Response, next: NextFunction) => {
-  try {
-    const projects = await prisma.repository.findMany({
-      where: { userId: null },
-      orderBy: { updatedAt: 'desc' },
-    });
-    res.json(projects);
-  } catch (err) {
-    next(err);
-  }
+
+  const projects = await prisma.repository.findMany({
+    where: { userId: null },
+    orderBy: { updatedAt: 'desc' },
+  });
+  res.json(projects);
+  
 });
 
 router.post('/:id/activate/public', requireAuth, async (req: AuthRequest, res: Response, next: NextFunction) => {
-  try {
-    await prisma.repository.updateMany({
-      where: { userId: null },
-      data: { isActive: false },
-    });
 
-    const id = req.params.id as string;
-    const project = await prisma.repository.update({
-      where: { id },
-      data: { isActive: true },
-    });
-    res.json(project);
-  } catch (err) {
-    next(err);
-  }
+  await prisma.repository.updateMany({
+    where: { userId: null },
+    data: { isActive: false },
+  });
+
+  const id = req.params.id as string;
+  const project = await prisma.repository.update({
+    where: { id },
+    data: { isActive: true },
+  });
+  res.json(project);
+  
 });
 
 router.get('/', requireAuth, async (req: AuthRequest, res: Response, next: NextFunction) => {
-  try {
-    const projects = await getUserRepositories(req.userId!);
-    res.json(projects);
-  } catch (err) {
-    next(err);
-  }
+
+  const projects = await getUserRepositories(req.userId!);
+  res.json(projects);
+  
 });
 
 router.get('/github', requireAuth, async (req: AuthRequest, res: Response, next: NextFunction) => {
-  try {
-    const user = await prisma.user.findUnique({
-      where: { id: req.userId! },
-      select: { accessToken: true, username: true },
-    });
 
-    if (!user?.accessToken) {
-      return next(
-        new HttpError(403, 'GITHUB_NOT_LINKED', 'GitHub account not linked. Please sign in with GitHub first.'),
-      );
-    }
+  const user = await prisma.user.findUnique({
+    where: { id: req.userId! },
+    select: { accessToken: true, username: true },
+  });
 
-    const accessToken = decryptUserAccessToken(user.accessToken);
-    if (!accessToken) {
-      return next(
-        new HttpError(500, 'GITHUB_TOKEN_DECRYPT_FAILED', 'Stored GitHub token could not be decrypted'),
-      );
-    }
-
-    const queryOptions = {
-      userId: req.userId!,
-      username: user.username,
-      page: readBoundedInt(req.query.page, 1, 1, 1000),
-      perPage: readBoundedInt(req.query.per_page, 30, 1, 100),
-      sort: readRepoSort(req.query.sort),
-      filter: readRepoFilter(req.query.filter),
-      q: readQueryString(req.query.q)?.trim() || undefined,
-    };
-    const t0 = Date.now();
-    const repos = await getGitHubRepos(accessToken, queryOptions);
-    const elapsed = Date.now() - t0;
-    console.log(
-      `[repos/github] user=${user.username} page=${queryOptions.page} perPage=${queryOptions.perPage} filter=${queryOptions.filter} sort=${queryOptions.sort} q=${queryOptions.q ?? ''} returned=${repos.repos.length} hasMore=${repos.hasMore} total=${repos.totalCount} in ${elapsed}ms`,
+  if (!user?.accessToken) {
+    return next(
+      new HttpError(403, 'GITHUB_NOT_LINKED', 'GitHub account not linked. Please sign in with GitHub first.'),
     );
-    res.json(repos);
-  } catch (err) {
-    next(err);
   }
+
+  const accessToken = decryptUserAccessToken(user.accessToken);
+  if (!accessToken) {
+    return next(
+      new HttpError(500, 'GITHUB_TOKEN_DECRYPT_FAILED', 'Stored GitHub token could not be decrypted'),
+    );
+  }
+
+  const queryOptions = {
+    userId: req.userId!,
+    username: user.username,
+    page: readBoundedInt(req.query.page, 1, 1, 1000),
+    perPage: readBoundedInt(req.query.per_page, 30, 1, 100),
+    sort: readRepoSort(req.query.sort),
+    filter: readRepoFilter(req.query.filter),
+    q: readQueryString(req.query.q)?.trim() || undefined,
+  };
+  const t0 = Date.now();
+  const repos = await getGitHubRepos(accessToken, queryOptions);
+  const elapsed = Date.now() - t0;
+  console.log(
+    `[repos/github] user=${user.username} page=${queryOptions.page} perPage=${queryOptions.perPage} filter=${queryOptions.filter} sort=${queryOptions.sort} q=${queryOptions.q ?? ''} returned=${repos.repos.length} hasMore=${repos.hasMore} total=${repos.totalCount} in ${elapsed}ms`,
+  );
+  res.json(repos);
+  
 });
 
 router.get('/github/:owner/:repo/branches', requireAuth, async (req: AuthRequest, res: Response, next: NextFunction) => {
-  try {
-    const user = await prisma.user.findUnique({
-      where: { id: req.userId! },
-      select: { accessToken: true },
-    });
 
-    if (!user?.accessToken) {
-      return next(
-        new HttpError(403, 'GITHUB_NOT_LINKED', 'GitHub account not linked. Please sign in with GitHub first.'),
-      );
-    }
+  const user = await prisma.user.findUnique({
+    where: { id: req.userId! },
+    select: { accessToken: true },
+  });
 
-    const accessToken = decryptUserAccessToken(user.accessToken);
-    if (!accessToken) {
-      return next(
-        new HttpError(500, 'GITHUB_TOKEN_DECRYPT_FAILED', 'Stored GitHub token could not be decrypted'),
-      );
-    }
-
-    const owner = req.params.owner as string;
-    const repo = req.params.repo as string;
-    const branches = await getGitHubBranches(accessToken, owner, repo);
-    res.json({ branches });
-  } catch (err) {
-    next(err);
+  if (!user?.accessToken) {
+    return next(
+      new HttpError(403, 'GITHUB_NOT_LINKED', 'GitHub account not linked. Please sign in with GitHub first.'),
+    );
   }
+
+  const accessToken = decryptUserAccessToken(user.accessToken);
+  if (!accessToken) {
+    return next(
+      new HttpError(500, 'GITHUB_TOKEN_DECRYPT_FAILED', 'Stored GitHub token could not be decrypted'),
+    );
+  }
+
+  const owner = req.params.owner as string;
+  const repo = req.params.repo as string;
+  const branches = await getGitHubBranches(accessToken, owner, repo);
+  res.json({ branches });
+  
 });
 
 router.post(
@@ -192,33 +180,27 @@ router.post(
   requireAuth,
   validateBody(importRepoBodySchema),
   async (req: AuthRequest & ValidatedRequest<ImportRepoBody>, res: Response, next: NextFunction) => {
-    try {
-      const repo = req.validBody!.repo as unknown as GitHubRepo;
-      const project = await addRepository(req.userId!, repo, true);
-      res.status(201).json(project);
-    } catch (err) {
-      next(err);
-    }
+
+    const repo = req.validBody!.repo as unknown as GitHubRepo;
+    const project = await addRepository(req.userId!, repo, true);
+    res.status(201).json(project);
+    
   },
 );
 
 router.post('/:id/activate', requireAuth, async (req: AuthRequest, res: Response, next: NextFunction) => {
-  try {
-    const id = req.params.id as string;
-    const project = await setActiveRepository(req.userId!, id);
-    res.json(project);
-  } catch (err) {
-    next(err);
-  }
+
+  const id = req.params.id as string;
+  const project = await setActiveRepository(req.userId!, id);
+  res.json(project);
+  
 });
 
 router.get('/active', requireAuth, async (req: AuthRequest, res: Response, next: NextFunction) => {
-  try {
-    const project = await getActiveRepository(req.userId!);
-    res.json(project);
-  } catch (err) {
-    next(err);
-  }
+
+  const project = await getActiveRepository(req.userId!);
+  res.json(project);
+  
 });
 
 router.patch(
@@ -226,25 +208,23 @@ router.patch(
   requireAuth,
   validateBody(updateBaseBranchBodySchema),
   async (req: AuthRequest & ValidatedRequest<UpdateBaseBranchBody>, res: Response, next: NextFunction) => {
-    try {
-      const activeRepository = await prisma.repository.findFirst({
-        where: { userId: req.userId!, isActive: true },
-        select: { id: true },
-      });
 
-      if (!activeRepository) {
-        return next(new HttpError(404, 'NO_ACTIVE_REPO', 'No active repository selected'));
-      }
+    const activeRepository = await prisma.repository.findFirst({
+      where: { userId: req.userId!, isActive: true },
+      select: { id: true },
+    });
 
-      const updated = await prisma.repository.update({
-        where: { id: activeRepository.id },
-        data: { defaultBranch: req.validBody!.baseBranch },
-      });
-
-      res.json(updated);
-    } catch (err) {
-      next(err);
+    if (!activeRepository) {
+      return next(new HttpError(404, 'NO_ACTIVE_REPO', 'No active repository selected'));
     }
+
+    const updated = await prisma.repository.update({
+      where: { id: activeRepository.id },
+      data: { defaultBranch: req.validBody!.baseBranch },
+    });
+
+    res.json(updated);
+    
   },
 );
 
