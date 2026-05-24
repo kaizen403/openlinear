@@ -2,9 +2,15 @@ import { prisma } from '@openlinear/db';
 
 import type { OpencodeClient } from '@opencode-ai/sdk';
 import { appendTextDelta, appendReasoningDelta, flushDeltaBuffer, markThinking } from '../delta-buffer';
+import {
+  isBackgroundTaskCancellation,
+  isBackgroundTaskCompletion,
+  isBackgroundTaskFailure,
+} from '../../utils/background-task';
 
 import { commitAndPush, createPullRequest, hasCommittableChanges } from './git';
-import { finalizeAgentRun, recordMessageUsage } from './agent-run';
+import { finalizeAgentRun } from './agent-run';
+import { processEvent, type EventProcessorState } from './event-stream-processor';
 import {
   activeExecutions,
   broadcastProgress,
@@ -138,34 +144,6 @@ function isTerminalSessionEvent(eventType: string): boolean {
   return eventType === 'session.idle' || eventType === 'session.completed' || eventType === 'session.error';
 }
 
-function extractBackgroundTaskId(output: string): string | null {
-  return output.match(/(?:task_id|Background Task ID):\s*([A-Za-z0-9_-]+)/i)?.[1] ?? null;
-}
-
-function isBackgroundTaskLaunch(toolName: string, output: string): boolean {
-  if (toolName !== 'task') return false;
-  const lower = output.toLowerCase();
-  return lower.includes('background task started')
-    || lower.includes('background task launched')
-    || (lower.includes('state: running') && lower.includes('task_status'));
-}
-
-function isBackgroundTaskCancellation(toolName: string, output: string): boolean {
-  const lower = `${toolName}\n${output}`.toLowerCase();
-  return toolName === 'background_cancel'
-    || lower.includes('task cancelled successfully')
-    || lower.includes('task canceled successfully')
-    || lower.includes('background task cancelled')
-    || lower.includes('background task canceled');
-}
-
-function isBackgroundTaskCompletion(output: string): boolean {
-  return /Background task completed:/i.test(output) || /\bTask Completed\b/i.test(output);
-}
-
-function isBackgroundTaskFailure(output: string): boolean {
-  return /Background task failed:/i.test(output) || /\bTask Failed\b/i.test(output);
-}
 
 function clearBackgroundTaskWait(
   taskId: string,
@@ -385,238 +363,107 @@ function extractSessionId(event: { type: string; properties?: Record<string, unk
   return undefined;
 }
 
-function extractCleanError(rawError: unknown): { message: string; isAuthError: boolean; isRateLimit: boolean } {
-  if (typeof rawError === 'string') {
-    const lower = rawError.toLowerCase();
-    return {
-      message: rawError,
-      isAuthError: lower.includes('api key') || lower.includes('unauthorized') || lower.includes('authentication'),
-      isRateLimit: lower.includes('rate limit') || lower.includes('429') || lower.includes('quota'),
-    };
-  }
-
-  if (rawError && typeof rawError === 'object') {
-    const err = rawError as Record<string, unknown>;
-
-    // Shape: { name: "APIError", data: { message: "...", statusCode: 401, ... } }
-    if (err.data && typeof err.data === 'object') {
-      const data = err.data as Record<string, unknown>;
-      const msg = typeof data.message === 'string' ? data.message : undefined;
-      const statusCode = typeof data.statusCode === 'number' ? data.statusCode : undefined;
-      if (msg) {
-        return {
-          message: msg,
-          isAuthError: statusCode === 401 || statusCode === 403 || msg.toLowerCase().includes('api key'),
-          isRateLimit: statusCode === 429 || msg.toLowerCase().includes('rate limit') || msg.toLowerCase().includes('quota'),
-        };
-      }
-    }
-
-    // Shape: { message: "..." }
-    if (typeof err.message === 'string') {
-      const lower = err.message.toLowerCase();
-      return {
-        message: err.message,
-        isAuthError: lower.includes('api key') || lower.includes('unauthorized'),
-        isRateLimit: lower.includes('rate limit') || lower.includes('429'),
-      };
-    }
-
-    // Shape: { error: { message: "..." } }
-    if (err.error && typeof err.error === 'object') {
-      const inner = err.error as Record<string, unknown>;
-      if (typeof inner.message === 'string') {
-        return {
-          message: inner.message,
-          isAuthError: inner.message.toLowerCase().includes('api key'),
-          isRateLimit: inner.message.toLowerCase().includes('rate limit'),
-        };
-      }
-    }
-  }
-
-  return {
-    message: rawError ? JSON.stringify(rawError).slice(0, 200) : 'Unknown error',
-    isAuthError: false,
-    isRateLimit: false,
-  };
-}
+// extractCleanError moved to event-stream-processor.ts
 
 async function handleOpenCodeEvent(event: { type: string; properties?: Record<string, unknown> }): Promise<void> {
   if (event.type === 'server.heartbeat') return;
   
   const sessionId = extractSessionId(event);
   const taskId = findTaskBySessionId(String(sessionId));
+  if (!taskId) return;
 
-  switch (event.type) {
-    case 'session.idle':
-    case 'session.completed':
-      if (taskId) {
-        const execution = activeExecutions.get(taskId);
-        if (!execution?.promptSent || execution.cancelled) {
-          console.log(`[Execution] Ignoring ${event.type} for task ${taskId.slice(0, 8)} (${!execution?.promptSent ? 'prompt not yet sent' : 'cancelled'})`);
-          break;
-        }
+  const execution = activeExecutions.get(taskId);
+  if (!execution) return;
+
+  const state: EventProcessorState = {
+    taskId,
+    sessionId: execution.sessionId,
+    promptSent: execution.promptSent,
+    cancelled: execution.cancelled,
+    status: execution.status,
+    backgroundTaskRunning: execution.backgroundTaskRunning,
+    backgroundTaskFailure: execution.backgroundTaskFailure,
+    backgroundTaskIds: execution.backgroundTaskIds,
+    backgroundTaskResultBuffer: execution.backgroundTaskResultBuffer,
+    completedToolKeys: execution.completedToolKeys,
+    toolsExecuted: execution.toolsExecuted,
+    filesChanged: execution.filesChanged,
+  };
+
+  const actions = processEvent(event, state);
+
+  for (const action of actions) {
+    switch (action.type) {
+      case 'ignore':
+        return;
+      case 'log':
+        addLogEntry(taskId, action.level, action.message, action.details);
+        break;
+      case 'broadcastProgress':
+        broadcastProgress(taskId, action.status, action.message, action.data);
+        break;
+      case 'flushDeltaBuffer':
         flushDeltaBuffer(taskId);
-        if (execution.backgroundTaskFailure) {
-          await failExecutionFromEventStream(taskId, 'Background subtask failed', execution.backgroundTaskFailure);
-          break;
-        }
-        if (execution.backgroundTaskRunning) {
-          addLogEntry(taskId, 'info', 'Agent is waiting on a background subtask');
-          broadcastProgress(taskId, 'executing', 'Waiting for background subtask to finish...');
-          resetEventStreamTimeout(
-            taskId,
-            execution.sessionId,
-            BACKGROUND_TASK_WAIT_TIMEOUT_MS,
-            BACKGROUND_TASK_TIMEOUT_MESSAGE,
-          );
-          break;
-        }
-        addLogEntry(taskId, 'success', 'Agent completed work');
-        await handleSessionComplete(taskId);
-      }
-      break;
-
-    case 'session.error':
-      if (taskId) {
-        const execution = activeExecutions.get(taskId);
-        if (execution?.status === 'committing' || execution?.status === 'creating_pr' || execution?.status === 'done') {
-          break;
-        }
-        const rawError = event.properties?.error;
-        const { message: errorDetail, isAuthError, isRateLimit } = extractCleanError(rawError);
-        const headline = isAuthError
-          ? 'Invalid API key — update it in Settings → AI Providers'
-          : isRateLimit
-            ? 'Rate limit exceeded — try again later'
-            : 'Execution failed';
-        addLogEntry(taskId, 'error', headline, errorDetail);
-        broadcastProgress(taskId, 'error', headline);
-    if (execution) {
-      await finalizeAgentRun(execution, 'failed', { errorMessage: errorDetail });
-    }
-    const elapsedMs = execution ? Date.now() - execution.startedAt.getTime() : 0;
-    await updateTaskStatus(taskId, 'cancelled', null, {
-      executionElapsedMs: elapsedMs,
-      executionPausedAt: new Date(),
-    });
-    await persistLogs(taskId);
-    await cleanupExecution(taskId);
-      }
-      break;
-
-    case 'session.status': {
-      if (!taskId) break;
-      const status = event.properties?.status as { type?: string; message?: string };
-      if (status?.type === 'busy') {
-        const execution = activeExecutions.get(taskId);
-        if (execution) execution.promptSent = true;
+        break;
+      case 'appendTextDelta':
+        appendTextDelta(taskId, action.delta);
+        break;
+      case 'appendReasoningDelta':
+        appendReasoningDelta(taskId, action.delta);
+        break;
+      case 'markThinking':
         if (markThinking(taskId)) {
           addLogEntry(taskId, 'agent', 'Agent is thinking...');
         }
-        broadcastProgress(taskId, 'executing', 'Agent is thinking...');
-      } else if (status?.type === 'retry') {
-        addLogEntry(taskId, 'info', `Retrying: ${status.message || 'unknown reason'}`);
-      }
-      break;
-    }
-
-    case 'message.part.updated': {
-      if (!taskId) break;
-      const part = event.properties?.part as ToolPart | undefined;
-      const delta = event.properties?.delta as string;
-
-      if (part?.type === 'text' && delta) {
-        appendTextDelta(taskId, delta);
-        observeBackgroundTaskText(taskId, delta);
-      } else if (part?.type === 'tool') {
-        flushDeltaBuffer(taskId);
-        const toolName = part.tool || 'unknown tool';
-        const state = part.state;
-        if (state?.status === 'running') {
-          addLogEntry(taskId, 'tool', `Running: ${state.title || toolName}`);
-          broadcastProgress(taskId, 'executing', `Running: ${state.title || toolName}`);
-        } else if (state?.status === 'completed') {
-          const rawOutput = state.output || '';
-          const output = rawOutput.slice(0, 100);
-          noteToolCompleted(taskId, toolName, rawOutput, part);
-          if (isBackgroundTaskLaunch(toolName, rawOutput)) {
-            const launchExecution = activeExecutions.get(taskId);
-            if (launchExecution) {
-              launchExecution.backgroundTaskRunning = true;
-              launchExecution.backgroundTaskFailure = null;
-              launchExecution.backgroundTaskResultBuffer = rawOutput.slice(-BACKGROUND_TASK_BUFFER_LIMIT);
-              const backgroundTaskId = extractBackgroundTaskId(rawOutput);
-              if (backgroundTaskId && !launchExecution.backgroundTaskIds.includes(backgroundTaskId)) {
-                launchExecution.backgroundTaskIds.push(backgroundTaskId);
-              }
-              resetEventStreamTimeout(
-                taskId,
-                launchExecution.sessionId,
-                BACKGROUND_TASK_WAIT_TIMEOUT_MS,
-                BACKGROUND_TASK_TIMEOUT_MESSAGE,
-              );
-            }
-            addLogEntry(taskId, 'info', 'Background subtask launched; waiting for it to finish', output);
-            broadcastProgress(taskId, 'executing', 'Waiting for background subtask to finish...');
-          } else if (isBackgroundTaskCancellation(toolName, rawOutput)) {
-            clearBackgroundTaskWait(taskId, 'cancelled', rawOutput.slice(-1_000));
-            addLogEntry(taskId, 'success', `Completed: ${toolName}`, output);
-          } else {
-            observeBackgroundTaskText(taskId, rawOutput);
-            addLogEntry(taskId, 'success', `Completed: ${toolName}`, output);
-          }
-        } else if (state?.status === 'error') {
-          addLogEntry(taskId, 'error', `Failed: ${toolName}`, state.output);
+        break;
+      case 'setPromptSent':
+        execution.promptSent = true;
+        break;
+      case 'incrementFilesChanged':
+        execution.filesChanged++;
+        break;
+      case 'noteToolCompleted':
+        noteToolCompleted(taskId, action.toolName, action.output, action.part);
+        break;
+      case 'observeBackgroundTaskText':
+        observeBackgroundTaskText(taskId, action.text);
+        break;
+      case 'launchBackgroundTask': {
+        execution.backgroundTaskRunning = true;
+        execution.backgroundTaskFailure = null;
+        execution.backgroundTaskResultBuffer = action.output;
+        if (action.backgroundTaskId && !execution.backgroundTaskIds.includes(action.backgroundTaskId)) {
+          execution.backgroundTaskIds.push(action.backgroundTaskId);
         }
-      } else if (part?.type === 'reasoning') {
-        if (delta && delta.length > 0) {
-          appendReasoningDelta(taskId, delta);
-        }
+        resetEventStreamTimeout(taskId, execution.sessionId, BACKGROUND_TASK_WAIT_TIMEOUT_MS, BACKGROUND_TASK_TIMEOUT_MESSAGE);
+        break;
       }
-      break;
-    }
-
-    case 'tool.execute.before': {
-      if (!taskId) break;
-      flushDeltaBuffer(taskId);
-      const tool = event.properties?.tool as string;
-      if (tool) {
-        addLogEntry(taskId, 'tool', `Starting: ${tool}`);
+      case 'clearBackgroundTaskWait':
+        clearBackgroundTaskWait(taskId, action.status, action.details);
+        break;
+      case 'resetEventStreamTimeout':
+        resetEventStreamTimeout(taskId, execution.sessionId, action.timeoutMs, action.timeoutMessage);
+        break;
+      case 'handleSessionComplete':
+        await handleSessionComplete(taskId);
+        break;
+      case 'failExecution':
+        await failExecutionFromEventStream(taskId, action.message, action.details);
+        break;
+      case 'sessionError': {
+        addLogEntry(taskId, 'error', action.headline, action.errorDetail);
+        broadcastProgress(taskId, 'error', action.headline);
+        await finalizeAgentRun(execution, 'failed', { errorMessage: action.errorDetail });
+        const elapsedMs = Date.now() - execution.startedAt.getTime();
+        await updateTaskStatus(taskId, 'cancelled', null, {
+          executionElapsedMs: elapsedMs,
+          executionPausedAt: new Date(),
+        });
+        await persistLogs(taskId);
+        await cleanupExecution(taskId);
+        break;
       }
-      break;
     }
-
-    case 'tool.execute.after': {
-      if (!taskId) break;
-      const tool = event.properties?.tool as string;
-      const output = event.properties?.output as string;
-      if (tool) {
-        noteToolCompleted(taskId, tool, output);
-        if (isBackgroundTaskCancellation(tool, output || '')) {
-          clearBackgroundTaskWait(taskId, 'cancelled', output?.slice(-1_000));
-        } else {
-          observeBackgroundTaskText(taskId, output || '');
-        }
-        addLogEntry(taskId, 'success', `Finished: ${tool}`, output?.slice(0, 100));
-      }
-      break;
-    }
-
-    case 'file.edited': {
-      if (!taskId) break;
-      const file = event.properties?.file as string;
-      if (file) {
-        const execution = activeExecutions.get(taskId);
-        if (execution) execution.filesChanged++;
-        addLogEntry(taskId, 'success', `Edited file: ${file}`);
-      }
-      break;
-    }
-
-    default:
-      break;
   }
 }
 
