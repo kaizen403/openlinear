@@ -4,6 +4,7 @@ import {
   ipcMain,
   shell,
   dialog,
+  screen,
 } from "electron";
 import * as path from "node:path";
 import * as http from "node:http";
@@ -17,10 +18,6 @@ import {
 
 const isDev = process.argv.includes("--dev");
 const gotTheLock = app.requestSingleInstanceLock();
-
-if (process.platform === "linux") {
-  app.commandLine.appendSwitch("ozone-platform-hint", "auto");
-}
 
 let mainWindow: BrowserWindow | null = null;
 let pendingAuthCallback: {
@@ -105,12 +102,18 @@ async function startStaticServer(): Promise<number> {
 }
 
 function createWindow(url: string): BrowserWindow {
+  const primary = screen.getPrimaryDisplay();
+  const { width: sw, height: sh } = primary.workAreaSize;
+  const ww = 1200;
+  const wh = 800;
+
   const win = new BrowserWindow({
-    width: 1200,
-    height: 800,
+    x: Math.round((sw - ww) / 2),
+    y: Math.round((sh - wh) / 2),
+    width: ww,
+    height: wh,
     minWidth: 800,
     minHeight: 500,
-    center: true,
     show: false,
     backgroundColor: "#0a0a0a",
     frame: true,
@@ -122,7 +125,6 @@ function createWindow(url: string): BrowserWindow {
       sandbox: true,
       allowRunningInsecureContent: false,
       experimentalFeatures: false,
-      offscreen: false,
     },
   });
 
