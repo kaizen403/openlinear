@@ -35,7 +35,7 @@ function HomeContent() {
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
-      router.push('/login')
+      router.push('/login/')
     }
   }, [isLoading, isAuthenticated, router])
 

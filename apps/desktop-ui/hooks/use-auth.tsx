@@ -108,7 +108,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(userData);
         await refreshActiveRepository();
         toast.success('Authenticated. Opening OpenLinear...');
-        if (pathname === '/login') {
+        if (pathname === '/login' || pathname === '/login/') {
           router.replace('/');
         }
       } catch (err) {
@@ -193,8 +193,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(null);
       setActiveRepository(null);
       toast.error('Session expired. Please sign in again.');
-      if (pathname !== '/login' && pathname !== '/') {
-        router.push('/login');
+      if (pathname !== '/login' && pathname !== '/login/' && pathname !== '/') {
+        router.push('/login/');
       }
     };
 
