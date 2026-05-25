@@ -8,11 +8,7 @@ let cachedSidecarUrl: string | null = null;
 let listenerInstalled = false;
 
 function isDesktopRuntime(): boolean {
-  return isElectronRuntime() || isTauriRuntime();
-}
-
-function isElectronRuntime(): boolean {
-  return typeof window !== 'undefined' && 'electronAPI' in window && window.electronAPI?.isElectron === true;
+  return isTauriRuntime();
 }
 
 function isTauriRuntime(): boolean {
@@ -49,12 +45,6 @@ function clearCachedSidecarUrl() {
 }
 
 async function readSidecarPort(command: 'get_api_server_port' | 'start_api_server'): Promise<number | null> {
-  if (isElectronRuntime()) {
-    const api = window.electronAPI;
-    if (!api) return null;
-    const result = await api.invoke(command).catch(() => null);
-    return typeof result === 'number' ? result : null;
-  }
   const { invoke } = await import('@tauri-apps/api/core');
   return invoke<number | null>(command).catch(() => null);
 }
@@ -93,26 +83,15 @@ async function ensureSidecarListener() {
   if (!isDesktopRuntime()) return;
   listenerInstalled = true;
   try {
-    if (isElectronRuntime()) {
-      const api = window.electronAPI;
-      if (api) {
-        api.onSidecarReady((event) => {
-          if (event?.api_url) {
-            persistSidecarUrl(event.api_url);
-          }
-        });
-      }
-    } else {
-      const { listen } = await import('@tauri-apps/api/event');
-      await listen<{ port: number; api_url: string; health_url: string }>(
-        'sidecar:ready',
-        (event) => {
-          if (event.payload?.api_url) {
-            persistSidecarUrl(event.payload.api_url);
-          }
-        },
-      );
-    }
+    const { listen } = await import('@tauri-apps/api/event');
+    await listen<{ port: number; api_url: string; health_url: string }>(
+      'sidecar:ready',
+      (event) => {
+        if (event.payload?.api_url) {
+          persistSidecarUrl(event.payload.api_url);
+        }
+      },
+    );
 
     const port = await readSidecarPort('get_api_server_port');
     if (port) {

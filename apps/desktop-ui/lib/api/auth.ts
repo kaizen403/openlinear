@@ -11,7 +11,7 @@ const TOKEN_VERIFY_MIN_RETRY_MS = 300;
 const TOKEN_VERIFY_MAX_RETRY_MS = 1_250;
 
 function isDesktopRuntime(): boolean {
-  return typeof window !== 'undefined' && (('__TAURI_INTERNALS__' in window) || ('electronAPI' in window && window.electronAPI?.isElectron === true));
+  return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 }
 
 function removeTokenIfCurrent(token: string): void {
@@ -163,14 +163,6 @@ async function getDesktopLoginUrl(): Promise<string> {
 export async function startLogin(): Promise<boolean> {
   if (isDesktopRuntime()) {
     const url = await getDesktopLoginUrl();
-    if (typeof window !== 'undefined' && 'electronAPI' in window && window.electronAPI?.isElectron) {
-      try {
-        await window.electronAPI.openExternal(url);
-        return true;
-      } catch (err) {
-        console.warn('[Auth] Failed to open desktop GitHub login via Electron:', err);
-      }
-    }
     void import('@tauri-apps/plugin-shell')
       .then(({ open }) => open(url))
       .catch((err) => {
