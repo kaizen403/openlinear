@@ -203,41 +203,54 @@ async function maybeAutoTitle(input: {
   if (userMessageCount !== 1) return;
 
   void (async () => {
-    try {
-      const client = getChatLLMClient();
-      const titleMessages: ChatLLMMessage[] = [
-        { role: 'system', content: CHAT_TITLE_PROMPT },
-        { role: 'user', content: `User message:\n${input.userMessage.slice(0, 2000)}\n\nAssistant answer:\n${input.assistantMessage.slice(0, 2000)}` },
-      ];
+    const maxAttempts = 3;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        const client = getChatLLMClient();
+        const titleMessages: ChatLLMMessage[] = [
+          { role: 'system', content: CHAT_TITLE_PROMPT },
+          { role: 'user', content: `User message:\n${input.userMessage.slice(0, 2000)}\n\nAssistant answer:\n${input.assistantMessage.slice(0, 2000)}` },
+        ];
 
-      let rawTitle = '';
-      if (client.completeChatCompletion) {
-        rawTitle = await client.completeChatCompletion({
-          messages: titleMessages,
-          toolChoice: 'none',
-          maxTokens: 80,
-          json: true,
+        let rawTitle = '';
+        if (client.completeChatCompletion) {
+          rawTitle = await client.completeChatCompletion({
+            messages: titleMessages,
+            toolChoice: 'none',
+            maxTokens: 80,
+            json: true,
+          });
+        } else {
+          for await (const event of client.streamChatCompletion({
+            messages: titleMessages,
+            toolChoice: 'none',
+            maxTokens: 60,
+          })) {
+            if (event.type === 'delta') rawTitle += event.content;
+          }
+        }
+
+        const parsed = parseTitleResponse(rawTitle);
+        const cleaned = parsed.replace(/["""]/g, '').replace(/\s+/g, ' ').trim().slice(0, 60);
+        if (!cleaned) {
+          if (attempt < maxAttempts) {
+            await new Promise(r => setTimeout(r, 1000 * attempt));
+            continue;
+          }
+          return;
+        }
+        const updated = await prisma.chatSession.update({
+          where: { id: input.sessionId },
+          data: { title: cleaned },
         });
-      } else {
-        for await (const event of client.streamChatCompletion({
-          messages: titleMessages,
-          toolChoice: 'none',
-          maxTokens: 60,
-        })) {
-          if (event.type === 'delta') rawTitle += event.content;
+        await broadcastToChatSession(input.sessionId, 'chat:session:updated', updated);
+        return;
+      } catch (err) {
+        logger.warn({ err, sessionId: input.sessionId, attempt }, '[chat] auto-title failed');
+        if (attempt < maxAttempts) {
+          await new Promise(r => setTimeout(r, 1000 * attempt));
         }
       }
-
-      const parsed = parseTitleResponse(rawTitle);
-      const cleaned = parsed.replace(/["“”]/g, '').replace(/\s+/g, ' ').trim().slice(0, 60);
-      if (!cleaned) return;
-      const updated = await prisma.chatSession.update({
-        where: { id: input.sessionId },
-        data: { title: cleaned },
-      });
-      await broadcastToChatSession(input.sessionId, 'chat:session:updated', updated);
-    } catch (err) {
-      logger.warn({ err, sessionId: input.sessionId }, '[chat] auto-title failed');
     }
   })();
 }
