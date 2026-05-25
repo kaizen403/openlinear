@@ -33,6 +33,7 @@ export async function fetchGitHubRepos(options: {
   sort?: GitHubRepoSort;
   filter?: GitHubRepoFilter;
   q?: string;
+  scope?: 'mine' | 'public';
   signal?: AbortSignal;
 } = {}): Promise<GitHubReposResponse> {
   const params = new URLSearchParams();
@@ -41,6 +42,7 @@ export async function fetchGitHubRepos(options: {
   if (options.sort) params.set('sort', options.sort);
   if (options.filter) params.set('filter', options.filter);
   if (options.q?.trim()) params.set('q', options.q.trim());
+  if (options.scope === 'public') params.set('scope', 'public');
 
   const cacheKey = getRepoCacheKey(params);
   const now = Date.now();

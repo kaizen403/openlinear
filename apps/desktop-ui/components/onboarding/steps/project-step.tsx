@@ -128,6 +128,7 @@ const GitHubRepoList = memo(function GitHubRepoList({
   const repoRequestControllerRef = useRef<AbortController | null>(null)
 
   const hasGitHub = Boolean(user?.githubLinked ?? user?.githubId)
+  const [searchScope, setSearchScope] = useState<'mine' | 'public'>('mine')
 
   const handleSelectRepo = useCallback(
     (repo: GitHubRepo) => {
@@ -161,6 +162,7 @@ const GitHubRepoList = memo(function GitHubRepoList({
         page: 1,
         perPage: REPO_SEARCH_LIMIT,
         q: repoQuery,
+        scope: searchScope,
         signal: controller.signal,
       })
       if (requestId !== requestIdRef.current) return
@@ -177,7 +179,7 @@ const GitHubRepoList = memo(function GitHubRepoList({
         setIsLoadingRepos(false)
       }
     }
-  }, [hasGitHub, repoQuery])
+  }, [hasGitHub, repoQuery, searchScope])
 
   useEffect(() => {
     return () => {
@@ -223,6 +225,22 @@ const GitHubRepoList = memo(function GitHubRepoList({
             <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 animate-spin text-linear-text-tertiary" />
           )}
         </div>
+      </div>
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => setSearchScope('mine')}
+          className={`px-3 py-1 text-xs rounded-full border transition-colors ${searchScope === 'mine' ? 'bg-linear-accent text-white border-linear-accent' : 'border-linear-border text-linear-text-secondary hover:bg-linear-bg-secondary'}`}
+        >
+          Mine
+        </button>
+        <button
+          type="button"
+          onClick={() => setSearchScope('public')}
+          className={`px-3 py-1 text-xs rounded-full border transition-colors ${searchScope === 'public' ? 'bg-linear-accent text-white border-linear-accent' : 'border-linear-border text-linear-text-secondary hover:bg-linear-bg-secondary'}`}
+        >
+          Public
+        </button>
       </div>
       <p className="text-xs text-linear-text-tertiary">
         Search returns the top {REPO_SEARCH_LIMIT} matches. Use owner/repo for an exact match.

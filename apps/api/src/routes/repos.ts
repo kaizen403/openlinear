@@ -13,6 +13,7 @@ import {
 } from '../schemas/repos';
 import {
   getGitHubRepos,
+  searchPublicGitHubRepos,
   getGitHubBranches,
   addRepository,
   setActiveRepository,
@@ -138,8 +139,11 @@ router.get('/github', requireAuth, async (req: AuthRequest, res: Response, next:
     filter: readRepoFilter(req.query.filter),
     q: readQueryString(req.query.q)?.trim() || undefined,
   };
+  const searchScope = req.query.scope === 'public' ? 'public' : 'mine';
   const t0 = Date.now();
-  const repos = await getGitHubRepos(accessToken, queryOptions);
+  const repos = searchScope === 'public'
+    ? await searchPublicGitHubRepos(accessToken, queryOptions)
+    : await getGitHubRepos(accessToken, queryOptions);
   const elapsed = Date.now() - t0;
   console.log(
     `[repos/github] user=${user.username} page=${queryOptions.page} perPage=${queryOptions.perPage} filter=${queryOptions.filter} sort=${queryOptions.sort} q=${queryOptions.q ?? ''} returned=${repos.repos.length} hasMore=${repos.hasMore} total=${repos.totalCount} in ${elapsed}ms`,
