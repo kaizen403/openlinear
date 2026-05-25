@@ -47,7 +47,6 @@ export CORS_ORIGIN="${CORS_ORIGIN:+$CORS_ORIGIN,}$REQUIRED_CORS_ORIGINS"
 
 log "Preparing database schema..."
 pnpm --filter @openlinear/db db:generate
-pnpm --filter @openlinear/db db:migrate:deploy
 
 PIDS=()
 cleanup() {

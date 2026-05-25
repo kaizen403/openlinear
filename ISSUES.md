@@ -1327,3 +1327,29 @@ AGENTS: Add new entries above this comment. Format:
 
 ### Next steps / blockers
 - Manually run the desktop GitHub OAuth flow and confirm the Chrome bridge plus OpenLinear login screen show the success feedback.
+
+## [2026-05-24] — Fix GitHub OAuth 404 and get local dev stack running
+
+**Status:** Done
+**Agent:** Claude Opus (OpenCode / Sisyphus)
+
+### What was done
+- Pulled latest from `origin/dev` (fast-forward, 179 new files including Electron desktop shell, chat tests, .omo plans/evidence)
+- Stashed local changes (`pnpm-lock.yaml`, `scripts/dev-live.sh`), pulled, popped stash — no conflicts
+- Verified `.env` already matches `.env.dev` (correct dev Neon DB, GitHub OAuth app `Ov23liy8A1JNx3VSY0la`, localhost callbacks)
+- Generated Prisma client successfully (`pnpm --filter @openlinear/db db:generate`)
+- Started sidecar on :3001 (healthy, DB connected) and Next.js on :3000 in tmux session `ol-dev`
+- Confirmed `/api/auth/github` returns 302 → `github.com/login/oauth/authorize` with correct `client_id` and `redirect_uri`
+
+### Root cause of original OAuth 404
+The sidecar was likely not running when login was attempted (single-tenant guard `OPENLINEAR_ALLOW_SHARED_OPENCODE` blocks startup without the env var). Using `dev-live.sh` or manually exporting the var fixes it.
+
+### Files changed
+- No file edits — only git pull + stash pop
+
+### Issues encountered
+- `.env` has unquoted `&` in DATABASE_URL which breaks `source .env` in bash; `dev-live.sh` handles this with line-by-line parsing
+
+### Next steps / blockers
+- Test full GitHub OAuth login flow in browser at http://localhost:3000
+- Ensure GitHub OAuth App callback URL includes `http://localhost:3001/api/auth/github/callback`
