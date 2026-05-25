@@ -49,14 +49,8 @@ export function RepoPickerField({ formData, setFormData, isDesktopApp, namePrefi
     if (!isDesktopApp) return
     setIsPickingLocalPath(true)
     try {
-      let selectedPath: string | null = null
-      const win = window as unknown as Record<string, unknown>
-      if (typeof window !== 'undefined' && 'electronAPI' in window && win.electronAPI && (win.electronAPI as { isElectron?: boolean }).isElectron) {
-        selectedPath = await (win.electronAPI as { pickFolder: () => Promise<string | null> }).pickFolder()
-      } else {
-        const { invoke } = await import("@tauri-apps/api/core")
-        selectedPath = await invoke<string | null>("pick_local_folder")
-      }
+      const { invoke } = await import("@tauri-apps/api/core")
+      const selectedPath = await invoke<string | null>("pick_local_folder")
       if (!selectedPath) return
       setFormData((prev) => ({ ...prev, sourceType: "local", repoUrl: "", localPath: selectedPath }))
     } catch (error) {

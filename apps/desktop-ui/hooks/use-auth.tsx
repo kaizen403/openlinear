@@ -129,23 +129,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     let unlisten: (() => void) | undefined;
     let cancelled = false;
 
-    const setupElectron = async () => {
-      try {
-        const api = window.electronAPI;
-        if (!api) return;
-        const pending = await api.invoke('consume_pending_auth_callback').catch(() => null) as AuthCallbackPayload | null;
-        if (!cancelled && pending) {
-          void handleAuthCallback(pending);
-        }
-        unlisten = api.onAuthCallback((event) => {
-          void handleAuthCallback(event);
-          api.invoke('consume_pending_auth_callback').catch(() => null);
-        });
-      } catch (err) {
-        console.warn('[Auth] Failed to register Electron auth:callback listener:', err);
-      }
-    };
-
     const setupTauri = async () => {
       try {
         const { listen } = await import('@tauri-apps/api/event');
@@ -168,9 +151,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     };
 
-    if ('electronAPI' in window && window.electronAPI?.isElectron) {
-      void setupElectron();
-    } else if ('__TAURI_INTERNALS__' in window) {
+    if ('__TAURI_INTERNALS__' in window) {
       void setupTauri();
     }
 
