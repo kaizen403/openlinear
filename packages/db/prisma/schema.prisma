@@ -290,6 +290,7 @@ model User {
   chatSessions  ChatSession[]
   chatMessages  ChatMessage[]
   chatToolCalls ChatToolCall[]
+  chatAttachments ChatAttachment[]
   sentInvitations  Invitation[] @relation("InvitedByUser")
   commentMentions  CommentMention[] @relation("commentMentions")
   notificationPreferences NotificationPreference[]
@@ -550,9 +551,28 @@ model ChatMessage {
   createdAt   DateTime        @default(now())
   toolCallRows ChatToolCall[]
 
+  attachments ChatAttachment[]
+
   @@index([sessionId, createdAt])
   @@index([userId, createdAt])
   @@map("chat_messages")
+}
+
+model ChatAttachment {
+  id        String      @id @default(uuid())
+  messageId String?
+  message   ChatMessage? @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  filename  String
+  mimeType  String
+  url       String
+  size      Int
+  createdAt DateTime    @default(now())
+
+  @@index([messageId])
+  @@index([userId, createdAt])
+  @@map("chat_attachments")
 }
 
 model ChatToolCall {
