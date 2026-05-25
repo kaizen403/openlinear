@@ -8,9 +8,10 @@ import { WorkspaceProvider } from "@/hooks/use-workspace"
 import { ProjectProvider } from "@/hooks/use-project"
 import { ChatSessionsProvider } from "@/hooks/use-chat-sessions"
 import { ChatScopeProvider } from "@/hooks/use-chat-scope"
+import { ChatPanelHandoffProvider } from "@/hooks/use-chat-panel-handoff"
 import { ThemedToaster } from "@/components/themed-toaster"
 import { ThemeMeta } from "@/components/theme-meta"
-import { GlobalQuickCapture } from "@/components/global-quick-capture"
+import { BrainstormPopup } from "@/components/brainstorm/brainstorm-popup"
 import { GodModeOverlay } from "@/components/god-mode-overlay"
 import { CommandPalette } from "@/components/command-palette"
 import { ShortcutsOverlay } from "@/components/shortcuts-overlay"
@@ -83,15 +84,17 @@ export default function RootLayout({
                   <ProjectProvider>
                     <ChatScopeProvider>
                       <ChatSessionsProvider>
-                        {children}
-                        <GlobalQuickCapture />
+                        <ChatPanelHandoffProvider>
+                          {children}
+                          <BrainstormPopup />
+                          <GodModeOverlay />
+                        </ChatPanelHandoffProvider>
                       </ChatSessionsProvider>
                     </ChatScopeProvider>
                   </ProjectProvider>
                 </TeamsProvider>
               </WorkspaceProvider>
             </SSEProvider>
-            <GodModeOverlay />
             <CommandPalette />
             <ShortcutsOverlay />
             <ThemedToaster />
