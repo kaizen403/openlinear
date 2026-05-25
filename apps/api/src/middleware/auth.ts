@@ -5,6 +5,7 @@ import {
   isPersonalAccessToken,
   validatePersonalAccessToken,
 } from '../services/pats';
+import { hashToken, isSessionRevoked, touchSession } from '../services/sessions';
 
 function getJwtSecret(): string {
   const secret = process.env.JWT_SECRET;
@@ -83,6 +84,15 @@ async function authenticateBearer(
       res.status(401).json(buildErrorEnvelope('UNAUTHORIZED', 'Invalid token'));
       return;
     }
+
+    const tokenH = hashToken(token);
+    const revoked = await isSessionRevoked(tokenH);
+    if (revoked) {
+      res.status(401).json(buildErrorEnvelope('SESSION_REVOKED', 'Session has been revoked'));
+      return;
+    }
+
+    void touchSession(tokenH);
 
     req.userId = claims.userId;
     req.username = claims.username;

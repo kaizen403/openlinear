@@ -116,6 +116,33 @@ enum ActivityAction {
   @@map("activity_actions")
 }
 
+enum InvitationStatus {
+  pending
+  accepted
+  revoked
+  expired
+
+  @@map("invitation_statuses")
+}
+
+enum Permission {
+  create_task
+  read_task
+  update_task
+  delete_task
+  manage_members
+  manage_roles
+  execute_agent
+  manage_billing
+  manage_project
+  manage_team
+  manage_workspace
+  invite_members
+  view_analytics
+
+  @@map("permissions")
+}
+
 model Task {
   id          String      @id @default(uuid())
   title       String
@@ -156,10 +183,11 @@ model Task {
   parent     Task?   @relation("Subtasks", fields: [parentId], references: [id], onDelete: SetNull)
   subtasks   Task[]  @relation("Subtasks")
 
-  comments      Comment[]
-  agentRuns     AgentRun[]
-  activityLogs  ActivityLog[]
-  notifications Notification[]
+  comments       Comment[]
+  agentRuns      AgentRun[]
+  activityLogs   ActivityLog[]
+  notifications  Notification[]
+  taskAssignees  TaskAssignee[]
 
   @@unique([teamId, number])
   @@index([teamId, archived])
@@ -195,6 +223,28 @@ model TaskLabel {
   @@map("task_labels")
 }
 
+enum TaskAssigneeRole {
+  assignee
+  watcher
+
+  @@map("task_assignee_roles")
+}
+
+model TaskAssignee {
+  id        String           @id @default(uuid())
+  taskId    String
+  userId    String
+  role      TaskAssigneeRole @default(assignee)
+  createdAt DateTime         @default(now())
+  task      Task             @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, userId])
+  @@index([userId])
+  @@index([taskId])
+  @@map("task_assignees")
+}
+
 model Settings {
   id            String  @id @default(uuid())
   userId        String? @unique
@@ -215,6 +265,7 @@ model User {
   id                   String            @id @default(uuid())
   githubId             String?           @unique
   username             String            @unique
+  displayName          String?
   email                String?           @unique
   avatarUrl            String?
   accessToken          String?
@@ -228,6 +279,7 @@ model User {
 
   assignedTasks Task[]         @relation("assignedTasks")
   createdTasks  Task[]         @relation("createdTasks")
+  taskAssignments TaskAssignee[]
   comments      Comment[]
   agentRuns     AgentRun[]
   notifications Notification[] @relation("notificationRecipient")
@@ -238,6 +290,16 @@ model User {
   chatSessions  ChatSession[]
   chatMessages  ChatMessage[]
   chatToolCalls ChatToolCall[]
+  sentInvitations  Invitation[] @relation("InvitedByUser")
+  commentMentions  CommentMention[] @relation("commentMentions")
+  notificationPreferences NotificationPreference[]
+  auditLogs     AuditLog[]
+  sessions      Session[]
+
+  // Two-Factor Authentication (TOTP)
+  totpSecret  String?
+  totpEnabled Boolean  @default(false)
+  backupCodes String[]
 
   @@map("users")
 }
@@ -289,8 +351,27 @@ model Workspace {
   projects  Project[]
   chatSessions  ChatSession[]
   chatToolCalls ChatToolCall[]
+  invitations   Invitation[]
+  ssoConfig     SSOConfig?
+  auditLogs     AuditLog[]
 
   @@map("workspaces")
+}
+
+model SSOConfig {
+  id                    String   @id @default(uuid())
+  workspaceId           String   @unique
+  provider              String   @default("oidc")
+  issuerUrl             String
+  clientId              String
+  clientSecretEncrypted String
+  allowedDomains        String[]
+  enforced              Boolean  @default(false)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  workspace             Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@map("sso_configs")
 }
 
 model WorkspaceMember {
@@ -298,6 +379,8 @@ model WorkspaceMember {
   workspaceId String
   userId      String
   role        WorkspaceRole @default(member)
+  roleId      String?
+  roleRef     Role?         @relation(fields: [roleId], references: [id], onDelete: SetNull)
   invitedAt   DateTime      @default(now())
   joinedAt    DateTime?
   workspace   Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
@@ -305,6 +388,7 @@ model WorkspaceMember {
 
   @@unique([workspaceId, userId])
   @@index([userId])
+  @@index([roleId])
   @@map("workspace_members")
 }
 
@@ -336,6 +420,8 @@ model TeamMember {
   teamId    String
   userId    String
   role      TeamRole @default(member)
+  roleId    String?
+  roleRef   Role?    @relation(fields: [roleId], references: [id], onDelete: SetNull)
   sortOrder Int      @default(0)
   createdAt DateTime @default(now())
   team      Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
@@ -343,6 +429,7 @@ model TeamMember {
 
   @@unique([teamId, userId])
   @@index([userId])
+  @@index([roleId])
   @@map("team_members")
 }
 
@@ -384,16 +471,32 @@ model ProjectAccess {
   projectId  String
   userId     String
   permission ProjectPermission @default(full)
+  roleId     String?
+  roleRef    Role?             @relation(fields: [roleId], references: [id], onDelete: SetNull)
   grantedAt  DateTime          @default(now())
   project    Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
   user       User              @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([projectId, userId])
   @@index([userId])
+  @@index([roleId])
   @@map("project_access")
 }
 
+model Role {
+  id               String            @id @default(uuid())
+  name             String
+  scope            String
+  permissions      Permission[]
+  isDefault        Boolean           @default(false)
+  createdAt        DateTime          @default(now())
+  workspaceMembers WorkspaceMember[]
+  teamMembers      TeamMember[]
+  projectAccess    ProjectAccess[]
 
+  @@unique([name, scope])
+  @@map("roles")
+}
 
 model Comment {
   id            String         @id @default(uuid())
@@ -405,7 +508,8 @@ model Comment {
   mentions      String[]       @default([])
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
-  notifications Notification[]
+  notifications    Notification[]
+  commentMentions  CommentMention[]
 
   @@index([taskId, createdAt])
   @@map("comments")
@@ -554,4 +658,83 @@ model McpToolCall {
   @@index([userId, createdAt])
   @@index([toolName, createdAt])
   @@map("mcp_tool_calls")
+}
+
+model Invitation {
+  id          String          @id @default(uuid())
+  email       String
+  workspaceId String
+  workspace   Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  role        WorkspaceRole   @default(member)
+  invitedById String
+  invitedBy   User            @relation("InvitedByUser", fields: [invitedById], references: [id])
+  token       String          @unique @default(uuid())
+  status      InvitationStatus @default(pending)
+  expiresAt   DateTime
+  createdAt   DateTime        @default(now())
+
+  @@index([workspaceId])
+  @@index([email])
+  @@unique([email, workspaceId, status])
+  @@map("invitations")
+}
+
+model CommentMention {
+  id        String   @id @default(uuid())
+  commentId String
+  userId    String
+  comment   Comment  @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  user      User     @relation("commentMentions", fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([commentId, userId])
+  @@index([userId])
+  @@map("comment_mentions")
+}
+
+model NotificationPreference {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  eventType String
+  channel   String   @default("in_app")
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, eventType, channel])
+  @@index([userId])
+  @@map("notification_preferences")
+}
+
+model AuditLog {
+  id           String    @id @default(uuid())
+  workspaceId  String
+  workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  actorId      String
+  actor        User      @relation(fields: [actorId], references: [id], onDelete: Cascade)
+  action       String
+  resourceType String
+  resourceId   String
+  metadata     Json?
+  ipAddress    String?
+  createdAt    DateTime  @default(now())
+
+  @@index([workspaceId, createdAt])
+  @@map("audit_logs")
+}
+
+model Session {
+  id           String    @id @default(uuid())
+  userId       String
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash    String    @unique
+  deviceInfo   String?
+  ipAddress    String?
+  lastActiveAt DateTime  @default(now())
+  createdAt    DateTime  @default(now())
+  revokedAt    DateTime?
+
+  @@index([userId, revokedAt])
+  @@map("sessions")
 }

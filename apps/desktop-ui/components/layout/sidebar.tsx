@@ -21,6 +21,7 @@ import { apiFetch } from "@/lib/api"
 import { getApiUrl, getAuthToken } from "@/lib/api/client"
 
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { NotificationBell } from "@/components/notifications/notification-bell"
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import {
@@ -162,7 +163,7 @@ function ProjectSection({ project, pathname, searchParams, isActive, onSelect }:
                     )}
                 >
                     <Hexagon className="w-3.5 h-3.5 flex-shrink-0" />
-                    <span className="truncate">{project.name}</span>
+                    <span className="truncate text-base font-medium">{project.name}</span>
                 </button>
             </div>
 
@@ -349,6 +350,7 @@ export function Sidebar({ open, onClose, width }: SidebarProps) {
                   <span className="text-sm font-semibold text-linear-text">OpenLinear</span>
                 </div>
                 <div className="flex items-center gap-1">
+                    <NotificationBell />
                     <button
                         onClick={onClose}
                         className="w-6 h-6 rounded flex items-center justify-center text-linear-text-tertiary hover:text-linear-text hover:bg-linear-bg-tertiary transition-colors"

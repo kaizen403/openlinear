@@ -30,6 +30,13 @@ import dashboardRouter from './routes/dashboard';
 import mcpUsageRouter from './routes/mcp-usage';
 import chatRouter from './routes/chat';
 import eventsRouter from './routes/events';
+import usersRouter from './routes/users';
+import invitationsRouter from './routes/invitations';
+import membersRouter from './routes/members';
+import ssoRouter from './routes/sso';
+import auditRouter from './routes/audit';
+import sessionsRouter from './routes/sessions';
+import totpRouter from './routes/totp';
 import { clients } from './sse';
 import { logger } from './logger';
 import { isOwnershipError } from './services/ownership';
@@ -183,6 +190,7 @@ export function createApp(): Application {
   app.use(express.json({ limit: '256kb' }));
 
   app.use('/api/auth', authRouter);
+  app.use('/api/auth/2fa', totpRouter);
   app.use('/api/repos', reposRouter);
   app.use('/api/labels', labelRoutes);
   app.use('/api/tasks', tasksRouter);
@@ -201,6 +209,13 @@ export function createApp(): Application {
   app.use('/api/dashboard', dashboardRouter);
   app.use('/api/mcp', mcpUsageRouter);
   app.use('/api/chat', chatRouter);
+  app.use('/api/events', eventsRouter);
+  app.use('/api/users', requireAuth, usersRouter);
+  app.use('/api/invitations', requireAuth, invitationsRouter);
+app.use('/api/members', requireAuth, membersRouter);
+  app.use('/api', ssoRouter);
+  app.use('/api/workspaces', auditRouter);
+  app.use('/api/sessions', sessionsRouter);
 
   app.get('/health', async (req: Request, res: Response) => {
     try {
@@ -221,8 +236,6 @@ export function createApp(): Application {
       });
     }
   });
-
-  app.use('/api/events', eventsRouter);
 
   app.use(buildErrorHandler());
 

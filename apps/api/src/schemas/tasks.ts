@@ -28,6 +28,7 @@ const bulkTaskInputSchema = z.object({
   labelIds: z.array(z.string().uuid()).optional().default([]),
   parentId: z.string().uuid().optional(),
   dueDate: z.string().datetime().optional(),
+  assigneeIds: z.array(z.string().uuid()).optional(),
 });
 
 export const bulkCreateTasksSchema = z.object({
@@ -45,6 +46,8 @@ export const updateTaskBodySchema = z.object({
   projectId: z.string().uuid().nullable().optional(),
   dueDate: z.string().datetime().nullable().optional(),
   assigneeId: z.string().uuid().nullable().optional(),
+  assigneeIds: z.array(z.string().uuid()).optional(),
+  watcherIds: z.array(z.string().uuid()).optional(),
   model: z.string().min(1).nullable().optional(),
 });
 

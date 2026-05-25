@@ -95,6 +95,7 @@ export type SSEEventType =
   | 'workspace:member-added'
   | 'workspace:member-updated'
   | 'workspace:member-removed'
+  | 'notification:created'
 
 type SSEListener = (eventType: SSEEventType, data: SSEEventData) => void
 
@@ -147,6 +148,7 @@ const ALL_EVENT_TYPES: SSEEventType[] = [
   'workspace:member-added',
   'workspace:member-updated',
   'workspace:member-removed',
+  'notification:created',
 ]
 
 interface SSEStream {

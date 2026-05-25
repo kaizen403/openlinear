@@ -75,10 +75,10 @@ router.get('/:id', requireAuth, async (req: AuthRequest, res: Response) => {
 
 router.patch('/:id', requireAuth, validateBody(updateTaskBodySchema),
   async (req: AuthRequest & ValidatedRequest<UpdateTaskBody>, res: Response) => {
-    const { labelIds, teamId, projectId, dueDate, assigneeId, ...updateData } = req.validBody!;
+    const { labelIds, teamId, projectId, dueDate, assigneeId, assigneeIds, watcherIds, ...updateData } = req.validBody!;
     const task = await updateTaskRoute({
       userId: req.userId!, taskId: req.params.id as string,
-      labelIds, teamId, projectId, dueDate, assigneeId, ...updateData,
+      labelIds, teamId, projectId, dueDate, assigneeId, assigneeIds, watcherIds, ...updateData,
     });
     res.json(task);
   },

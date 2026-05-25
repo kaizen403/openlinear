@@ -3,7 +3,7 @@
 import { useRef, useCallback } from "react"
 import { Mic } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { transcribeAudio } from "@/lib/api/brainstorm"
+import { transcribeChatAudio } from "@/lib/api/chat"
 import { isWhisperHallucination } from "@/lib/audio-utils"
 
 interface VoiceCaptureProps {
@@ -49,7 +49,7 @@ export function VoiceCapture({
         const blob = new Blob(audioChunksRef.current, { type: mimeType })
         if (blob.size < 1000) return
         try {
-          const { text } = await transcribeAudio(blob)
+          const { text } = await transcribeChatAudio(blob)
           if (text && !isWhisperHallucination(text.trim())) {
             onTranscription(text.trim())
           }

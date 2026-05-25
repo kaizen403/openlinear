@@ -935,6 +935,8 @@ export async function updateTaskRoute(input: {
   projectId?: string | null;
   dueDate?: string | null;
   assigneeId?: string | null;
+  assigneeIds?: string[];
+  watcherIds?: string[];
   model?: string | null;
 }) {
   const existing = await assertTaskOwned(input.taskId, input.userId);
@@ -1009,11 +1011,34 @@ export async function updateTaskRoute(input: {
     };
   }
 
+  const hasAssigneeSync = input.assigneeIds !== undefined || input.watcherIds !== undefined;
+
   const task = await prisma.task.update({
     where: { id: input.taskId },
     data,
     include: taskInclude,
   });
+
+  if (hasAssigneeSync) {
+    const assigneeRecords = (input.assigneeIds ?? []).map((userId) => ({
+      taskId: input.taskId,
+      userId,
+      role: 'assignee' as const,
+    }));
+    const watcherRecords = (input.watcherIds ?? []).map((userId) => ({
+      taskId: input.taskId,
+      userId,
+      role: 'watcher' as const,
+    }));
+    const allRecords = [...assigneeRecords, ...watcherRecords];
+
+    await prisma.$transaction([
+      prisma.taskAssignee.deleteMany({ where: { taskId: input.taskId } }),
+      ...(allRecords.length
+        ? [prisma.taskAssignee.createMany({ data: allRecords, skipDuplicates: true })]
+        : []),
+    ]);
+  }
 
   const transformed = flattenTaskLabels(task);
   broadcastToTask('task:updated', transformed);
@@ -1072,6 +1097,7 @@ export async function bulkCreateTasksRoute(input: {
     labelIds: string[];
     parentId?: string;
     dueDate?: string;
+    assigneeIds?: string[];
   }>;
 }) {
   await assertProjectAccess(input.projectId, input.userId, 'full');
@@ -1143,6 +1169,9 @@ export async function bulkCreateTasksRoute(input: {
               creatorId: input.userId,
               labels: task.labelIds.length
                 ? { create: task.labelIds.map((labelId) => ({ labelId })) }
+                : undefined,
+              taskAssignees: task.assigneeIds?.length
+                ? { create: task.assigneeIds.map((userId) => ({ userId, role: 'assignee' as const })) }
                 : undefined,
             },
             include: taskInclude,

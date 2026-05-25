@@ -12,6 +12,7 @@ import {
 import { requireAuth, AuthRequest } from '../middleware/auth';
 import { prisma } from '@openlinear/db';
 import { buildErrorEnvelope } from '../lib/http';
+import { createSession, hashToken } from '../services/sessions';
 
 const router: Router = Router();
 
@@ -309,11 +310,33 @@ router.get('/github/callback', async (req: Request, res: Response) => {
     const githubUser = await getGitHubUser(accessToken);
     const user = await createOrUpdateUser(githubUser, accessToken);
 
+    if (user.totpEnabled) {
+      const tempToken = jwt.sign(
+        { userId: user.id, username: user.username, twoFactorPending: true },
+        getJwtSecret(),
+        { expiresIn: '5m' }
+      );
+
+      if (client === 'desktop') {
+        respondWithSuccess(client, `2fa:${tempToken}`, res);
+      } else {
+        const baseUrl = client === 'dashboard' ? getDashboardUrl() : getFrontendUrl();
+        res.redirect(`${baseUrl}?twoFactor=true&tempToken=${encodeURIComponent(tempToken)}`);
+      }
+      return;
+    }
+
     const token = jwt.sign(
       { userId: user.id, username: user.username },
       getJwtSecret(),
       { expiresIn: '7d' }
     );
+
+    try {
+      await createSession(user.id, hashToken(token), req);
+    } catch {
+      // Non-fatal: session tracking failure should not block login
+    }
 
     respondWithSuccess(client, token, res);
   } catch (err) {

@@ -116,6 +116,16 @@ router.post(
         include: { user: { select: COMMENT_AUTHOR_SELECT } },
       });
 
+      if (recipientIds.length > 0) {
+        await tx.commentMention.createMany({
+          data: recipientIds.map((userId) => ({
+            commentId: comment.id,
+            userId,
+          })),
+          skipDuplicates: true,
+        });
+      }
+
       const notifications =
         recipientIds.length > 0
           ? await Promise.all(

@@ -5,6 +5,7 @@ import { requireAuth, AuthRequest } from '../middleware/auth';
 import { broadcastToUser } from '../sse';
 import { paginationQuerySchema, paginated, paginationSkipTake } from '../schemas/pagination';
 import { HttpError, ValidationError } from '../errors';
+import { getPreferences, updatePreference, shouldNotify } from '../services/notification-preferences';
 
 const router: Router = Router();
 
@@ -87,6 +88,27 @@ router.post(
   },
 );
 
+const updatePreferenceSchema = z.object({
+  eventType: z.enum(['task_assigned', 'task_status_changed', 'task_commented', 'mentioned', 'invitation_received']),
+  channel: z.literal('in_app'),
+  enabled: z.boolean(),
+});
+
+router.get('/preferences', requireAuth, async (req: AuthRequest, res: Response) => {
+  const prefs = await getPreferences(req.userId!);
+  res.json(prefs);
+});
+
+router.put('/preferences', requireAuth, async (req: AuthRequest, res: Response) => {
+  const parsed = updatePreferenceSchema.safeParse(req.body);
+  if (!parsed.success) {
+    throw ValidationError.fromZod(parsed.error);
+  }
+  const { eventType, channel, enabled } = parsed.data;
+  const pref = await updatePreference(req.userId!, eventType, channel, enabled);
+  res.json(pref);
+});
+
 export default router;
 
 export interface CreateNotificationInput {
@@ -102,6 +124,23 @@ export async function createNotification(
   input: CreateNotificationInput,
 ): Promise<void> {
   if (input.recipientUserId === input.actorUserId) return;
+
+  const typeToEvent: Record<string, string> = {
+    mention: 'mentioned',
+    assignment: 'task_assigned',
+    status_change: 'task_status_changed',
+    comment: 'task_commented',
+  };
+
+  // @mentions always notify regardless of preferences (FR-6)
+  if (input.type !== 'mention') {
+    const eventType = typeToEvent[input.type];
+    if (eventType) {
+      const allowed = await shouldNotify(input.recipientUserId, eventType);
+      if (!allowed) return;
+    }
+  }
+
   try {
     const row = await prisma.notification.create({
       data: {

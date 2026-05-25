@@ -22,6 +22,8 @@ import { DoneColumnContent } from "./done-column-content"
 import { ModelSelector } from "./model-selector"
 import { formatBatchExecutionMode } from "./batch-mode"
 import { useRouter } from "next/navigation"
+import { BoardFilters, useBoardFilters } from "./board-filters"
+import { useTeamMembers } from "@/hooks/use-team-members"
 
 interface ProjectConfigPanelProps {
   selectedProject: Project | undefined
@@ -201,6 +203,20 @@ export function KanbanBoard(props: KanbanBoardProps) {
 
   const boardRef = useRef<HTMLDivElement>(null)
   const [isDragging, setIsDragging] = useState(false)
+
+  const filters = useBoardFilters()
+  const { members } = useTeamMembers()
+
+  const getFilteredTasksByStatus = useCallback((status: Task['status']) => {
+    const statusTasks = getTasksByStatus(status)
+    if (filters.assigneeIds.length === 0) return statusTasks
+    return statusTasks.filter((t) => filters.assigneeIds.includes(t.assigneeId || ""))
+  }, [getTasksByStatus, filters.assigneeIds])
+
+  const handleFiltersChange = useCallback((state: { assigneeIds: string[]; groupByAssignee: boolean }) => {
+    filters.setAssigneeIds(state.assigneeIds)
+    filters.setGroupByAssignee(state.groupByAssignee)
+  }, [filters.setAssigneeIds, filters.setGroupByAssignee])
 
   const handleDragStart = useCallback(() => {
     setIsDragging(true)
@@ -411,9 +427,83 @@ export function KanbanBoard(props: KanbanBoardProps) {
           selectedTaskIds={selectedTaskIds}
           activeBatch={activeBatch}
         />
+        <BoardFilters
+          value={{ assigneeIds: filters.assigneeIds, groupByAssignee: filters.groupByAssignee }}
+          onChange={handleFiltersChange}
+        />
+        {filters.groupByAssignee ? (
+          <div className="flex-1 min-h-0 overflow-y-auto">
+            {(() => {
+              const assigneesToShow = filters.assigneeIds.length > 0
+                ? members.filter((m) => filters.assigneeIds.includes(m.id))
+                : [...members, { id: "__unassigned__", username: "Unassigned", displayName: "Unassigned", avatarUrl: null }]
+
+              return assigneesToShow.map((member) => {
+                const isUnassigned = member.id === "__unassigned__"
+                const laneTasks = tasks.filter((t) => {
+                  if (isUnassigned) return !t.assigneeId
+                  return t.assigneeId === member.id
+                })
+                if (laneTasks.length === 0 && isUnassigned) return null
+                return (
+                  <div key={member.id} className="border-b border-linear-border last:border-b-0">
+                    <div className="flex items-center gap-2 px-4 py-2 bg-linear-bg-secondary">
+                      {member.avatarUrl ? (
+                        <img src={member.avatarUrl} alt="" className="w-5 h-5 rounded-full" />
+                      ) : (
+                        <div className="w-5 h-5 rounded-full bg-linear-bg-tertiary flex items-center justify-center">
+                          <span className="text-[10px] text-linear-text-tertiary uppercase">
+                            {member.username?.charAt(0) || "?"}
+                          </span>
+                        </div>
+                      )}
+                      <span className="text-sm font-medium text-linear-text">
+                        {member.displayName || member.username}
+                      </span>
+                      <span className="text-xs text-linear-text-tertiary">
+                        {laneTasks.length} {laneTasks.length === 1 ? "issue" : "issues"}
+                      </span>
+                    </div>
+                    <div className="flex md:grid md:grid-cols-2 lg:grid-cols-4 overflow-x-auto overflow-y-hidden snap-x snap-mandatory md:overflow-x-visible md:snap-none">
+                      {COLUMNS.map((column) => {
+                        const columnTasks = laneTasks.filter((t) => t.status === column.status)
+                        return (
+                          <div key={column.id} className="min-w-[280px] md:min-w-0 snap-start border-r border-linear-border last:border-r-0 p-2">
+                            <div className="text-[10px] uppercase tracking-wider text-linear-text-tertiary mb-1 px-1">
+                              {column.title} ({columnTasks.length})
+                            </div>
+                            <div className="space-y-1.5">
+                              {columnTasks.map((task) => (
+                                <TaskCard
+                                  key={task.id}
+                                  task={task}
+                                  onMoveToInProgress={task.status === 'todo' ? handleMoveToInProgress : undefined}
+                                  onExecute={task.status === 'in_progress' && canExecute ? handleExecute : undefined}
+                                  onCancel={task.status === 'in_progress' ? handleCancel : undefined}
+                                  onDelete={handleDelete}
+                                  onTaskClick={handleTaskClick}
+                                  selected={selectedTaskIds.has(task.id)}
+                                  onToggleSelect={toggleTaskSelect}
+                                  selectionMode={selectionActive}
+                                  isBatchTask={batchTaskIds.includes(task.id)}
+                                  isDragging={false}
+                                  deletionMode={taskDeletionMode}
+                                />
+                              ))}
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )
+              })
+            })()}
+          </div>
+        ) : (
         <div className="flex md:grid md:grid-cols-2 lg:grid-cols-4 flex-1 min-h-0 overflow-x-auto overflow-y-hidden snap-x snap-mandatory md:overflow-x-visible md:snap-none">
           {COLUMNS.map((column) => {
-            const columnTasks = getTasksByStatus(column.status)
+            const columnTasks = getFilteredTasksByStatus(column.status)
             const hasParallelGroup =
               column.status === 'in_progress' && batchTaskIds.length > 0
             const selectionActive = !hasParallelGroup && selectingColumns.has(column.id)
@@ -493,7 +583,7 @@ export function KanbanBoard(props: KanbanBoardProps) {
             )
           })}
         </div>
-
+        )}
         <TaskFormDialog
           open={isTaskFormOpen}
           onOpenChange={setIsTaskFormOpen}
