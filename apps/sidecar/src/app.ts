@@ -3,8 +3,6 @@ import { createApp, buildErrorHandler } from '@openlinear/api/app';
 import executionRouter from './routes/execution';
 import opencodeRouter from './routes/opencode';
 import batchesRouter from './routes/batches';
-import brainstormRouter from './routes/brainstorm';
-import transcribeRouter from './routes/transcribe';
 
 function makeRateLimiter(windowMs: number, max: number, name: string): RateLimitRequestHandler {
   return rateLimit({
@@ -26,14 +24,9 @@ function makeRateLimiter(windowMs: number, max: number, name: string): RateLimit
 export function createSidecarApp() {
   const app = createApp();
 
-  app.use('/api/transcribe', makeRateLimiter(60_000, 10, 'transcribe'));
-  app.use('/api/brainstorm', makeRateLimiter(60_000, 10, 'brainstorm'));
-
   app.use('/api/tasks', executionRouter);
   app.use('/api/opencode', opencodeRouter);
   app.use('/api/batches', batchesRouter);
-  app.use('/api/brainstorm', brainstormRouter);
-  app.use('/api/transcribe', transcribeRouter);
 
   // Re-mount the shared JSON error envelope handler AFTER sidecar routes so
   // their `next(error)` calls produce structured JSON instead of falling
