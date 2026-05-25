@@ -1,7 +1,7 @@
 "use client"
 
-import { useCallback, useEffect, useRef } from "react"
-import { Plus } from "lucide-react"
+import { useCallback, useEffect, useRef, useState } from "react"
+import { Plus, Pencil } from "lucide-react"
 import { useProject } from "@/hooks/use-project"
 import { useChatSessions } from "@/hooks/use-chat-sessions"
 import { useChatStream } from "@/hooks/use-chat-stream"
@@ -23,9 +23,33 @@ type ChatPanelProps = {
 
 export function ChatPanel({ showHeader = true, className }: ChatPanelProps) {
   const { activeProject } = useProject()
-  const { sessions, activeSessionId, setActiveSessionId, createSession } = useChatSessions()
+  const { sessions, activeSessionId, setActiveSessionId, createSession, renameSession } = useChatSessions()
   const { messages, status, streamingContent, activeToolCalls, send, stop, reset, loadHistory } = useChatStream()
   const { consumeQuery } = useChatPanelHandoff()
+
+  const [editingTitle, setEditingTitle] = useState(false)
+  const [titleDraft, setTitleDraft] = useState("")
+  const titleInputRef = useRef<HTMLInputElement>(null)
+
+  const activeSession = sessions.find((s) => s.id === activeSessionId)
+  const displayTitle = activeSession?.title || "New chat"
+
+  useEffect(() => {
+    if (editingTitle) titleInputRef.current?.focus()
+  }, [editingTitle])
+
+  const startEditing = useCallback(() => {
+    setTitleDraft(displayTitle === "New chat" ? "" : displayTitle)
+    setEditingTitle(true)
+  }, [displayTitle])
+
+  const saveTitle = useCallback(() => {
+    const trimmed = titleDraft.trim()
+    if (activeSessionId && trimmed && trimmed !== activeSession?.title) {
+      void renameSession(activeSessionId, trimmed)
+    }
+    setEditingTitle(false)
+  }, [activeSessionId, titleDraft, activeSession?.title, renameSession])
 
   const handleLoadSession = useCallback(async (sessionId: string) => {
     setActiveSessionId(sessionId)
@@ -38,7 +62,7 @@ export function ChatPanel({ showHeader = true, className }: ChatPanelProps) {
     } catch {}
   }, [setActiveSessionId, reset, loadHistory])
 
-  const handleSend = useCallback(async (content: string) => {
+  const handleSend = useCallback(async (content: string, attachmentIds?: string[]) => {
     if (!activeProject) return
     let sessionId = activeSessionId
     if (!sessionId) {
@@ -47,7 +71,7 @@ export function ChatPanel({ showHeader = true, className }: ChatPanelProps) {
       sessionId = session.id
       setActiveSessionId(sessionId)
     }
-    send(sessionId, content)
+    send(sessionId, content, attachmentIds)
   }, [activeProject, activeSessionId, createSession, setActiveSessionId, send])
 
   const handleNewChat = useCallback(() => {
@@ -79,10 +103,44 @@ export function ChatPanel({ showHeader = true, className }: ChatPanelProps) {
       {showHeader && (
         <header className="min-h-14 shrink-0 border-b border-linear-border bg-linear-bg/95 px-4 sm:px-6" data-tauri-drag-region>
           <div className="flex h-14 items-center gap-3">
-            <div className="min-w-0 flex-1" data-tauri-drag-region>
-              <p className="text-sm font-medium text-linear-text">Chat</p>
+            <div className="min-w-0 flex-1 group" data-tauri-drag-region>
+              {editingTitle ? (
+                <input
+                  ref={titleInputRef}
+                  className="w-full bg-transparent text-sm font-medium text-linear-text outline-none"
+                  value={titleDraft}
+                  onChange={(e) => setTitleDraft(e.target.value)}
+                  onBlur={saveTitle}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault()
+                      saveTitle()
+                    }
+                    if (e.key === "Escape") {
+                      setEditingTitle(false)
+                    }
+                  }}
+                />
+              ) : (
+                <div className="flex items-center gap-1.5">
+                  <p
+                    className="cursor-text text-sm font-medium text-linear-text"
+                    onDoubleClick={startEditing}
+                  >
+                    {displayTitle}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={startEditing}
+                    className="opacity-0 transition-opacity group-hover:opacity-100 text-linear-text-tertiary hover:text-linear-text"
+                    aria-label="Rename chat"
+                  >
+                    <Pencil className="h-3 w-3" />
+                  </button>
+                </div>
+              )}
               <p className="hidden text-xs text-linear-text-tertiary sm:block">
-                Grounded in the selected project
+                Grounded in {activeProject?.name || "the selected project"}
               </p>
             </div>
             <ScopePicker />

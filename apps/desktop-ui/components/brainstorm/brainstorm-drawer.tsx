@@ -9,7 +9,7 @@ import { useProject } from "@/hooks/use-project"
 import { useChatSessions } from "@/hooks/use-chat-sessions"
 import { useChatStream } from "@/hooks/use-chat-stream"
 import { useChatPanelHandoff } from "@/hooks/use-chat-panel-handoff"
-import { ChatComposer, ChatMessageList } from "@/components/chat"
+import { ChatComposer, ChatMessageList, ChatEmptyState, ChatSuggestions } from "@/components/chat"
 import { fetchChatSession } from "@/lib/api/chat"
 
 const MIN_WIDTH = 280
@@ -39,7 +39,7 @@ function relativeTime(dateStr: string): string {
 export function BrainstormDrawer() {
   const pathname = usePathname()
   const isHomePage = pathname === "/" || pathname === ""
-  const { isSidebarOpen, openSidebar, closeSidebar, consumeQuery } = useChatPanelHandoff()
+  const { isSidebarOpen, pendingQuery, openSidebar, closeSidebar, consumeQuery } = useChatPanelHandoff()
   const { activeProject } = useProject()
   const { sessions, activeSessionId, setActiveSessionId, createSession } = useChatSessions()
   const { messages, status, streamingContent, activeToolCalls, send, stop, reset, loadHistory } = useChatStream()
@@ -137,7 +137,7 @@ export function BrainstormDrawer() {
     } catch {}
   }, [setActiveSessionId, reset, loadHistory])
 
-  const handleSend = useCallback(async (content: string) => {
+  const handleSend = useCallback(async (content: string, attachmentIds?: string[]) => {
     if (!activeProject) return
     let sessionId = activeSessionId
     if (!sessionId) {
@@ -146,7 +146,7 @@ export function BrainstormDrawer() {
       sessionId = session.id
       setActiveSessionId(sessionId)
     }
-    send(sessionId, content)
+    send(sessionId, content, attachmentIds)
   }, [activeProject, activeSessionId, createSession, setActiveSessionId, send])
 
   const handleNewChat = useCallback(() => {
@@ -154,20 +154,13 @@ export function BrainstormDrawer() {
     reset()
   }, [setActiveSessionId, reset])
 
-  const handoffDrainedRef = useRef(false)
   useEffect(() => {
-    if (!isSidebarOpen) {
-      handoffDrainedRef.current = false
-      return
-    }
-    if (handoffDrainedRef.current) return
+    if (!isSidebarOpen) return
     if (!activeProject) return
-    const pending = consumeQuery()
-    if (pending) {
-      handoffDrainedRef.current = true
-      void handleSend(pending)
-    }
-  }, [isSidebarOpen, activeProject, consumeQuery, handleSend])
+    if (!pendingQuery) return
+    consumeQuery()
+    void handleSend(pendingQuery)
+  }, [isSidebarOpen, pendingQuery, activeProject, consumeQuery, handleSend])
 
   const hasMessages = messages.length > 0
   const isStreaming = status === "streaming"
@@ -272,21 +265,9 @@ export function BrainstormDrawer() {
             />
           ) : (
             <div className="flex-1 min-h-0 flex flex-col">
-              <div className="flex-1 flex items-center justify-center px-4 py-6">
-                <div className="text-center">
-                  <p className="text-sm text-linear-text-secondary">
-                    {activeProject ? (
-                      <>
-                        <span className="text-linear-text-tertiary">working on </span>
-                        <span className="text-linear-accent">
-                          {activeProject.name.toLowerCase()}
-                        </span>
-                      </>
-                    ) : (
-                      <span className="text-linear-text-tertiary">select a project</span>
-                    )}
-                  </p>
-                </div>
+              <div className="flex-1 flex flex-col items-center justify-center px-4 py-6 gap-8">
+                <ChatEmptyState />
+                <ChatSuggestions onSelect={handleSend} />
               </div>
               {recentSessions.length > 0 && (
                 <div className="shrink-0 border-t border-linear-border px-2 py-2">
