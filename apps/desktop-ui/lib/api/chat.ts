@@ -126,11 +126,33 @@ export async function transcribeChatAudio(audioBlob: Blob): Promise<{ text: stri
   });
 }
 
+// ─── Attachments ─────────────────────────────────────────────────────────────
+
+export interface ChatAttachment {
+  id: string;
+  filename: string;
+  mimeType: string;
+  url: string;
+  size: number;
+  createdAt: string;
+}
+
+export async function uploadChatAttachment(file: File): Promise<ChatAttachment> {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  return apiFetch<ChatAttachment>('/api/chat/attachments', {
+    method: 'POST',
+    body: formData,
+  });
+}
+
 // ─── Streaming Message Send ──────────────────────────────────────────────────
 
 export interface SendMessageOptions {
   sessionId: string;
   content: string;
+  attachmentIds?: string[];
   signal?: AbortSignal;
   onChunk: (chunk: ChatChunk) => void;
   onError?: (error: Error) => void;
@@ -141,7 +163,7 @@ export interface SendMessageOptions {
  * Sends a message and consumes the SSE stream of ChatChunks.
  * Uses raw fetch (not apiFetch) because we need streaming response.
  */
-export async function sendChatMessage({ sessionId, content, signal, onChunk, onError, onDone }: SendMessageOptions): Promise<void> {
+export async function sendChatMessage({ sessionId, content, attachmentIds, signal, onChunk, onError, onDone }: SendMessageOptions): Promise<void> {
   const url = `${getApiUrl()}/api/chat/sessions/${sessionId}/messages`;
   const authHeader = getAuthHeader();
 
@@ -150,10 +172,13 @@ export async function sendChatMessage({ sessionId, content, signal, onChunk, onE
     Object.assign(headers, authHeader);
   }
 
+  const body: Record<string, unknown> = { content };
+  if (attachmentIds?.length) body.attachmentIds = attachmentIds;
+
   const response = await fetch(url, {
     method: 'POST',
     headers,
-    body: JSON.stringify({ content }),
+    body: JSON.stringify(body),
     signal,
   });
 

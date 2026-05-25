@@ -1,13 +1,13 @@
 "use client";
 
 import { useState, useRef, useCallback, useEffect } from "react";
-import { Loader2, Mic, Send, Square } from "lucide-react";
+import { Loader2, Mic, Paperclip, Send, Square, X } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { transcribeChatAudio } from "@/lib/api/chat";
+import { transcribeChatAudio, uploadChatAttachment, type ChatAttachment } from "@/lib/api/chat";
 import { isWhisperHallucination } from "@/lib/audio-utils";
 
 interface ChatComposerProps {
-  onSend: (content: string) => void;
+  onSend: (content: string, attachmentIds?: string[]) => void;
   onStop?: () => void;
   isStreaming?: boolean;
   disabled?: boolean;
@@ -39,6 +39,12 @@ function appendTranscript(existing: string, transcript: string): string {
   return `${trimmedExisting} ${trimmedTranscript}`;
 }
 
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes}B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)}KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+}
+
 export function ChatComposer({
   onSend,
   onStop,
@@ -48,6 +54,8 @@ export function ChatComposer({
   centered = false,
 }: ChatComposerProps) {
   const [value, setValue] = useState("");
+  const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
+  const [uploading, setUploading] = useState(false);
   const [voiceState, setVoiceState] = useState<VoiceState>("idle");
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const [micSupported, setMicSupported] = useState(() =>
@@ -56,6 +64,7 @@ export function ChatComposer({
     typeof MediaRecorder !== "undefined"
   );
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -100,10 +109,12 @@ export function ChatComposer({
   const handleSubmit = useCallback(() => {
     const trimmed = value.trim();
     if (!trimmed || disabled || isStreaming) return;
-    onSend(trimmed);
+    const ids = attachments.length > 0 ? attachments.map((a) => a.id) : undefined;
+    onSend(trimmed, ids);
     setValue("");
+    setAttachments([]);
     if (textareaRef.current) textareaRef.current.style.height = "56px";
-  }, [value, disabled, isStreaming, onSend]);
+  }, [value, disabled, isStreaming, onSend, attachments]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -197,6 +208,31 @@ export function ChatComposer({
     }
   }, [disabled, isStreaming, micSupported, resize, showVoiceError, stopRecording, voiceState]);
 
+  const handleFileSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files?.length) return;
+    setUploading(true);
+    try {
+      const uploaded: ChatAttachment[] = [];
+      for (const file of Array.from(files)) {
+        if (file.size > 10 * 1024 * 1024) continue;
+        const att = await uploadChatAttachment(file);
+        uploaded.push(att);
+      }
+      setAttachments((prev) => [...prev, ...uploaded]);
+    } catch (err) {
+      console.error("[upload]", err);
+      showVoiceError(err instanceof Error ? err.message : "upload failed");
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  }, [showVoiceError]);
+
+  const removeAttachment = useCallback((id: string) => {
+    setAttachments((prev) => prev.filter((a) => a.id !== id));
+  }, []);
+
   const helperText = (() => {
     if (voiceError) return voiceError;
     if (voiceState === "recording") return "recording...";
@@ -226,6 +262,27 @@ export function ChatComposer({
           autoCorrect="off"
           spellCheck={false}
         />
+        {attachments.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 px-3 pb-2">
+            {attachments.map((att) => (
+              <div key={att.id} className="flex items-center gap-1.5 rounded bg-linear-bg-tertiary px-2 py-1 text-[11px] text-linear-text-secondary">
+                <span className="max-w-[120px] truncate">{att.filename}</span>
+                <span className="text-linear-text-tertiary">{formatFileSize(att.size)}</span>
+                <button type="button" onClick={() => removeAttachment(att.id)} className="ml-0.5 text-linear-text-tertiary hover:text-linear-text">
+                  <X className="h-3 w-3" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+        <input
+          ref={fileInputRef}
+          type="file"
+          
+          multiple
+          className="hidden"
+          onChange={handleFileSelect}
+        />
         <div className="flex items-center justify-between border-t border-linear-border px-3 py-2">
           <p
             className={cn(
@@ -237,6 +294,15 @@ export function ChatComposer({
             {helperText}
           </p>
           <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={disabled || isStreaming || uploading}
+              className="flex h-7 w-7 items-center justify-center rounded-sm text-linear-text-tertiary transition-colors hover:bg-linear-bg-tertiary hover:text-linear-text disabled:cursor-not-allowed disabled:opacity-30"
+              aria-label="Attach file"
+            >
+              {uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Paperclip className="h-3.5 w-3.5" />}
+            </button>
             <button
               type="button"
               onClick={handleVoiceClick}

@@ -111,7 +111,7 @@ export function useChatStream() {
   const [activeToolCalls, setActiveToolCalls] = useState<StreamingToolCall[]>([]);
   const abortRef = useRef<AbortController | null>(null);
 
-  const send = useCallback(async (sessionId: string, content: string) => {
+  const send = useCallback(async (sessionId: string, content: string, attachmentIds?: string[]) => {
     const userMsg: StreamingMessage = {
       role: 'user',
       content,
@@ -164,6 +164,7 @@ export function useChatStream() {
     await sendChatMessage({
       sessionId,
       content,
+      attachmentIds,
       signal: controller.signal,
       onChunk: (chunk: ChatChunk) => {
         switch (chunk.type) {
