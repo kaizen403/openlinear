@@ -73,8 +73,13 @@ export function CommandPalette() {
         setOpen((prev) => !prev)
       }
     }
+    const handleFocusSearch = () => setOpen(true)
     window.addEventListener("keydown", handleKey)
-    return () => window.removeEventListener("keydown", handleKey)
+    window.addEventListener("openlinear:focus-search", handleFocusSearch)
+    return () => {
+      window.removeEventListener("keydown", handleKey)
+      window.removeEventListener("openlinear:focus-search", handleFocusSearch)
+    }
   }, [])
 
   React.useEffect(() => {

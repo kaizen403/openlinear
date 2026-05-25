@@ -30,16 +30,36 @@ const SHORTCUT_GROUPS: ShortcutGroup[] = [
       { keys: ["g", "p"], description: "Go to Projects" },
       { keys: ["g", "t"], description: "Go to Teams" },
       { keys: ["g", "s"], description: "Go to Settings" },
+      { keys: ["j"], description: "Next task" },
+      { keys: ["k"], description: "Previous task" },
     ],
   },
   {
     title: "Actions",
     shortcuts: [
-      { keys: ["c"], description: "New task (quick capture)" },
+      { keys: ["c"], description: "Toggle Brainstorm" },
+      { keys: ["m"], description: "Toggle Brainstorm" },
+      { keys: ["Shift", "C"], description: "Brainstorm popup" },
+      { keys: ["⌘/Ctrl", "I"], description: "New issue" },
       { keys: ["/"], description: "Search" },
       { keys: ["⌘", "K"], description: "Command palette" },
+      { keys: ["b"], description: "Toggle sidebar" },
       { keys: ["?"], description: "Keyboard shortcuts" },
-      { keys: ["Esc"], description: "Close overlay" },
+      { keys: ["Esc"], description: "Close / deselect" },
+    ],
+  },
+  {
+    title: "Board",
+    shortcuts: [
+      { keys: ["x"], description: "Select / deselect task" },
+      { keys: ["⌘", "A"], description: "Select all tasks" },
+      { keys: ["e"], description: "Execute task" },
+      { keys: ["l"], description: "Move to In Progress" },
+      { keys: ["d"], description: "Delete task" },
+      { keys: ["1"], description: "Move to Todo" },
+      { keys: ["2"], description: "Move to In Progress" },
+      { keys: ["3"], description: "Move to Done" },
+      { keys: ["4"], description: "Move to Cancelled" },
     ],
   },
   {
@@ -77,7 +97,52 @@ export function ShortcutsOverlay() {
     "c",
     (e) => {
       e.preventDefault()
-      window.dispatchEvent(new CustomEvent("openlinear:new-task"))
+      window.dispatchEvent(new CustomEvent("openlinear:toggle-chat-sidebar"))
+    },
+    { enableOnFormTags: false, enableOnContentEditable: false, enabled: filterEnabled }
+  )
+
+  useHotkeys(
+    "m",
+    (e) => {
+      e.preventDefault()
+      window.dispatchEvent(new CustomEvent("openlinear:toggle-chat-sidebar"))
+    },
+    { enableOnFormTags: false, enableOnContentEditable: false, enabled: filterEnabled }
+  )
+
+  useHotkeys(
+    "mod+i",
+    (e) => {
+      e.preventDefault()
+      window.dispatchEvent(new CustomEvent("openlinear:new-issue"))
+    },
+    { enableOnFormTags: true, enableOnContentEditable: true }
+  )
+
+  useHotkeys(
+    "b",
+    (e) => {
+      e.preventDefault()
+      window.dispatchEvent(new CustomEvent("openlinear:toggle-sidebar"))
+    },
+    { enableOnFormTags: false, enableOnContentEditable: false, enabled: filterEnabled }
+  )
+
+  useHotkeys(
+    "/",
+    (e) => {
+      e.preventDefault()
+      window.dispatchEvent(new CustomEvent("openlinear:focus-search"))
+    },
+    { enableOnFormTags: false, enableOnContentEditable: false, enabled: filterEnabled }
+  )
+
+  useHotkeys(
+    "shift+c",
+    (e) => {
+      e.preventDefault()
+      window.dispatchEvent(new CustomEvent("openlinear:open-chat-popup"))
     },
     { enableOnFormTags: false, enableOnContentEditable: false, enabled: filterEnabled }
   )

@@ -218,6 +218,12 @@ export function KanbanBoard(props: KanbanBoardProps) {
   }, [handleDragEnd])
 
   useEffect(() => {
+    const handler = () => setIsTaskFormOpen(true)
+    window.addEventListener("openlinear:new-issue", handler)
+    return () => window.removeEventListener("openlinear:new-issue", handler)
+  }, [setIsTaskFormOpen])
+
+  useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null
       const isEditable =
@@ -233,11 +239,85 @@ export function KanbanBoard(props: KanbanBoardProps) {
       }
       if (e.key === 'Escape' && selectionActive) {
         clearSelection()
+        return
+      }
+      if (e.key === 'Escape' && selectedTaskId) {
+        handleDrawerClose()
+        return
+      }
+
+      if (e.metaKey || e.ctrlKey || e.altKey) return
+      const k = e.key.toLowerCase()
+
+      const allTasks = COLUMNS.flatMap(col => getTasksByStatus(col.status))
+      const currentIdx = selectedTaskId
+        ? allTasks.findIndex(t => t.id === selectedTaskId)
+        : -1
+
+      if (k === 'j') {
+        e.preventDefault()
+        const nextIdx = currentIdx < allTasks.length - 1 ? currentIdx + 1 : 0
+        if (allTasks[nextIdx]) handleTaskClick(allTasks[nextIdx].id)
+        return
+      }
+      if (k === 'k') {
+        e.preventDefault()
+        const prevIdx = currentIdx > 0 ? currentIdx - 1 : allTasks.length - 1
+        if (allTasks[prevIdx]) handleTaskClick(allTasks[prevIdx].id)
+        return
+      }
+      if (k === 'x') {
+        e.preventDefault()
+        if (selectedTaskId) toggleTaskSelect(selectedTaskId)
+        return
+      }
+      if (k === 'e') {
+        e.preventDefault()
+        if (selectedTaskId && canExecute) handleExecute(selectedTaskId)
+        return
+      }
+      if (k === 'd' || k === 'backspace') {
+        e.preventDefault()
+        if (selectionActive) {
+          handleBulkDelete()
+        } else if (selectedTaskId) {
+          handleDelete(selectedTaskId)
+        }
+        return
+      }
+      if (k === 'l') {
+        e.preventDefault()
+        if (selectedTaskId) handleMoveToInProgress(selectedTaskId)
+        return
+      }
+      if (k === '1') {
+        e.preventDefault()
+        if (selectionActive) handleBulkChangeStatus('todo')
+        else if (selectedTaskId) handleBulkChangeStatus('todo')
+        return
+      }
+      if (k === '2') {
+        e.preventDefault()
+        if (selectionActive) handleBulkChangeStatus('in_progress')
+        else if (selectedTaskId) handleBulkChangeStatus('in_progress')
+        return
+      }
+      if (k === '3') {
+        e.preventDefault()
+        if (selectionActive) handleBulkChangeStatus('done')
+        else if (selectedTaskId) handleBulkChangeStatus('done')
+        return
+      }
+      if (k === '4') {
+        e.preventDefault()
+        if (selectionActive) handleBulkChangeStatus('cancelled')
+        else if (selectedTaskId) handleBulkChangeStatus('cancelled')
+        return
       }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [selectAllVisible, clearSelection, selectionActive])
+  }, [selectAllVisible, clearSelection, selectionActive, selectedTaskId, getTasksByStatus, handleTaskClick, toggleTaskSelect, canExecute, handleExecute, handleDelete, handleBulkDelete, handleMoveToInProgress, handleBulkChangeStatus, handleDrawerClose])
 
   const renderTask = (task: Task, index: number, isCompletedBatch?: boolean) => {
     const dragDisabled =
