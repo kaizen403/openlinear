@@ -433,10 +433,12 @@ function buildRepoSearchQuery(
   options: GetGitHubReposOptions,
   scope: { type: 'user' | 'org'; login: string },
 ): string {
+  const searchTerm = options.q?.trim() || '';
   const queryParts = [
-    options.q?.trim() || '',
-    'in:name,description',
-    `${scope.type}:${scope.login}`,
+    searchTerm,
+    // in:name,description only valid when paired with actual search keywords
+    searchTerm ? 'in:name,description' : '',
+    scope.login ? `${scope.type}:${scope.login}` : '',
   ];
 
   if (options.filter === 'private') queryParts.push('is:private');
@@ -530,12 +532,16 @@ async function searchGitHubRepos(
     ? []
     : (await getGitHubOrgLogins(accessToken)).slice(0, MAX_ORG_SEARCH_SCOPES);
   const scopes: Array<{ type: 'user' | 'org'; login: string }> = [
-    { type: 'user', login: options.username },
+    ...(options.username ? [{ type: 'user' as const, login: options.username }] : []),
     ...orgLogins.map((login) => ({ type: 'org' as const, login })),
   ];
   const requestedEnd = options.page * options.perPage;
-  const scopeResults = await Promise.all(
+  const scopeResults = await Promise.allSettled(
     scopes.map((scope) => searchGitHubRepoScope(accessToken, options, scope, requestedEnd)),
+  ).then((results) =>
+    results
+      .filter((r): r is PromiseFulfilledResult<{ repos: GitHubRepo[]; totalCount: number }> => r.status === 'fulfilled')
+      .map((r) => r.value),
   );
   const repoMap = new Map<number, GitHubRepo>();
 
@@ -596,6 +602,51 @@ async function listGitHubRepos(
     repos,
     hasMore: data.length === options.perPage,
     totalCount: (options.page - 1) * options.perPage + repos.length + (data.length === options.perPage ? 1 : 0),
+  };
+}
+
+export async function searchPublicGitHubRepos(
+  accessToken: string,
+  options: GetGitHubReposOptions,
+): Promise<GitHubReposResult> {
+  const searchTerm = options.q?.trim();
+  if (!searchTerm) {
+    return { repos: [], hasMore: false, totalCount: 0 };
+  }
+
+  const query = `${searchTerm} in:name`;
+  const params = new URLSearchParams({
+    q: query,
+    page: String(options.page),
+    per_page: String(options.perPage),
+  });
+
+  if (options.sort === 'stars') {
+    params.set('sort', 'stars');
+    params.set('order', 'desc');
+  } else if (options.sort === 'pushed') {
+    params.set('sort', 'updated');
+    params.set('order', 'desc');
+  } else {
+    params.set('sort', 'stars');
+    params.set('order', 'desc');
+  }
+
+  const response = await fetch(`https://api.github.com/search/repositories?${params.toString()}`, {
+    headers: getGitHubHeaders(accessToken),
+  });
+
+  if (!response.ok) {
+    throw new Error(await getGitHubErrorMessage(response, 'Failed to search public repositories'));
+  }
+
+  const data = (await response.json()) as { items: GitHubRepo[]; total_count: number };
+  const repos = sortRepos(applyRepoFilter(data.items, options.filter), options.sort);
+
+  return {
+    repos,
+    hasMore: data.total_count > options.page * options.perPage,
+    totalCount: data.total_count,
   };
 }
 
