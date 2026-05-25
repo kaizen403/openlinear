@@ -15,7 +15,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.74.0",
-    "@elevenlabs/elevenlabs-js": "^2.49.1",
+    "@cartesia/cartesia-js": "^3.1.0",
     "@opencode-ai/sdk": "^1.2.5",
     "@openlinear/api": "workspace:*",
     "@openlinear/db": "workspace:*",
