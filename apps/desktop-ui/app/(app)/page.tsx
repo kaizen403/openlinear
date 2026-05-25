@@ -12,7 +12,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 
 function HomePageSkeleton() {
   return (
-    <main className="flex flex-1 flex-col bg-linear-bg">
+    <main className="flex flex-1 flex-col min-h-0 bg-linear-bg">
       <div className="flex-1 flex items-center justify-center p-6">
         <Skeleton className="h-12 w-full max-w-3xl rounded-sm" />
       </div>

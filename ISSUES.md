@@ -783,6 +783,55 @@ See `.sisyphus/plans/openlinear-issues.md` for full root-cause analysis and file
 
 ---
 
+## [2026-05-26] — Fix all Tauri/WebKitGTK rendering issues
+
+**Status:** Done
+**Agent:** Sisyphus (OpenCode)
+
+### What was done
+
+Searched session history and codebase to identify every Tauri/WebKitGTK problem. Found and fixed two root causes:
+
+**1. White flash on startup (`tauri.conf.json`)**
+- Added `"backgroundColor": "#0a0a0a"` to the window config so the Tauri webview starts dark, eliminating the white flash before Next.js hydrates.
+
+**2. Scroll broken throughout the app (WebKitGTK `min-height: auto` enforcement)**
+- WebKitGTK strictly enforces the CSS spec: a flex item's default `min-height` is `auto`, so `flex-1 overflow-y-auto` alone cannot produce a scrollable area — the item grows to content height instead of scrolling.
+- Added `min-h-0` to every `flex-1 overflow-*` scroll container and every `flex flex-1 flex-col` skeleton `<main>` that was missing it.
+- Affected: settings, settings/tokens, my-issues, projects/issues, inbox, archived, usage, teams/issues, teams, loading skeleton, home page skeleton, board skeleton, execution-drawer, brainstorm-panel, project-list.
+
+**Already in place (no change needed):**
+- `globals.css` fast render profile: strips all `backdrop-filter`, transitions, shadows, and animations on Linux/Tauri to prevent compositor stalls on WebKitGTK.
+- Static font masters (4 woff2 files) instead of variable fonts — eliminates WebKitGTK variable-font rendering bugs.
+- `height: 100%` on `html`/`body` — already present.
+- `overscroll-behavior: none` — already present.
+
+### Files changed
+- `apps/desktop/src-tauri/tauri.conf.json` — added `backgroundColor: "#0a0a0a"`
+- `apps/desktop-ui/app/(app)/settings/page.tsx` — `min-h-0` on main scroll container
+- `apps/desktop-ui/app/(app)/settings/tokens/page.tsx` — `min-h-0` on main
+- `apps/desktop-ui/app/(app)/my-issues/page.tsx` — `min-h-0` on scroll div
+- `apps/desktop-ui/app/(app)/projects/issues/page.tsx` — `min-h-0` on scroll div
+- `apps/desktop-ui/app/(app)/inbox/page.tsx` — `min-h-0` on scroll div
+- `apps/desktop-ui/app/(app)/archived/page.tsx` — `min-h-0` on scroll div
+- `apps/desktop-ui/app/(app)/usage/page.tsx` — `min-h-0` on scroll div
+- `apps/desktop-ui/app/(app)/teams/issues/page.tsx` — `min-h-0` on scroll div
+- `apps/desktop-ui/app/(app)/teams/page.tsx` — `min-h-0` on scroll div
+- `apps/desktop-ui/app/(app)/loading.tsx` — `min-h-0` on skeleton main
+- `apps/desktop-ui/app/(app)/page.tsx` — `min-h-0` on skeleton main
+- `apps/desktop-ui/app/(app)/projects/board/page.tsx` — `min-h-0` on skeleton main
+- `apps/desktop-ui/components/projects/project-list.tsx` — `min-h-0` on scroll div
+- `apps/desktop-ui/components/execution-drawer.tsx` — `min-h-0` on scroll div
+- `apps/desktop-ui/components/quick-capture/brainstorm-panel.tsx` — `min-h-0` on scroll div
+
+### Issues encountered
+- None. Typecheck clean after all edits.
+
+### Next steps / blockers
+- Rebuild the Tauri app (`pnpm --filter @openlinear/desktop tauri build` or `pnpm dev-live`) and verify scrolling works on all pages on Linux.
+
+---
+
 <!-- 
 AGENTS: Add new entries above this comment. Format:
 

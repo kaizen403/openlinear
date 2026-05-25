@@ -190,7 +190,7 @@ function SettingsContent() {
           </div>
         </nav>
 
-        <main className="flex-1 overflow-y-auto p-6 sm:p-8">
+        <main className="flex-1 min-h-0 overflow-y-auto p-6 sm:p-8">
           <div className="pb-8">{renderContent()}</div>
         </main>
       </div>

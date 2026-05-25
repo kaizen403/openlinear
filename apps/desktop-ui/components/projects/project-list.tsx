@@ -76,7 +76,7 @@ export function ProjectList({ projects, isLoading, searchQuery, onEdit, onDelete
   const router = useRouter()
 
   return (
-    <div className="flex-1 overflow-auto">
+    <div className="flex-1 min-h-0 overflow-auto">
       {/* Desktop table */}
       <div className="hidden md:block">
         <div className="min-w-[800px]">

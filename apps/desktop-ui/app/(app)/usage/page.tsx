@@ -167,7 +167,7 @@ export default function UsagePage() {
         <div className="flex-1 h-full" data-tauri-drag-region />
       </header>
 
-      <div className="flex-1 overflow-y-auto bg-linear-bg">
+      <div className="flex-1 min-h-0 overflow-y-auto bg-linear-bg">
         {loading && !summary ? (
           <div className="flex items-center justify-center py-20">
             <Loader2 className="w-5 h-5 animate-spin text-linear-text-tertiary" />
