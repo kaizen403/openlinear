@@ -29,6 +29,7 @@ import usageRouter from './routes/usage';
 import dashboardRouter from './routes/dashboard';
 import mcpUsageRouter from './routes/mcp-usage';
 import chatRouter from './routes/chat';
+import chatAttachmentsRouter from './routes/chat-attachments';
 import eventsRouter from './routes/events';
 import usersRouter from './routes/users';
 import invitationsRouter from './routes/invitations';
@@ -208,7 +209,9 @@ export function createApp(): Application {
   app.use('/api/usage', usageRouter);
   app.use('/api/dashboard', dashboardRouter);
   app.use('/api/mcp', mcpUsageRouter);
-  app.use('/api/chat', chatRouter);
+   app.use('/api/chat/attachments', chatAttachmentsRouter);
+   app.use('/api/chat', chatRouter);
+  app.use('/uploads', express.static('uploads'));
   app.use('/api/events', eventsRouter);
   app.use('/api/users', requireAuth, usersRouter);
   app.use('/api/invitations', requireAuth, invitationsRouter);

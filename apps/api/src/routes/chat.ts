@@ -202,6 +202,7 @@ router.post(
         sessionId: id,
         userId: req.userId!,
         userMessage: req.validBody!.content,
+        attachmentIds: req.validBody!.attachmentIds,
         abortSignal: abortController.signal,
       })) {
         if (res.writableEnded) break;
