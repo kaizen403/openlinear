@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback, Suspense } from "react"
-import { Settings, Loader2, Globe, Palette, Bell, Cpu, Shield, Key, Database, Brain, User as UserIcon, Building2 } from "lucide-react"
+import { Settings, Loader2, Globe, Palette, Cpu, Shield, Key, Database, Brain, User as UserIcon, Building2 } from "lucide-react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { toast } from "sonner"
 import { getActiveRepository } from "@/lib/api"
@@ -13,13 +13,13 @@ import { WorkspacesSection } from "@/components/settings/workspaces-section"
 import { ProfileSection } from "@/components/settings/profile-section"
 import { GeneralSection } from "@/components/settings/general-section"
 import { AppearanceSection } from "@/components/settings/appearance-section"
-import { NotificationsSection } from "@/components/settings/notifications-section"
+
 import { AIExecutionSection } from "@/components/settings/ai-execution-section"
 import { SecuritySection } from "@/components/settings/security-section"
 
 type SettingsSection =
   | "profile" | "workspaces" | "general" | "appearance"
-  | "notifications" | "ai-execution" | "ai-providers"
+  | "ai-execution" | "ai-providers"
   | "security" | "api-keys" | "database"
 
 const NAV_ITEMS: { id: SettingsSection; label: string; icon: React.ElementType }[] = [
@@ -27,7 +27,7 @@ const NAV_ITEMS: { id: SettingsSection; label: string; icon: React.ElementType }
   { id: "workspaces", label: "Workspaces", icon: Building2 },
   { id: "general", label: "General", icon: Globe },
   { id: "appearance", label: "Appearance", icon: Palette },
-  { id: "notifications", label: "Notifications", icon: Bell },
+
   { id: "ai-execution", label: "AI Execution", icon: Cpu },
   { id: "ai-providers", label: "AI Providers", icon: Brain },
   { id: "security", label: "Security & Privacy", icon: Shield },
@@ -124,7 +124,7 @@ function SettingsContent() {
       case "workspaces": return <WorkspacesSection />
       case "general": return <GeneralSection taskDeletionMode={taskDeletionMode} setTaskDeletionMode={setTaskDeletionMode} />
       case "appearance": return <AppearanceSection />
-      case "notifications": return <NotificationsSection />
+
       case "ai-execution": return (
         <AIExecutionSection
           loading={loading}
