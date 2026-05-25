@@ -1,7 +1,9 @@
 import { prisma, type ChatMessage, type Prisma } from '@openlinear/db';
+import fs from 'node:fs/promises';
+import path from 'node:path';
 import { logger } from '../logger';
 import { broadcastToChatSession } from '../sse';
-import { ChatLLMError, getChatLLMClient, type ChatLLMMessage, type ChatLLMToolCall } from '../lib/chat-llm';
+import { ChatLLMError, getChatLLMClient, type ChatLLMContentPart, type ChatLLMMessage, type ChatLLMToolCall } from '../lib/chat-llm';
 import { buildChatSystemPrompt, CHAT_TITLE_PROMPT } from '../lib/chat-prompts';
 import { assertProjectAccess } from './ownership';
 import { assertWorkspaceRole } from './workspaces';
@@ -21,6 +23,7 @@ export interface RunChatTurnInput {
   sessionId: string;
   userId: string;
   userMessage: string;
+  attachmentIds?: string[];
   abortSignal?: AbortSignal;
 }
 
@@ -298,11 +301,55 @@ export async function* runChatTurn(input: RunChatTurnInput): AsyncIterable<ChatC
       content: input.userMessage,
     },
   });
+
+  if (input.attachmentIds?.length) {
+    await prisma.chatAttachment.updateMany({
+      where: { id: { in: input.attachmentIds }, userId: input.userId, messageId: null },
+      data: { messageId: userRow.id },
+    });
+  }
+
   yield { type: 'user_message', messageId: userRow.id, sessionId: session.id };
 
   const client = getChatLLMClient();
   const tools = getOpenAIFunctionSpecs();
   let messages = await buildMessages(session);
+
+  if (input.attachmentIds?.length) {
+    const attachments = await prisma.chatAttachment.findMany({
+      where: { id: { in: input.attachmentIds }, userId: input.userId },
+    });
+    const contentParts: ChatLLMContentPart[] = [{ type: 'text', text: input.userMessage }];
+    for (const att of attachments) {
+      const filePath = path.resolve(process.cwd(), att.url.replace(/^\//, ''));
+      if (att.mimeType.startsWith('image/')) {
+        try {
+          const data = await fs.readFile(filePath);
+          const b64 = data.toString('base64');
+          contentParts.push({ type: 'image_url', image_url: { url: `data:${att.mimeType};base64,${b64}`, detail: 'auto' } });
+        } catch { /* skip unreadable */ }
+      } else if (att.mimeType === 'application/pdf') {
+        try {
+          const { PDFParse } = await import('pdf-parse');
+          const data = await fs.readFile(filePath);
+          const parser = new PDFParse({ data });
+          const result = await parser.getText();
+          contentParts.push({ type: 'text', text: `[PDF: ${att.filename}]\n${result.text.slice(0, 10000)}` });
+        } catch { /* skip unreadable */ }
+      } else {
+        try {
+          const text = await fs.readFile(filePath, 'utf-8');
+          contentParts.push({ type: 'text', text: `[File: ${att.filename}]\n${text.slice(0, 50000)}` });
+        } catch { /* skip unreadable */ }
+      }
+    }
+    if (contentParts.length > 1) {
+      const lastMsg = messages[messages.length - 1];
+      if (lastMsg && lastMsg.role === 'user') {
+        messages[messages.length - 1] = { ...lastMsg, content: contentParts };
+      }
+    }
+  }
 
   for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
     if (input.abortSignal?.aborted) {

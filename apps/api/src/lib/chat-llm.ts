@@ -9,9 +9,15 @@ export interface ChatLLMToolCall {
   };
 }
 
+export interface ChatLLMContentPart {
+  type: 'text' | 'image_url';
+  text?: string;
+  image_url?: { url: string; detail?: 'auto' | 'low' | 'high' };
+}
+
 export interface ChatLLMMessage {
   role: ChatLLMRole;
-  content?: string | null;
+  content?: string | ChatLLMContentPart[] | null;
   tool_call_id?: string;
   tool_calls?: ChatLLMToolCall[];
 }
