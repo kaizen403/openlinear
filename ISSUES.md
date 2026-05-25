@@ -694,6 +694,95 @@ See `.sisyphus/plans/openlinear-issues.md` for full root-cause analysis and file
 ### Next steps / blockers
 - Run `pnpm dev-live` on a machine with `ELEVENLABS_API_KEY` set and verify microphone permission, record/stop animation, and transcript insertion in the Tauri shell.
 
+## [2026-05-25] — Stabilize Electron identity for Hyprland window rules
+
+**Status:** Done
+**Agent:** Sisyphus (OpenCode)
+
+### What was done
+- Set a deterministic Linux Electron app identity so Hyprland can reliably match the window: `openlinear` for X11/XWayland class and `openlinear.desktop` through `CHROME_DESKTOP` for Wayland app id.
+- Added Electron package metadata for `productName` and `desktopName`.
+- Updated the Hyprland flickering report with the current `windowrule` no-animation syntax, legacy `windowrulev2` fallback, and verification command.
+
+### Files changed
+- `apps/desktop-electron/src/main.ts` — Linux app name, desktop identity environment, Chromium class switch, and stable window title.
+- `apps/desktop-electron/package.json` — Electron product and desktop identity metadata.
+- `docs/electron-hyprland-flickering-report.md` — updated Hyprland no-animation rule instructions.
+- `ISSUES.md` — recorded this session.
+
+### Issues encountered
+- Electron 35 runtime supports the desktop identity path through `CHROME_DESKTOP`, but its TypeScript `App` type does not expose `app.setDesktopName()`, so the fix uses the environment variable directly instead of an unsafe cast.
+- The compositor-side flicker cannot be fully verified from this environment; final confirmation requires running `pnpm start:electron` on Hyprland with the `no_anim` rule.
+
+### Next steps / blockers
+- Add `windowrule = match:class openlinear, no_anim on` to `~/.config/hypr/hyprland.conf`, reload Hyprland, run `pnpm start:electron`, and verify with `hyprctl clients | grep -A20 -i openlinear`.
+
+### Follow-up
+- The first Hyprland check matched Kitty terminal windows with `openlinear` in their title, not the Electron window, so the compositor rule likely did not match the app.
+- Updated `apps/desktop-electron/package.json` to pass `CHROME_DESKTOP=openlinear.desktop` and `--class=openlinear` before `/usr/bin/electron` starts for both `dev` and `start` scripts.
+- Re-ran `pnpm --filter @openlinear/desktop-electron typecheck`; it passed.
+- Re-test `pnpm start:electron`, then inspect the full Electron client block with `hyprctl clients` instead of grepping only `openlinear` if the result still includes terminal windows.
+
+### Oracle-guided diagnostic follow-up
+- After the user confirmed the Electron window only flickers and cannot be focused, Oracle identified immediate renderer/window destruction as more likely than a compositor animation rule issue.
+- Added Electron lifecycle diagnostics for window show/hide/close, webContents load failures, and renderer/child-process exits.
+- Added `pnpm --filter @openlinear/desktop-electron start:diagnose` with Electron logging and stack dumps enabled.
+
+### Diagnostic run — root cause identified
+- The diagnostic log showed NO renderer crash or Hyprland compositor issue. The window was cleanly exiting after ~14 rapid `/login` reload cycles.
+- Root cause: `trailingSlash: true` in `next.config.js` caused `/login` (no slash pushed by root page's `router.push('/login')`) to redirect to `/login/` via full page navigation. In Electron's sandboxed renderer, this trailing-slash redirect restarted the page load cycle, leading to a redirect loop. Chromium killed the window after ~14 cycles.
+- Fix: Electron now loads `/login/` directly (bypassing root page), root page pushes `/login/` (with slash), auth hook matches both `/login` and `/login/` pathnames.
+- Also fixed static server to resolve query-string asset URLs (`.woff2?v=...`) to the correct filesystem path — was previously serving `index.html` for font requests.
+
+### Files changed for trailing-slash fix
+- `apps/desktop-electron/src/main.ts` — load `/login/` instead of `/` in Electron
+- `apps/desktop-ui/app/(app)/page.tsx` — `router.push('/login/')` with trailing slash
+- `apps/desktop-ui/hooks/use-auth.tsx` — match both `/login` and `/login/` pathnames; push `/login/` on auth expiry
+
+### Hyprland rule
+- With the redirect loop fixed, the Electron window should become a stable client. The Hyprland no-animation rule can then be tested: `windowrule = match:class openlinear, no_anim on`
+- If the window still flickers on creation even after fixing the redirect loop, the Hyprland rule is the remaining fix.
+
+---
+
+## [2026-05-26] — Remove Electron desktop wrapper entirely
+
+**Status:** Done
+**Agent:** Sisyphus (OpenCode)
+
+### What was done
+- Deleted `apps/desktop-electron/` entirely (main, preload, sidecar, dist, package.json, electron-builder config).
+- Deleted `docs/electron-hyprland-flickering-report.md`.
+- Deleted `apps/desktop-ui/types/electron.d.ts`.
+- Stripped all `electronAPI` / `isElectronRuntime` branches from desktop-ui source files — every file now has Tauri-only paths.
+- Removed `build:electron`, `build:electron:linux`, `dev:electron`, `start:electron` scripts from root `package.json`.
+- Removed `build:electron` script from `apps/desktop-ui/package.json`.
+- `pnpm --filter @openlinear/desktop-ui typecheck` passes clean.
+
+### Files changed
+- `apps/desktop-electron/` — deleted
+- `docs/electron-hyprland-flickering-report.md` — deleted
+- `apps/desktop-ui/types/electron.d.ts` — deleted
+- `apps/desktop-ui/lib/api/client.ts` — removed `isElectronRuntime`, electron branches in `readSidecarPort` and `ensureSidecarListener`
+- `apps/desktop-ui/lib/api/auth.ts` — removed electron check in `isDesktopRuntime`, electron branch in `startLogin`
+- `apps/desktop-ui/lib/utils.ts` — removed electron branch in `openExternal`
+- `apps/desktop-ui/hooks/use-auth.tsx` — removed `setupElectron`, electron branch in auth callback setup
+- `apps/desktop-ui/components/layout/sidebar.tsx` — removed electron branches from isTauri detection and all window control handlers
+- `apps/desktop-ui/components/shared/repo-picker-field.tsx` — removed electron branch in `pickLocalFolder`
+- `apps/desktop-ui/components/desktop/database-settings.tsx` — removed electron branches from load/save/test
+- `apps/desktop-ui/components/desktop/opencode-setup-dialog.tsx` — removed electron branches from `checkOpencode` and `detectPlatform`
+- `apps/desktop-ui/app/layout.tsx` — removed `electron` variable from inline runtime-detection script
+- `apps/desktop-ui/package.json` — removed `build:electron` script
+- `package.json` — removed all electron-related scripts
+
+### Issues encountered
+- None. Typecheck clean after all edits.
+
+### Next steps / blockers
+- Tauri remains the only desktop wrapper. No further action needed.
+
+---
+
 <!-- 
 AGENTS: Add new entries above this comment. Format:
 

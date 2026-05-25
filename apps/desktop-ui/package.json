@@ -6,7 +6,6 @@
     "dev": "next dev",
     "build": "next build",
     "build:tauri": "BUILD_FOR_TAURI=1 next build",
-    "build:electron": "BUILD_FOR_ELECTRON=1 next build",
     "start": "next start",
     "test": "node ../../scripts/verify-desktop-fonts.js && node ../../scripts/verify-onboarding-repo-scroll.mjs",
     "test:repo-scroll": "node ../../scripts/verify-onboarding-repo-scroll.mjs",

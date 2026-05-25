@@ -702,12 +702,6 @@ importers:
 
   packages/openlinear-cli: {}
 
-  packages/types:
-    devDependencies:
-      typescript:
-        specifier: ^5.4.0
-        version: 5.9.3
-
 packages:
 
   7zip-bin@5.2.0:
