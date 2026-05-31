@@ -9,6 +9,7 @@ import { useAuth } from "@/hooks/use-auth"
 import { WorkspaceStep } from "./steps/workspace-step"
 import { ProjectStep } from "./steps/project-step"
 import { TeamStep } from "./steps/team-step"
+import { ModelProviderStep } from "./steps/model-provider-step"
 import { StepIndicator } from "./steps/step-indicator"
 import {
   type RepoDraft,
@@ -58,9 +59,9 @@ export function OnboardingWizard({
       const restoredProjectId = initialProjectId ?? storedDraft.createdProjectId ?? null
       let restoredStep = restoredWorkspaceId ? storedDraft.currentStep : 0
       if (restoredWorkspaceId && restoredStep === 0) restoredStep = 1
-      if (restoredProjectId) restoredStep = 2
-      if (restoredStep === 2 && !restoredProjectId) restoredStep = 1
-      setCurrentStep(Math.min(Math.max(restoredStep, 0), 2))
+      if (restoredProjectId && restoredStep < 2) restoredStep = 2
+      if (restoredStep >= 2 && !restoredProjectId) restoredStep = 1
+      setCurrentStep(Math.min(Math.max(restoredStep, 0), 3))
       setWorkspaceName(storedDraft.workspaceName)
       const restoredProjectName = initialProjectName || storedDraft.projectName
       setProjectName(restoredProjectName)
@@ -162,6 +163,7 @@ export function OnboardingWizard({
     }
   }, [projectName, createdWorkspaceId, initialWorkspaceId, initialProjectId, initialProjectName, createdProjectId, repoDraft])
 
+  const [createdTeamId, setCreatedTeamId] = useState<string | null>(null)
   const handleCreateTeam = useCallback(async () => {
     const workspaceIdForCompletion = createdWorkspaceId ?? initialWorkspaceId
     if (!teamName.trim() || !workspaceIdForCompletion || !createdProjectId) return
@@ -176,18 +178,34 @@ export function OnboardingWizard({
         private: false,
       })
 
-      clearStoredDraft()
-      onComplete({
-        teamId: created.id,
-        projectId: createdProjectId,
-        workspaceId: workspaceIdForCompletion,
-      })
+      setCreatedTeamId(created.id)
+      setCurrentStep(3)
     } catch {
       toast.error("Failed to create team. Please try again.")
     } finally {
       setIsWorking(false)
     }
-  }, [teamName, createdWorkspaceId, initialWorkspaceId, createdProjectId, onComplete])
+  }, [teamName, createdWorkspaceId, initialWorkspaceId, createdProjectId])
+
+  const completeOnboarding = useCallback(() => {
+    const workspaceIdForCompletion = createdWorkspaceId ?? initialWorkspaceId
+    if (!createdTeamId || !workspaceIdForCompletion || !createdProjectId) return
+    clearStoredDraft()
+    onComplete({
+      teamId: createdTeamId,
+      projectId: createdProjectId,
+      workspaceId: workspaceIdForCompletion,
+    })
+  }, [createdTeamId, createdProjectId, createdWorkspaceId, initialWorkspaceId, onComplete])
+
+  const handleFinishOnboarding = useCallback(() => {
+    completeOnboarding()
+  }, [completeOnboarding])
+
+  const handleSkipOnboarding = useCallback(() => {
+    toast.info("You can configure an AI provider anytime in Settings.")
+    completeOnboarding()
+  }, [completeOnboarding])
 
   const stepBody = (() => {
     switch (currentStep) {
@@ -222,6 +240,15 @@ export function OnboardingWizard({
             onNameChange={setTeamName}
             onBack={() => setCurrentStep(1)}
             onCreate={handleCreateTeam}
+          />
+        )
+      case 3:
+        return (
+          <ModelProviderStep
+            isFinishing={isWorking}
+            onBack={() => setCurrentStep(2)}
+            onFinish={handleFinishOnboarding}
+            onSkip={handleSkipOnboarding}
           />
         )
       default:

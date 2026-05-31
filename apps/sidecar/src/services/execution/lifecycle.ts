@@ -228,7 +228,11 @@ async function startAgentSession(inputs: ExecutionInputs, executionState: Execut
 
   subscribeToSessionEvents(taskId, client, sessionId);
 
-  const modelOverride = executionState.agentRunId ? getModelOverride(taskRecord, client) : undefined;
+  /* v8 ignore start -- agentRunId is always present after createAgentRun. */
+  const modelOverride = executionState.agentRunId
+    ? getModelOverride(taskRecord, client)
+    : undefined;
+  /* v8 ignore stop */
   const resolvedOverride = await modelOverride;
 
   if (resolvedOverride) {

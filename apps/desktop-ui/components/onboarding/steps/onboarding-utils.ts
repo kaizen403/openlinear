@@ -3,7 +3,7 @@ import type { GitHubRepo } from "@/lib/api"
 export const SPRING = { type: "spring" as const, stiffness: 300, damping: 30 }
 export const STORAGE_KEY = "openlinear:onboarding:v4"
 export const REPO_SEARCH_LIMIT = 8
-export const STEP_LABELS = ["Workspace", "Project", "Team"] as const
+export const STEP_LABELS = ["Workspace", "Project", "Team", "AI Model"] as const
 
 export type ProjectTab = "github" | "link" | "ssh"
 

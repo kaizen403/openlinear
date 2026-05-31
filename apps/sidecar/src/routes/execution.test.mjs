@@ -58,7 +58,12 @@ vi.mock('../services/batch', () => ({
   getBatchExecutionLogs: mocks.getBatchExecutionLogs,
 }));
 
+vi.mock('../services/opencode-model', () => ({
+  ensureModelConfigured: vi.fn(),
+}));
+
 const { default: executionRouter } = await import('./execution');
+const { ensureModelConfigured } = await import('../services/opencode-model');
 const originalFetch = globalThis.fetch;
 
 function makeApp() {
@@ -117,6 +122,9 @@ describe('execution routes', () => {
     }
     mocks.decryptToken.mockImplementation((value) => value ? `decrypted:${value}` : null);
     globalThis.fetch = mocks.fetch;
+    ensureModelConfigured.mockReset();
+    // Default: pre-flight passes silently so existing tests do not need to change.
+    ensureModelConfigured.mockResolvedValue({ model: 'anthropic/claude-sonnet', hasProvider: true, autoDetected: false });
   });
 
   afterEach(() => {
@@ -147,6 +155,80 @@ describe('execution routes', () => {
       status: 500,
       body: { error: 'execute exploded' },
     });
+  });
+
+  it('returns MODEL_NOT_CONFIGURED when no provider is authenticated', async () => {
+    ensureModelConfigured.mockResolvedValueOnce({ model: null, hasProvider: false, autoDetected: false });
+    mocks.executeTask.mockResolvedValueOnce({ success: true });
+
+    await expect(request(app, 'POST', '/task-1/execute', {
+      headers: { 'x-user-id': 'user-1' },
+    })).resolves.toEqual({
+      status: 400,
+      body: {
+        error: 'No AI provider configured. Connect a provider in Settings → AI Providers before executing.',
+        code: 'MODEL_NOT_CONFIGURED',
+        details: { hasProvider: false },
+      },
+    });
+    expect(mocks.executeTask).not.toHaveBeenCalled();
+  });
+
+  it('returns MODEL_NOT_CONFIGURED when provider is connected but no model selected', async () => {
+    ensureModelConfigured.mockResolvedValueOnce({ model: null, hasProvider: true, autoDetected: false });
+    mocks.executeTask.mockResolvedValueOnce({ success: true });
+
+    await expect(request(app, 'POST', '/task-1/execute', {
+      headers: { 'x-user-id': 'user-1' },
+    })).resolves.toEqual({
+      status: 400,
+      body: {
+        error: 'No model selected. Pick a model in Settings → AI Providers before executing.',
+        code: 'MODEL_NOT_CONFIGURED',
+        details: { hasProvider: true },
+      },
+    });
+    expect(mocks.executeTask).not.toHaveBeenCalled();
+  });
+
+  it('allows execution when model is configured and pre-flight succeeds', async () => {
+    ensureModelConfigured.mockResolvedValueOnce({ model: 'anthropic/claude-sonnet', hasProvider: true, autoDetected: false });
+    mocks.executeTask.mockResolvedValueOnce({ success: true });
+
+    await expect(request(app, 'POST', '/task-1/execute', {
+      headers: { 'x-user-id': 'user-1' },
+    })).resolves.toEqual({
+      status: 200,
+      body: { message: 'Task execution started' },
+    });
+    expect(ensureModelConfigured).toHaveBeenCalledWith('user-1');
+    expect(mocks.executeTask).toHaveBeenCalledWith({ taskId: 'task-1', userId: 'user-1' });
+  });
+
+  it('skips pre-flight when ensureModelConfigured throws and still proceeds', async () => {
+    ensureModelConfigured.mockRejectedValueOnce(new Error('sidecar unreachable'));
+    mocks.executeTask.mockResolvedValueOnce({ success: true });
+
+    await expect(request(app, 'POST', '/task-1/execute', {
+      headers: { 'x-user-id': 'user-1' },
+    })).resolves.toEqual({
+      status: 200,
+      body: { message: 'Task execution started' },
+    });
+    expect(mocks.executeTask).toHaveBeenCalled();
+  });
+
+  it('skips pre-flight when ensureModelConfigured returns null', async () => {
+    ensureModelConfigured.mockResolvedValueOnce(null);
+    mocks.executeTask.mockResolvedValueOnce({ success: true });
+
+    await expect(request(app, 'POST', '/task-1/execute', {
+      headers: { 'x-user-id': 'user-1' },
+    })).resolves.toEqual({
+      status: 200,
+      body: { message: 'Task execution started' },
+    });
+    expect(mocks.executeTask).toHaveBeenCalled();
   });
 
   it('reports running state and cancels only running tasks', async () => {

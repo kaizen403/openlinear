@@ -110,7 +110,7 @@ export function UnifiedSelectionBar({
         onClick={onExecuteParallel}
         disabled={executeDisabled}
         title={executeTitle}
-        className="bg-linear-accent hover:bg-linear-accent-hover text-white gap-1.5 disabled:opacity-50"
+        className="bg-[#064e3b] hover:bg-[#065f46] border border-[#065f46]/60 text-emerald-100 gap-1.5 disabled:opacity-50 shadow-sm"
       >
         <Play className="w-3.5 h-3.5" />
         <span className="sm:hidden">Parallel</span>
@@ -124,7 +124,7 @@ export function UnifiedSelectionBar({
         disabled={executeDisabled}
         title={executeTitle}
         variant="outline"
-        className="border-linear-border text-linear-text hover:bg-linear-bg-tertiary gap-1.5 disabled:opacity-50"
+        className="border-[#2a2a2a] bg-[#1a1a1a] text-linear-text hover:bg-[#252525] hover:border-[#333] gap-1.5 disabled:opacity-50"
       >
         <ListOrdered className="w-3.5 h-3.5" />
         <span className="sm:hidden">Queue</span>
@@ -138,7 +138,7 @@ export function UnifiedSelectionBar({
         disabled={combinedDisabled}
         title={combinedTitle}
         variant="outline"
-        className="border-linear-border text-linear-text hover:bg-linear-bg-tertiary gap-1.5 disabled:opacity-50"
+        className="border-[#2a2a2a] bg-[#1a1a1a] text-linear-text hover:bg-[#252525] hover:border-[#333] gap-1.5 disabled:opacity-50"
       >
         <Layers className="w-3.5 h-3.5" />
         <span className="sm:hidden">Combined</span>

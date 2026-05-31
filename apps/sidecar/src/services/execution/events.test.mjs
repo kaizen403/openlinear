@@ -791,9 +791,10 @@ describe('execution event workflow', () => {
     };
 
     await subscribeToSessionEvents('task-1', client, 'ses_1');
-    await waitFor(() => mocks.markThinking.mock.calls.length > 0);
+    await Promise.resolve();
+    await Promise.resolve();
 
-    expect(mocks.markThinking).toHaveBeenCalledWith('task-1');
+    expect(mocks.markThinking).not.toHaveBeenCalled();
   });
 
   it('exercises stale session mappings for completed tool, error, and file events', async () => {

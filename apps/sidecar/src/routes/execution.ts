@@ -5,6 +5,7 @@ import { optionalAuth, AuthRequest } from '@openlinear/api/middleware';
 import { assertTaskOwned } from '@openlinear/api/ownership';
 import { executeTask, cancelTask, isTaskRunning, getExecutionLogs } from '../services/execution';
 import { getBatchExecutionLogs } from '../services/batch';
+import { ensureModelConfigured } from '../services/opencode-model';
 
 const taskInclude = {
   labels: { include: { label: true } },
@@ -42,6 +43,24 @@ router.post('/:id/execute', optionalAuth, async (req: AuthRequest, res: Response
       await assertTaskOwned(id, req.userId);
     }
     console.log(`[Tasks] Execute requested for task ${id.slice(0, 8)} (userId: ${req.userId || 'anonymous'})`);
+
+    if (req.userId) {
+      const ensured = await ensureModelConfigured(req.userId).catch((err: unknown) => {
+        console.warn('[Tasks] Model pre-flight check failed:', err);
+        return null;
+      });
+      if (ensured && !ensured.model) {
+        res.status(400).json({
+          error: ensured.hasProvider
+            ? 'No model selected. Pick a model in Settings → AI Providers before executing.'
+            : 'No AI provider configured. Connect a provider in Settings → AI Providers before executing.',
+          code: 'MODEL_NOT_CONFIGURED',
+          details: { hasProvider: ensured.hasProvider },
+        });
+        return;
+      }
+    }
+
     const result = await executeTask({ taskId: id, userId: req.userId });
 
     if (!result.success) {
