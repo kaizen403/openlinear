@@ -4,6 +4,7 @@ import { existsSync } from 'node:fs';
 import { createOpencodeClient } from '@opencode-ai/sdk';
 import type { OpencodeClient } from '@opencode-ai/sdk';
 import { broadcastToAll } from '@openlinear/api/sse';
+import { logger } from '@openlinear/api/logger';
 
 // OpenCode treats port 0 as "try 4096, then fall back to any free port".
 // Using it by default avoids crashing when a user's own opencode server is already running.
@@ -24,6 +25,7 @@ let serverHandle: ServerHandle | null = null;
 let restartAttempts = 0;
 let restarting = false;
 let shuttingDown = false;
+let initPromise: Promise<void> | null = null;
 
 function resolveOpencodeBinary(): string {
   if (process.env.OPENCODE_BIN) {
@@ -163,7 +165,7 @@ async function startOpencodeServer(bin: string): Promise<ServerHandle> {
   } catch (err) {
     if (!canRetryWithDynamicPort(err, OPENCODE_PORT)) throw err;
 
-    console.warn(
+    logger.warn(
       `[OpenCode] Port ${OPENCODE_PORT} is unavailable. Retrying with dynamic port fallback.`,
     );
     return spawnOpencodeServer(bin, OPENCODE_HOST, 0, OPENCODE_TIMEOUT);
@@ -176,7 +178,7 @@ function attachExitWatcher(handle: ServerHandle) {
     /* v8 ignore start -- stale-handle guard for overlapping crash/restart races. */
     if (serverHandle !== handle) return;
     /* v8 ignore stop */
-    console.warn(
+    logger.warn(
       `[OpenCode] server exited unexpectedly (code=${code}, signal=${signal}). Scheduling restart.`,
     );
     serverHandle = null;
@@ -195,7 +197,7 @@ async function scheduleRestart() {
   /* v8 ignore stop */
   /* v8 ignore start -- exhaustion requires repeated failed restarts; normal crash restart is covered. */
   if (restartAttempts >= MAX_RESTART_ATTEMPTS) {
-    console.error(
+    logger.error(
       `[OpenCode] giving up after ${restartAttempts} restart attempts.`,
     );
     broadcastToAll('opencode:status', { status: 'unrecoverable' });
@@ -205,7 +207,7 @@ async function scheduleRestart() {
   restarting = true;
   const delay = RESTART_BACKOFF_BASE_MS * Math.pow(2, restartAttempts);
   restartAttempts += 1;
-  console.log(
+  logger.info(
     `[OpenCode] restart attempt ${restartAttempts} in ${delay}ms`,
   );
   await new Promise((r) => setTimeout(r, delay));
@@ -214,7 +216,7 @@ async function scheduleRestart() {
     await initOpenCode({ restart: true });
   /* v8 ignore start -- recursive retry after a failed restart uses the same scheduler path. */
   } catch (err) {
-    console.error('[OpenCode] restart attempt failed:', err);
+    logger.error({ err }, '[OpenCode] restart attempt failed');
     void scheduleRestart();
   }
   /* v8 ignore stop */
@@ -253,8 +255,15 @@ export function getOpenCodeStatus(): OpenCodeStatus {
 
 export async function initOpenCode(opts: { restart?: boolean } = {}): Promise<void> {
   if (serverHandle) return;
+  if (initPromise) return initPromise;
+  initPromise = _doInitOpenCode(opts).finally(() => { initPromise = null; });
+  return initPromise;
+}
+
+async function _doInitOpenCode(opts: { restart?: boolean }): Promise<void> {
+  if (serverHandle) return;
   const bin = resolveOpencodeBinary();
-  console.log(`[OpenCode] Using binary: ${bin}`);
+  logger.info(`[OpenCode] Using binary: ${bin}`);
 
   try {
     const handle = await startOpencodeServer(bin);
@@ -266,10 +275,10 @@ export async function initOpenCode(opts: { restart?: boolean } = {}): Promise<vo
       restartAttempts = 0;
     }
     broadcastToAll('opencode:status', { status: 'ready', mode: 'host', url: handle.url });
-    console.log(`[OpenCode] Server running at ${handle.url}`);
+    logger.info(`[OpenCode] Server running at ${handle.url}`);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.error('[OpenCode] Failed to start server:', err);
+    logger.error({ err }, '[OpenCode] Failed to start server');
     broadcastToAll('opencode:status', { status: 'error', error: message });
     throw err;
   }
@@ -286,9 +295,8 @@ export async function shutdownOpenCode(): Promise<void> {
 
 export function registerShutdownHandlers(): void {
   const shutdown = async (signal: string) => {
-    console.log(`[OpenCode] Received ${signal}, shutting down...`);
+    logger.info(`[OpenCode] Received ${signal}, shutting down...`);
     await shutdownOpenCode();
-    process.exit(0);
   };
 
   process.on('SIGINT', () => void shutdown('SIGINT'));

@@ -2,6 +2,7 @@ import { Router, Response } from 'express';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { AuthRequest, requireAuth } from '@openlinear/api/middleware';
+import { logger } from '@openlinear/api/logger';
 import {
   getOpenCodeStatus,
   getClientForUser,
@@ -137,7 +138,7 @@ async function readFavoriteModelRefs(): Promise<ModelRef[]> {
     } catch (err) {
       const code = (err as NodeJS.ErrnoException).code;
       if (code === 'ENOENT' || code === 'ENOTDIR') continue;
-      console.warn(`[OpenCode] Failed to read model favorites from ${filePath}:`, err);
+      logger.warn({ err, filePath }, `[OpenCode] Failed to read model favorites from ${filePath}`);
       return [];
     }
   }
@@ -250,9 +251,7 @@ router.post('/auth/remove', requireAuth, async (req: AuthRequest, res: Response)
     }
 
     const client = await getClientForUser(req.userId!);
-    // TypeScript resolves the wrong Auth type in the generated SDK d.ts,
-    // but the runtime method is correct (DELETE /auth/{providerID}).
-    await (client.auth as any).remove({ path: { providerID: providerId } });
+    await (client.auth as unknown as { remove: (opts: { path: { providerID: string } }) => Promise<void> }).remove({ path: { providerID: providerId } });
 
     res.json({ success: true, providerId });
   } catch (err) {

@@ -1,4 +1,5 @@
 import { existsSync, mkdirSync, rmSync, accessSync, constants } from 'fs';
+import { logger } from '@openlinear/api/logger';
 import { PullRequestResult, REPOS_DIR } from './state';
 import { getGitIdentityEnv } from '../git-identity';
 import { execFileAsync } from './exec';
@@ -80,11 +81,11 @@ export async function cloneRepository(
   defaultBranch: string
 ): Promise<void> {
   const safeRepoPath = assertPathInsideReposDir(repoPath);
-  console.log(`[Execution] Preparing to clone into ${safeRepoPath}`);
+  logger.info(`[Execution] Preparing to clone into ${safeRepoPath}`);
 
   if (!existsSync(REPOS_DIR)) {
     mkdirSync(REPOS_DIR, { recursive: true });
-    console.log(`[Execution] Created repos directory: ${REPOS_DIR}`);
+    logger.info(`[Execution] Created repos directory: ${REPOS_DIR}`);
   }
 
   try {
@@ -95,23 +96,23 @@ export async function cloneRepository(
 
   if (existsSync(safeRepoPath)) {
     rmSync(safeRepoPath, { recursive: true, force: true });
-    console.log(`[Execution] Removed existing directory: ${safeRepoPath}`);
+    logger.info(`[Execution] Removed existing directory: ${safeRepoPath}`);
   }
 
-  console.log(`[Execution] Cloning ${cloneUrl} (branch: ${defaultBranch})...`);
+  logger.info(`[Execution] Cloning ${cloneUrl} (branch: ${defaultBranch})...`);
   await execGitWithCredentials(
     ['clone', '--depth', '1', '--branch', defaultBranch, cloneUrl, safeRepoPath],
     accessToken,
     cloneUrl,
   );
   await execFileAsync('chmod', ['-R', 'a+rwX', safeRepoPath]);
-  console.log(`[Execution] Clone complete`);
+  logger.info(`[Execution] Clone complete`);
 }
 
 export async function createBranch(repoPath: string, branchName: string): Promise<void> {
-  console.log(`[Execution] Creating branch: ${branchName}`);
+  logger.info(`[Execution] Creating branch: ${branchName}`);
   await execFileAsync('git', ['-C', repoPath, 'checkout', '-B', branchName]);
-  console.log(`[Execution] Branch ready and checked out`);
+  logger.info(`[Execution] Branch ready and checked out`);
 }
 
 export async function commitAndPush(
@@ -123,24 +124,24 @@ export async function commitAndPush(
   try {
     const env = { ...process.env, ...getGitIdentityEnv() };
 
-    console.log(`[Execution] Checking for changes in ${repoPath}`);
+    logger.info(`[Execution] Checking for changes in ${repoPath}`);
     if (!(await hasCommittableChanges(repoPath))) {
-      console.log(`[Execution] No changes to commit`);
+      logger.info(`[Execution] No changes to commit`);
       return { status: 'no_changes' };
     }
 
-    console.log(`[Execution] Changes detected, staging files...`);
+    logger.info(`[Execution] Changes detected, staging files...`);
     const staged = await stageCommittableChanges(repoPath);
     if (!staged) {
-      console.log(`[Execution] No committable changes after excluding runtime artifacts`);
+      logger.info(`[Execution] No committable changes after excluding runtime artifacts`);
       return { status: 'no_changes' };
     }
 
     const commitMessage = `feat: ${taskTitle.toLowerCase().replace(/[^a-z0-9\s]/g, '').slice(0, 50)}`;
-    console.log(`[Execution] Committing: ${commitMessage}`);
+    logger.info(`[Execution] Committing: ${commitMessage}`);
     await execFileAsync('git', ['-C', repoPath, 'commit', '-m', commitMessage], { env });
 
-    console.log(`[Execution] Pushing to origin/${branchName}...`);
+    logger.info(`[Execution] Pushing to origin/${branchName}...`);
     const { stdout: originUrl } = await execFileAsync('git', ['-C', repoPath, 'remote', 'get-url', 'origin']);
     await execGitWithCredentials(
       ['-C', repoPath, 'push', '--force-with-lease', '-u', 'origin', branchName],
@@ -148,12 +149,12 @@ export async function commitAndPush(
       originUrl.trim(),
       { env },
     );
-    console.log(`[Execution] Push complete`);
+    logger.info(`[Execution] Push complete`);
 
     return { status: 'pushed' };
   } catch (error) {
     const reason = getExecErrorReason(error);
-    console.error('[Execution] Commit/push failed:', reason);
+    logger.error({ err: error }, '[Execution] Commit/push failed');
     return { status: 'failed', reason };
   }
 }
@@ -170,7 +171,7 @@ export async function createPullRequest(
   const compareUrl = `https://github.com/${owner}/${repo}/compare/${defaultBranch}...${branchName}`;
 
   if (!accessToken) {
-    console.log('[Execution] No access token - returning compare URL for manual PR creation');
+    logger.info('[Execution] No access token - returning compare URL for manual PR creation');
     return { url: compareUrl, type: 'compare' };
   }
 
@@ -194,14 +195,14 @@ export async function createPullRequest(
 
     if (!response.ok) {
       const error = await response.text();
-      console.error('[Execution] PR creation failed:', error);
+      logger.error({ err: error }, '[Execution] PR creation failed');
       return { url: compareUrl, type: 'compare' };
     }
 
     const pr = (await response.json()) as { html_url: string };
     return { url: pr.html_url, type: 'pr' };
   } catch (error) {
-    console.error('[Execution] PR creation error:', error);
+    logger.error({ err: error }, '[Execution] PR creation error');
     return { url: compareUrl, type: 'compare' };
   }
 }

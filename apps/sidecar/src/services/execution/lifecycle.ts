@@ -1,4 +1,5 @@
 import { prisma, decryptToken } from '@openlinear/db';
+import { logger } from '@openlinear/api/logger';
 import { getClientForUser } from '../opencode';
 import { getOrCreateBuffer } from '../delta-buffer';
 import { getExecutionSettings } from '../execution-settings';
@@ -24,6 +25,8 @@ import {
 
 import type { OpencodeClient } from '@opencode-ai/sdk';
 
+const pendingExecutions = new Set<string>();
+
 interface ExecutionInputs {
   taskId: string;
   userId: string;
@@ -43,9 +46,11 @@ interface ExecutionInputs {
 }
 
 async function gatherExecutionInputs({ taskId, userId }: ExecuteTaskParams): Promise<{ inputs?: ExecutionInputs; error?: string }> {
-  if (activeExecutions.has(taskId)) {
+  if (activeExecutions.has(taskId) || pendingExecutions.has(taskId)) {
     return { error: 'Task is already running' };
   }
+
+  pendingExecutions.add(taskId);
 
   const settings = await getExecutionSettings(userId);
   const parallelLimit = settings.parallelLimit;
@@ -64,8 +69,8 @@ async function gatherExecutionInputs({ taskId, userId }: ExecuteTaskParams): Pro
     try {
       accessToken = decryptToken(user?.accessToken ?? null);
     } catch (err) {
-      console.error(`[Execution] Failed to decrypt access token for user ${userId}:`, err);
-      accessToken = null;
+      logger.error({ err, userId }, `[Execution] Failed to decrypt access token for user ${userId}`);
+      return { error: 'Failed to decrypt access token' };
     }
   }
 
@@ -107,7 +112,7 @@ async function gatherExecutionInputs({ taskId, userId }: ExecuteTaskParams): Pro
   }
 
   const branchName = `openlinear/${taskId.slice(0, 8)}`;
-  const repoPath = useLocalPath || buildReposPath(project!.name, taskId.slice(0, 8));
+  const repoPath = useLocalPath ?? buildReposPath(project!.name, taskId.slice(0, 8));
 
   return {
     inputs: {
@@ -146,7 +151,7 @@ function initializeExecution(
   const { taskId, project, useLocalPath, repoPath, branchName, userId, accessToken, taskRecord } = inputs;
 
   const timeoutId = setTimeout(async () => {
-    console.log(`[Execution] Task ${taskId} timed out`);
+    logger.info(`[Execution] Task ${taskId} timed out`);
     await cancelTask(taskId);
   }, TASK_TIMEOUT_MS);
 
@@ -242,11 +247,11 @@ async function startAgentSession(inputs: ExecutionInputs, executionState: Execut
       ...(resolvedOverride?.override ? { model: resolvedOverride.override } : {}),
     },
   }).then(() => {
-    console.log(`[Execution] Prompt sent to session ${sessionId}`);
+    logger.info(`[Execution] Prompt sent to session ${sessionId}`);
     executionState.promptSent = true;
     addLogEntry(taskId, 'info', 'Task prompt sent to agent');
   }).catch(async (err: Error) => {
-    console.error(`[Execution] Prompt error for task ${taskId}:`, err);
+    logger.error({ err, taskId }, `[Execution] Prompt error for task ${taskId}`);
     const msg = err.message || 'Unknown error';
     const isAuth = msg.toLowerCase().includes('api key') || msg.toLowerCase().includes('unauthorized') || msg.toLowerCase().includes('401');
     const headline = isAuth
@@ -271,7 +276,7 @@ async function getModelOverride(
       const config = await client.config.get();
       modelStr = config.data?.model;
     } catch (err) {
-      console.debug(`[Execution] Could not read model config for task ${taskRecord.id}:`, err);
+      logger.debug({ err, taskId: taskRecord.id }, `[Execution] Could not read model config for task ${taskRecord.id}`);
     }
   }
   if (modelStr && modelStr.includes('/')) {
@@ -290,6 +295,7 @@ async function getModelOverride(
 export async function executeTask({ taskId, userId }: ExecuteTaskParams): Promise<{ success: boolean; error?: string }> {
   const result = await gatherExecutionInputs({ taskId, userId });
   if (result.error || !result.inputs) {
+    pendingExecutions.delete(taskId);
     return { success: false, error: result.error };
   }
 
@@ -309,11 +315,12 @@ export async function executeTask({ taskId, userId }: ExecuteTaskParams): Promis
 
     const sessionId = sessionResponse.data?.id;
     if (!sessionId) {
-      console.error(`[Execution] Failed to create session for task ${taskId.slice(0, 8)}`);
+      logger.error(`[Execution] Failed to create session for task ${taskId.slice(0, 8)}`);
+      pendingExecutions.delete(taskId);
       return { success: false, error: 'Failed to create OpenCode session' };
     }
 
-    console.log(`[Execution] Session ${sessionId} created for task ${taskId.slice(0, 8)}`);
+    logger.info(`[Execution] Session ${sessionId} created for task ${taskId.slice(0, 8)}`);
 
     const modelInfo = await getModelOverride(inputs.taskRecord, client);
     const modelLabel = modelInfo?.label || 'unknown';
@@ -326,13 +333,15 @@ export async function executeTask({ taskId, userId }: ExecuteTaskParams): Promis
     });
 
     const executionState = initializeExecution(inputs, client, sessionId, agentRunId);
+    pendingExecutions.delete(taskId);
 
     await startAgentSession(inputs, executionState);
 
-    console.log(`[Execution] Started for task ${taskId} in ${inputs.repoPath}`);
+    logger.info(`[Execution] Started for task ${taskId} in ${inputs.repoPath}`);
     return { success: true };
   } catch (error) {
-    console.error(`[Execution] Failed to execute task ${taskId}:`, error);
+    pendingExecutions.delete(taskId);
+    logger.error({ err: error, taskId }, `[Execution] Failed to execute task ${taskId}`);
     broadcastProgress(taskId, 'error', error instanceof Error ? error.message : 'Execution failed');
     return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
   }
@@ -366,7 +375,7 @@ export async function cancelTask(taskId: string): Promise<{ success: boolean; er
   try {
     await execution.client.session.abort({ path: { id: execution.sessionId } });
   } catch (error) {
-    console.error(`[Execution] Abort call failed for task ${taskId}:`, error);
+    logger.error({ err: error, taskId }, `[Execution] Abort call failed for task ${taskId}`);
   }
 
   await finalizeAgentRun(execution, 'cancelled', { errorMessage: 'cancelled by user' });

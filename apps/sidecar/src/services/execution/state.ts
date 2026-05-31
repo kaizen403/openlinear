@@ -1,5 +1,6 @@
 import { prisma } from '@openlinear/db';
 import { broadcastToTask, broadcastToTaskById } from '@openlinear/api/sse';
+import { logger } from '@openlinear/api/logger';
 
 import type { OpencodeClient } from '@opencode-ai/sdk';
 import { cleanupDeltaBuffer, flushDeltaBuffer } from '../delta-buffer';
@@ -220,9 +221,9 @@ function scheduleTaskBroadcast(
   attempt = 1,
 ): void {
   broadcastToTaskById(taskId, event, payload).catch((error: unknown) => {
-    console.error(
-      `[Execution] Failed to broadcast ${event} for task ${taskId.slice(0, 8)} (attempt ${attempt}):`,
-      error,
+    logger.error(
+      { err: error, event, attempt },
+      `[Execution] Failed to broadcast ${event} for task ${taskId.slice(0, 8)} (attempt ${attempt})`,
     );
 
     if (!critical || attempt >= BROADCAST_MAX_ATTEMPTS) {
@@ -236,7 +237,7 @@ function scheduleTaskBroadcast(
 }
 
 export function broadcastProgress(taskId: string, status: string, message: string, data?: Record<string, unknown>) {
-  console.log(`[Execution] ${taskId.slice(0, 8)} → ${status}: ${message}`);
+  logger.info(`[Execution] ${taskId.slice(0, 8)} → ${status}: ${message}`);
   scheduleTaskBroadcast(
     taskId,
     'execution:progress',
@@ -248,7 +249,7 @@ export function broadcastProgress(taskId: string, status: string, message: strin
 export function addLogEntry(taskId: string, type: ExecutionLogEntry['type'], message: string, details?: string) {
   const execution = executionStore.get(taskId);
   if (!execution) {
-    console.log(`[Execution] Warning: No execution found for task ${taskId.slice(0, 8)} when adding log`);
+    logger.info(`[Execution] Warning: No execution found for task ${taskId.slice(0, 8)} when adding log`);
     return;
   }
 
@@ -263,7 +264,7 @@ export function addLogEntry(taskId: string, type: ExecutionLogEntry['type'], mes
 
   const emoji = type === 'success' ? '✓' : type === 'error' ? '✗' : type === 'tool' ? '🔧' : type === 'agent' ? '🤖' : '→';
   const detailStr = typeof details === 'string' ? details : details ? JSON.stringify(details) : undefined;
-  console.log(`[Execution] ${taskId.slice(0, 8)} ${emoji} ${message}${detailStr ? ` (${detailStr.slice(0, 50)})` : ''}`);
+  logger.info(`[Execution] ${taskId.slice(0, 8)} ${emoji} ${message}${detailStr ? ` (${detailStr.slice(0, 50)})` : ''}`);
 
   scheduleTaskBroadcast(taskId, 'execution:log', { taskId, entry });
 }
@@ -304,7 +305,7 @@ export async function updateTaskStatus(
     
     broadcastToTask('task:updated', flatTask);
   } catch (error) {
-    console.error(`[Execution] Failed to update task ${taskId}:`, error);
+    logger.error({ err: error, taskId }, `[Execution] Failed to update task ${taskId}`);
   }
 }
 
@@ -324,7 +325,7 @@ export async function persistLogs(taskId: string): Promise<void> {
       UPDATE tasks SET "executionLogs" = ${JSON.stringify(execution.logs)}::jsonb WHERE id = ${taskId}
     `;
   } catch (error) {
-    console.error(`[Execution] Failed to persist logs for task ${taskId.slice(0, 8)}:`, error);
+    logger.error({ err: error, taskId }, `[Execution] Failed to persist logs for task ${taskId.slice(0, 8)}`);
   }
 }
 
@@ -342,12 +343,12 @@ export async function cleanupExecution(taskId: string): Promise<void> {
       try {
         await execution.eventStreamCleanup();
       } catch (error) {
-        console.error(`[Execution] Failed to clean up event stream for task ${taskId.slice(0, 8)}:`, error);
+        logger.error({ err: error, taskId }, `[Execution] Failed to clean up event stream for task ${taskId.slice(0, 8)}`);
       }
       execution.eventStreamCleanup = undefined;
     }
     executionStore.remove(taskId);
-    console.log(`[Execution] Cleaned up task ${taskId.slice(0, 8)}, remaining: ${executionStore.count()}`);
+    logger.info(`[Execution] Cleaned up task ${taskId.slice(0, 8)}, remaining: ${executionStore.count()}`);
   }
 }
 

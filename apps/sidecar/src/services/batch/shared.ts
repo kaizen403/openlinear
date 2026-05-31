@@ -1,5 +1,6 @@
 import { prisma } from '@openlinear/db';
 import { broadcastToTask, broadcastToTaskById, broadcastToUser } from '@openlinear/api/sse';
+import { logger } from '@openlinear/api/logger';
 import {
   batchActivityId,
   batchIdFromActivityId,
@@ -34,7 +35,7 @@ export function broadcastBatchEvent(type: BatchEventType, batchId: string, data:
     try {
       broadcastToUser(batch.userId, type, payload);
     } catch (error) {
-      console.error(`[Batch] Failed to broadcast ${type} for batch ${batchId.slice(0, 8)}:`, error);
+      logger.error({ err: error, batchId }, `[Batch] Failed to broadcast ${type} for batch ${batchId.slice(0, 8)}`);
     }
   }
 }
@@ -50,7 +51,7 @@ export function broadcastBatchProgress(
     if (batchId) {
       const batch = activeBatches.get(batchId);
       if (batch?.userId) {
-        console.log(`[Batch] ${batchId.slice(0, 8)} → ${status}: ${message}`);
+        logger.info(`[Batch] ${batchId.slice(0, 8)} → ${status}: ${message}`);
         broadcastToUser(batch.userId, 'execution:progress', { taskId, status, message, ...data });
       }
       continue;
@@ -77,7 +78,7 @@ export function emitBatchLog(taskId: string, type: 'info' | 'agent' | 'tool' | '
   }
 
   broadcastToTaskById(taskId, 'execution:log', { taskId, entry }).catch((error: unknown) => {
-    console.error(`[Batch] Failed to broadcast log for task ${taskId.slice(0, 8)}:`, error);
+    logger.error({ err: error, taskId }, `[Batch] Failed to broadcast log for task ${taskId.slice(0, 8)}`);
   });
 }
 
@@ -112,7 +113,7 @@ export async function updateTaskInDb(
 
     broadcastToTask('task:updated', flatTask);
   } catch (err) {
-    console.error(`[Batch] Failed to update task ${taskId} in DB:`, err);
+    logger.error({ err, taskId }, `[Batch] Failed to update task ${taskId} in DB`);
   }
 }
 
@@ -126,7 +127,7 @@ export async function persistBatchTaskLogs(taskId: string): Promise<void> {
       data: { executionLogs: JSON.parse(JSON.stringify(logs)) },
     });
   } catch (err) {
-    console.error(`[Batch] Failed to persist logs for task ${taskId.slice(0, 8)}:`, err);
+    logger.error({ err, taskId }, `[Batch] Failed to persist logs for task ${taskId.slice(0, 8)}`);
   }
   batchTaskLogs.delete(taskId);
 }

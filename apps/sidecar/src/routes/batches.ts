@@ -2,6 +2,7 @@ import { Router, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { prisma, decryptToken } from '@openlinear/db';
 import { optionalAuth, AuthRequest } from '@openlinear/api/middleware';
+import { logger } from '@openlinear/api/logger';
 import { assertTaskOwned } from '@openlinear/api/ownership';
 import {
   toBatchStatusResponse,
@@ -52,7 +53,7 @@ router.post('/', optionalAuth, async (req: AuthRequest, res: Response, next: Nex
       try {
         accessToken = decryptToken(user?.accessToken ?? null);
       } catch (err) {
-        console.error('[batch] failed to decrypt access token:', err);
+        logger.error({ err }, '[batch] failed to decrypt access token');
         accessToken = null;
       }
     }
