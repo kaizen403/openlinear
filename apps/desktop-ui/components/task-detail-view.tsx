@@ -95,8 +95,8 @@ export function TaskDetailView({ task, progress, open, onClose, onDelete, deleti
   const logVirtualizer = useVirtualizer({
     count: reversedLogs.length,
     getScrollElement: () => logsContainerRef.current,
-    estimateSize: () => 88,
-    overscan: 8,
+    estimateSize: () => 60,
+    overscan: 3,
   })
   const [editingTitle, setEditingTitle] = useState(false)
   const [editingDescription, setEditingDescription] = useState(false)
@@ -106,12 +106,6 @@ export function TaskDetailView({ task, progress, open, onClose, onDelete, deleti
   // Tracks whether a save already fired this edit cycle so blur+Enter don't double-fire onUpdate.
   const titleSavedRef = useRef(false)
   const descriptionSavedRef = useRef(false)
-
-  useEffect(() => {
-    if (logsContainerRef.current && open && logs.length > 0) {
-      logsContainerRef.current.scrollTop = 0
-    }
-  }, [logs, open])
 
   useEffect(() => {
     if (!detailIsExecuting) setCancelling(false)
@@ -427,11 +421,10 @@ export function TaskDetailView({ task, progress, open, onClose, onDelete, deleti
 
                           return (
                             <div
-                              key={`${log.timestamp}-${logs.length - virtualRow.index}`}
+                              key={virtualRow.key}
                               data-index={virtualRow.index}
-                              ref={logVirtualizer.measureElement}
                               className="absolute left-0 top-0 flex w-full gap-3"
-                              style={{ transform: `translateY(${virtualRow.start}px)` }}
+                              style={{ transform: `translateY(${virtualRow.start}px)`, willChange: 'transform' }}
                             >
                               <div className="flex flex-col items-center flex-shrink-0 w-6">
                                 <div className={cn(

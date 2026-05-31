@@ -5,6 +5,67 @@
 
 ---
 
+## [2026-05-26] — Fix sidecar startup crash (missing openid-client + otpauth + ALLOW_SHARED_OPENCODE)
+
+**Status:** Done
+**Agent:** Sisyphus (OpenCode)
+
+### What was done
+- Sidecar was crashing at startup with `ERR_MODULE_NOT_FOUND: Cannot find package 'openid-client'`. Root cause: `apps/api/src/services/sso.ts` imports `openid-client` and `apps/api/src/routes/totp.ts` imports `otpauth` — both declared in `apps/api/package.json` but not installed in `node_modules`.
+- Ran `pnpm install` at workspace root to pull the missing packages (`+17` packages installed).
+- Sidecar was also immediately exiting after recovery due to multi-user guard (`OPENLINEAR_ALLOW_SHARED_OPENCODE` not set, 4 users in DB). Added `OPENLINEAR_ALLOW_SHARED_OPENCODE=1` to `.env` for the dev machine.
+- Verified sidecar now starts cleanly: binds port 3001 + 1455, runs recovery, and stays up.
+
+### Files changed
+- `.env` — added `OPENLINEAR_ALLOW_SHARED_OPENCODE=1`
+- `pnpm-lock.yaml` — updated by `pnpm install` (openid-client, otpauth, and transitive deps)
+
+### Issues encountered
+- None after the fix.
+
+### Next steps / blockers
+- None. `pnpm dev-live` / `pnpm start` should now boot the sidecar without crashing.
+
+---
+
+## [2026-05-26] — Model provider onboarding step + execution model-not-configured guard
+
+**Status:** Done
+**Agent:** Sisyphus (OpenCode)
+
+### What was done
+- Added a 4th onboarding step "AI Model" with Back / Finish setup / Skip buttons. Team creation now advances to the new step instead of completing directly. Both Finish and Skip complete onboarding; Skip shows a toast directing the user to Settings.
+- Built `ModelProviderStep` component that shows live provider status fetched from the sidecar, lists connected providers, and links to Settings → AI Providers. Handles sidecar-unavailable gracefully (shows retry + lets user skip).
+- Added `pickAutoDetectedModel()` pure helper and `ensureModelConfigured(userId)` service in the sidecar. Auto-detection priority: anthropic → openai → google → openrouter → first connected. When a provider is authenticated but no model is selected, the function picks and persists the provider's default model automatically.
+- Updated `GET /api/opencode/setup-status` to run auto-detection and return `hasProvider` + `hasModel`. `ready` is now `hasProvider && hasModel` (previously only `hasProvider`), so it correctly reports false when a provider is connected but no model is selected.
+- Added pre-flight `ensureModelConfigured` check to `POST /api/tasks/:id/execute` and `POST /api/batches`. Returns `400 { code: 'MODEL_NOT_CONFIGURED', details: { hasProvider } }` with a human-readable message instead of silently starting a doomed agent.
+- Added `isModelNotConfiguredApiError()` helper in `lib/api/model-errors.ts` to detect the new error code on the frontend.
+- Updated single-execute path (`use-kanban-board.ts`) and batch-execute path (`use-batch-execution.ts`) to catch `MODEL_NOT_CONFIGURED` — toast the specific message and reopen the provider setup dialog automatically.
+- Provider setup dialog now distinguishes "no provider" vs "provider connected but no model selected" in toasts.
+
+### Files changed
+- `apps/sidecar/src/services/opencode-model.ts` — new file: `pickAutoDetectedModel`, `ensureModelConfigured`
+- `apps/sidecar/src/routes/opencode.ts` — `setup-status` uses auto-detect, exposes `hasProvider`/`hasModel`, stricter `ready`
+- `apps/sidecar/src/routes/execution.ts` — pre-flight model check on single execute
+- `apps/sidecar/src/routes/batches.ts` — pre-flight model check on batch create
+- `apps/desktop-ui/lib/api/opencode.ts` — `SetupStatus` extended with `hasProvider`/`hasModel`
+- `apps/desktop-ui/lib/api/model-errors.ts` — new file: `isModelNotConfiguredApiError`, `readModelNotConfiguredDetails`
+- `apps/desktop-ui/components/board/use-kanban-board.ts` — MODEL_NOT_CONFIGURED handling in single execute + retry path
+- `apps/desktop-ui/hooks/use-batch-execution.ts` — MODEL_NOT_CONFIGURED handling in batch execute; improved provider/model-specific toasts
+- `apps/desktop-ui/components/onboarding/steps/onboarding-utils.ts` — added "AI Model" to STEP_LABELS
+- `apps/desktop-ui/components/onboarding/steps/model-provider-step.tsx` — new file: onboarding step 3 UI
+- `apps/desktop-ui/components/onboarding/onboarding-wizard.tsx` — wired step 3, `handleFinishOnboarding`, `handleSkipOnboarding`, step clamp bumped to 3
+
+### Issues encountered
+- Pre-existing unrelated typecheck failures in `apps/api/` (`totp.ts`, `invitations.ts`, `sso.ts`, `tasks.ts`) for half-built features missing Prisma models and npm packages. Left untouched per protocol.
+
+### Next steps / blockers
+- Manually verify: complete onboarding on a fresh workspace → should land on AI Model step → Finish or Skip both enter the app.
+- Manually verify: try executing a task/batch with no model configured → should get clear toast + provider dialog opens.
+- Consider adding a "model configured" status indicator somewhere on the board (e.g., a subtle warning badge on the Execute buttons when `!status.ready`).
+
+---
+
 ## [2026-05-24] — Add Electron desktop wrapper for Linux (fixing WebKitGTK scroll/font issues)
 
 **Status:** Done

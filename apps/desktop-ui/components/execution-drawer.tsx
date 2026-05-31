@@ -81,7 +81,7 @@ export function ExecutionDrawer({ task, logs, progress, open, onClose }: Executi
 
   useEffect(() => {
     if (logsEndRef.current && open) {
-      logsEndRef.current.scrollIntoView({ behavior: 'smooth' })
+      logsEndRef.current.scrollIntoView({ behavior: 'auto' })
     }
   }, [logs, open])
 
