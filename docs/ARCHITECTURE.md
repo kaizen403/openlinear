@@ -38,7 +38,13 @@ OpenLinear is a monorepo with four main components: a Next.js desktop UI (`apps/
 
 ## Authentication
 
-GitHub OAuth is the only login method. The OAuth flow exchanges a code for a GitHub access token, upserts the user, stores the `accessToken` in the database, and redirects back to the frontend with a JWT in the URL. Scopes requested: `read:user user:email repo`.
+GitHub OAuth is the primary login method for human users. The OAuth flow exchanges a code for a GitHub access token, upserts the user, stores the (AES-256-GCM encrypted) `accessToken` in the database, and redirects back to the frontend with a JWT in the URL. Scopes requested: `read:user user:email repo`.
+
+Two additional auth mechanisms exist alongside GitHub OAuth:
+- **Personal Access Tokens (PAT)** — format `ol_pat_<32-hex>`, SHA-256 hashed at rest, scoped. Used by MCP, the CLI, and API clients (`Authorization: Bearer ol_pat_…`).
+- **TOTP two-factor authentication** — optional per-user (`/api/auth/2fa`), with backup codes.
+
+SSO (OIDC) scaffolding also exists for workspace-enforced login.
 
 After login, all AI provider keys (OpenAI, Anthropic, etc.) are managed by OpenCode itself on the user's machine, not by OpenLinear.
 
@@ -244,34 +250,36 @@ OpenCode is the AI agent that executes tasks. The agent runs directly on your ma
 
 ## Production Deployment
 
-Production runs on a DigitalOcean droplet at `https://openlinear.tech`.
+Production runs the cloud metadata API on **Azure Container Apps** at `https://api.openlinear.tech`, with the web UI served at `https://openlinear.tech`.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│              DigitalOcean Droplet (openlinear.tech)                 │
+│         Azure Container Apps (api.openlinear.tech)          │
 │                                                             │
-│  PM2 Process Manager                                        │
-│  ├── openlinear-api  (Express, port 3001)                   │
-│  └── openlinear-web  (Next.js, port 3000)                   │
+│  Container image from Azure Container Registry              │
+│  ├── openlinear-api  (Express, containerized)               │
+│  └── autoscale: min 1 / max 3 replicas                      │
 │                                                             │
 │  Metadata API only: auth, tasks, labels, settings,          │
 │  teams, projects, inbox, repos, SSE events, health          │
-│  No execution, no OpenCode                                  │
+│  No execution, no OpenCode (those run in the desktop sidecar)│
 │                                                             │
 │  Database: Neon cloud PostgreSQL (external)                 │
-│                                                             │
-│  /opt/openlinear/          ← deploy directory               │
 └─────────────────────────────────────────────────────────────┘
 ```
 
+> The earlier DigitalOcean droplet + PM2 setup (`deploy.yml`) is retained as a disabled legacy workflow; the active deploy path is `deploy-azure.yml`.
+
 ### CI/CD Pipeline
 
-Push to `main` triggers automatic deployment:
+Push to `main` triggers `deploy-azure.yml`:
 
-1. GitHub Actions builds API + Web
-2. SSH to droplet → run `/opt/openlinear/deploy.sh`
-3. Deploy script: `git pull` → `pnpm install` → prisma migrate → build apps → PM2 restart
-4. Health check: `curl https://openlinear.tech/health`
+1. **Checks** — `pnpm install`, generate Prisma client, push schema to an ephemeral Postgres test DB, typecheck, build API + Web + Landing, run the API test suite
+2. **Build & push** — build the API Docker image and push to Azure Container Registry (tagged with the commit SHA + `latest`)
+3. **Deploy** — `az containerapp update` to the new image, wait for the revision to report `Running`
+4. **Verify** — poll `https://api.openlinear.tech/health` until `200`
+
+> Database migrations: production schema is applied via `prisma migrate deploy`. Keep the committed migrations in sync with `schema.prisma` — a reconciliation migration (`20260531000000_reconcile_schema_drift`) was added after the migration history drifted from the schema. CI currently uses `db:push` for its ephemeral test DB; `migrate deploy` against a fresh DB must produce a schema identical to `db:push` (verified via `prisma migrate diff`).
 
 ### Release Pipeline
 
