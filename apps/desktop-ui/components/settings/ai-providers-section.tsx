@@ -46,12 +46,12 @@ import {
 } from "@/lib/api/opencode"
 
 const POPULAR_MODELS = [
-  { id: "claude-sonnet-4-20250514", name: "Claude Sonnet 4", providers: ["anthropic", "openrouter", "aws-bedrock"] },
-  { id: "claude-opus-4-20250514", name: "Claude Opus 4", providers: ["anthropic", "openrouter", "aws-bedrock"] },
-  { id: "gpt-4.1", name: "GPT-4.1", providers: ["openai", "openrouter", "azure"] },
-  { id: "gemini-2.5-pro", name: "Gemini 2.5 Pro", providers: ["google", "openrouter"] },
-  { id: "o3", name: "o3", providers: ["openai", "openrouter"] },
-  { id: "deepseek-r1", name: "DeepSeek R1", providers: ["deepseek", "openrouter"] },
+  { id: "claude-sonnet-4-20250514", name: "Claude Sonnet 4", providers: ["anthropic", "github", "openrouter", "aws-bedrock"] },
+  { id: "claude-opus-4-20250514", name: "Claude Opus 4", providers: ["anthropic", "github", "openrouter", "aws-bedrock"] },
+  { id: "gpt-4.1", name: "GPT-4.1", providers: ["openai", "github", "openrouter", "azure"] },
+  { id: "gemini-2.5-pro", name: "Gemini 2.5 Pro", providers: ["google", "github", "openrouter"] },
+  { id: "o3", name: "o3", providers: ["openai", "github", "openrouter"] },
+  { id: "deepseek-r1", name: "DeepSeek R1", providers: ["deepseek", "github", "openrouter"] },
   { id: "qwen3-235b-a22b", name: "Qwen 3 235B", providers: ["openrouter"] },
 ]
 
@@ -932,14 +932,24 @@ export function AIProvidersSection() {
           <div className="divide-y divide-linear-border rounded-md border border-linear-border">
             {visibleProviders.map((provider) => (
               <div key={provider.id} className="px-3 py-2.5">
-                <button
-                  type="button"
-                  className="flex w-full items-center gap-3 text-left"
+                <div
+                  role="button"
+                  tabIndex={0}
+                  className="flex w-full items-center gap-3 text-left cursor-pointer"
                   onClick={() => {
                     if (provider.authenticated) return
                     setExpandedProvider(
                       expandedProvider === provider.id ? null : provider.id,
                     )
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault()
+                      if (provider.authenticated) return
+                      setExpandedProvider(
+                        expandedProvider === provider.id ? null : provider.id,
+                      )
+                    }
                   }}
                 >
                   <span
@@ -970,7 +980,7 @@ export function AIProvidersSection() {
                       )}
                     />
                   )}
-                </button>
+                </div>
                 {!provider.authenticated && expandedProvider === provider.id && (
                   renderProviderSetup(provider.id)
                 )}

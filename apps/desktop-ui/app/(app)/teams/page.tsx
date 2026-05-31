@@ -594,6 +594,7 @@ export default function TeamsPage() {
                 <input
                   type="text"
                   placeholder="Filter teams..."
+                  aria-label="Filter teams"
                   value={filterText}
                   onChange={(e) => setFilterText(e.target.value)}
                   className="w-full h-9 pl-10 pr-4 rounded-sm bg-linear-bg-tertiary border border-linear-border text-sm text-linear-text placeholder:text-linear-text-tertiary focus:outline-none focus:border-linear-border-hover transition-colors"

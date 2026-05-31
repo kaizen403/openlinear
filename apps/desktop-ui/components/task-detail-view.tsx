@@ -322,7 +322,7 @@ export function TaskDetailView({ task, progress, open, onClose, onDelete, deleti
                     {(task.prUrl || currentProgress?.prUrl) && (
                       <button
                         onClick={() => openExternal((task.prUrl || currentProgress?.prUrl)!)}
-                        className="mt-3 inline-flex items-center gap-2 px-3 py-1.5 rounded-sm text-xs font-medium text-white bg-[#8b5cf6] hover:bg-[#7c3aed] transition-colors"
+                        className="mt-3 inline-flex items-center gap-2 px-3 py-1.5 rounded-sm text-xs font-medium text-white bg-linear-accent hover:bg-linear-accent/90 transition-colors"
                       >
                         <GitMerge className="w-3.5 h-3.5" />
                         View Pull Request

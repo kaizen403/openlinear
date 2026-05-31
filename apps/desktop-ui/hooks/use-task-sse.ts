@@ -1,4 +1,4 @@
-import { useCallback } from "react"
+import { useCallback, useEffect, useRef } from "react"
 import type { SSEEventType, SSEEventData } from "@/providers/sse-provider"
 import { useSSESubscription } from "@/providers/sse-provider"
 import { Task, ExecutionProgress, ExecutionLogEntry } from "@/types/task"
@@ -42,6 +42,14 @@ export function useTaskSSE({
   setTaskDeletionMode,
   lastSelectedIdRef,
 }: UseTaskSSEProps) {
+  const batchDismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    return () => {
+      if (batchDismissTimerRef.current) clearTimeout(batchDismissTimerRef.current)
+    }
+  }, [])
+
   const handleSSEEvent = useCallback((eventType: SSEEventType, data: SSEEventData) => {
     switch (eventType) {
       case 'task:created':
@@ -299,7 +307,8 @@ export function useTaskSSE({
       case 'batch:cancelled':
         setActiveBatch((prev) => {
           if (prev && prev.id === data.batchId) {
-            setTimeout(() => setActiveBatch(null), 5000)
+            if (batchDismissTimerRef.current) clearTimeout(batchDismissTimerRef.current)
+            batchDismissTimerRef.current = setTimeout(() => setActiveBatch(null), 5000)
             return { ...prev, status: eventType.split(':')[1]! } as ActiveBatch
           }
           return prev
