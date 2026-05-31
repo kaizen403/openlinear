@@ -6,6 +6,7 @@
     "build:app": "./scripts/build-and-test-desktop.sh",
     "dev": "./scripts/dev.sh",
     "dev:web": "./scripts/dev-web.sh",
+    "debug": "./scripts/debug.sh",
     "start": "./scripts/start-prod-preview.sh",
     "dev:live": "./scripts/dev-live.sh",
     "dev-live": "./scripts/dev-live.sh",
