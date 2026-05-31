@@ -149,10 +149,16 @@ router.get('/auth/sso/callback', async (req: AuthRequest, res: Response) => {
       return;
     }
 
-    const statePayload = JSON.parse(Buffer.from(state as string, 'base64url').toString());
+    let statePayload: { workspaceId?: string; ts?: number };
+    try {
+      statePayload = JSON.parse(Buffer.from(state as string, 'base64url').toString());
+    } catch {
+      res.status(400).json(buildErrorEnvelope('VALIDATION_ERROR', 'Malformed SSO state parameter'));
+      return;
+    }
     const { workspaceId, ts } = statePayload;
 
-    if (Date.now() - ts > 10 * 60 * 1000) {
+    if (!workspaceId || !ts || Date.now() - ts > 10 * 60 * 1000) {
       res.status(400).json(buildErrorEnvelope('EXPIRED', 'SSO state expired'));
       return;
     }
