@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import { prisma, type Prisma, type TeamRole } from '@openlinear/db';
+import { PRISMA_TX_OPTIONS } from '../lib/constants';
 import { HttpError } from '../errors';
 import { broadcastToTeam, broadcastToUser } from '../sse';
 import { logActivity } from './activity';
@@ -238,7 +239,7 @@ export async function deleteTeamRoute(input: { teamId: string; userId: string })
     memberUserIds.push(...members.map((m) => m.userId));
     await tx.teamMember.deleteMany({ where: { teamId: input.teamId } });
     await tx.team.delete({ where: { id: input.teamId } });
-  }, { timeout: 15000, maxWait: 5000 });
+  }, PRISMA_TX_OPTIONS);
   for (const uid of memberUserIds) {
     broadcastToUser(uid, 'team:deleted', { id: input.teamId });
   }

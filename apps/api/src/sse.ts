@@ -42,9 +42,9 @@ function formatMessage(event: string, data: unknown): string {
  */
 export function broadcastToAll(event: string, data: unknown): void {
   const message = formatMessage(event, data);
-  clients.forEach((client) => {
+  for (const client of Array.from(clients.values())) {
     safeWrite(client, message);
-  });
+  }
 }
 
 export const broadcast = broadcastToAll;
@@ -55,11 +55,11 @@ export const broadcast = broadcastToAll;
  */
 export function broadcastToUser(userId: string, event: string, data: unknown): void {
   const message = formatMessage(event, data);
-  clients.forEach((client) => {
+  for (const client of Array.from(clients.values())) {
     if (client.userId === userId) {
       safeWrite(client, message);
     }
-  });
+  }
 }
 
 /**
@@ -67,11 +67,11 @@ export function broadcastToUser(userId: string, event: string, data: unknown): v
  */
 export function broadcastToTeam(teamId: string, event: string, data: unknown): void {
   const message = formatMessage(event, data);
-  clients.forEach((client) => {
+  for (const client of Array.from(clients.values())) {
     if (client.teamIds.includes(teamId)) {
       safeWrite(client, message);
     }
-  });
+  }
 }
 
 /**
@@ -79,11 +79,11 @@ export function broadcastToTeam(teamId: string, event: string, data: unknown): v
  */
 export function broadcastToWorkspace(workspaceId: string, event: string, data: unknown): void {
   const message = formatMessage(event, data);
-  clients.forEach((client) => {
+  for (const client of Array.from(clients.values())) {
     if (client.workspaceIds.includes(workspaceId)) {
       safeWrite(client, message);
     }
-  });
+  }
 }
 
 export async function broadcastToProject(
@@ -180,11 +180,11 @@ export async function broadcastToChatSession(
     if (!session) return;
 
     const message = formatMessage(event, data);
-    clients.forEach((client) => {
+    for (const client of Array.from(clients.values())) {
       if (client.userId === session.userId && client.workspaceIds.includes(session.workspaceId)) {
         safeWrite(client, message);
       }
-    });
+    }
   } catch (err) {
     logger.warn({ err, sessionId, event }, '[SSE] failed to resolve chat session for broadcast');
   }

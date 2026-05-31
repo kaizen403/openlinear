@@ -117,9 +117,7 @@ export async function handleOIDCCallback(
   const serverConfig = await client.discovery(issuerUrl, config.clientId, clientSecret);
 
   const currentUrl = new URL(`${redirectUri}?code=${encodeURIComponent(code)}`);
-  const tokens = await client.authorizationCodeGrant(serverConfig, currentUrl, {
-    expectedState: undefined as unknown as string, // state verified by us before calling
-  });
+  const tokens = await client.authorizationCodeGrant(serverConfig, currentUrl, {});
 
   const claims = tokens.claims();
   const email = (claims?.email as string) || '';

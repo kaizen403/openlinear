@@ -8,6 +8,7 @@ import {
   assertTeamRole,
 } from '../services/ownership';
 import { getUserTeamIds } from '../services/team-scope';
+import { PRISMA_TX_OPTIONS } from '../lib/constants';
 import { paginated, paginationSkipTake } from '../schemas/pagination';
 import { ValidationError } from '../errors';
 
@@ -71,7 +72,7 @@ router.get('/', requireAuth, async (req: AuthRequest, res: Response) => {
       const count = await tx.activityLog.count({ where });
       return [items, count] as const;
     },
-    { timeout: 15000, maxWait: 5000 },
+    PRISMA_TX_OPTIONS,
   );
 
   res.json(paginated(activities, total, page, pageSize));

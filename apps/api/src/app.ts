@@ -119,6 +119,8 @@ function isGithubOAuthPath(path: string): boolean {
 export function createApp(): Application {
   const app: Application = express();
 
+  app.set('trust proxy', 1);
+
   // Security headers — CSP disabled because Tauri owns CSP in the desktop UI
   app.use(
     helmet({

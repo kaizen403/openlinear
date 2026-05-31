@@ -349,15 +349,15 @@ export const CHAT_DOMAIN_TOOLS: ChatTool[] = [
   },
   {
     name: 'bulk_create_issues',
-    description: 'Preview or commit multiple issues. Always preview with dryRun=true before committing brainstormed work.',
+    description: 'Create multiple issues at once. Set dryRun=true only when the user explicitly asks for a preview.',
     mutating: true,
-    parameters: objectParameters({ projectId: projectIdProp, dryRun: { type: 'boolean', default: true }, items: { type: 'array', items: { type: 'object', properties: { title: { type: 'string' }, description: { type: ['string', 'null'] }, priority: { type: 'string', enum: [...priorityValues] }, status: { type: 'string', enum: [...statusValues] }, labelIds: { type: 'array', items: { type: 'string' } }, parentId: { type: 'string' }, dueDate: { type: ['string', 'null'] } }, required: ['title'], additionalProperties: false } } }, ['items']),
+    parameters: objectParameters({ projectId: projectIdProp, dryRun: { type: 'boolean', default: false }, items: { type: 'array', items: { type: 'object', properties: { title: { type: 'string' }, description: { type: ['string', 'null'] }, priority: { type: 'string', enum: [...priorityValues] }, status: { type: 'string', enum: [...statusValues] }, labelIds: { type: 'array', items: { type: 'string' } }, parentId: { type: 'string' }, dueDate: { type: ['string', 'null'] } }, required: ['title'], additionalProperties: false } } }, ['items']),
     handler: async (ctx, args) => {
       const projectId = scopedProjectId(ctx, args);
       if (!projectId) return missing('projectId');
       const items = bulkItems(args);
       if (items.length === 0) return missing('items');
-      return ok(boolArg(args, 'dryRun') === false ? 'Issues created' : 'Issue preview generated', await bulkCreateTasks({ userId: ctx.userId, projectId, dryRun: boolArg(args, 'dryRun') ?? true, tasks: items }));
+      return ok(boolArg(args, 'dryRun') === true ? 'Issue preview generated' : 'Issues created', await bulkCreateTasks({ userId: ctx.userId, projectId, dryRun: boolArg(args, 'dryRun') ?? false, tasks: items }));
     },
   },
   {
