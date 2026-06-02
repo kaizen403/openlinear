@@ -173,7 +173,9 @@ function clearBackgroundTaskWait(
 
 function noteToolCompleted(taskId: string, toolName: string, output?: string, part?: ToolPart): void {
   const execution = activeExecutions.get(taskId);
+  /* v8 ignore start -- defensive guard for stale event after cleanup. */
   if (!execution) return;
+  /* v8 ignore stop */
 
   const keySource = (output || part?.callID || part?.id || `${toolName}:${Date.now()}`).slice(0, 1_000);
   const key = `${toolName}:${keySource}`;

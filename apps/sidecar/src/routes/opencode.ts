@@ -7,6 +7,7 @@ import {
   getOpenCodeStatus,
   getClientForUser,
 } from '../services/opencode';
+import { ensureModelConfigured } from '../services/opencode-model';
 
 const router: Router = Router();
 
@@ -209,12 +210,27 @@ router.get('/setup-status', requireAuth, async (req: AuthRequest, res: Response)
     const payload = providerList.data as ProviderListPayload;
     const currentConfig = (config.data ?? {}) as ConfigPayload;
     const providers = summarizeProviders(payload, auth.data ?? {}, currentConfig);
-    const ready = providers.some(p => p.authenticated);
+
+    // Auto-detect model when a provider is connected but no model is selected.
+    // This keeps the "ready" signal honest: ready === we can execute right now.
+    const hasProvider = providers.some(p => p.authenticated);
+    let resolvedModel = typeof currentConfig.model === 'string' ? currentConfig.model : null;
+    if (hasProvider && !resolvedModel) {
+      const ensured = await ensureModelConfigured(req.userId!, client).catch(() => null);
+      if (ensured?.model) {
+        resolvedModel = ensured.model;
+      }
+    }
+
+    const hasModel = Boolean(resolvedModel);
+    const ready = hasProvider && hasModel;
 
     res.json({
       providers,
       ready,
-      currentModel: currentConfig.model ?? null,
+      hasProvider,
+      hasModel,
+      currentModel: resolvedModel,
       smallModel: currentConfig.small_model ?? null,
     });
   } catch (err) {

@@ -10,7 +10,7 @@ import { CommentsThread } from "@/components/comments-thread"
 import { cn, openExternal } from "@/lib/utils"
 import { Task, ExecutionProgress, ExecutionLogEntry, formatDuration } from "@/types/task"
 import { STATUS_COLORS, PRIORITY_COLORS } from "@/lib/design-tokens"
-import { useExecutionLogs, useExecutionProgress } from "@/lib/execution-state-store"
+import { useExecutionLogsWithHistory, useExecutionProgress } from "@/lib/execution-state-store"
 
 interface TaskDetailViewProps {
   task: Task | null
@@ -78,7 +78,7 @@ export function TaskDetailView({ task, progress, open, onClose, onDelete, deleti
   const logsContainerRef = useRef<HTMLDivElement>(null)
   const titleInputRef = useRef<HTMLInputElement>(null)
   const descriptionRef = useRef<HTMLTextAreaElement>(null)
-  const logs = useExecutionLogs(task?.id)
+  const { logs, loading: logsLoading } = useExecutionLogsWithHistory(task?.id)
   const liveProgress = useExecutionProgress(task?.id)
   const currentProgress = progress ?? liveProgress
   const detailIsExecuting = !!isExecuting || (
@@ -404,9 +404,18 @@ export function TaskDetailView({ task, progress, open, onClose, onDelete, deleti
                   >
                     {logs.length === 0 ? (
                       <div className="flex flex-col items-center justify-center py-12 text-linear-text-tertiary">
-                        <Clock className="w-8 h-8 mb-2 opacity-50" />
-                        <p className="text-sm">No activity yet</p>
-                        <p className="text-xs mt-1">Execution logs will appear here when a task is run</p>
+                        {logsLoading ? (
+                          <>
+                            <Loader2 className="w-8 h-8 mb-2 animate-spin opacity-50" />
+                            <p className="text-sm">Loading activity...</p>
+                          </>
+                        ) : (
+                          <>
+                            <Clock className="w-8 h-8 mb-2 opacity-50" />
+                            <p className="text-sm">No activity yet</p>
+                            <p className="text-xs mt-1">Execution logs will appear here when a task is run</p>
+                          </>
+                        )}
                       </div>
                     ) : (
                       <div

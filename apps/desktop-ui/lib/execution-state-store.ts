@@ -1,7 +1,8 @@
 "use client"
 
-import { useCallback, useSyncExternalStore } from "react"
+import { useCallback, useEffect, useState, useSyncExternalStore } from "react"
 import type { ExecutionLogEntry, ExecutionProgress } from "@/types/task"
+import { fetchExecutionLogs } from "@/lib/api/tasks"
 
 const MAX_LOGS_PER_TASK = 2_000
 const EMPTY_LOGS: ExecutionLogEntry[] = []
@@ -161,4 +162,32 @@ export function useExecutionProgress(taskId: string | null | undefined) {
   }, [taskId])
 
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
+}
+
+export function useExecutionLogsWithHistory(taskId: string | null | undefined) {
+  const liveLogs = useExecutionLogs(taskId)
+  const [historicalLogs, setHistoricalLogs] = useState<ExecutionLogEntry[]>(EMPTY_LOGS)
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    if (!taskId || hasExecutionLogs(taskId)) {
+      setHistoricalLogs(EMPTY_LOGS)
+      return
+    }
+
+    setLoading(true)
+    fetchExecutionLogs(taskId)
+      .then((res) => {
+        if (res.logs.length > 0) {
+          replaceExecutionLogs(taskId, res.logs)
+        }
+      })
+      .catch(() => {
+        // Silently ignore — the task may have never been executed
+      })
+      .finally(() => setLoading(false))
+  }, [taskId])
+
+  const logs = liveLogs.length > 0 ? liveLogs : historicalLogs
+  return { logs, loading }
 }

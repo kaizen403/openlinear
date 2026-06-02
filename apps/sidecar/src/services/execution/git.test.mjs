@@ -35,6 +35,8 @@ const {
   createPullRequest,
   hasCommittableChanges,
   stageCommittableChanges,
+  GitService,
+  gitService,
 } = await import('./git');
 
 describe('execution git helpers', () => {
@@ -253,5 +255,60 @@ describe('execution git helpers', () => {
       url: 'https://github.com/acme/repo/compare/main...feature',
       type: 'compare',
     });
+  });
+});
+
+describe('GitService adapter', () => {
+  it('has methods matching IGitService interface', () => {
+    expect(typeof gitService.clone).toBe('function');
+    expect(typeof gitService.createBranch).toBe('function');
+    expect(typeof gitService.commitAndPush).toBe('function');
+    expect(typeof gitService.createPullRequest).toBe('function');
+    expect(typeof gitService.hasChanges).toBe('function');
+    expect(typeof gitService.stageChanges).toBe('function');
+  });
+
+  it('delegates clone to the underlying function', async () => {
+    mocks.execFileAsync.mockResolvedValue({ stdout: '', stderr: '' });
+    mocks.execGitWithCredentials.mockResolvedValue(undefined);
+    await expect(gitService.clone('https://github.com/acme/repo.git', '/repo', 'token', 'main')).resolves.toBeUndefined();
+  });
+
+  it('delegates createBranch to the underlying function', async () => {
+    mocks.execFileAsync.mockResolvedValue({ stdout: '', stderr: '' });
+    await expect(gitService.createBranch('/repo', 'feature')).resolves.toBeUndefined();
+  });
+
+  it('delegates commitAndPush to the underlying function', async () => {
+    mocks.execFileAsync
+      .mockResolvedValueOnce({ stdout: ' M src/index.ts\n', stderr: '' })
+      .mockResolvedValueOnce({ stdout: '', stderr: '' })
+      .mockResolvedValueOnce({ stdout: '', stderr: '' })
+      .mockResolvedValueOnce({ stdout: 'src/index.ts\n', stderr: '' })
+      .mockResolvedValueOnce({ stdout: '', stderr: '' })
+      .mockResolvedValueOnce({ stdout: 'https://github.com/acme/repo.git\n', stderr: '' });
+    mocks.execGitWithCredentials.mockResolvedValue(undefined);
+    await expect(gitService.commitAndPush('/repo', 'feature', 'Task', 'token')).resolves.toEqual({ status: 'pushed' });
+  });
+
+  it('delegates createPullRequest to the underlying function', async () => {
+    mocks.fetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({ id: 1, html_url: 'https://github.com/acme/repo/pull/1' }),
+    });
+    await expect(gitService.createPullRequest('acme/repo', 'feature', 'main', 'Task', 'Body', 'token')).resolves.toEqual({
+      url: 'https://github.com/acme/repo/pull/1',
+      type: 'pr',
+    });
+  });
+
+  it('delegates hasChanges to the underlying function', async () => {
+    mocks.execFileAsync.mockResolvedValue({ stdout: ' M src/index.ts\n', stderr: '' });
+    await expect(gitService.hasChanges('/repo')).resolves.toBe(true);
+  });
+
+  it('delegates stageChanges to the underlying function', async () => {
+    mocks.execFileAsync.mockResolvedValue({ stdout: ' M src/index.ts\n', stderr: '' });
+    await expect(gitService.stageChanges('/repo')).resolves.toBe(true);
   });
 });

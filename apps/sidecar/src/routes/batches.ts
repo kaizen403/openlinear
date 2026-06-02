@@ -19,6 +19,7 @@ import {
   getActiveBatches,
   approveNextTask,
 } from '../services/batch';
+import { ensureModelConfigured } from '../services/opencode-model';
 
 const CreateBatchSchema = z.object({
   taskIds: z.array(z.string()).min(1).max(20),
@@ -41,6 +42,21 @@ router.post('/', optionalAuth, async (req: AuthRequest, res: Response, next: Nex
     if (userId) {
       for (const tid of taskIds) {
         await assertTaskOwned(tid, userId);
+      }
+
+      const ensured = await ensureModelConfigured(userId).catch((err: unknown) => {
+        console.warn('[Batch] Model pre-flight check failed:', err);
+        return null;
+      });
+      if (ensured && !ensured.model) {
+        res.status(400).json({
+          error: ensured.hasProvider
+            ? 'No model selected. Pick a model in Settings → AI Providers before running a batch.'
+            : 'No AI provider configured. Connect a provider in Settings → AI Providers before running a batch.',
+          code: 'MODEL_NOT_CONFIGURED',
+          details: { hasProvider: ensured.hasProvider },
+        });
+        return;
       }
     }
 

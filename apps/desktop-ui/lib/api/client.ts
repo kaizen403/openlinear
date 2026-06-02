@@ -8,7 +8,7 @@ let cachedSidecarUrl: string | null = null;
 let listenerInstalled = false;
 
 function isDesktopRuntime(): boolean {
-  return isTauriRuntime();
+  return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 }
 
 function isTauriRuntime(): boolean {

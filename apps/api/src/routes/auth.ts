@@ -321,7 +321,7 @@ router.get('/github/callback', async (req: Request, res: Response) => {
         respondWithSuccess(client, `2fa:${tempToken}`, res);
       } else {
         const baseUrl = client === 'dashboard' ? getDashboardUrl() : getFrontendUrl();
-        res.redirect(`${baseUrl}?twoFactor=true&tempToken=${encodeURIComponent(tempToken)}`);
+        res.redirect(`${baseUrl}?twoFactor=true#tempToken=${encodeURIComponent(tempToken)}`);
       }
       return;
     }

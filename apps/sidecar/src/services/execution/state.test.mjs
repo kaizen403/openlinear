@@ -290,4 +290,112 @@ describe('execution state helpers', () => {
 
     expect(mocks.flushDeltaBuffer).not.toHaveBeenCalled();
   });
+
+  it('uses the executionStore directly for session lookup fallback', () => {
+    const { executionStore } = state;
+    executionStore.reset();
+
+    const ex = makeExecution({ taskId: 'task-2', sessionId: 'ses_fallback' });
+    executionStore.set('task-2', ex);
+    expect(executionStore.getBySession('ses_fallback')).toBe(ex);
+    expect(executionStore.getTaskIdBySession('ses_fallback')).toBe('task-2');
+
+    executionStore.remove('task-2');
+    expect(executionStore.get('task-2')).toBeUndefined();
+    expect(executionStore.getBySession('ses_fallback')).toBeUndefined();
+  });
+
+  it('covers executionStore remove for non-existent task', () => {
+    const { executionStore } = state;
+    executionStore.reset();
+    executionStore.set('task-3', makeExecution({ taskId: 'task-3' }));
+    executionStore.remove('non-existent');
+    expect(executionStore.get('task-3')).toBeDefined();
+  });
+
+  it('uses executionStore fallback scan when session map is stale', () => {
+    const { executionStore } = state;
+    executionStore.reset();
+
+    const ex = makeExecution({ taskId: 'task-3', sessionId: 'ses_orphan' });
+    executionStore.set('task-3', ex);
+    executionStore.setSessionMapping('ses_orphan', 'task-3');
+    executionStore.setSessionMapping('ses_orphan', 'wrong');
+
+    expect(executionStore.getTaskIdBySession('ses_orphan')).toBe('wrong');
+    executionStore.reset();
+    expect(executionStore.getTaskIdBySession('ses_orphan')).toBeUndefined();
+  });
+
+  it('covers all activeExecutions proxy trap operations', () => {
+    state.activeExecutions.clear();
+    const ex = makeExecution();
+    state.activeExecutions.set('task-1', ex);
+
+    const keys = [...state.activeExecutions.keys()];
+    expect(keys).toContain('task-1');
+
+    const values = [...state.activeExecutions.values()];
+    expect(values).toContain(ex);
+
+    const entries = [...state.activeExecutions.entries()];
+    expect(entries).toHaveLength(1);
+
+    const iterated = [...state.activeExecutions];
+    expect(iterated).toHaveLength(1);
+
+    let forEachCount = 0;
+    state.activeExecutions.forEach(() => { forEachCount++; });
+    expect(forEachCount).toBe(1);
+
+    expect(state.activeExecutions[Symbol.toStringTag]).toBe('Map');
+
+    state.activeExecutions.clear();
+    expect(state.activeExecutions.size).toBe(0);
+    expect(state.getRunningTaskCount()).toBe(0);
+  });
+
+  it('covers activeExecutions proxy delete trap', () => {
+    state.activeExecutions.clear();
+    const ex = makeExecution();
+    state.activeExecutions.set('task-1', ex);
+    expect(state.activeExecutions.delete('task-1')).toBe(true);
+    expect(state.activeExecutions.has('task-1')).toBe(false);
+  });
+
+  it('covers sessionToTask proxy trap operations', () => {
+    state.sessionToTask.clear();
+    state.sessionToTask.set('ses_1', 'task-1');
+    expect(state.sessionToTask.has('ses_1')).toBe(true);
+    expect(state.sessionToTask.get('ses_1')).toBe('task-1');
+
+    // delete is a no-op — managed by executionStore.remove()
+    expect(state.sessionToTask.delete('ses_1')).toBe(true);
+    expect(state.sessionToTask.has('ses_1')).toBe(true);
+
+    state.sessionToTask.clear();
+    expect(state.sessionToTask.get('ses_1')).toBeUndefined();
+  });
+
+  it('covers sessionToTask Symbol.iterator', () => {
+    state.sessionToTask.clear();
+    state.sessionToTask.set('ses_1', 'task-1');
+    state.sessionToTask.set('ses_2', 'task-2');
+
+    const pairs = [];
+    for (const entry of state.sessionToTask) {
+      pairs.push(entry);
+    }
+    expect(pairs).toEqual(expect.arrayContaining([['ses_1', 'task-1'], ['ses_2', 'task-2']]));
+  });
+
+  it('covers proxy default return paths for unknown properties', () => {
+    expect(state.activeExecutions.unknownProp).toBeUndefined();
+    expect(state.sessionToTask.unknownProp).toBeUndefined();
+  });
+
+  it('covers Symbol.toStringTag on proxies', () => {
+    expect(Object.prototype.toString.call(state.activeExecutions)).toBe('[object Map]');
+    expect(Object.prototype.toString.call(state.sessionToTask)).toBe('[object Map]');
+  });
 });

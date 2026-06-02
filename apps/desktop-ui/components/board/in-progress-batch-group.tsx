@@ -57,21 +57,27 @@ export function InProgressBatchGroup({
         <div
           ref={provided.innerRef}
           {...provided.draggableProps}
-          className={`border border-dashed border-linear-border rounded-sm p-2 mb-3 bg-linear-bg-secondary/50 ${snapshot.isDragging ? 'shadow-2xl shadow-black/50 ring-1 ring-linear-border scale-[1.02] rotate-1' : ''}`}
+          className={cn(
+            "border border-[#252525] rounded-sm p-3 mb-3 bg-[#141414]",
+            snapshot.isDragging && "shadow-2xl shadow-black/50 ring-1 ring-[#333] scale-[1.02] rotate-1"
+          )}
         >
-          <div className="flex items-center gap-1.5 px-1 mb-1.5" {...provided.dragHandleProps}>
-            <GripVertical className="w-3 h-3 text-linear-text-tertiary/60 cursor-grab active:cursor-grabbing" />
+          {/* Header */}
+          <div className="flex items-center gap-2 px-1 mb-3" {...provided.dragHandleProps}>
+            <GripVertical className="w-3 h-3 text-linear-text-tertiary/40 cursor-grab active:cursor-grabbing" />
             <Loader2 className="w-3 h-3 animate-spin text-linear-text-tertiary" />
             <div className="min-w-0">
               <div className="text-[11px] text-linear-text-tertiary font-medium uppercase tracking-wider">
                 {formatBatchExecutionMode(activeBatch.mode)}
               </div>
-              <div className="text-[11px] text-linear-text-tertiary truncate">
+              <div className="text-[11px] text-linear-text-tertiary/70 truncate">
                 {subtitle}
               </div>
             </div>
           </div>
-          <div className="space-y-2">
+
+          {/* Lane rows */}
+          <div className="space-y-0">
             {orderedBatch.map((task, i) => {
               const meta = batchMeta.get(task.id)
               const status = meta?.status ?? 'queued'
@@ -81,62 +87,68 @@ export function InProgressBatchGroup({
                   : activeBatch.mode === 'parallel'
                     ? `Lane ${(meta?.index ?? i) + 1}`
                     : `Issue ${(meta?.index ?? i) + 1}`
-              const statusLabel = status === 'running'
-                ? 'Running'
-                : status === 'completed'
-                  ? 'Done'
-                  : status === 'failed'
-                    ? 'Failed'
-                    : status === 'cancelled'
-                      ? 'Cancelled'
-                      : status === 'skipped'
-                        ? 'Skipped'
-                        : 'Queued'
+
+              const isLast = i === orderedBatch.length - 1
+
               return (
-              <div key={`batch-connector-${task.id}`} className="grid grid-cols-[52px_minmax(0,1fr)] gap-2">
-                {i > 0 && (
-                  <div className="col-span-2 flex justify-center">
-                    <div className="w-px h-2 bg-linear-border" />
-                  </div>
-                )}
-                <div className="pt-3 text-center">
-                  <div className="text-[10px] uppercase tracking-wider text-linear-text-tertiary">
-                    {stepLabel}
-                  </div>
-                  <div className={cn(
-                    "mt-1 inline-flex items-center gap-1 rounded-sm border border-linear-border px-1.5 py-0.5 text-[10px]",
-                    status === 'running' && "text-linear-accent",
-                    status === 'completed' && "text-green-400",
-                    status === 'failed' && "text-red-400",
-                    status === 'queued' && "text-linear-text-tertiary",
-                  )}>
-                    {status === 'running' ? (
-                      <Loader2 className="w-2.5 h-2.5 animate-spin" />
-                    ) : status === 'completed' ? (
-                      <Check className="w-2.5 h-2.5" />
-                    ) : (
-                      <Clock className="w-2.5 h-2.5" />
+                <div key={`batch-connector-${task.id}`} className="flex gap-3">
+                  {/* Left rail */}
+                  <div className="w-16 shrink-0 flex flex-col items-center pt-2 relative">
+                    {/* Connector line */}
+                    {!isLast && (
+                      <div className="absolute top-7 left-1/2 -translate-x-1/2 w-px h-[calc(100%+12px)] bg-[#2a2a2a]" />
                     )}
-                    {statusLabel}
+
+                    <div className="text-[9px] uppercase tracking-wider text-linear-text-tertiary/60 text-center leading-tight">
+                      {stepLabel}
+                    </div>
+
+                    {/* Status pill */}
+                    <div className={cn(
+                      "mt-1.5 inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[9px] font-medium border",
+                      status === 'running' && "text-emerald-400 border-emerald-500/20 bg-emerald-500/10",
+                      status === 'completed' && "text-green-400 border-green-500/20 bg-green-500/10",
+                      status === 'failed' && "text-red-400 border-red-500/20 bg-red-500/10",
+                      status === 'queued' && "text-linear-text-tertiary/60 border-[#2a2a2a] bg-[#1a1a1a]",
+                      status === 'skipped' && "text-amber-400 border-amber-500/20 bg-amber-500/10",
+                      status === 'cancelled' && "text-linear-text-tertiary/60 border-[#2a2a2a] bg-[#1a1a1a]",
+                    )}>
+                      {status === 'running' ? (
+                        <Loader2 className="w-2 h-2 animate-spin" />
+                      ) : status === 'completed' ? (
+                        <Check className="w-2 h-2" />
+                      ) : (
+                        <Clock className="w-2 h-2" />
+                      )}
+                      {status === 'running' ? 'Running'
+                        : status === 'completed' ? 'Done'
+                        : status === 'failed' ? 'Failed'
+                        : status === 'skipped' ? 'Skipped'
+                        : status === 'cancelled' ? 'Cancelled'
+                        : 'Queued'}
+                    </div>
+                  </div>
+
+                  {/* Card */}
+                  <div className="flex-1 min-w-0 pb-3">
+                    <TaskCard
+                      task={task}
+                      onMoveToInProgress={undefined}
+                      onExecute={canExecute ? onExecute : undefined}
+                      onCancel={onCancel}
+                      onDelete={onDelete}
+                      deletionMode={deletionMode}
+                      onTaskClick={onTaskClick}
+                      selected={selectedTaskIds.has(task.id)}
+                      onToggleSelect={onToggleSelect}
+                      selectionMode={false}
+                      isBatchTask={true}
+                      isCompletedBatchTask={false}
+                      isDragging={false}
+                      suppressExecutionProgress={activeBatch.mode === 'combined' || (activeBatch.mode === 'queue' && status !== 'running')}
+                    />
                   </div>
                 </div>
-                <TaskCard
-                  task={task}
-                  onMoveToInProgress={undefined}
-                  onExecute={canExecute ? onExecute : undefined}
-                  onCancel={onCancel}
-                  onDelete={onDelete}
-                  deletionMode={deletionMode}
-                  onTaskClick={onTaskClick}
-                  selected={selectedTaskIds.has(task.id)}
-                  onToggleSelect={onToggleSelect}
-                  selectionMode={false}
-                  isBatchTask={true}
-                  isCompletedBatchTask={false}
-                  isDragging={false}
-                  suppressExecutionProgress={activeBatch.mode === 'combined' || (activeBatch.mode === 'queue' && status !== 'running')}
-                />
-              </div>
               )
             })}
           </div>

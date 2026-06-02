@@ -19,6 +19,7 @@ vi.mock('lucide-react', () => ({
   Mic: (props) => createElement('svg', { ...props, 'data-testid': 'mic' }),
   Send: (props) => createElement('svg', { ...props, 'data-testid': 'send' }),
   Square: (props) => createElement('svg', { ...props, 'data-testid': 'square' }),
+  Paperclip: (props) => createElement('svg', { ...props, 'data-testid': 'paperclip' }),
 }))
 
 const { ChatComposer } = await import('./chat-composer.tsx')
@@ -43,7 +44,7 @@ describe('ChatComposer', () => {
     fireEvent.change(textarea, { target: { value: 'hello' } })
     fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: false })
 
-    expect(onSend).toHaveBeenCalledWith('hello')
+    expect(onSend).toHaveBeenCalledWith('hello', undefined)
   })
 
   it('does not call onSend when value is empty', () => {

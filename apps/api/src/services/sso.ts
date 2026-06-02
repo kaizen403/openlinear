@@ -111,13 +111,16 @@ export async function handleOIDCCallback(
   config: { issuerUrl: string; clientId: string; clientSecretEncrypted: string },
   code: string,
   redirectUri: string,
+  expectedState: string,
 ): Promise<OIDCUserInfo> {
   const issuerUrl = new URL(config.issuerUrl);
   const clientSecret = decryptSecret(config.clientSecretEncrypted);
   const serverConfig = await client.discovery(issuerUrl, config.clientId, clientSecret);
 
-  const currentUrl = new URL(`${redirectUri}?code=${encodeURIComponent(code)}`);
-  const tokens = await client.authorizationCodeGrant(serverConfig, currentUrl, {});
+  const currentUrl = new URL(`${redirectUri}?code=${encodeURIComponent(code)}&state=${encodeURIComponent(expectedState)}`);
+  const tokens = await client.authorizationCodeGrant(serverConfig, currentUrl, {
+    expectedState,
+  });
 
   const claims = tokens.claims();
   const email = (claims?.email as string) || '';

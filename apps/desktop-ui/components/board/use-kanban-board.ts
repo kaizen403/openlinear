@@ -7,6 +7,7 @@ import type { Repository } from "@/lib/api"
 import { Task, ExecutionProgress, ExecutionLogEntry } from "@/types/task"
 import { apiFetch, ApiError, NetworkError } from "@/lib/api/fetch"
 import { getSetupStatus, OpenCodeUnavailableError } from "@/lib/api/opencode"
+import { isModelNotConfiguredApiError } from "@/lib/api/model-errors"
 import {
   clearExecutionProgress,
   getExecutionProgress,
@@ -422,13 +423,31 @@ export function useKanbanBoard({ projectId, teamId, projects = [], searchQuery =
     try {
       try {
         const status = await getSetupStatus()
-        if (!status.ready) { setPendingExecuteTaskId(taskId); setShowProviderSetup(true); return }
+        if (!status.ready) {
+          setPendingExecuteTaskId(taskId)
+          setShowProviderSetup(true)
+          if (status.hasProvider && !status.hasModel) {
+            toast.error('Pick a model in Settings → AI Providers before executing')
+          }
+          return
+        }
       } catch (err) {
         if (err instanceof OpenCodeUnavailableError) { toast.error('Execution service is not running. Start the sidecar (pnpm dev) or switch off CRUD-only mode.'); console.error('Setup status check failed (sidecar unavailable):', err); return }
         console.warn('Could not check provider setup, proceeding anyway:', err)
       }
-      try { await apiFetch(`/api/tasks/${taskId}/execute`, { method: 'POST', sidecar: true }) }
-      catch (err) { const msg = err instanceof Error ? err.message : 'Failed to execute task'; console.error('Error executing task:', err); toast.error(msg) }
+      try {
+        await apiFetch(`/api/tasks/${taskId}/execute`, { method: 'POST', sidecar: true })
+      } catch (err) {
+        if (isModelNotConfiguredApiError(err)) {
+          setPendingExecuteTaskId(taskId)
+          setShowProviderSetup(true)
+          toast.error(err.message)
+          return
+        }
+        const msg = err instanceof Error ? err.message : 'Failed to execute task'
+        console.error('Error executing task:', err)
+        toast.error(msg)
+      }
     } finally { removeStartingExecute(taskId) }
   }
 
@@ -438,8 +457,19 @@ export function useKanbanBoard({ projectId, teamId, projects = [], searchQuery =
       const taskId = pendingExecuteTaskId
       setPendingExecuteTaskId(null)
       addStartingExecute(taskId)
-      try { await apiFetch(`/api/tasks/${taskId}/execute`, { method: 'POST', sidecar: true }) }
-      catch (err) { const msg = err instanceof Error ? err.message : 'Failed to execute task'; console.error('Error executing task:', err); toast.error(msg) }
+      try {
+        await apiFetch(`/api/tasks/${taskId}/execute`, { method: 'POST', sidecar: true })
+      } catch (err) {
+        if (isModelNotConfiguredApiError(err)) {
+          setPendingExecuteTaskId(taskId)
+          setShowProviderSetup(true)
+          toast.error(err.message)
+          return
+        }
+        const msg = err instanceof Error ? err.message : 'Failed to execute task'
+        console.error('Error executing task:', err)
+        toast.error(msg)
+      }
       finally { removeStartingExecute(taskId) }
     }
   }, [pendingExecuteTaskId, addStartingExecute, removeStartingExecute])
