@@ -145,9 +145,10 @@ function useNotificationStream(onCreated: (n: AppNotification) => void): void {
     cbRef.current = onCreated
   }, [onCreated])
 
+  const token = readToken()
+
   useEffect(() => {
     if (typeof window === 'undefined') return
-    const token = readToken()
     if (!token) return
     const url = new URL(`${getApiUrl()}/api/events`)
     url.searchParams.set('token', token)
@@ -165,7 +166,7 @@ function useNotificationStream(onCreated: (n: AppNotification) => void): void {
       es.removeEventListener('notification:created', handler as EventListener)
       es.close()
     }
-  }, [])
+  }, [token])
 }
 
 function NotificationRow({

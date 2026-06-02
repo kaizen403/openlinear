@@ -1,11 +1,11 @@
 import { Router, Response, NextFunction } from 'express';
 import { prisma, decryptToken } from '@openlinear/db';
 import { broadcastToTask } from '@openlinear/api/sse';
+import { logger } from '@openlinear/api/logger';
 import { optionalAuth, AuthRequest } from '@openlinear/api/middleware';
 import { assertTaskOwned } from '@openlinear/api/ownership';
 import { executeTask, cancelTask, isTaskRunning, getExecutionLogs } from '../services/execution';
 import { getBatchExecutionLogs } from '../services/batch';
-import { ensureModelConfigured } from '../services/opencode-model';
 
 const taskInclude = {
   labels: { include: { label: true } },
@@ -42,29 +42,11 @@ router.post('/:id/execute', optionalAuth, async (req: AuthRequest, res: Response
     if (req.userId) {
       await assertTaskOwned(id, req.userId);
     }
-    console.log(`[Tasks] Execute requested for task ${id.slice(0, 8)} (userId: ${req.userId || 'anonymous'})`);
-
-    if (req.userId) {
-      const ensured = await ensureModelConfigured(req.userId).catch((err: unknown) => {
-        console.warn('[Tasks] Model pre-flight check failed:', err);
-        return null;
-      });
-      if (ensured && !ensured.model) {
-        res.status(400).json({
-          error: ensured.hasProvider
-            ? 'No model selected. Pick a model in Settings → AI Providers before executing.'
-            : 'No AI provider configured. Connect a provider in Settings → AI Providers before executing.',
-          code: 'MODEL_NOT_CONFIGURED',
-          details: { hasProvider: ensured.hasProvider },
-        });
-        return;
-      }
-    }
-
+    logger.info(`[Tasks] Execute requested for task ${id.slice(0, 8)} (userId: ${req.userId || 'anonymous'})`);
     const result = await executeTask({ taskId: id, userId: req.userId });
 
     if (!result.success) {
-      console.log(`[Tasks] Execute failed: ${result.error}`);
+      logger.info(`[Tasks] Execute failed: ${result.error}`);
       res.status(400).json({ error: result.error });
       return;
     }
@@ -115,7 +97,7 @@ router.post('/:id/refresh-pr', optionalAuth, async (req: AuthRequest, res: Respo
       try {
         accessToken = decryptToken(user?.accessToken ?? null);
       } catch (err) {
-        console.error('[execution] failed to decrypt access token:', err);
+        logger.error({ err }, '[execution] failed to decrypt access token');
         accessToken = null;
       }
     }
@@ -165,7 +147,7 @@ router.post('/:id/refresh-pr', optionalAuth, async (req: AuthRequest, res: Respo
 
     res.json({ prUrl: task.prUrl, refreshed: false, message: 'No PR found for this branch yet' });
   } catch (error) {
-    console.error('[Tasks] Error refreshing PR:', error);
+    logger.error({ err: error }, '[Tasks] Error refreshing PR');
     res.status(500).json({ error: 'Failed to refresh PR status' });
   }
 });
@@ -215,10 +197,10 @@ router.post('/:id/cancel', optionalAuth, async (req: AuthRequest, res: Response,
     if (req.userId) {
       await assertTaskOwned(id, req.userId);
     }
-    console.log(`[Tasks] Cancel requested for task ${id.slice(0, 8)}`);
+    logger.info(`[Tasks] Cancel requested for task ${id.slice(0, 8)}`);
 
     if (!isTaskRunning(id)) {
-      console.log(`[Tasks] Task ${id.slice(0, 8)} is not running, cannot cancel`);
+      logger.info(`[Tasks] Task ${id.slice(0, 8)} is not running, cannot cancel`);
       res.status(400).json({ error: 'Task is not running' });
       return;
     }
@@ -226,12 +208,12 @@ router.post('/:id/cancel', optionalAuth, async (req: AuthRequest, res: Response,
     const result = await cancelTask(id);
 
     if (!result.success) {
-      console.log(`[Tasks] Cancel failed: ${result.error}`);
+      logger.info(`[Tasks] Cancel failed: ${result.error}`);
       res.status(400).json({ error: result.error });
       return;
     }
 
-    console.log(`[Tasks] Task ${id.slice(0, 8)} cancelled`);
+    logger.info(`[Tasks] Task ${id.slice(0, 8)} cancelled`);
     res.json({ message: 'Task cancelled' });
   } catch (error) {
     next(error);

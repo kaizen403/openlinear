@@ -5,6 +5,7 @@ import { validateQuery, ValidatedRequest } from '../middleware/validate';
 import { getUserTeamIds } from '../services/team-scope';
 import { assertTaskOwned } from '../services/ownership';
 import { paginationQuerySchema, paginated, paginationSkipTake, PaginationQuery } from '../schemas/pagination';
+import { PRISMA_TX_OPTIONS } from '../lib/constants';
 
 const router: Router = Router();
 
@@ -70,7 +71,7 @@ router.get(
         const count = await tx.task.count({ where });
         return [items, count] as const;
       },
-      { timeout: 15000, maxWait: 5000 },
+      PRISMA_TX_OPTIONS,
     );
 
     const flatTasks = tasks.map(task => ({

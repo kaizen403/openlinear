@@ -6,6 +6,7 @@ import { assertTaskAccess } from '../services/ownership';
 import { getUserTeamIds } from '../services/team-scope';
 import { paginated, paginationSkipTake } from '../schemas/pagination';
 import { HttpError, ValidationError } from '../errors';
+import { PRISMA_TX_OPTIONS } from '../lib/constants';
 
 const router: Router = Router();
 
@@ -75,7 +76,7 @@ router.get(
         const count = await tx.agentRun.count({ where });
         return [items, count] as const;
       },
-      { timeout: 15000, maxWait: 5000 },
+      PRISMA_TX_OPTIONS,
     );
 
     res.json(paginated(runs, total, page, pageSize));

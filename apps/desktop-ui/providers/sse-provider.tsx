@@ -258,7 +258,9 @@ export function SSEProvider({ children }: { children: ReactNode }) {
       const exp = 1000 * Math.pow(2, Math.min(attempt - 1, 5))
       const jitter = Math.random() * 1000
       const delay = Math.min(SSE_MAX_BACKOFF_MS, exp + jitter)
-      console.log(`[SSE Provider] ${baseUrl} retry ${attempt} in ${Math.round(delay)}ms`)
+      if (process.env.NODE_ENV === 'development') {
+        console.log(`[SSE Provider] ${baseUrl} retry ${attempt} in ${Math.round(delay)}ms`)
+      }
       stream.reconnectTimer = setTimeout(() => connectStream(baseUrl), delay)
     }
   }, [broadcast, closeStream, recomputeConnectedCount])

@@ -1,4 +1,5 @@
 import { prisma, type Prisma, type ProjectPermission, type ProjectStatus } from '@openlinear/db';
+import { PRISMA_TX_OPTIONS } from '../lib/constants';
 import { HttpError } from '../errors';
 import { broadcastToProject, broadcastToTeam, broadcastToUser, broadcastToWorkspace } from '../sse';
 import { logActivity } from './activity';
@@ -30,7 +31,7 @@ export const projectAccessInclude = { user: { select: userSelect } } satisfies P
 export type ProjectWithInclude = Prisma.ProjectGetPayload<{ include: typeof projectInclude }>;
 
 function teamKeyFromProjectKey(key: string | null): string {
-  const cleaned = (key ?? 'TEAM').toUpperCase().replace(/[^A-Z0-9]+/g, '').slice(0, 10);
+  const cleaned = (key ?? 'TEAM').toUpperCase().replace(/[^A-Z0-9]+/g, '').slice(0, 12);
   return cleaned || 'TEAM';
 }
 
@@ -196,7 +197,7 @@ export async function createProject(input: {
     });
 
     return tx.project.findUniqueOrThrow({ where: { id: created.id }, include: projectInclude });
-  }, { timeout: 15000, maxWait: 5000 });
+  }, PRISMA_TX_OPTIONS);
 
   await broadcastToProject(project.id, 'project:created', project);
   await logActivity({
@@ -529,7 +530,7 @@ export async function updateProjectFull(input: {
       },
       include: projectInclude,
     });
-  }, { timeout: 15000, maxWait: 5000 });
+  }, PRISMA_TX_OPTIONS);
 
   await broadcastToProject(projectId, 'project:updated', project);
 
@@ -575,7 +576,7 @@ export async function deleteProject(input: { projectId: string; userId: string }
   await prisma.$transaction(async (tx) => {
     await tx.task.updateMany({ where: { projectId }, data: { projectId: null } });
     await tx.project.delete({ where: { id: projectId } });
-  }, { timeout: 15000, maxWait: 5000 });
+  }, PRISMA_TX_OPTIONS);
 
   const payload = { id: projectId };
   if (recipients?.workspaceId) {

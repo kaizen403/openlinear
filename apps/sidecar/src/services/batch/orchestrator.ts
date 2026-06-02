@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { prisma } from '@openlinear/db';
+import { logger } from '@openlinear/api/logger';
 import {
   batchActivityId,
   buildCombinedBatchPrompt,
@@ -130,7 +131,7 @@ export async function startBatch(batchId: string): Promise<void> {
   if (batch.mode === 'combined') {
     void startCombinedBatch(batch).catch(async (error: unknown) => {
       const errorMsg = error instanceof Error ? error.message : 'Unknown combined batch launch error';
-      console.error(`[Batch] Unhandled combined batch launch failure for ${batch.id.slice(0, 8)}:`, error);
+      logger.error({ err: error, batchId: batch.id }, `[Batch] Unhandled combined batch launch failure for ${batch.id.slice(0, 8)}`);
       await handleCombinedBatchComplete(batch.id, false, errorMsg);
     });
   } else {
@@ -146,7 +147,7 @@ export function launchTask(batch: BatchState, taskIndex: number): void {
 
   startTask(batch, taskIndex).catch(async (error: unknown) => {
     const errorMsg = error instanceof Error ? error.message : 'Unknown task launch error';
-    console.error(`[Batch] Unhandled task launch failure for ${task.taskId.slice(0, 8)}:`, error);
+    logger.error({ err: error, taskId: task.taskId }, `[Batch] Unhandled task launch failure for ${task.taskId.slice(0, 8)}`);
 
     if (!isBatchTaskTerminal(task)) {
       task.status = 'failed';
@@ -164,7 +165,7 @@ export function launchTask(batch: BatchState, taskIndex: number): void {
 
     await advanceQueue(batch);
   }).catch((reportError: unknown) => {
-    console.error(`[Batch] Failed to report task launch failure for ${task.taskId.slice(0, 8)}:`, reportError);
+    logger.error({ err: reportError, taskId: task.taskId }, `[Batch] Failed to report task launch failure for ${task.taskId.slice(0, 8)}`);
   });
 }
 
@@ -229,17 +230,18 @@ async function startTask(batch: BatchState, taskIndex: number): Promise<void> {
       path: { id: sessionId },
       body: { parts: [{ type: 'text', text: prompt }] },
     }).then(() => {
-      console.log(`[Batch] Prompt sent for task ${task.taskId.slice(0, 8)} in batch ${batch.id.slice(0, 8)}`);
-    }).catch((err: Error) => {
-      console.error(`[Batch] Failed to send prompt for task ${task.taskId.slice(0, 8)}:`, err.message);
-      emitBatchLog(task.taskId, 'error', 'Failed to send prompt to agent', err.message);
-      void handleTaskComplete(batch.id, task.taskId, false, err.message).catch((completeError: unknown) => {
-        console.error(`[Batch] Failed to mark prompt failure for task ${task.taskId.slice(0, 8)}:`, completeError);
+      logger.info(`[Batch] Prompt sent for task ${task.taskId.slice(0, 8)} in batch ${batch.id.slice(0, 8)}`);
+    }).catch((err: unknown) => {
+      const errMsg = err instanceof Error ? err.message : 'Unknown prompt error';
+      logger.error({ err, taskId: task.taskId }, `[Batch] Failed to send prompt for task ${task.taskId.slice(0, 8)}`);
+      emitBatchLog(task.taskId, 'error', 'Failed to send prompt to agent', errMsg);
+      void handleTaskComplete(batch.id, task.taskId, false, errMsg).catch((completeError: unknown) => {
+        logger.error({ err: completeError, taskId: task.taskId }, `[Batch] Failed to mark prompt failure for task ${task.taskId.slice(0, 8)}`);
       });
     });
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : 'Unknown error';
-    console.error(`[Batch] Failed to start task ${task.taskId.slice(0, 8)}:`, errorMsg);
+    logger.error({ err: error, taskId: task.taskId }, `[Batch] Failed to start task ${task.taskId.slice(0, 8)}`);
     task.status = 'failed';
     task.error = errorMsg;
     task.completedAt = new Date();
@@ -329,7 +331,7 @@ async function startCombinedBatch(batch: BatchState): Promise<void> {
     body: { parts: [{ type: 'text', text: prompt }] },
   });
 
-  console.log(`[Batch] Combined prompt sent for ${batch.tasks.length} tasks in batch ${batch.id.slice(0, 8)}`);
+  logger.info(`[Batch] Combined prompt sent for ${batch.tasks.length} tasks in batch ${batch.id.slice(0, 8)}`);
 }
 
 export async function cancelBatch(batchId: string): Promise<void> {
@@ -354,7 +356,7 @@ export async function cancelBatch(batchId: string): Promise<void> {
           await client.session.abort({ path: { id: task.sessionId } });
           abortedSessionIds.add(task.sessionId);
         } catch (error) {
-          console.error(`[Batch] Failed to abort session for task ${task.taskId.slice(0, 8)}:`, error);
+          logger.error({ err: error, taskId: task.taskId }, `[Batch] Failed to abort session for task ${task.taskId.slice(0, 8)}`);
         }
       }
       task.status = 'cancelled';
@@ -380,7 +382,7 @@ export async function cancelBatch(batchId: string): Promise<void> {
   try {
     await cleanupBatch(batch.projectId, batchId);
   } catch (error) {
-    console.error(`[Batch] Cleanup failed for cancelled batch ${batchId.slice(0, 8)}:`, error);
+    logger.error({ err: error, batchId }, `[Batch] Cleanup failed for cancelled batch ${batchId.slice(0, 8)}`);
   }
 }
 
@@ -411,7 +413,7 @@ export async function cancelTask(batchId: string, taskId: string): Promise<void>
       const client = await getClientForUser(batch.userId, task.worktreePath);
       await client.session.abort({ path: { id: task.sessionId } });
     } catch (error) {
-      console.error(`[Batch] Failed to abort session for task ${taskId.slice(0, 8)}:`, error);
+      logger.error({ err: error, taskId }, `[Batch] Failed to abort session for task ${taskId.slice(0, 8)}`);
     }
     sessionToBatch.delete(task.sessionId);
   }

@@ -1,4 +1,5 @@
 import { prisma } from '@openlinear/db';
+import { logger } from '@openlinear/api/logger';
 
 import type { OpencodeClient } from '@opencode-ai/sdk';
 import { appendTextDelta, appendReasoningDelta, flushDeltaBuffer, markThinking } from '../delta-buffer';
@@ -76,13 +77,13 @@ async function failExecutionFromEventStream(taskId: string, message: string, det
         try {
           await execution.client.session.abort({ path: { id: execution.sessionId } });
         } catch (error) {
-          console.error(`[Execution] Abort before recovered commit failed for task ${taskId.slice(0, 8)}:`, error);
+          logger.error({ err: error, taskId }, `[Execution] Abort before recovered commit failed for task ${taskId.slice(0, 8)}`);
         }
         await handleSessionComplete(taskId);
         return;
       }
     } catch (error) {
-      console.error(`[Execution] Failed to inspect worktree after stream failure for task ${taskId.slice(0, 8)}:`, error);
+      logger.error({ err: error, taskId }, `[Execution] Failed to inspect worktree after stream failure for task ${taskId.slice(0, 8)}`);
     }
   }
 
@@ -100,7 +101,7 @@ async function failExecutionFromEventStream(taskId: string, message: string, det
   try {
     await execution.client.session.abort({ path: { id: execution.sessionId } });
   } catch (error) {
-    console.error(`[Execution] Abort after event stream failure failed for task ${taskId.slice(0, 8)}:`, error);
+    logger.error({ err: error, taskId }, `[Execution] Abort after event stream failure failed for task ${taskId.slice(0, 8)}`);
   }
 
   await finalizeAgentRun(execution, 'failed', { errorMessage: outcome });
@@ -133,7 +134,7 @@ function resetEventStreamTimeout(
   execution.streamTimeoutId = setTimeout(() => {
     /* v8 ignore start -- the catch callback only runs if timeout failure handling itself rejects. */
     void failExecutionFromEventStream(taskId, effectiveTimeoutMessage).catch((error: unknown) => {
-      console.error(`[Execution] Failed to handle event stream timeout for task ${taskId.slice(0, 8)}:`, error);
+      logger.error({ err: error, taskId }, `[Execution] Failed to handle event stream timeout for task ${taskId.slice(0, 8)}`);
     });
     /* v8 ignore stop */
   }, effectiveTimeoutMs);
@@ -320,7 +321,7 @@ async function handleSessionComplete(taskId: string): Promise<void> {
       outcome,
     });
   } catch (error) {
-    console.error('[Execution] Post-execution error:', error);
+    logger.error({ err: error, taskId }, '[Execution] Post-execution error');
     addLogEntry(taskId, 'error', 'Post-execution failed');
     broadcastProgress(taskId, 'error', 'Post-execution failed');
     const errorMessage = error instanceof Error ? error.message : 'Post-execution failed';
@@ -502,7 +503,7 @@ export async function subscribeToSessionEvents(taskId: string, client: OpencodeC
           }
         }
       } catch (error) {
-        console.error(`[Execution] Event stream error for task ${taskId.slice(0, 8)}:`, error);
+        logger.error({ err: error, taskId }, `[Execution] Event stream error for task ${taskId.slice(0, 8)}`);
         failureHandled = true;
         await failExecutionFromEventStream(
           taskId,
@@ -521,7 +522,7 @@ export async function subscribeToSessionEvents(taskId: string, client: OpencodeC
       }
     })();
   } catch (error) {
-    console.error(`[Execution] Failed to subscribe to events for task ${taskId.slice(0, 8)}:`, error);
+    logger.error({ err: error, taskId }, `[Execution] Failed to subscribe to events for task ${taskId.slice(0, 8)}`);
     addLogEntry(taskId, 'error', 'Failed to subscribe to agent events');
     await failExecutionFromEventStream(
       taskId,

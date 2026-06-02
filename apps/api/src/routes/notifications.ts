@@ -6,6 +6,7 @@ import { broadcastToUser } from '../sse';
 import { paginationQuerySchema, paginated, paginationSkipTake } from '../schemas/pagination';
 import { HttpError, ValidationError } from '../errors';
 import { getPreferences, updatePreference, shouldNotify } from '../services/notification-preferences';
+import { PRISMA_TX_OPTIONS } from '../lib/constants';
 
 const router: Router = Router();
 
@@ -45,7 +46,7 @@ router.get('/', requireAuth, async (req: AuthRequest, res: Response) => {
       });
       return [items, count, unread] as const;
     },
-    { timeout: 15000, maxWait: 5000 },
+    PRISMA_TX_OPTIONS,
   );
 
   res.json({ ...paginated(notifications, total, page, pageSize), unreadCount });

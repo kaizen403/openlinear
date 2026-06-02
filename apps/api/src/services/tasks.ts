@@ -1,4 +1,5 @@
 import { prisma, type Prisma, type Priority, type Status } from '@openlinear/db';
+import { PRISMA_TX_OPTIONS } from '../lib/constants';
 import { ValidationError } from '../errors';
 import { broadcastToProject, broadcastToTask, broadcastToTeam, broadcastToUser } from '../sse';
 import { createNotification } from '../routes/notifications';
@@ -204,7 +205,7 @@ export async function createTask(input: {
       },
       include: taskInclude,
     });
-  }, { timeout: 15000, maxWait: 5000 });
+  }, PRISMA_TX_OPTIONS);
 
   const transformed = flattenTaskLabels(task);
   broadcastToTask('task:created', transformed);
@@ -423,7 +424,7 @@ export async function bulkUpdateTaskStatus(input: {
           include: taskInclude,
           orderBy: [{ number: 'asc' }, { createdAt: 'asc' }],
         });
-      }, { timeout: 15000, maxWait: 5000 })
+      }, PRISMA_TX_OPTIONS)
     : [];
 
   const transformed = updated.map(flattenTaskLabels);
@@ -635,7 +636,7 @@ export async function bulkCreateTasks(input: {
           }));
         }
         return createdTasks;
-      }, { timeout: 15000, maxWait: 5000 })
+      }, PRISMA_TX_OPTIONS)
     : [];
 
   const transformed = created.map(flattenTaskLabels);
@@ -790,7 +791,7 @@ export async function listTasksPaginated(input: {
       const count = await tx.task.count({ where });
       return [items, count] as const;
     },
-    { timeout: 15000, maxWait: 5000 },
+    PRISMA_TX_OPTIONS,
   );
 
   return { items: tasks.map(flattenTaskLabels), total };
@@ -820,7 +821,7 @@ export async function listArchivedTasksPaginated(input: {
       const count = await tx.task.count({ where });
       return [items, count] as const;
     },
-    { timeout: 15000, maxWait: 5000 },
+    PRISMA_TX_OPTIONS,
   );
   return { items: tasks.map(flattenTaskLabels), total };
 }
@@ -895,7 +896,7 @@ export async function createTaskRoute(input: {
       },
       include: taskInclude,
     });
-  }, { timeout: 15000, maxWait: 5000 });
+  }, PRISMA_TX_OPTIONS);
 
   const transformed = flattenTaskLabels(task);
   broadcastToTask('task:created', transformed);
@@ -1178,7 +1179,7 @@ export async function bulkCreateTasksRoute(input: {
           }));
         }
         return createdTasks;
-      }, { timeout: 15000, maxWait: 5000 })
+      }, PRISMA_TX_OPTIONS)
     : [];
 
   const transformed = created.map(flattenTaskLabels);

@@ -1,9 +1,10 @@
 import { Router, Request, Response } from 'express';
 import type { Router as IRouter } from 'express';
+import { logger } from '@openlinear/api/logger';
 
 const router: IRouter = Router();
 
-const CARTESIA_STT_URL = 'https://api.cartesia.ai/stt';
+const CARTESIA_STT_URL = process.env.CARTESIA_STT_URL || 'https://api.cartesia.ai/stt';
 
 router.post('/', async (req: Request, res: Response) => {
   const apiKey = process.env.CARTESIA_API_KEY;
@@ -41,7 +42,7 @@ router.post('/', async (req: Request, res: Response) => {
 
     if (!response.ok) {
       const errBody = await response.text();
-      console.error('[transcribe] Cartesia error:', response.status, errBody);
+      logger.error({ status: response.status, errBody }, '[transcribe] Cartesia error');
       res.status(502).json({ error: 'Transcription failed' });
       return;
     }
@@ -50,7 +51,7 @@ router.post('/', async (req: Request, res: Response) => {
     res.json({ text: data.text?.trim() || '' });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Transcription failed';
-    console.error('[transcribe] error:', message);
+    logger.error({ err }, '[transcribe] error');
     res.status(502).json({ error: message });
   }
 });

@@ -1,4 +1,5 @@
 import { prisma } from '@openlinear/db';
+import { logger } from '@openlinear/api/logger';
 import {
   batchActivityId,
   completionKey,
@@ -60,21 +61,21 @@ export async function handleTaskComplete(
             if (!staged) {
               completionSucceeded = false;
               completionError = 'Agent finished without committable code changes';
-              console.log(`[Batch] No committable changes for task ${task.taskId.slice(0, 8)}`);
+              logger.info(`[Batch] No committable changes for task ${task.taskId.slice(0, 8)}`);
             } else {
               const commitMsg = `feat: ${task.title.toLowerCase().replace(/[^a-z0-9\s]/g, '').slice(0, 50)}`;
               await execFileAsync('git', ['-C', task.worktreePath, 'commit', '-m', commitMsg], { env });
-              console.log(`[Batch] Committed changes for task ${task.taskId.slice(0, 8)}`);
+              logger.info(`[Batch] Committed changes for task ${task.taskId.slice(0, 8)}`);
             }
           } else {
             completionSucceeded = false;
             completionError = 'Agent finished without making code changes';
-            console.log(`[Batch] No changes for task ${task.taskId.slice(0, 8)}`);
+            logger.info(`[Batch] No changes for task ${task.taskId.slice(0, 8)}`);
           }
         } catch (commitErr) {
           completionSucceeded = false;
           completionError = commitErr instanceof Error ? commitErr.message : 'Failed to commit task changes';
-          console.error(`[Batch] Failed to commit for task ${task.taskId.slice(0, 8)}:`, commitErr);
+          logger.error({ err: commitErr, taskId: task.taskId }, `[Batch] Failed to commit for task ${task.taskId.slice(0, 8)}`);
         }
       } else {
         completionSucceeded = false;
@@ -114,7 +115,7 @@ export async function handleTaskComplete(
           data: { executionLogs: JSON.parse(JSON.stringify(logs)) },
         });
       } catch (err) {
-        console.error(`[Batch] Failed to persist logs for task ${taskId.slice(0, 8)}:`, err);
+        logger.error({ err, taskId }, `[Batch] Failed to persist logs for task ${taskId.slice(0, 8)}`);
       }
       batchTaskLogs.delete(taskId);
     }
@@ -176,7 +177,7 @@ export async function handleCombinedBatchComplete(
             } else {
               const commitMsg = `feat: combined batch ${batch.id.slice(0, 8)}`;
               await execFileAsync('git', ['-C', worktreePath, 'commit', '-m', commitMsg], { env });
-              console.log(`[Batch] Committed combined changes for batch ${batch.id.slice(0, 8)}`);
+              logger.info(`[Batch] Committed combined changes for batch ${batch.id.slice(0, 8)}`);
             }
           } else {
             completionSucceeded = false;
@@ -185,7 +186,7 @@ export async function handleCombinedBatchComplete(
         } catch (commitErr) {
           completionSucceeded = false;
           completionError = commitErr instanceof Error ? commitErr.message : 'Failed to commit combined batch changes';
-          console.error(`[Batch] Failed to commit combined batch ${batch.id.slice(0, 8)}:`, commitErr);
+          logger.error({ err: commitErr, batchId: batch.id }, `[Batch] Failed to commit combined batch ${batch.id.slice(0, 8)}`);
         }
       }
     }
@@ -236,7 +237,7 @@ export async function handleCombinedBatchComplete(
     try {
       await cleanupBatch(batch.projectId, batchId);
     } catch (cleanupError) {
-      console.error(`[Batch] Cleanup failed for combined batch ${batchId.slice(0, 8)}:`, cleanupError);
+      logger.error({ err: cleanupError, batchId }, `[Batch] Cleanup failed for combined batch ${batchId.slice(0, 8)}`);
     }
   } finally {
     cleanupDeltaBuffer(activityId);
@@ -316,7 +317,7 @@ export async function finalizeBatch(batchId: string): Promise<void> {
         }
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : 'Merge error';
-        console.error(`[Batch] Merge failed for task ${task.taskId.slice(0, 8)}:`, errorMsg);
+        logger.error({ err: error, taskId: task.taskId }, `[Batch] Merge failed for task ${task.taskId.slice(0, 8)}`);
 
         if (batch.settings.conflictBehavior === 'fail') {
           task.status = 'failed';
@@ -383,7 +384,7 @@ export async function finalizeBatch(batchId: string): Promise<void> {
           }
         }
       } catch (pushError) {
-        console.error(`[Batch] Push/PR creation failed:`, pushError);
+        logger.error({ err: pushError }, `[Batch] Push/PR creation failed`);
       }
 
       batch.status = 'completed';
@@ -410,11 +411,11 @@ export async function finalizeBatch(batchId: string): Promise<void> {
     try {
       await cleanupBatch(batch.projectId, batchId);
     } catch (error) {
-      console.error(`[Batch] Cleanup failed for batch ${batchId.slice(0, 8)}:`, error);
+      logger.error({ err: error, batchId }, `[Batch] Cleanup failed for batch ${batchId.slice(0, 8)}`);
     }
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : 'Batch finalization failed';
-    console.error(`[Batch] Finalization failed for batch ${batchId.slice(0, 8)}:`, error);
+    logger.error({ err: error, batchId }, `[Batch] Finalization failed for batch ${batchId.slice(0, 8)}`);
     batch.status = 'failed';
     batch.completedAt = new Date();
     broadcastBatchEvent('batch:failed', batchId, { error: errorMsg });
@@ -494,7 +495,7 @@ async function finalizeCombinedBatch(batchId: string): Promise<void> {
           batch.prUrl = compareUrl;
         }
       } catch (pushError) {
-        console.error(`[Batch] Combined push/PR creation failed:`, pushError);
+        logger.error({ err: pushError }, `[Batch] Combined push/PR creation failed`);
       }
     }
 
@@ -521,11 +522,11 @@ async function finalizeCombinedBatch(batchId: string): Promise<void> {
     try {
       await cleanupBatch(batch.projectId, batchId);
     } catch (error) {
-      console.error(`[Batch] Cleanup failed for combined batch ${batchId.slice(0, 8)}:`, error);
+      logger.error({ err: error, batchId }, `[Batch] Cleanup failed for combined batch ${batchId.slice(0, 8)}`);
     }
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : 'Combined batch finalization failed';
-    console.error(`[Batch] Combined finalization failed for batch ${batchId.slice(0, 8)}:`, error);
+    logger.error({ err: error, batchId }, `[Batch] Combined finalization failed for batch ${batchId.slice(0, 8)}`);
     batch.status = 'failed';
     batch.completedAt = new Date();
     broadcastBatchProgress([batchActivityId(batch.id)], 'error', errorMsg);

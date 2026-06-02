@@ -1,4 +1,5 @@
 import type { OpencodeClient } from '@opencode-ai/sdk';
+import { logger } from '@openlinear/api/logger';
 import {
   extractBackgroundTaskId,
   isBackgroundTaskLaunch,
@@ -84,7 +85,7 @@ export function subscribeToSessionEvents({
       cleanupTaskBuffers(taskIds);
       emitBatchLogs(taskIds, 'error', 'Execution timed out waiting for agent events', effectiveTimeoutReason);
       void onComplete(false, effectiveTimeoutReason).catch((error: unknown) => {
-        console.error(`[Batch] Failed to complete timed out session for task ${primaryTaskId.slice(0, 8)}:`, error);
+        logger.error({ err: error, taskId: primaryTaskId }, `[Batch] Failed to complete timed out session for task ${primaryTaskId.slice(0, 8)}`);
       });
     }, effectiveTimeoutMs);
     timeoutId.unref();
@@ -289,7 +290,7 @@ export function subscribeToSessionEvents({
     } catch (error) {
       cleanupTaskBuffers(taskIds);
       clearEventTimeout();
-      console.error(`[Batch] Event subscription error for session ${sessionId.slice(0, 8)}:`, error);
+      logger.error({ err: error, sessionId }, `[Batch] Event subscription error for session ${sessionId.slice(0, 8)}`);
       await onComplete(false, 'Event subscription failed');
     } finally {
       clearEventTimeout();

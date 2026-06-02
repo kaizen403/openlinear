@@ -17,7 +17,7 @@ router.get(
       ? { OR: [{ creatorId: userId }, { assigneeId: userId }, { teamId: { in: teamIds } }] }
       : { OR: [{ creatorId: userId }, { assigneeId: userId }] };
 
-    const [statusCounts, priorityCounts, overdue, unassigned, total, recent] = await Promise.all([
+    const results = await Promise.allSettled([
       prisma.task.groupBy({
         by: ['status'],
         where: { ...where, archived: false },
@@ -53,6 +53,13 @@ router.get(
         },
       }),
     ]);
+
+    const statusCounts = results[0].status === 'fulfilled' ? results[0].value : [];
+    const priorityCounts = results[1].status === 'fulfilled' ? results[1].value : [];
+    const overdue = results[2].status === 'fulfilled' ? results[2].value : 0;
+    const unassigned = results[3].status === 'fulfilled' ? results[3].value : 0;
+    const total = results[4].status === 'fulfilled' ? results[4].value : 0;
+    const recent = results[5].status === 'fulfilled' ? results[5].value : 0;
 
     const statusMap = Object.fromEntries(statusCounts.map((s) => [s.status, s._count._all]));
     const priorityMap = Object.fromEntries(priorityCounts.map((p) => [p.priority, p._count._all]));
