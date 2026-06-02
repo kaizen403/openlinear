@@ -13,8 +13,10 @@ import {
   handleOIDCCallback,
   provisionSSOUser,
 } from '../services/sso';
+import { createSession, hashToken } from '../services/sessions';
 
 const router: Router = Router();
+const SSO_STATE_TTL_MS = 10 * 60 * 1000; // 10 minutes
 
 function getJwtSecret(): string {
   const secret = process.env.JWT_SECRET;
@@ -29,6 +31,38 @@ function getJwtSecret(): string {
 
 function getFrontendUrl() {
   return process.env.FRONTEND_URL || 'http://localhost:3000';
+}
+
+function signSSOState(payload: { workspaceId: string; email: string; ts: number }): string {
+  const body = Buffer.from(JSON.stringify(payload)).toString('base64url');
+  const sig = crypto
+    .createHmac('sha256', getJwtSecret())
+    .update(body)
+    .digest('base64url');
+  return `${body}.${sig}`;
+}
+
+function verifySSOState(state: string): { workspaceId: string; email: string; ts: number } | null {
+  const [body, sig] = state.split('.');
+  if (!body || !sig) return null;
+  const expected = crypto
+    .createHmac('sha256', getJwtSecret())
+    .update(body)
+    .digest('base64url');
+  const sigBuf = Buffer.from(sig);
+  const expectedBuf = Buffer.from(expected);
+  if (sigBuf.length !== expectedBuf.length) return null;
+  if (!crypto.timingSafeEqual(sigBuf, expectedBuf)) return null;
+  try {
+    const payload = JSON.parse(Buffer.from(body, 'base64url').toString());
+    if (typeof payload.ts !== 'number') return null;
+    if (Date.now() - payload.ts > SSO_STATE_TTL_MS) return null;
+    if (typeof payload.workspaceId !== 'string') return null;
+    if (typeof payload.email !== 'string') return null;
+    return payload;
+  } catch {
+    return null;
+  }
 }
 
 async function verifyWorkspaceRole(userId: string, workspaceId: string, requiredRoles: string[]) {
@@ -127,9 +161,7 @@ router.get('/auth/sso/check', async (req: AuthRequest, res: Response) => {
       return;
     }
 
-    const state = crypto.randomBytes(16).toString('hex');
-    const statePayload = JSON.stringify({ workspaceId: config.workspaceId, email, ts: Date.now() });
-    const stateToken = Buffer.from(statePayload).toString('base64url');
+    const stateToken = signSSOState({ workspaceId: config.workspaceId, email, ts: Date.now() });
 
     const redirectUri = `${getFrontendUrl()}/api/auth/sso/callback`;
     const authUrl = await buildOIDCAuthUrl(config, stateToken, redirectUri);
@@ -149,22 +181,20 @@ router.get('/auth/sso/callback', async (req: AuthRequest, res: Response) => {
       return;
     }
 
-    const statePayload = JSON.parse(Buffer.from(state as string, 'base64url').toString());
-    const { workspaceId, ts } = statePayload;
-
-    if (Date.now() - ts > 10 * 60 * 1000) {
-      res.status(400).json(buildErrorEnvelope('EXPIRED', 'SSO state expired'));
+    const statePayload = verifySSOState(state as string);
+    if (!statePayload) {
+      res.status(400).json(buildErrorEnvelope('INVALID_STATE', 'Invalid or expired SSO state'));
       return;
     }
 
-    const config = await prisma.sSOConfig.findUnique({ where: { workspaceId } });
+    const config = await prisma.sSOConfig.findUnique({ where: { workspaceId: statePayload.workspaceId } });
     if (!config) {
       res.status(404).json(buildErrorEnvelope('NOT_FOUND', 'SSO config not found'));
       return;
     }
 
     const redirectUri = `${getFrontendUrl()}/api/auth/sso/callback`;
-    const userInfo = await handleOIDCCallback(config, code as string, redirectUri);
+    const userInfo = await handleOIDCCallback(config, code as string, redirectUri, state as string);
 
     if (!userInfo.email) {
       res.status(400).json(buildErrorEnvelope('SSO_ERROR', 'No email returned from identity provider'));
@@ -177,13 +207,19 @@ router.get('/auth/sso/callback', async (req: AuthRequest, res: Response) => {
       return;
     }
 
-    const user = await provisionSSOUser(userInfo.email, userInfo.name, workspaceId);
+    const user = await provisionSSOUser(userInfo.email, userInfo.name, statePayload.workspaceId);
 
     const token = jwt.sign(
       { userId: user.id, username: user.username },
       getJwtSecret(),
       { expiresIn: '7d' },
     );
+
+    try {
+      await createSession(user.id, hashToken(token), req);
+    } catch {
+      // Non-fatal: session tracking failure should not block login
+    }
 
     res.redirect(`${getFrontendUrl()}/auth/callback?token=${token}`);
   } catch (err) {

@@ -211,7 +211,7 @@ export function createApp(): Application {
   app.use('/api/mcp', mcpUsageRouter);
    app.use('/api/chat/attachments', chatAttachmentsRouter);
    app.use('/api/chat', chatRouter);
-  app.use('/uploads', express.static('uploads'));
+  app.use('/uploads', requireAuth, express.static('uploads'));
   app.use('/api/events', eventsRouter);
   app.use('/api/users', requireAuth, usersRouter);
   app.use('/api/invitations', requireAuth, invitationsRouter);
