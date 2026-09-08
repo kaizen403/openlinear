@@ -12,7 +12,14 @@ import {
 
 const createPatBodySchema = z.object({
   name: z.string().trim().min(1).max(100),
-  scopes: z.array(z.string().trim().min(1)).optional().default(['*']),
+  // No wildcard default: every PAT previously carried `['*']`, so a token
+  // created for one integration authorised every route in the API.
+  scopes: z
+    .array(z.string().trim().min(1))
+    .min(1, 'At least one scope is required')
+    .refine((scopes) => !scopes.includes('*'), {
+      message: 'Wildcard scope "*" is not allowed; list the scopes you need',
+    }),
   expiresAt: z.string().datetime().optional(),
 });
 

@@ -92,7 +92,7 @@ Two auth methods co-exist in `apps/api/src/middleware/auth.ts`:
    - JWT payload: `{ userId, username }`
 
 2. **Personal Access Token / PAT** (for MCP + API clients)
-   - Format: `ol_pat_<32-char-lowercase-hex>` (e.g. `ol_pat_25897b3edab3886a9601658071a9dac5`)
+   - Format: `ol_pat_<32-char-lowercase-hex>` (e.g. `ol_pat_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx`)
    - Stored: SHA-256 hash only (`PersonalAccessToken.tokenHash`), never plaintext
    - Middleware detects `ol_pat_` prefix → hash-lookup → validates not revoked/expired
    - Create/manage via Settings → Personal Access Tokens in the UI, or `POST /api/pats`

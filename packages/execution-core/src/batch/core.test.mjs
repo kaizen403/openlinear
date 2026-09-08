@@ -16,6 +16,7 @@ import {
   getInitialBatchLaunchIndexes,
   hasQueuedOrRunningBatchTasks,
   isBatchTaskTerminal,
+  parseModelOverride,
   toBatchStatusResponse,
   toBatchTaskSummaries,
   toCreateBatchResponse,
@@ -248,6 +249,34 @@ describe('execution-core batch helpers', () => {
     expect(buildSingleTaskPrompt(null, 'Fallback title')).toContain('Fallback title');
     expect(buildSingleTaskPrompt({ title: null, description: null }, 'Fallback title')).toContain('Fallback title');
     expect(buildSingleTaskPrompt({ title: '', description: '' }, 'Fallback title')).not.toContain('\n\n\n');
+  });
+
+  describe('parseModelOverride', () => {
+    it('splits a provider/model string on the first slash', () => {
+      expect(parseModelOverride('anthropic/claude-sonnet-4')).toEqual({
+        providerID: 'anthropic',
+        modelID: 'claude-sonnet-4',
+      });
+    });
+
+    it('keeps everything after the first slash as the model id', () => {
+      expect(parseModelOverride('openrouter/anthropic/claude-3.5')).toEqual({
+        providerID: 'openrouter',
+        modelID: 'anthropic/claude-3.5',
+      });
+    });
+
+    it('returns undefined for null, undefined, or empty input', () => {
+      expect(parseModelOverride(null)).toBeUndefined();
+      expect(parseModelOverride(undefined)).toBeUndefined();
+      expect(parseModelOverride('')).toBeUndefined();
+    });
+
+    it('returns undefined when there is no slash, or the slash is at either edge', () => {
+      expect(parseModelOverride('claude-sonnet-4')).toBeUndefined();
+      expect(parseModelOverride('/claude-sonnet-4')).toBeUndefined();
+      expect(parseModelOverride('anthropic/')).toBeUndefined();
+    });
   });
 
   it('covers state.ts branch: default createdAt and Map title lookup', () => {

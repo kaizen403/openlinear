@@ -2,7 +2,7 @@ import { Router, Response, NextFunction } from 'express';
 import { prisma, decryptToken } from '@openlinear/db';
 import { broadcastToTask } from '@openlinear/api/sse';
 import { logger } from '@openlinear/api/logger';
-import { optionalAuth, AuthRequest } from '@openlinear/api/middleware';
+import { requireAuth, AuthRequest } from '@openlinear/api/middleware';
 import { assertTaskOwned } from '@openlinear/api/ownership';
 import { executeTask, cancelTask, isTaskRunning, getExecutionLogs } from '../services/execution';
 import { getBatchExecutionLogs } from '../services/batch';
@@ -36,13 +36,11 @@ function flattenLabels<T extends { labels: TaskLabelLite[] }>(
 const router: Router = Router();
 
 // POST /:id/execute
-router.post('/:id/execute', optionalAuth, async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.post('/:id/execute', requireAuth, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const id = req.params.id as string;
-    if (req.userId) {
-      await assertTaskOwned(id, req.userId);
-    }
-    logger.info(`[Tasks] Execute requested for task ${id.slice(0, 8)} (userId: ${req.userId || 'anonymous'})`);
+    await assertTaskOwned(id, req.userId!);
+    logger.info(`[Tasks] Execute requested for task ${id.slice(0, 8)} (userId: ${req.userId})`);
     const result = await executeTask({ taskId: id, userId: req.userId });
 
     if (!result.success) {
@@ -58,12 +56,10 @@ router.post('/:id/execute', optionalAuth, async (req: AuthRequest, res: Response
 });
 
 // POST /:id/refresh-pr
-router.post('/:id/refresh-pr', optionalAuth, async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.post('/:id/refresh-pr', requireAuth, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const id = req.params.id as string;
-    if (req.userId) {
-      await assertTaskOwned(id, req.userId);
-    }
+    await assertTaskOwned(id, req.userId!);
     const task = await prisma.task.findUnique({
       where: { id },
       select: { prUrl: true, batchId: true },
@@ -89,17 +85,15 @@ router.post('/:id/refresh-pr', optionalAuth, async (req: AuthRequest, res: Respo
     const branch = decodeURIComponent(rawBranch);
 
     let accessToken: string | null = null;
-    if (req.userId) {
-      const user = await prisma.user.findUnique({
-        where: { id: req.userId },
-        select: { accessToken: true },
-      });
-      try {
-        accessToken = decryptToken(user?.accessToken ?? null);
-      } catch (err) {
-        logger.error({ err }, '[execution] failed to decrypt access token');
-        accessToken = null;
-      }
+    const user = await prisma.user.findUnique({
+      where: { id: req.userId! },
+      select: { accessToken: true },
+    });
+    try {
+      accessToken = decryptToken(user?.accessToken ?? null);
+    } catch (err) {
+      logger.error({ err }, '[execution] failed to decrypt access token');
+      accessToken = null;
     }
 
     if (!accessToken) {
@@ -153,24 +147,20 @@ router.post('/:id/refresh-pr', optionalAuth, async (req: AuthRequest, res: Respo
 });
 
 // GET /:id/running
-router.get('/:id/running', optionalAuth, async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.get('/:id/running', requireAuth, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const id = req.params.id as string;
-    if (req.userId) {
-      await assertTaskOwned(id, req.userId);
-    }
+    await assertTaskOwned(id, req.userId!);
     res.json({ running: isTaskRunning(id) });
   } catch (error) {
     next(error);
   }
 });
 
-router.get('/:id/logs', optionalAuth, async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.get('/:id/logs', requireAuth, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const id = req.params.id as string;
-    if (req.userId) {
-      await assertTaskOwned(id, req.userId);
-    }
+    await assertTaskOwned(id, req.userId!);
     let logs = getExecutionLogs(id);
     if (logs.length === 0) {
       logs = getBatchExecutionLogs(id);
@@ -191,12 +181,10 @@ router.get('/:id/logs', optionalAuth, async (req: AuthRequest, res: Response, ne
   }
 });
 
-router.post('/:id/cancel', optionalAuth, async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.post('/:id/cancel', requireAuth, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const id = req.params.id as string;
-    if (req.userId) {
-      await assertTaskOwned(id, req.userId);
-    }
+    await assertTaskOwned(id, req.userId!);
     logger.info(`[Tasks] Cancel requested for task ${id.slice(0, 8)}`);
 
     if (!isTaskRunning(id)) {

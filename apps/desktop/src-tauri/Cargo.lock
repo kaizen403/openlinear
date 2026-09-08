@@ -2475,6 +2475,7 @@ dependencies = [
 name = "openlinear-desktop"
 version = "0.1.0"
 dependencies = [
+ "libc",
  "rfd",
  "serde",
  "serde_json",
@@ -2488,6 +2489,7 @@ dependencies = [
  "tauri-plugin-store",
  "tokio",
  "url",
+ "uuid",
  "which",
 ]
 

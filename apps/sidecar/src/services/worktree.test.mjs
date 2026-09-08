@@ -4,8 +4,10 @@ const mocks = vi.hoisted(() => ({
   existsSync: vi.fn(() => false),
   mkdirSync: vi.fn(),
   rmSync: vi.fn(),
-  execFileAsync: vi.fn(),
+  execGit: vi.fn(),
   execGitWithCredentials: vi.fn(),
+  assertSafeCloneUrl: vi.fn((url) => url),
+  assertSafeRefName: vi.fn((ref) => ref),
   getGitIdentityEnv: vi.fn(() => ({ GIT_AUTHOR_NAME: 'OpenLinear' })),
   buildReposPath: vi.fn((...segments) => `/repos/${segments.join('/')}`),
   assertPathInsideReposDir: vi.fn((path) => path),
@@ -17,8 +19,12 @@ vi.mock('fs', () => ({
   rmSync: mocks.rmSync,
 }));
 
-vi.mock('./execution/exec', () => ({ execFileAsync: mocks.execFileAsync }));
-vi.mock('./git-credentials', () => ({ execGitWithCredentials: mocks.execGitWithCredentials }));
+vi.mock('./git-credentials', () => ({
+  execGit: mocks.execGit,
+  execGitWithCredentials: mocks.execGitWithCredentials,
+  assertSafeCloneUrl: mocks.assertSafeCloneUrl,
+  assertSafeRefName: mocks.assertSafeRefName,
+}));
 vi.mock('./git-identity', () => ({ getGitIdentityEnv: mocks.getGitIdentityEnv }));
 vi.mock('./repo-storage', () => ({
   buildReposPath: mocks.buildReposPath,
@@ -45,14 +51,17 @@ describe('worktree helpers', () => {
     mocks.existsSync.mockReturnValue(false);
     mocks.buildReposPath.mockImplementation((...segments) => `/repos/${segments.join('/')}`);
     mocks.assertPathInsideReposDir.mockImplementation((path) => path);
+    mocks.assertSafeCloneUrl.mockImplementation((url) => url);
+    mocks.assertSafeRefName.mockImplementation((ref) => ref);
     mocks.getGitIdentityEnv.mockReturnValue({ GIT_AUTHOR_NAME: 'OpenLinear' });
-    mocks.execFileAsync.mockResolvedValue({ stdout: '', stderr: '' });
+    mocks.execGit.mockResolvedValue({ stdout: '', stderr: '' });
     mocks.execGitWithCredentials.mockResolvedValue({ stdout: '', stderr: '' });
   });
 
   it('fetches an existing bare repo or clones a new one', async () => {
     mocks.existsSync.mockReturnValueOnce(true);
     await expect(ensureMainRepo('project-1', 'https://github.com/acme/repo.git', 'token')).resolves.toBe('/repos/project-1/.main');
+    expect(mocks.assertSafeCloneUrl).toHaveBeenCalledWith('https://github.com/acme/repo.git', 'clone URL');
     expect(mocks.execGitWithCredentials).toHaveBeenCalledWith(
       ['-C', '/repos/project-1/.main', 'fetch', 'origin', '--prune'],
       'token',
@@ -64,7 +73,7 @@ describe('worktree helpers', () => {
     await expect(ensureMainRepo('project-1', 'https://github.com/acme/repo.git', null)).resolves.toBe('/repos/project-1/.main');
     expect(mocks.mkdirSync).toHaveBeenCalledWith('/repos/project-1', { recursive: true });
     expect(mocks.execGitWithCredentials).toHaveBeenCalledWith(
-      ['clone', '--bare', 'https://github.com/acme/repo.git', '/repos/project-1/.main'],
+      ['clone', '--bare', '--', 'https://github.com/acme/repo.git', '/repos/project-1/.main'],
       null,
       'https://github.com/acme/repo.git',
     );
@@ -80,10 +89,19 @@ describe('worktree helpers', () => {
 
     expect(mocks.mkdirSync).not.toHaveBeenCalled();
     expect(mocks.execGitWithCredentials).toHaveBeenCalledWith(
-      ['clone', '--bare', 'https://github.com/acme/repo.git', '/repos/project-1/.main'],
+      ['clone', '--bare', '--', 'https://github.com/acme/repo.git', '/repos/project-1/.main'],
       null,
       'https://github.com/acme/repo.git',
     );
+  });
+
+  it('rejects an unsafe clone URL before touching the filesystem', async () => {
+    mocks.assertSafeCloneUrl.mockImplementationOnce(() => {
+      throw new Error('[Sidecar] Refusing unsafe clone URL: only https: URLs are allowed');
+    });
+
+    await expect(ensureMainRepo('project-1', 'ext::sh -c evil', null)).rejects.toThrow('Refusing unsafe clone URL');
+    expect(mocks.execGitWithCredentials).not.toHaveBeenCalled();
   });
 
   it('rethrows main repo preparation failures', async () => {
@@ -95,7 +113,7 @@ describe('worktree helpers', () => {
   });
 
   it('creates task and combined worktrees after clearing stale branches', async () => {
-    mocks.execFileAsync
+    mocks.execGit
       .mockResolvedValueOnce({ stdout: '', stderr: '' })
       .mockResolvedValueOnce({
         stdout: 'worktree /repos/project-1/batch-batch-1/task-task-1\nbranch refs/heads/openlinear/task-1\n',
@@ -108,7 +126,8 @@ describe('worktree helpers', () => {
     await expect(createWorktree('project-1', 'batch-1', 'task-1', 'main')).resolves.toBe(
       '/repos/project-1/batch-batch-1/task-task-1',
     );
-    expect(mocks.execFileAsync).toHaveBeenCalledWith('git', [
+    expect(mocks.assertSafeRefName).toHaveBeenCalledWith('main', 'default branch');
+    expect(mocks.execGit).toHaveBeenCalledWith([
       '-C',
       '/repos/project-1/.main',
       'worktree',
@@ -116,14 +135,37 @@ describe('worktree helpers', () => {
       '/repos/project-1/batch-batch-1/task-task-1',
       '-b',
       'openlinear/task-1',
+      '--',
       'main',
     ]);
 
-    mocks.execFileAsync.mockClear();
-    mocks.execFileAsync.mockResolvedValue({ stdout: '', stderr: '' });
+    mocks.execGit.mockClear();
+    mocks.execGit.mockResolvedValue({ stdout: '', stderr: '' });
     await expect(createBatchWorktree('project-1', 'batch-1', 'openlinear/batch-1', 'main')).resolves.toBe(
       '/repos/project-1/batch-batch-1/combined',
     );
+    expect(mocks.execGit).toHaveBeenCalledWith([
+      '-C',
+      '/repos/project-1/.main',
+      'worktree',
+      'add',
+      '/repos/project-1/batch-batch-1/combined',
+      '-b',
+      'openlinear/batch-1',
+      '--',
+      'main',
+    ]);
+  });
+
+  it('rejects an unsafe default branch before creating a worktree', async () => {
+    mocks.assertSafeRefName.mockImplementationOnce(() => {
+      throw new Error('[Sidecar] Refusing unsafe default branch: "-x"');
+    });
+
+    await expect(createWorktree('project-1', 'batch-1', 'task-1', '-x')).rejects.toThrow(
+      'Refusing unsafe default branch',
+    );
+    expect(mocks.execGit).not.toHaveBeenCalled();
   });
 
   it('skips stale worktrees outside repo storage and handles stale cleanup failures', async () => {
@@ -137,7 +179,7 @@ describe('worktree helpers', () => {
       if (path === '/repos/project-1/batch-batch-1/task-stale') return true;
       return false;
     });
-    mocks.execFileAsync
+    mocks.execGit
       .mockResolvedValueOnce({ stdout: '', stderr: '' })
       .mockResolvedValueOnce({
         stdout: [
@@ -172,7 +214,7 @@ describe('worktree helpers', () => {
       if (path === '/repos/project-1/batch-batch-1/task-stale') return false;
       return false;
     });
-    mocks.execFileAsync
+    mocks.execGit
       .mockReset()
       .mockResolvedValueOnce({ stdout: '', stderr: '' })
       .mockResolvedValueOnce({
@@ -192,7 +234,7 @@ describe('worktree helpers', () => {
 
   it('creates a combined worktree without recreating an existing batch directory', async () => {
     mocks.existsSync.mockImplementation((path) => path === '/repos/project-1/batch-batch-1');
-    mocks.execFileAsync.mockResolvedValue({ stdout: '', stderr: '' });
+    mocks.execGit.mockResolvedValue({ stdout: '', stderr: '' });
 
     await expect(createBatchWorktree('project-1', 'batch-1', 'openlinear/batch-1', 'main')).resolves.toBe(
       '/repos/project-1/batch-batch-1/combined',
@@ -205,7 +247,7 @@ describe('worktree helpers', () => {
     mocks.existsSync
       .mockReturnValueOnce(false)
       .mockReturnValueOnce(true);
-    mocks.execFileAsync
+    mocks.execGit
       .mockResolvedValueOnce({ stdout: '', stderr: '' })
       .mockResolvedValueOnce({ stdout: '', stderr: '' })
       .mockResolvedValueOnce({ stdout: '', stderr: '' })
@@ -223,7 +265,7 @@ describe('worktree helpers', () => {
       .mockReset()
       .mockReturnValueOnce(false)
       .mockReturnValueOnce(true);
-    mocks.execFileAsync
+    mocks.execGit
       .mockReset()
       .mockResolvedValueOnce({ stdout: '', stderr: '' })
       .mockResolvedValueOnce({ stdout: '', stderr: '' })
@@ -241,7 +283,7 @@ describe('worktree helpers', () => {
 
   it('does not remove failed worktree paths that were never created', async () => {
     mocks.existsSync.mockReturnValue(false);
-    mocks.execFileAsync
+    mocks.execGit
       .mockResolvedValueOnce({ stdout: '', stderr: '' })
       .mockResolvedValueOnce({ stdout: '', stderr: '' })
       .mockResolvedValueOnce({ stdout: '', stderr: '' })
@@ -251,8 +293,8 @@ describe('worktree helpers', () => {
 
     expect(mocks.rmSync).not.toHaveBeenCalled();
 
-    mocks.execFileAsync.mockReset();
-    mocks.execFileAsync
+    mocks.execGit.mockReset();
+    mocks.execGit
       .mockResolvedValueOnce({ stdout: '', stderr: '' })
       .mockResolvedValueOnce({ stdout: '', stderr: '' })
       .mockResolvedValueOnce({ stdout: '', stderr: '' })
@@ -266,7 +308,7 @@ describe('worktree helpers', () => {
 
   it('lists, removes, and cleans up worktrees safely', async () => {
     mocks.existsSync.mockReturnValue(true);
-    mocks.execFileAsync.mockResolvedValueOnce({
+    mocks.execGit.mockResolvedValueOnce({
       stdout: 'worktree /repos/project-1/.main\n\nworktree /repos/project-1/batch-batch-1/task-task-1\n',
       stderr: '',
     });
@@ -277,7 +319,7 @@ describe('worktree helpers', () => {
     ]);
 
     await removeWorktree('project-1', '/repos/project-1/batch-batch-1/task-task-1');
-    expect(mocks.execFileAsync).toHaveBeenCalledWith('git', [
+    expect(mocks.execGit).toHaveBeenCalledWith([
       '-C',
       '/repos/project-1/.main',
       'worktree',
@@ -286,8 +328,8 @@ describe('worktree helpers', () => {
       '--force',
     ]);
 
-    mocks.execFileAsync.mockClear();
-    mocks.execFileAsync.mockResolvedValueOnce({
+    mocks.execGit.mockClear();
+    mocks.execGit.mockResolvedValueOnce({
       stdout: 'worktree /repos/project-1/batch-batch-1/task-task-1\nworktree /outside\n',
       stderr: '',
     });
@@ -302,7 +344,7 @@ describe('worktree helpers', () => {
 
   it('logs remove failures and only deletes worktree paths that remain on disk', async () => {
     mocks.existsSync.mockReturnValue(false);
-    mocks.execFileAsync.mockRejectedValueOnce(new Error('remove failed'));
+    mocks.execGit.mockRejectedValueOnce(new Error('remove failed'));
 
     await removeWorktree('project-1', '/repos/project-1/batch-batch-1/task-task-1');
 
@@ -311,7 +353,7 @@ describe('worktree helpers', () => {
 
   it('ignores listed worktrees outside the target batch', async () => {
     mocks.existsSync.mockImplementation((path) => path === '/repos/project-1/.main');
-    mocks.execFileAsync.mockResolvedValueOnce({
+    mocks.execGit.mockResolvedValueOnce({
       stdout: 'worktree /repos/project-1/other/task-task-1\n',
       stderr: '',
     });
@@ -323,7 +365,7 @@ describe('worktree helpers', () => {
 
   it('returns an empty worktree list and removes the batch directory when listing fails', async () => {
     mocks.existsSync.mockReturnValue(true);
-    mocks.execFileAsync.mockRejectedValue(new Error('list failed'));
+    mocks.execGit.mockRejectedValue(new Error('list failed'));
 
     await expect(listWorktrees('project-1')).resolves.toEqual([]);
     await cleanupBatch('project-1', 'batch-1');
@@ -339,11 +381,11 @@ describe('worktree helpers', () => {
 
     await expect(listWorktrees('project-1')).resolves.toEqual([]);
 
-    expect(mocks.execFileAsync).not.toHaveBeenCalled();
+    expect(mocks.execGit).not.toHaveBeenCalled();
   });
 
   it('force-removes the batch directory when cleanup throws after listing', async () => {
-    mocks.execFileAsync.mockResolvedValueOnce({ stdout: '', stderr: '' });
+    mocks.execGit.mockResolvedValueOnce({ stdout: '', stderr: '' });
     mocks.existsSync.mockImplementation((path) => {
       if (path === '/repos/project-1/batch-batch-1') {
         throw new Error('stat failed');
@@ -366,7 +408,7 @@ describe('worktree helpers', () => {
   });
 
   it('does not force-remove a batch directory that disappears after cleanup errors', async () => {
-    mocks.execFileAsync.mockResolvedValueOnce({ stdout: '', stderr: '' });
+    mocks.execGit.mockResolvedValueOnce({ stdout: '', stderr: '' });
     mocks.existsSync
       .mockImplementationOnce(() => true)
       .mockImplementationOnce(() => {
@@ -380,7 +422,7 @@ describe('worktree helpers', () => {
   });
 
   it('merges branches by updating the target ref and reports conflicts', async () => {
-    mocks.execFileAsync
+    mocks.execGit
       .mockResolvedValueOnce({ stdout: '', stderr: '' })
       .mockResolvedValueOnce({ stdout: '', stderr: '' })
       .mockResolvedValueOnce({ stdout: 'merge-sha\n', stderr: '' })
@@ -389,7 +431,31 @@ describe('worktree helpers', () => {
       .mockResolvedValueOnce({ stdout: '', stderr: '' });
 
     await expect(mergeBranch('project-1', 'openlinear/task-1', 'openlinear/batch')).resolves.toBe(true);
-    expect(mocks.execFileAsync).toHaveBeenCalledWith('git', [
+    expect(mocks.assertSafeRefName).toHaveBeenCalledWith('openlinear/task-1', 'task branch');
+    expect(mocks.assertSafeRefName).toHaveBeenCalledWith('openlinear/batch', 'target branch');
+    expect(mocks.execGit).toHaveBeenCalledWith([
+      '-C',
+      '/repos/project-1/.main',
+      'worktree',
+      'add',
+      '/repos/project-1/merge-temp',
+      '--',
+      'openlinear/batch',
+    ]);
+    expect(mocks.execGit).toHaveBeenCalledWith(
+      [
+        '-C',
+        '/repos/project-1/merge-temp',
+        'merge',
+        '--no-ff',
+        '-m',
+        'Merge openlinear/task-1',
+        '--',
+        'openlinear/task-1',
+      ],
+      expect.objectContaining({ env: expect.objectContaining({ GIT_AUTHOR_NAME: 'OpenLinear' }) }),
+    );
+    expect(mocks.execGit).toHaveBeenCalledWith([
       '-C',
       '/repos/project-1/.main',
       'update-ref',
@@ -397,8 +463,8 @@ describe('worktree helpers', () => {
       'merge-sha',
     ]);
 
-    mocks.execFileAsync.mockReset();
-    mocks.execFileAsync
+    mocks.execGit.mockReset();
+    mocks.execGit
       .mockResolvedValueOnce({ stdout: '', stderr: '' })
       .mockRejectedValueOnce(new Error('conflict'))
       .mockResolvedValue({ stdout: '', stderr: '' });
@@ -406,11 +472,31 @@ describe('worktree helpers', () => {
     await expect(mergeBranch('project-1', 'openlinear/task-1', 'openlinear/batch')).resolves.toBe(false);
   });
 
+  it('rejects unsafe branch names before merging, without attempting the merge itself', async () => {
+    mocks.assertSafeRefName.mockImplementationOnce(() => {
+      throw new Error('[Sidecar] Refusing unsafe task branch: "-x"');
+    });
+
+    await expect(mergeBranch('project-1', '-x', 'openlinear/batch')).resolves.toBe(false);
+    // The `finally` block's best-effort merge-temp cleanup still runs (it
+    // runs on every exit path), but no `worktree add` / `merge` call — the
+    // validation failure must short-circuit before either of those.
+    expect(mocks.execGit).toHaveBeenCalledTimes(1);
+    expect(mocks.execGit).toHaveBeenCalledWith([
+      '-C',
+      '/repos/project-1/.main',
+      'worktree',
+      'remove',
+      '/repos/project-1/merge-temp',
+      '--force',
+    ]);
+  });
+
   it('returns false and removes merge temp directories when setup and cleanup fail', async () => {
     mocks.existsSync
       .mockReturnValueOnce(false)
       .mockReturnValueOnce(true);
-    mocks.execFileAsync
+    mocks.execGit
       .mockRejectedValueOnce(new Error('add failed'))
       .mockRejectedValueOnce(new Error('remove failed'));
 
@@ -421,7 +507,7 @@ describe('worktree helpers', () => {
 
   it('clears stale merge temp directories before merging', async () => {
     mocks.existsSync.mockReturnValueOnce(true).mockReturnValue(false);
-    mocks.execFileAsync
+    mocks.execGit
       .mockRejectedValueOnce(new Error('stale remove failed'))
       .mockResolvedValueOnce({ stdout: '', stderr: '' })
       .mockResolvedValueOnce({ stdout: '', stderr: '' })
@@ -437,7 +523,7 @@ describe('worktree helpers', () => {
 
   it('falls back to deleting merge temp after a successful merge cleanup failure', async () => {
     mocks.existsSync.mockReturnValueOnce(false).mockReturnValueOnce(true).mockReturnValue(false);
-    mocks.execFileAsync
+    mocks.execGit
       .mockResolvedValueOnce({ stdout: '', stderr: '' })
       .mockResolvedValueOnce({ stdout: '', stderr: '' })
       .mockResolvedValueOnce({ stdout: 'merge-sha\n', stderr: '' })
@@ -452,7 +538,7 @@ describe('worktree helpers', () => {
 
   it('skips deleting merge temp when cleanup failures leave no directory behind', async () => {
     mocks.existsSync.mockReturnValue(false);
-    mocks.execFileAsync
+    mocks.execGit
       .mockResolvedValueOnce({ stdout: '', stderr: '' })
       .mockResolvedValueOnce({ stdout: '', stderr: '' })
       .mockResolvedValueOnce({ stdout: 'merge-sha\n', stderr: '' })
@@ -467,19 +553,42 @@ describe('worktree helpers', () => {
 
   it('creates and pushes batch branches', async () => {
     await createBatchBranch('project-1', 'openlinear/batch-1', 'main');
-    expect(mocks.execFileAsync).toHaveBeenCalledWith('git', [
+    expect(mocks.assertSafeRefName).toHaveBeenCalledWith('openlinear/batch-1', 'batch branch');
+    expect(mocks.assertSafeRefName).toHaveBeenCalledWith('main', 'default branch');
+    expect(mocks.execGit).toHaveBeenCalledWith([
       '-C',
       '/repos/project-1/.main',
       'branch',
+      '--',
       'openlinear/batch-1',
       'main',
     ]);
 
     await pushBranch('project-1', 'openlinear/batch-1', 'https://github.com/acme/repo.git', 'token');
+    expect(mocks.assertSafeCloneUrl).toHaveBeenCalledWith('https://github.com/acme/repo.git', 'clone URL');
     expect(mocks.execGitWithCredentials).toHaveBeenCalledWith(
-      ['-C', '/repos/project-1/.main', 'push', '--force-with-lease', 'https://github.com/acme/repo.git', 'openlinear/batch-1'],
+      [
+        '-C',
+        '/repos/project-1/.main',
+        'push',
+        '--force-with-lease',
+        '--',
+        'https://github.com/acme/repo.git',
+        'openlinear/batch-1',
+      ],
       'token',
       'https://github.com/acme/repo.git',
     );
+  });
+
+  it('rejects an unsafe clone URL before pushing a batch branch', async () => {
+    mocks.assertSafeCloneUrl.mockImplementationOnce(() => {
+      throw new Error('[Sidecar] Refusing unsafe clone URL: only https: URLs are allowed');
+    });
+
+    await expect(
+      pushBranch('project-1', 'openlinear/batch-1', 'ext::sh -c evil', 'token'),
+    ).rejects.toThrow('Refusing unsafe clone URL');
+    expect(mocks.execGitWithCredentials).not.toHaveBeenCalled();
   });
 });

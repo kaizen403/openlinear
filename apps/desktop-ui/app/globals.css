@@ -106,7 +106,12 @@
     --destructive-foreground: 0 0% 100%;
     --border: 0 0% 12%;             /* #1f1f1f */
     --input: 0 0% 12%;
-    --ring: 0 0% 20%;
+    /* Keyboard focus ring. Reuses --foreground's value rather than a new
+     * color — the original 0 0% 20% measured ~1.5:1 against this theme's
+     * near-black surfaces (background/card/popover all sit at 3-5% lightness),
+     * well under the ~3:1 WCAG 2.4.11 non-text-contrast minimum for a focus
+     * indicator. 0 0% 90% measures ~15:1 against the same surfaces. */
+    --ring: 0 0% 90%;
     --radius: 0.125rem;
 
     /* Linear accent – overridden at runtime by the accent-color picker */
@@ -154,11 +159,6 @@
   textarea,
   label {
     font-family: var(--font-ui);
-  }
-
-  *:focus,
-  *:focus-visible {
-    outline: none;
   }
 
   code,

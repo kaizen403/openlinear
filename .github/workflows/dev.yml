@@ -76,7 +76,7 @@ jobs:
         run: pnpm --filter @openlinear/db db:generate
 
       - name: Push schema to test database
-        run: pnpm --filter @openlinear/db db:push
+        run: pnpm --filter @openlinear/db exec prisma migrate deploy
 
       - name: Run tests
         run: pnpm test

@@ -1,6 +1,10 @@
 import { afterEach, describe, it, expect } from 'vitest';
 import request from 'supertest';
 import { createApp } from '../app';
+import jwt from 'jsonwebtoken';
+import { prisma } from '@openlinear/db';
+import { hashToken } from '../services/sessions';
+import { testJwtSecret } from './test-env';
 
 describe('Auth API', () => {
   const app = createApp();
@@ -85,7 +89,7 @@ describe('Auth API', () => {
       );
     });
 
-    it('renders a desktop callback bridge when desktop OAuth returns an error', async () => {
+    it('redirects directly to the desktop callback when desktop OAuth returns an error', async () => {
       process.env.GITHUB_REDIRECT_URI = 'http://localhost:3001/api/auth/github/callback';
 
       const startRes = await request(app)
@@ -99,16 +103,10 @@ describe('Auth API', () => {
         .set('Host', '127.0.0.1:45678')
         .redirects(0);
 
-      expect(res.status).toBe(200);
-      expect(res.headers['content-type']).toContain('text/html');
-      expect(res.text).toContain('OpenLinear sign-in failed');
-      expect(res.text).toContain('openlinear://callback?error=access_denied');
-      expect(res.text).toContain('aria-label="OpenLinear"');
-      expect(res.text).toContain('id="open-app"');
-      expect(res.text).toContain('id="copy-app-link"');
-      expect(res.text).not.toContain('setTimeout(requestOpenLinear');
-      expect(res.text).not.toContain('preventDefault()');
-      expect(res.text).not.toContain('requestOpenLinear');
+      expect(res.status).toBe(302);
+      expect(res.headers.location).toBe('openlinear://callback?error=access_denied');
+      expect(res.text).not.toContain('Copy app link');
+      expect(res.text).not.toContain('paste it into the sign-in screen');
     });
   });
 
@@ -127,6 +125,19 @@ describe('Auth API', () => {
         .redirects(0);
       expect(res.status).toBe(302);
       expect(res.headers.location).toContain('error=missing_code');
+    });
+
+    it('sends the web client to the dedicated session-adoption route', async () => {
+      // Contract with apps/desktop-ui: the app no longer reads `?token=` on
+      // arbitrary routes (that let any link swap the victim's session), so the
+      // OAuth redirect must land on /auth/session, which verifies the token
+      // before adopting it. If this assertion is changed, the web login flow
+      // and the frontend route must be changed together.
+      const res = await request(app)
+        .get('/api/auth/github/callback')
+        .redirects(0);
+      expect(res.headers.location).toContain('/auth/session?');
+      expect(res.headers.location).not.toMatch(/^https?:\/\/[^/]+\/?\?/);
     });
   });
 
@@ -164,10 +175,53 @@ describe('Auth API', () => {
   });
 
   describe('POST /api/auth/logout', () => {
-    it('returns success', async () => {
+    it('requires authentication', async () => {
+      // Logout must revoke a specific session server-side, so it needs to know
+      // which token is being surrendered. It used to be an unauthenticated
+      // no-op that returned success while the bearer token stayed valid for its
+      // full 7-day lifetime.
       const res = await request(app).post('/api/auth/logout');
-      expect(res.status).toBe(200);
-      expect(res.body.success).toBe(true);
+      expect(res.status).toBe(401);
+    });
+
+    it('revokes the session so the token stops working', async () => {
+      const user = await prisma.user.upsert({
+        where: { username: 'logouttester' },
+        update: {},
+        create: {
+          githubId: '990777',
+          username: 'logouttester',
+          email: 'logouttester@example.com',
+        },
+      });
+
+      const token = jwt.sign(
+        { userId: user.id, username: user.username },
+        testJwtSecret(),
+        { expiresIn: '1h' },
+      );
+      await prisma.session.create({
+        data: { userId: user.id, tokenHash: hashToken(token) },
+      });
+
+      const before = await request(app)
+        .get('/api/auth/me')
+        .set('Authorization', `Bearer ${token}`);
+      expect(before.status).toBe(200);
+
+      const out = await request(app)
+        .post('/api/auth/logout')
+        .set('Authorization', `Bearer ${token}`);
+      expect(out.status).toBe(200);
+      expect(out.body.success).toBe(true);
+
+      const after = await request(app)
+        .get('/api/auth/me')
+        .set('Authorization', `Bearer ${token}`);
+      expect(after.status).toBe(401);
+
+      await prisma.session.deleteMany({ where: { userId: user.id } });
+      await prisma.user.delete({ where: { id: user.id } });
     });
   });
 });

@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { prisma, decryptToken, encryptToken } from '@openlinear/db';
+import { currentUserSelect } from '../lib/selects';
 
 export function decryptUserAccessToken(stored: string | null | undefined): string | null {
   if (!stored) return null;
@@ -717,9 +718,11 @@ export async function createOrUpdateUser(
 }
 
 export async function getUserById(userId: string) {
+  // Explicit allowlist: an `include` here previously leaked `totpSecret` and
+  // `backupCodes` through `GET /api/auth/me`. See `currentUserSelect`.
   return prisma.user.findUnique({
     where: { id: userId },
-    include: { repositories: true },
+    select: { ...currentUserSelect, repositories: true },
   });
 }
 

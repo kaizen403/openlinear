@@ -1,0 +1,22 @@
+# SHA-256 checksums for the opencode-ai/opencode release assets that
+# scripts/download-opencode.sh downloads, pinned to OPENCODE_VERSION in that
+# script. Format matches `shasum -a 256 -c`: "<sha256>  <asset-name>".
+#
+# Sourced from the upstream release's own checksums.txt
+# (https://github.com/opencode-ai/opencode/releases/download/<version>/checksums.txt)
+# and independently re-verified here by downloading each asset and running
+# `shasum -a 256` on it directly — these are not copied blind.
+#
+# REGENERATE when bumping OPENCODE_VERSION:
+#   VERSION=vX.Y.Z
+#   curl -fsSL "https://github.com/opencode-ai/opencode/releases/download/$VERSION/checksums.txt" \
+#     | grep -E 'opencode-(mac|linux)-(arm64|x86_64)\.tar\.gz$' > scripts/opencode.sha256.new
+#   # Then independently re-download each of those four assets and confirm
+#   # `shasum -a 256` matches before replacing this file — never trust a
+#   # single source for a supply-chain-critical checksum.
+#
+# Version: v0.0.55
+d560e5cdbeffc38522e172a1b31d346ee23200d1a46d1e96f092bb9e1ba1f41d  opencode-mac-arm64.tar.gz
+87b2ab64d81fbf19cdf7535dae2f004f67fb501b9b98956b59cce44a644f1fac  opencode-mac-x86_64.tar.gz
+7f1f41203e7920aec48f3e2216d334e9ce8c6d0a7b107ceb758fefa4d4c98025  opencode-linux-x86_64.tar.gz
+530eb136fdfc9eadef96aa2250bbdb9210e9f7cc1bd4f733d332ca9dd61d22e0  opencode-linux-arm64.tar.gz

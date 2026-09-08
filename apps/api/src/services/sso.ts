@@ -1,11 +1,12 @@
 import crypto from 'node:crypto';
 import * as client from 'openid-client';
 import { prisma } from '@openlinear/db';
+import { getJwtSecret } from '../lib/secrets';
 
 // --- Encryption helpers (AES-256-GCM, key derived from JWT_SECRET) ---
 
 function getDerivedKey(): Buffer {
-  const secret = process.env.JWT_SECRET || 'openlinear-dev-secret-change-in-production';
+  const secret = getJwtSecret();
   return crypto.createHash('sha256').update(secret).digest();
 }
 

@@ -163,6 +163,7 @@ export function ChatPanel({ showHeader = true, className }: ChatPanelProps) {
             activeToolCalls={activeToolCalls}
             isThinking={isThinking}
             className="flex-1"
+            sessionKey={activeSessionId}
           />
           <div className="shrink-0 border-t border-linear-border bg-linear-bg px-4 py-3">
             <div className="max-w-3xl mx-auto">

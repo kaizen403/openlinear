@@ -123,7 +123,8 @@ export function InProgressBatchGroup({
                 <TaskCard
                   task={task}
                   onMoveToInProgress={undefined}
-                  onExecute={canExecute ? onExecute : undefined}
+                  onExecute={onExecute}
+                  canExecute={canExecute}
                   onCancel={onCancel}
                   onDelete={onDelete}
                   deletionMode={deletionMode}

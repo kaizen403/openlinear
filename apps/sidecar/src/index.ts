@@ -2,6 +2,7 @@ import express from 'express';
 import type { Server } from 'node:http';
 import { prisma } from '@openlinear/db';
 import { logger } from '@openlinear/api/logger';
+import { validateStartupEnv } from '@openlinear/api/env';
 import { createSidecarApp } from './app';
 import { initOpenCode, registerShutdownHandlers } from './services/opencode';
 import {
@@ -61,7 +62,8 @@ export function closeServer(server: Server, name: string): Promise<void> {
 
 export async function start() {
   await loadDotenvIfPresent();
-  const app = createSidecarApp();
+  validateStartupEnv();
+  const app = createSidecarApp({ port: PORT });
   registerShutdownHandlers();
 
   const server = app.listen(PORT, BIND_HOST, () => {

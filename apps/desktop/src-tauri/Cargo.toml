@@ -24,3 +24,8 @@ which = "6.0"
 url = "2"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 rfd = "0.15"
+# Both already resolve in Cargo.lock as transitive deps of tauri/tauri-plugin-*
+# (getrandom/uuid/libc), so promoting them to direct deps here doesn't add new
+# supply-chain surface — it just lets sidecar.rs use them directly.
+uuid = { version = "1", features = ["v4"] }
+libc = "0.2"

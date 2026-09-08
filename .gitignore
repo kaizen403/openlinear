@@ -3,13 +3,12 @@
 Thumbs.db
 
 # === Secrets & Environment ===
-# Ignore all .env files EXCEPT .env.example which is kept as documentation
+# Ignore ALL .env files EXCEPT .env.example, which is kept as documentation.
+# The previous list enumerated suffixes and therefore missed `.env.dev` and
+# `.env.prod`, both of which were committed with live Neon passwords, GitHub
+# OAuth client secrets and the token-encryption key. Match broadly instead.
 .env
-.env.local
-.env.*.local
-.env.bak.*
-.env.production
-.env.staging
+.env.*
 !.env.example
 
 # === Dependencies ===
@@ -78,3 +77,14 @@ apps/dashboard/
 *.key
 *.crt
 *.der
+
+# Agent/tool scratch state — never commit. `.omo/run-continuation/*.json` has
+# been observed to contain local database URLs, and `.kiro/` holds session
+# sqlite databases.
+.kiro/
+.omo/
+.pnpm-store/
+
+# Runtime upload directory (user content, not source).
+apps/sidecar/uploads/
+apps/api/uploads/

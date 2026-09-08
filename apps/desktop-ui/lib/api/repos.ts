@@ -123,7 +123,7 @@ export async function activateRepository(projectId: string): Promise<Repository>
 
 export async function getActiveRepository(): Promise<Repository | null> {
   if (typeof window === 'undefined') return null;
-  const token = localStorage.getItem('token');
+  const token = getAuthToken();
   if (!token) return null;
   try {
     return await apiFetch<Repository>('/api/repos/active', { allowUnauthenticated: true });

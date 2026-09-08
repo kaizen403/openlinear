@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect } from "react"
 import Link from "next/link"
 import { usePathname, useSearchParams, useRouter } from "next/navigation"
 import { useTheme } from "next-themes"
@@ -18,7 +18,7 @@ import { useWorkspace } from "@/hooks/use-workspace"
 import { cn } from "@/lib/utils"
 import { BRAND_COLORS } from "@/lib/design-tokens"
 import { apiFetch } from "@/lib/api"
-import { getApiUrl, getAuthToken } from "@/lib/api/client"
+import { useSSESubscription } from "@/providers/sse-provider"
 
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 
@@ -215,7 +215,6 @@ export function Sidebar({ open, onClose, width }: SidebarProps) {
     const [isTauri, setIsTauri] = useState(false)
     const [unreadCount, setUnreadCount] = useState<number>(0)
     const [isFullscreen, setIsFullscreen] = useState(false)
-    const [eventSourceToken, setEventSourceToken] = useState<string | null>(null)
 
     useEffect(() => {
         const desktop = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
@@ -244,35 +243,11 @@ export function Sidebar({ open, onClose, width }: SidebarProps) {
         return () => { cancelled = true }
     }, [pathname])
 
-    useEffect(() => {
-        if (typeof window === 'undefined') return
-        setEventSourceToken(isAuthenticated ? getAuthToken() : null)
-    }, [isAuthenticated, user])
-
-    useEffect(() => {
-        if (typeof window === 'undefined') return
-        const handleStorage = (event: StorageEvent) => {
-            if (event.key === 'token') {
-                setEventSourceToken(isAuthenticated ? getAuthToken() : null)
-            }
-        }
-        window.addEventListener('storage', handleStorage)
-        return () => window.removeEventListener('storage', handleStorage)
-    }, [isAuthenticated])
-
-    useEffect(() => {
-        if (typeof window === 'undefined') return
-        if (!eventSourceToken) return
-        const url = new URL(`${getApiUrl()}/api/events`)
-        url.searchParams.set('token', eventSourceToken)
-        const es = new EventSource(url.toString())
-        const onCreated = () => setUnreadCount((c) => c + 1)
-        es.addEventListener('notification:created', onCreated)
-        return () => {
-            es.removeEventListener('notification:created', onCreated)
-            es.close()
-        }
-    }, [eventSourceToken])
+    // Consume the app's single shared SSE connection (see SSEProvider) rather
+    // than opening a second EventSource just for this badge.
+    useSSESubscription((eventType) => {
+        if (eventType === 'notification:created') setUnreadCount((c) => c + 1)
+    })
 
     const handleClose = async () => {
         const { getCurrentWindow } = await import('@tauri-apps/api/window')

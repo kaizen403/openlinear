@@ -4,9 +4,6 @@ import { Suspense, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { useAuth } from "@/hooks/use-auth"
 import { useProject } from "@/hooks/use-project"
-import { useWorkspace } from "@/hooks/use-workspace"
-import { useTeams } from "@/providers/teams-provider"
-import { OnboardingWizard } from "@/components/onboarding/onboarding-wizard"
 import { ChatPanel } from "@/components/chat/chat-panel"
 import { Skeleton } from "@/components/ui/skeleton"
 
@@ -22,9 +19,7 @@ function HomePageSkeleton() {
 
 function HomeContent() {
   const { isAuthenticated, isLoading } = useAuth()
-  const { activeProject, projects, isLoading: isProjectsLoading, refreshProjects } = useProject()
-  const { workspaces, activeWorkspace, isLoading: isWorkspacesLoading, refreshWorkspaces } = useWorkspace()
-  const { teams, reload: reloadTeams } = useTeams()
+  const { projects, isLoading: isProjectsLoading } = useProject()
   const router = useRouter()
 
   useEffect(() => {
@@ -33,38 +28,21 @@ function HomeContent() {
     }
   }, [isLoading, isAuthenticated, router])
 
-  if (isLoading || !isAuthenticated || isProjectsLoading || isWorkspacesLoading) {
-    return <HomePageSkeleton />
-  }
-
-  const onboardingWorkspaceId = activeWorkspace?.id ?? workspaces[0]?.id ?? null
   const projectWithoutTeam = projects.find((project) => {
     const projectTeams = project.teams ?? []
-    const visibleTeams = teams.filter((team) => team.projectId === project.id)
-    return projectTeams.length === 0 && visibleTeams.length === 0
+    return projectTeams.length === 0
   }) ?? null
+  const shouldOpenProjects = projects.length === 0 || Boolean(projectWithoutTeam)
 
-  if (workspaces.length === 0 || projects.length === 0 || projectWithoutTeam) {
-    return (
-      <>
-        <header className="min-h-14 border-b border-linear-border flex items-center px-4 sm:px-6 py-2 sm:py-0 bg-linear-bg gap-2 sm:gap-4" data-tauri-drag-region>
-          <h1 className="text-lg font-semibold truncate">Dashboard</h1>
-          <div className="flex-1 h-full" data-tauri-drag-region />
-        </header>
-        <div className="flex-1 min-h-0 flex items-center justify-center overflow-hidden px-4 py-3">
-          <OnboardingWizard
-            initialWorkspaceId={onboardingWorkspaceId}
-            initialProjectId={projectWithoutTeam?.id ?? null}
-            initialProjectName={projectWithoutTeam?.name ?? null}
-            onComplete={() => {
-              refreshWorkspaces()
-              refreshProjects()
-              void reloadTeams()
-            }}
-          />
-        </div>
-      </>
-    )
+  useEffect(() => {
+    if (isLoading || !isAuthenticated || isProjectsLoading) return
+    if (shouldOpenProjects) {
+      router.replace('/projects')
+    }
+  }, [isLoading, isAuthenticated, isProjectsLoading, shouldOpenProjects, router])
+
+  if (isLoading || !isAuthenticated || isProjectsLoading || shouldOpenProjects) {
+    return <HomePageSkeleton />
   }
 
   return <ChatPanel />

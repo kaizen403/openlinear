@@ -28,6 +28,39 @@ export interface BatchLogEntry {
 }
 export const batchTaskLogs = new Map<string, BatchLogEntry[]>();
 
+// T11 (H-12) — same ring-buffer bound as services/execution/state.ts's
+// execution logs, applied to the batch task log arrays.
+export const MAX_BATCH_LOG_ENTRIES = 2_000;
+
+// T11 (H-07) — `activeBatches` was never deleted: every batch a user ever ran
+// pinned its (decrypted) GitHub token in the sidecar's heap for the life of
+// the process. Terminal batches are kept around for a short grace period so
+// in-flight `GET /api/batches/:id` polls still see the final status, then
+// released. `scheduledBatchCleanups` guards against scheduling more than one
+// timer per batch.
+const BATCH_RETENTION_MS = 10 * 60 * 1000;
+const scheduledBatchCleanups = new Set<string>();
+const TERMINAL_BATCH_STATUSES = new Set(['completed', 'failed', 'cancelled']);
+
+/**
+ * Schedules a terminal batch for removal from `activeBatches` after a grace
+ * period. Safe to call multiple times for the same batch (e.g. once from the
+ * event-driven completion path and once from a cleanup `finally` block) —
+ * only the first call schedules a timer.
+ */
+export function scheduleBatchCleanup(batchId: string): void {
+  const batch = activeBatches.get(batchId);
+  if (!batch || !TERMINAL_BATCH_STATUSES.has(batch.status)) return;
+  if (scheduledBatchCleanups.has(batchId)) return;
+  scheduledBatchCleanups.add(batchId);
+
+  const timer = setTimeout(() => {
+    activeBatches.delete(batchId);
+    scheduledBatchCleanups.delete(batchId);
+  }, BATCH_RETENTION_MS);
+  timer.unref();
+}
+
 export function broadcastBatchEvent(type: BatchEventType, batchId: string, data: Record<string, unknown> = {}): void {
   const batch = activeBatches.get(batchId);
   const payload = { batchId, ...data, timestamp: new Date().toISOString() };
@@ -66,7 +99,14 @@ export function emitBatchLog(taskId: string, type: 'info' | 'agent' | 'tool' | '
   if (!batchTaskLogs.has(taskId)) {
     batchTaskLogs.set(taskId, []);
   }
-  batchTaskLogs.get(taskId)!.push(entry);
+  const logs = batchTaskLogs.get(taskId)!;
+  logs.push(entry);
+  // T11 (H-12) — ring-buffer rather than growing without bound. Also guards
+  // against the case a task never reaches a completion path that clears its
+  // log array (cancel, crash, or the C-01 misattribution this phase fixes).
+  if (logs.length > MAX_BATCH_LOG_ENTRIES) {
+    logs.splice(0, logs.length - MAX_BATCH_LOG_ENTRIES);
+  }
 
   const batchId = batchIdFromActivityId(taskId);
   if (batchId) {

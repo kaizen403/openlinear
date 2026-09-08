@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { prisma } from '@openlinear/db';
-import { dispatchTool, getOpenAIFunctionSpecs } from '../services/chat-tools';
+import { dispatchTool, getOpenAIFunctionSpecs, WITHHELD_PRIVILEGE_TOOLS } from '../services/chat-tools';
 import type { JsonObject, ToolContext } from '../services/chat-tools/types';
 
 async function cleanup() {
@@ -49,8 +49,22 @@ describe('Chat tool registry', () => {
     await cleanup();
   }, 30000);
 
-  it('registers exactly 34 OpenAI-compatible tools', () => {
-    expect(getOpenAIFunctionSpecs()).toHaveLength(34);
+  it('exposes every tool except the withheld privilege tools', () => {
+    const specs = getOpenAIFunctionSpecs();
+    // 34 tools are defined; the 5 access-granting ones are withheld from the
+    // model until human approval exists, so a prompt injection cannot reach them.
+    expect(specs).toHaveLength(34 - WITHHELD_PRIVILEGE_TOOLS.size);
+
+    const exposed = new Set<string>(specs.map((spec) => spec.function.name));
+    for (const withheld of WITHHELD_PRIVILEGE_TOOLS) {
+      expect(exposed.has(withheld), `${withheld} must not be offered to the model`).toBe(false);
+    }
+  });
+
+  it('refuses a withheld privilege tool even if the model calls it anyway', async () => {
+    const result = await dispatchTool('grant_project_access', ctx('withheld'), {} satisfies JsonObject);
+    expect(result.ok).toBe(false);
+    expect(result.code).toBe('TOOL_REQUIRES_APPROVAL');
   });
 
   it('creates a project with a default team from real database data', async () => {
@@ -151,24 +165,43 @@ describe('Chat tool registry', () => {
     await expect(prisma.task.count({ where: { projectId: project.id, status: { not: 'done' } } })).resolves.toBe(0);
   });
 
-  it('archives all active project issues when delete/remove is requested', async () => {
+  it('refuses to archive a whole project and archives only the issues named', async () => {
     const project = await prisma.project.findFirstOrThrow({ where: { name: 'Tool Created Project' }, include: { teams: true } });
     const teamId = project.teams[0]?.id;
     expect(teamId).toBeTruthy();
 
+    // Unique per run: a fixed identifier would already be archived by an earlier
+    // run of this suite against the same database, making the test order-dependent.
+    const suffix = Date.now() % 100000;
+    const targetIdentifier = `TOOL-A${suffix}`;
     await prisma.task.createMany({
       data: [
-        { title: 'Archive candidate one', identifier: 'TOOL-2001', number: 2001, priority: 'medium', status: 'todo', projectId: project.id, teamId },
-        { title: 'Archive candidate two', identifier: 'TOOL-2002', number: 2002, priority: 'medium', status: 'in_progress', projectId: project.id, teamId },
+        { title: 'Archive candidate one', identifier: targetIdentifier, number: 900000 + suffix, priority: 'medium', status: 'todo', projectId: project.id, teamId },
+        { title: 'Archive candidate two', identifier: `TOOL-B${suffix}`, number: 800000 + suffix, priority: 'medium', status: 'in_progress', projectId: project.id, teamId },
       ],
     });
+    const before = await prisma.task.count({ where: { projectId: project.id, archived: false } });
+    expect(before).toBeGreaterThanOrEqual(2);
 
-    const result = await dispatchTool('archive_issues', ctx('bulk-archive', project.id), {
+    // Omitting ids used to archive every active issue in the project, so one
+    // malformed tool call (arguments degrade to `{}`) emptied a board.
+    const unscoped = await dispatchTool('archive_issues', ctx('bulk-archive', project.id), {
       projectId: project.id,
     } satisfies JsonObject);
+    expect(unscoped.ok).toBe(false);
+    expect(unscoped.code).toBe('EXPLICIT_IDS_REQUIRED');
+    await expect(
+      prisma.task.count({ where: { projectId: project.id, archived: false } }),
+    ).resolves.toBe(before);
 
-    expect(result.ok).toBe(true);
-    await expect(prisma.task.count({ where: { projectId: project.id, archived: false } })).resolves.toBe(0);
+    const scoped = await dispatchTool('archive_issues', ctx('bulk-archive-scoped', project.id), {
+      projectId: project.id,
+      issueIdentifiers: [targetIdentifier],
+    } satisfies JsonObject);
+    expect(scoped.ok).toBe(true);
+    await expect(
+      prisma.task.count({ where: { projectId: project.id, archived: false } }),
+    ).resolves.toBe(before - 1);
   });
 
   it('dedupes mutating tool calls by session and toolCallId', async () => {

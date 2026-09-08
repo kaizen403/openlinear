@@ -94,9 +94,16 @@ const components: Components = {
     <a
       href={href}
       className="text-linear-accent hover:underline"
+      // Belt-and-suspenders for the onClick handler below: a middle-click or
+      // cmd/ctrl-click opens the native `href` directly without ever firing
+      // React's onClick, so the link itself must not hand the destination a
+      // `window.opener` back into this app (reverse tabnabbing).
+      target="_blank"
+      rel="noopener noreferrer"
       onClick={(e) => {
-        // Route links through the Tauri shell so they open in the system browser
-        // instead of navigating the embedded webview.
+        // Primary click: route through openExternal, which allowlists the
+        // scheme (https:/mailto: only) and opens via the Tauri shell instead
+        // of navigating the embedded webview.
         if (href) {
           e.preventDefault()
           e.stopPropagation()

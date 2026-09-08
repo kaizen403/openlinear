@@ -25,6 +25,7 @@ import {
   broadcastBatchEvent,
   broadcastBatchProgress,
   emitBatchLog,
+  scheduleBatchCleanup,
   updateTaskInDb,
 } from './shared';
 
@@ -247,6 +248,10 @@ export async function handleCombinedBatchComplete(
       completingBatchTasks.delete(completionKey(batchId, task.taskId));
     }
     completingCombinedBatches.delete(batchId);
+    // T11 (H-07) — no-op unless `batch.status` is actually terminal (it is on
+    // the failure branch above; the success branch delegates to
+    // `finalizeCombinedBatch`, which schedules its own cleanup).
+    scheduleBatchCleanup(batchId);
   }
 }
 
@@ -425,6 +430,7 @@ export async function finalizeBatch(batchId: string): Promise<void> {
       completingBatchTasks.delete(completionKey(batchId, task.taskId));
     }
     finalizingBatches.delete(batchId);
+    scheduleBatchCleanup(batchId); // T11 (H-07)
   }
 }
 
@@ -539,5 +545,6 @@ async function finalizeCombinedBatch(batchId: string): Promise<void> {
       completingBatchTasks.delete(completionKey(batchId, task.taskId));
     }
     finalizingBatches.delete(batchId);
+    scheduleBatchCleanup(batchId); // T11 (H-07)
   }
 }

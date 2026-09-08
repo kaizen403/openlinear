@@ -63,7 +63,20 @@ export type Action =
   | { type: 'resetEventStreamTimeout'; timeoutMs?: number; timeoutMessage?: string }
   | { type: 'handleSessionComplete' }
   | { type: 'failExecution'; message: string; details?: string }
-  | { type: 'sessionError'; headline: string; errorDetail: string; isAuthError: boolean; isRateLimit: boolean };
+  | { type: 'sessionError'; headline: string; errorDetail: string; isAuthError: boolean; isRateLimit: boolean }
+  | { type: 'replyPermission'; permissionId: string; reply: 'once' | 'always' | 'reject' }
+  | { type: 'suspendWatchdog' }
+  | { type: 'resumeWatchdog' }
+  | {
+      type: 'recordUsage';
+      messageId: string;
+      cost: number;
+      inputTokens: number;
+      outputTokens: number;
+      reasoningTokens: number;
+      cacheReadTokens: number;
+      cacheWriteTokens: number;
+    };
 
 const BACKGROUND_TASK_BUFFER_LIMIT = 4_000;
 
@@ -79,8 +92,13 @@ export function processEvent(event: OpenCodeEvent, state: EventProcessorState): 
   const actions: Action[] = [];
 
   switch (event.type) {
-    case 'session.idle':
-    case 'session.completed': {
+    // T6 (R1 P1-6) — `session.completed` was handled here alongside
+    // `session.idle`, but it does not exist in the installed
+    // @opencode-ai/sdk@1.2.5 `Event` union (verified against
+    // dist/gen/types.gen.d.ts: the union lists `session.idle` and
+    // `session.compacted`, never `session.completed`). It was dead code;
+    // `session.idle` is the real completion signal.
+    case 'session.idle': {
       if (!state.promptSent || state.cancelled) {
         return [{ type: 'ignore' }];
       }
@@ -160,6 +178,12 @@ export function processEvent(event: OpenCodeEvent, state: EventProcessorState): 
         } else if (toolState?.status === 'error') {
           actions.push({ type: 'log', level: 'error', message: `Failed: ${toolName}`, details: toolState.output });
         }
+      } else if (part?.type === 'compaction') {
+        // T3/R1 P1-9 — surfaces a compaction as it happens rather than
+        // silently dropping it (the default branch below). Compaction is
+        // "progress", not idle time, so the caller resets the no-progress
+        // watchdog on any handled event including this one.
+        actions.push({ type: 'log', level: 'info', message: 'Session compaction started' });
       } else if (part?.type === 'reasoning') {
         if (delta && delta.length > 0) {
           actions.push({ type: 'appendReasoningDelta', delta });
@@ -168,26 +192,73 @@ export function processEvent(event: OpenCodeEvent, state: EventProcessorState): 
       return actions;
     }
 
-    case 'tool.execute.before': {
-      actions.push({ type: 'flushDeltaBuffer' });
-      const tool = event.properties?.tool as string;
-      if (tool) {
-        actions.push({ type: 'log', level: 'tool', message: `Starting: ${tool}` });
+    // T6 (R1 P1-6) — `tool.execute.before`/`tool.execute.after` are OpenCode
+    // *plugin* hooks (packages/plugin, invoked in-process inside the OpenCode
+    // server), not bus events delivered over `/event`/`client.event.subscribe()`.
+    // They are not part of the installed SDK's `Event` union — this codebase
+    // never receives them over the stream it actually subscribes to. Tool
+    // lifecycle (start/running/completed/error) arrives exclusively via
+    // `message.part.updated` with `part.type === 'tool'`, handled above.
+    // These two cases were dead code; deleted along with their tests.
+
+    case 'permission.updated': {
+      // T3 (R1 P0-1/P0-2) — a fallback, not the primary control: the config
+      // injected in services/opencode.ts denies doom_loop/external_directory/
+      // *.env reads outright, so a real `ask` should be rare. If OpenCode asks
+      // for something this deny-list did not anticipate, make it visible
+      // (log) and answer it immediately (fail closed) rather than let
+      // `Permission.ask`'s un-timed-out Deferred hang the run forever.
+      const permission = event.properties as { id?: string; type?: string; title?: string } | undefined;
+      const permissionId = permission?.id;
+      const label = permission?.type || 'unknown';
+      const title = permission?.title || label;
+      actions.push({ type: 'log', level: 'info', message: `Permission requested: ${label} — ${title}` });
+      actions.push({ type: 'suspendWatchdog' });
+      if (permissionId) {
+        actions.push({ type: 'replyPermission', permissionId, reply: 'reject' });
       }
       return actions;
     }
 
-    case 'tool.execute.after': {
-      const tool = event.properties?.tool as string;
-      const output = event.properties?.output as string;
-      if (tool) {
-        actions.push({ type: 'noteToolCompleted', toolName: tool, output });
-        if (isBackgroundTaskCancellation(tool, output || '')) {
-          actions.push({ type: 'clearBackgroundTaskWait', status: 'cancelled', details: output?.slice(-1_000) || '' });
-        } else {
-          actions.push({ type: 'observeBackgroundTaskText', text: output || '' });
-        }
-        actions.push({ type: 'log', level: 'success', message: `Finished: ${tool}`, details: output?.slice(0, 100) });
+    case 'permission.replied': {
+      actions.push({ type: 'resumeWatchdog' });
+      return actions;
+    }
+
+    case 'session.compacted': {
+      actions.push({ type: 'log', level: 'info', message: 'Session context was compacted' });
+      return actions;
+    }
+
+    case 'message.updated': {
+      // T8 (H-06) — `message.updated` carries per-message TOTALS (cost and
+      // token counts to date for that message id), including the cache and
+      // reasoning breakdowns that are frequently the majority of spend. Only
+      // assistant messages carry usage; user messages do not.
+      const info = event.properties?.info as
+        | {
+            id: string;
+            role: string;
+            cost?: number;
+            tokens?: {
+              input?: number;
+              output?: number;
+              reasoning?: number;
+              cache?: { read?: number; write?: number };
+            };
+          }
+        | undefined;
+      if (info && info.role === 'assistant' && info.id) {
+        actions.push({
+          type: 'recordUsage',
+          messageId: info.id,
+          cost: typeof info.cost === 'number' ? info.cost : 0,
+          inputTokens: info.tokens?.input ?? 0,
+          outputTokens: info.tokens?.output ?? 0,
+          reasoningTokens: info.tokens?.reasoning ?? 0,
+          cacheReadTokens: info.tokens?.cache?.read ?? 0,
+          cacheWriteTokens: info.tokens?.cache?.write ?? 0,
+        });
       }
       return actions;
     }

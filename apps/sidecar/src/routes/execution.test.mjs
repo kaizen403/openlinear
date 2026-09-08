@@ -36,9 +36,19 @@ vi.mock('@openlinear/api/sse', () => ({
   broadcastToTask: mocks.broadcastToTask,
 }));
 
+// Mirrors requireAuth's observable contract for this router: a request
+// without proof of identity (here, a stand-in `x-user-id` header) never
+// reaches the handler at all. This is the fix for C6a F4 — previously this
+// router used `optionalAuth`, which let an unauthenticated caller through
+// with `req.userId` simply left undefined.
 vi.mock('@openlinear/api/middleware', () => ({
-  optionalAuth: (req, _res, next) => {
-    req.userId = req.get('x-user-id') || undefined;
+  requireAuth: (req, res, next) => {
+    const userId = req.get('x-user-id');
+    if (!userId) {
+      res.status(401).json({ error: 'Authentication required' });
+      return;
+    }
+    req.userId = userId;
     next();
   },
 }));
@@ -107,6 +117,8 @@ async function request(app, method, path, options = {}) {
   }
 }
 
+const AUTH_HEADERS = { 'x-user-id': 'user-1' };
+
 describe('execution routes', () => {
   let app;
 
@@ -124,11 +136,33 @@ describe('execution routes', () => {
     globalThis.fetch = originalFetch;
   });
 
+  describe('unauthenticated requests', () => {
+    it.each([
+      ['POST', '/task-1/execute'],
+      ['POST', '/task-1/refresh-pr'],
+      ['GET', '/task-1/running'],
+      ['GET', '/task-1/logs'],
+      ['POST', '/task-1/cancel'],
+    ])('rejects %s %s with 401 and never reaches ownership or execution logic', async (method, path) => {
+      await expect(request(app, method, path)).resolves.toEqual({
+        status: 401,
+        body: { error: 'Authentication required' },
+      });
+
+      expect(mocks.assertTaskOwned).not.toHaveBeenCalled();
+      expect(mocks.executeTask).not.toHaveBeenCalled();
+      expect(mocks.cancelTask).not.toHaveBeenCalled();
+      expect(mocks.isTaskRunning).not.toHaveBeenCalled();
+      expect(mocks.getExecutionLogs).not.toHaveBeenCalled();
+      expect(mocks.taskFindUnique).not.toHaveBeenCalled();
+    });
+  });
+
   it('starts execution for owned tasks and returns route-level failures as 400', async () => {
     mocks.executeTask.mockResolvedValueOnce({ success: true });
 
     await expect(request(app, 'POST', '/task-1/execute', {
-      headers: { 'x-user-id': 'user-1' },
+      headers: AUTH_HEADERS,
     })).resolves.toEqual({
       status: 200,
       body: { message: 'Task execution started' },
@@ -137,29 +171,31 @@ describe('execution routes', () => {
     expect(mocks.executeTask).toHaveBeenCalledWith({ taskId: 'task-1', userId: 'user-1' });
 
     mocks.executeTask.mockResolvedValueOnce({ success: false, error: 'No active project selected' });
-    await expect(request(app, 'POST', '/task-1/execute')).resolves.toEqual({
+    await expect(request(app, 'POST', '/task-1/execute', { headers: AUTH_HEADERS })).resolves.toEqual({
       status: 400,
       body: { error: 'No active project selected' },
     });
 
     mocks.executeTask.mockRejectedValueOnce(new Error('execute exploded'));
-    await expect(request(app, 'POST', '/task-1/execute')).resolves.toEqual({
+    await expect(request(app, 'POST', '/task-1/execute', { headers: AUTH_HEADERS })).resolves.toEqual({
       status: 500,
       body: { error: 'execute exploded' },
     });
   });
 
+  it('propagates ownership failures for execute as a 500 via next(error)', async () => {
+    mocks.assertTaskOwned.mockRejectedValueOnce(new Error('not yours'));
+
+    await expect(request(app, 'POST', '/task-1/execute', { headers: AUTH_HEADERS })).resolves.toEqual({
+      status: 500,
+      body: { error: 'not yours' },
+    });
+    expect(mocks.executeTask).not.toHaveBeenCalled();
+  });
+
   it('reports running state and cancels only running tasks', async () => {
     mocks.isTaskRunning.mockReturnValueOnce(true);
-    await expect(request(app, 'GET', '/task-1/running')).resolves.toEqual({
-      status: 200,
-      body: { running: true },
-    });
-
-    mocks.isTaskRunning.mockReturnValueOnce(true);
-    await expect(request(app, 'GET', '/task-1/running', {
-      headers: { 'x-user-id': 'user-1' },
-    })).resolves.toEqual({
+    await expect(request(app, 'GET', '/task-1/running', { headers: AUTH_HEADERS })).resolves.toEqual({
       status: 200,
       body: { running: true },
     });
@@ -167,28 +203,28 @@ describe('execution routes', () => {
 
     mocks.assertTaskOwned.mockRejectedValueOnce(new Error('not yours'));
     await expect(request(app, 'GET', '/task-1/running', {
-      headers: { 'x-user-id': 'user-1' },
+      headers: AUTH_HEADERS,
     })).resolves.toEqual({
       status: 500,
       body: { error: 'not yours' },
     });
 
     mocks.isTaskRunning.mockReturnValueOnce(false);
-    await expect(request(app, 'POST', '/task-1/cancel')).resolves.toEqual({
+    await expect(request(app, 'POST', '/task-1/cancel', { headers: AUTH_HEADERS })).resolves.toEqual({
       status: 400,
       body: { error: 'Task is not running' },
     });
 
     mocks.isTaskRunning.mockReturnValueOnce(true);
     mocks.cancelTask.mockResolvedValueOnce({ success: true });
-    await expect(request(app, 'POST', '/task-1/cancel')).resolves.toEqual({
+    await expect(request(app, 'POST', '/task-1/cancel', { headers: AUTH_HEADERS })).resolves.toEqual({
       status: 200,
       body: { message: 'Task cancelled' },
     });
 
     mocks.isTaskRunning.mockReturnValueOnce(true);
     mocks.cancelTask.mockResolvedValueOnce({ success: false, error: 'Abort failed' });
-    await expect(request(app, 'POST', '/task-1/cancel')).resolves.toEqual({
+    await expect(request(app, 'POST', '/task-1/cancel', { headers: AUTH_HEADERS })).resolves.toEqual({
       status: 400,
       body: { error: 'Abort failed' },
     });
@@ -196,7 +232,7 @@ describe('execution routes', () => {
     mocks.isTaskRunning.mockImplementationOnce(() => {
       throw new Error('state read failed');
     });
-    await expect(request(app, 'POST', '/task-1/cancel')).resolves.toEqual({
+    await expect(request(app, 'POST', '/task-1/cancel', { headers: AUTH_HEADERS })).resolves.toEqual({
       status: 500,
       body: { error: 'state read failed' },
     });
@@ -205,7 +241,7 @@ describe('execution routes', () => {
     mocks.isTaskRunning.mockReturnValueOnce(true);
     mocks.cancelTask.mockResolvedValueOnce({ success: true });
     await expect(request(app, 'POST', '/task-1/cancel', {
-      headers: { 'x-user-id': 'user-1' },
+      headers: AUTH_HEADERS,
     })).resolves.toEqual({
       status: 200,
       body: { message: 'Task cancelled' },
@@ -215,15 +251,16 @@ describe('execution routes', () => {
   it('returns active, batch, or persisted execution logs in priority order', async () => {
     const activeLogs = [{ timestamp: 'now', type: 'info', message: 'active' }];
     mocks.getExecutionLogs.mockReturnValueOnce(activeLogs);
-    await expect(request(app, 'GET', '/task-1/logs')).resolves.toEqual({
+    await expect(request(app, 'GET', '/task-1/logs', { headers: AUTH_HEADERS })).resolves.toEqual({
       status: 200,
       body: { logs: activeLogs },
     });
+    expect(mocks.assertTaskOwned).toHaveBeenCalledWith('task-1', 'user-1');
 
     const batchLogs = [{ timestamp: 'now', type: 'info', message: 'batch' }];
     mocks.getExecutionLogs.mockReturnValueOnce([]);
     mocks.getBatchExecutionLogs.mockReturnValueOnce(batchLogs);
-    await expect(request(app, 'GET', '/task-1/logs')).resolves.toEqual({
+    await expect(request(app, 'GET', '/task-1/logs', { headers: AUTH_HEADERS })).resolves.toEqual({
       status: 200,
       body: { logs: batchLogs },
     });
@@ -232,7 +269,7 @@ describe('execution routes', () => {
     mocks.getExecutionLogs.mockReturnValueOnce([]);
     mocks.getBatchExecutionLogs.mockReturnValueOnce([]);
     mocks.queryRaw.mockResolvedValueOnce([{ executionLogs: persistedLogs }]);
-    await expect(request(app, 'GET', '/task-1/logs')).resolves.toEqual({
+    await expect(request(app, 'GET', '/task-1/logs', { headers: AUTH_HEADERS })).resolves.toEqual({
       status: 200,
       body: { logs: persistedLogs },
     });
@@ -240,7 +277,7 @@ describe('execution routes', () => {
     mocks.getExecutionLogs.mockReturnValueOnce([]);
     mocks.getBatchExecutionLogs.mockReturnValueOnce([]);
     mocks.queryRaw.mockRejectedValueOnce(new Error('logs query failed'));
-    await expect(request(app, 'GET', '/task-1/logs')).resolves.toEqual({
+    await expect(request(app, 'GET', '/task-1/logs', { headers: AUTH_HEADERS })).resolves.toEqual({
       status: 500,
       body: { error: 'logs query failed' },
     });
@@ -249,7 +286,7 @@ describe('execution routes', () => {
     mocks.getBatchExecutionLogs.mockReturnValueOnce([]);
     mocks.queryRaw.mockResolvedValueOnce([]);
     await expect(request(app, 'GET', '/task-1/logs', {
-      headers: { 'x-user-id': 'user-1' },
+      headers: AUTH_HEADERS,
     })).resolves.toEqual({
       status: 200,
       body: { logs: [] },
@@ -273,7 +310,7 @@ describe('execution routes', () => {
     });
 
     await expect(request(app, 'POST', '/task-1/refresh-pr', {
-      headers: { 'x-user-id': 'user-1' },
+      headers: AUTH_HEADERS,
     })).resolves.toEqual({
       status: 200,
       body: { prUrl: 'https://github.com/acme/repo/pull/7', refreshed: true },
@@ -315,7 +352,7 @@ describe('execution routes', () => {
     mocks.taskUpdateMany.mockClear();
 
     await expect(request(app, 'POST', '/task-2/refresh-pr', {
-      headers: { 'x-user-id': 'user-1' },
+      headers: AUTH_HEADERS,
     })).resolves.toEqual({
       status: 200,
       body: { prUrl: 'https://github.com/acme/repo/pull/8', refreshed: true },
@@ -323,21 +360,21 @@ describe('execution routes', () => {
     expect(mocks.taskUpdateMany).not.toHaveBeenCalled();
   });
 
-  it('does not refresh missing tasks, non-compare links, or unauthenticated compare links', async () => {
+  it('does not refresh missing tasks, non-compare links, or compare links with no stored GitHub token', async () => {
     mocks.taskFindUnique.mockResolvedValueOnce(null);
-    await expect(request(app, 'POST', '/missing/refresh-pr')).resolves.toEqual({
+    await expect(request(app, 'POST', '/missing/refresh-pr', { headers: AUTH_HEADERS })).resolves.toEqual({
       status: 404,
       body: { error: 'Task not found' },
     });
 
     mocks.taskFindUnique.mockResolvedValueOnce({ prUrl: 'https://github.com/acme/repo/pull/1', batchId: null });
-    await expect(request(app, 'POST', '/task-1/refresh-pr')).resolves.toEqual({
+    await expect(request(app, 'POST', '/task-1/refresh-pr', { headers: AUTH_HEADERS })).resolves.toEqual({
       status: 200,
       body: { prUrl: 'https://github.com/acme/repo/pull/1', refreshed: false },
     });
 
     mocks.taskFindUnique.mockResolvedValueOnce({ prUrl: 'https://github.com/acme/repo/compare/no-dots', batchId: null });
-    await expect(request(app, 'POST', '/task-1/refresh-pr')).resolves.toEqual({
+    await expect(request(app, 'POST', '/task-1/refresh-pr', { headers: AUTH_HEADERS })).resolves.toEqual({
       status: 200,
       body: { prUrl: 'https://github.com/acme/repo/compare/no-dots', refreshed: false },
     });
@@ -346,18 +383,8 @@ describe('execution routes', () => {
       prUrl: 'https://github.com/acme/repo/compare/main...branch',
       batchId: null,
     });
-    await expect(request(app, 'POST', '/task-1/refresh-pr')).resolves.toEqual({
-      status: 400,
-      body: { error: 'GitHub authentication required to refresh PR status' },
-    });
-
-    mocks.taskFindUnique.mockResolvedValueOnce({
-      prUrl: 'https://github.com/acme/repo/compare/main...branch',
-      batchId: null,
-    });
-    await expect(request(app, 'POST', '/task-1/refresh-pr', {
-      headers: { 'x-user-id': 'user-1' },
-    })).resolves.toEqual({
+    mocks.userFindUnique.mockResolvedValueOnce({ accessToken: null });
+    await expect(request(app, 'POST', '/task-1/refresh-pr', { headers: AUTH_HEADERS })).resolves.toEqual({
       status: 400,
       body: { error: 'GitHub authentication required to refresh PR status' },
     });
@@ -371,7 +398,7 @@ describe('execution routes', () => {
       throw new Error('decrypt failed');
     });
     await expect(request(app, 'POST', '/task-1/refresh-pr', {
-      headers: { 'x-user-id': 'user-1' },
+      headers: AUTH_HEADERS,
     })).resolves.toEqual({
       status: 400,
       body: { error: 'GitHub authentication required to refresh PR status' },
@@ -384,7 +411,7 @@ describe('execution routes', () => {
     mocks.userFindUnique.mockResolvedValueOnce({ accessToken: 'secret' });
     mocks.fetch.mockResolvedValueOnce({ ok: false });
     await expect(request(app, 'POST', '/task-1/refresh-pr', {
-      headers: { 'x-user-id': 'user-1' },
+      headers: AUTH_HEADERS,
     })).resolves.toEqual({
       status: 502,
       body: { error: 'GitHub API request failed' },
@@ -397,7 +424,7 @@ describe('execution routes', () => {
     mocks.userFindUnique.mockResolvedValueOnce({ accessToken: 'secret' });
     mocks.fetch.mockResolvedValueOnce({ ok: true, json: async () => [] });
     await expect(request(app, 'POST', '/task-1/refresh-pr', {
-      headers: { 'x-user-id': 'user-1' },
+      headers: AUTH_HEADERS,
     })).resolves.toEqual({
       status: 200,
       body: {
@@ -408,7 +435,7 @@ describe('execution routes', () => {
     });
 
     mocks.taskFindUnique.mockRejectedValueOnce(new Error('refresh failed'));
-    await expect(request(app, 'POST', '/task-1/refresh-pr')).resolves.toEqual({
+    await expect(request(app, 'POST', '/task-1/refresh-pr', { headers: AUTH_HEADERS })).resolves.toEqual({
       status: 500,
       body: { error: 'Failed to refresh PR status' },
     });

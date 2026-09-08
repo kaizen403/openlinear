@@ -48,6 +48,26 @@ export async function createInvitation(input: {
   return invitation;
 }
 
+/**
+ * Fields of `Invitation` that may be returned over the API.
+ *
+ * Deliberately excludes `token`. Both listings used `include` with no `select`,
+ * so every pending invitation was returned with its acceptance token — and
+ * `acceptInvitation` treats a token as sufficient on its own, with no email
+ * check. Combined with a writable account email that was a path into another
+ * tenant's workspace.
+ */
+const invitationSelect = {
+  id: true,
+  email: true,
+  role: true,
+  status: true,
+  workspaceId: true,
+  invitedById: true,
+  createdAt: true,
+  expiresAt: true,
+} as const;
+
 export async function listPendingInvitationsForWorkspace(input: {
   workspaceId: string;
   userId: string;
@@ -61,7 +81,8 @@ export async function listPendingInvitationsForWorkspace(input: {
       expiresAt: { gt: new Date() },
     },
     orderBy: { createdAt: 'desc' },
-    include: {
+    select: {
+      ...invitationSelect,
       invitedBy: {
         select: { id: true, username: true, displayName: true, avatarUrl: true },
       },
@@ -187,7 +208,8 @@ export async function listMyPendingInvitations(input: {
       expiresAt: { gt: new Date() },
     },
     orderBy: { createdAt: 'desc' },
-    include: {
+    select: {
+      ...invitationSelect,
       workspace: {
         select: { id: true, name: true, slug: true },
       },

@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useRef, useCallback, useState, type ReactNode } from "react"
 import { useAuth } from "@/hooks/use-auth"
-import { getApiUrl, getSidecarApiUrl } from "@/lib/api/client"
+import { getApiUrl, getAuthToken, getSidecarApiUrl } from "@/lib/api/client"
 
 const SSE_MAX_BACKOFF_MS = 30_000
 
@@ -158,19 +158,29 @@ interface SSEStream {
   reconnecting: boolean
 }
 
+/**
+ * SECURITY NOTE (Phase 0 / T5b, tracked for Phase 1): the token is passed as
+ * a `?token=` query param because we connect with the native `EventSource`
+ * API, which cannot set custom request headers (`Authorization` included) —
+ * this is a platform limitation, not a choice. Query-string tokens can end up
+ * in proxy/server access logs, so this is a real residual risk.
+ *
+ * The API now also accepts `Authorization: Bearer <token>` on GET
+ * /api/events (confirmed 2026-09), so the query param is no longer strictly
+ * required server-side. The fix is to replace `EventSource` here with a
+ * fetch()-based SSE client (fetch + ReadableStream, manually parsing the
+ * `text/event-stream` framing) so the token can move to a header and never
+ * appear in the URL at all. That's a real rewrite of this provider's
+ * connect/reconnect logic, so it's deliberately out of scope for Phase 0
+ * (smallest-safe-change) — flagging it as the concrete Phase 1 follow-up
+ * instead of hand-rolling an SSE parser under a "stop the bleeding" pass.
+ * In the meantime: never log `url`/`token` from this file (only `baseUrl`,
+ * which has no query string, is logged below).
+ */
 function buildEventsUrl(baseUrl: string, token: string | null): string {
   const url = new URL(`${baseUrl}/api/events`)
   if (token) url.searchParams.set('token', token)
   return url.toString()
-}
-
-function readToken(): string | null {
-  if (typeof window === 'undefined') return null
-  try {
-    return window.localStorage.getItem('token')
-  } catch {
-    return null
-  }
 }
 
 export function SSEProvider({ children }: { children: ReactNode }) {
@@ -214,7 +224,7 @@ export function SSEProvider({ children }: { children: ReactNode }) {
     if (typeof window === 'undefined') return
     closeStream(baseUrl)
 
-    const token = readToken()
+    const token = getAuthToken()
     const url = buildEventsUrl(baseUrl, token)
     const source = new EventSource(url)
     const stream: SSEStream = { source, retries: 0, reconnectTimer: null, reconnecting: false }

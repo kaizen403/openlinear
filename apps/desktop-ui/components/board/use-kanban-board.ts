@@ -16,6 +16,7 @@ import {
 import type { BatchMode } from "./batch-mode"
 import {
   applyBoardStatusChange,
+  getLockedBatchTaskIds,
   moveBoardTask,
   replaceOptimisticTask,
   upsertBoardTask,
@@ -157,25 +158,23 @@ export function useKanbanBoard({ projectId, teamId, projects = [], searchQuery =
   filteredTasksRef.current = filteredTasks
 
   // --- Batch Execution ---
-  const batch = useBatchExecution({
-    tasks,
-    selectedTaskIds: new Set(), // will be overridden below
-    activeBatch,
-    setActiveBatch,
-    clearSelection: () => {}, // will be overridden below
-    setTasks,
-    setShowProviderSetup,
-    setSelectedTaskIds: () => {},
-  })
+  // batchTaskIds only ever depends on `activeBatch` (see getLockedBatchTaskIds),
+  // so it's computed up front to break the circular dependency between
+  // useBatchExecution (needs the real selection handlers) and useTaskSelection
+  // (needs batchTaskIds) — without constructing a second, throwaway
+  // useBatchExecution instance just to read this value.
+  const batchTaskIds = useMemo(
+    () => Array.from(getLockedBatchTaskIds(activeBatch)),
+    [activeBatch],
+  )
 
   // --- Task Selection ---
   const selection = useTaskSelection({
     tasks,
     filteredTasks,
-    batchTaskIds: batch.batchTaskIds,
+    batchTaskIds,
   })
 
-  // Re-wire batch with actual selection values
   const batchWithSelection = useBatchExecution({
     tasks,
     selectedTaskIds: selection.selectedTaskIds,
@@ -187,7 +186,7 @@ export function useKanbanBoard({ projectId, teamId, projects = [], searchQuery =
     setSelectedTaskIds: selection.setSelectedTaskIds,
   })
 
-  const { batchTaskIds, completedBatchTaskIds, completedBatch, setCompletedBatch } = batchWithSelection
+  const { completedBatchTaskIds, completedBatch, setCompletedBatch } = batchWithSelection
 
   const batchTaskIdsRef = useRef(batchTaskIds)
   batchTaskIdsRef.current = batchTaskIds

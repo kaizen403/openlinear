@@ -4,8 +4,9 @@ import jwt from 'jsonwebtoken';
 import { createApp } from '../app';
 import { prisma } from '@openlinear/db';
 import { setChatLLMClientForTesting, type ChatLLMClient, type ChatLLMEvent, type StreamChatCompletionInput } from '../lib/chat-llm';
+import { testJwtSecret } from './test-env';
 
-const JWT_SECRET = 'openlinear-dev-secret-change-in-production';
+const JWT_SECRET = testJwtSecret();
 
 class ScriptedClient implements ChatLLMClient {
   readonly model = 'test-chat-model';

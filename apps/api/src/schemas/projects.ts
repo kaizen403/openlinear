@@ -1,10 +1,9 @@
 import { z } from 'zod';
+import { gitRefSchema, localRepoPathSchema } from './git';
 
-const branchNameSchema = z
-  .string()
-  .min(1)
-  .max(255)
-  .regex(/^[A-Za-z0-9._/-]+$/);
+// Re-exported from ./git so the option-injection guard (no leading `-`) is
+// applied everywhere a branch name can reach a positional git argument.
+const branchNameSchema = gitRefSchema;
 
 export const createProjectBodySchema = z.object({
   workspaceId: z.string().min(1).optional(),
@@ -33,7 +32,7 @@ export const createProjectBodySchema = z.object({
   repoUrl: z.string().optional(),
   repositoryId: z.string().uuid().optional(),
   defaultBranch: branchNameSchema.optional(),
-  localPath: z.string().optional(),
+  localPath: localRepoPathSchema.optional(),
 });
 
 export const updateProjectBodySchema = z.object({
@@ -62,7 +61,7 @@ export const updateProjectBodySchema = z.object({
   leadId: z.string().uuid().nullable().optional(),
   teamIds: z.array(z.string().uuid()).max(1).optional(),
   repoUrl: z.string().nullable().optional(),
-  localPath: z.string().nullable().optional(),
+  localPath: localRepoPathSchema.nullable().optional(),
 });
 
 export const listProjectsQuerySchema = z.object({

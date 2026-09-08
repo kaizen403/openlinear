@@ -3,8 +3,9 @@ import request from 'supertest';
 import jwt from 'jsonwebtoken';
 import { createApp } from '../app';
 import { prisma } from '@openlinear/db';
+import { testJwtSecret } from './test-env';
 
-const JWT_SECRET = 'openlinear-dev-secret-change-in-production';
+const JWT_SECRET = testJwtSecret();
 
 function token(userId: string, username: string) {
   return jwt.sign({ userId, username }, JWT_SECRET, { expiresIn: '1h' });

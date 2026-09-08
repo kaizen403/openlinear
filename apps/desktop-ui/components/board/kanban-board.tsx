@@ -12,6 +12,18 @@ import { TaskFormDialog } from "@/components/task-form"
 import { TaskDetailView } from "@/components/task-detail-view"
 import { ProviderSetupDialog } from "@/components/provider-setup-dialog"
 import { EmptyState } from "@/components/empty-state"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
+import { buttonVariants } from "@/components/ui/button"
+import { cn } from "@/lib/utils"
 import { Plus, Settings2, GitBranch, CircleDot, Layers, Play, Pencil, Inbox } from "lucide-react"
 import { Task } from "@/types/task"
 import { Project, Repository } from "@/lib/api"
@@ -24,6 +36,7 @@ import { formatBatchExecutionMode } from "./batch-mode"
 import { useRouter } from "next/navigation"
 import { BoardFilters, useBoardFilters } from "./board-filters"
 import { useTeamMembers } from "@/hooks/use-team-members"
+import { isEditableTarget, isInsideOverlay } from "./keyboard-guards"
 
 interface ProjectConfigPanelProps {
   selectedProject: Project | undefined
@@ -203,6 +216,13 @@ export function KanbanBoard(props: KanbanBoardProps) {
 
   const boardRef = useRef<HTMLDivElement>(null)
   const [isDragging, setIsDragging] = useState(false)
+  // Confirmation gate for the 'd'/Backspace board shortcut — deleting (or
+  // archiving) a task is destructive and, unlike the trash-icon button, has
+  // no visible affordance before it fires, so it needs an explicit "are you
+  // sure" step.
+  const [pendingDelete, setPendingDelete] = useState<
+    { kind: 'single'; taskId: string } | { kind: 'bulk'; count: number } | null
+  >(null)
 
   const filters = useBoardFilters()
   const { members } = useTeamMembers()
@@ -241,12 +261,7 @@ export function KanbanBoard(props: KanbanBoardProps) {
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement | null
-      const isEditable =
-        target?.tagName === 'INPUT' ||
-        target?.tagName === 'TEXTAREA' ||
-        target?.isContentEditable
-      if (isEditable) return
+      if (isEditableTarget(e.target)) return
 
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'a') {
         e.preventDefault()
@@ -293,11 +308,15 @@ export function KanbanBoard(props: KanbanBoardProps) {
         return
       }
       if (k === 'd' || k === 'backspace') {
+        // Focus can legitimately be inside an open dialog/sheet/popover on a
+        // non-input element (e.g. a button) — the overlay owns keyboard input
+        // at that point, so the board's destructive shortcut must not fire.
+        if (isInsideOverlay(e.target)) return
         e.preventDefault()
         if (selectionActive) {
-          handleBulkDelete()
+          if (selectedTaskIds.size > 0) setPendingDelete({ kind: 'bulk', count: selectedTaskIds.size })
         } else if (selectedTaskId) {
-          handleDelete(selectedTaskId)
+          setPendingDelete({ kind: 'single', taskId: selectedTaskId })
         }
         return
       }
@@ -333,7 +352,7 @@ export function KanbanBoard(props: KanbanBoardProps) {
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [selectAllVisible, clearSelection, selectionActive, selectedTaskId, getTasksByStatus, handleTaskClick, toggleTaskSelect, canExecute, handleExecute, handleDelete, handleBulkDelete, handleMoveToInProgress, handleBulkChangeStatus, handleDrawerClose])
+  }, [selectAllVisible, clearSelection, selectionActive, selectedTaskId, selectedTaskIds, getTasksByStatus, handleTaskClick, toggleTaskSelect, canExecute, handleExecute, handleMoveToInProgress, handleBulkChangeStatus, handleDrawerClose])
 
   const renderTask = (task: Task, index: number, isCompletedBatch?: boolean) => {
     const dragDisabled =
@@ -360,7 +379,8 @@ export function KanbanBoard(props: KanbanBoardProps) {
               <TaskCard
                 task={task}
                 onMoveToInProgress={task.status === 'todo' ? handleMoveToInProgress : undefined}
-                onExecute={task.status === 'in_progress' && canExecute ? handleExecute : undefined}
+                onExecute={handleExecute}
+                canExecute={canExecute}
                 onCancel={task.status === 'in_progress' ? handleCancel : undefined}
                 onDelete={handleDelete}
                 onTaskClick={handleTaskClick}
@@ -478,7 +498,8 @@ export function KanbanBoard(props: KanbanBoardProps) {
                                   key={task.id}
                                   task={task}
                                   onMoveToInProgress={task.status === 'todo' ? handleMoveToInProgress : undefined}
-                                  onExecute={task.status === 'in_progress' && canExecute ? handleExecute : undefined}
+                                  onExecute={handleExecute}
+                                  canExecute={canExecute}
                                   onCancel={task.status === 'in_progress' ? handleCancel : undefined}
                                   onDelete={handleDelete}
                                   onTaskClick={handleTaskClick}
@@ -611,6 +632,39 @@ export function KanbanBoard(props: KanbanBoardProps) {
           onOpenChange={setShowProviderSetup}
           onSetupComplete={handleProviderSetupComplete}
         />
+
+        <AlertDialog
+          open={pendingDelete !== null}
+          onOpenChange={(open) => { if (!open) setPendingDelete(null) }}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>
+                {taskDeletionMode === 'delete' ? 'Delete' : 'Archive'}{' '}
+                {pendingDelete?.kind === 'bulk' ? `${pendingDelete.count} tasks` : 'task'}?
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                {taskDeletionMode === 'delete'
+                  ? 'This permanently deletes the task and cannot be undone.'
+                  : 'This moves the task to Archived. You can restore it later.'}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={(e) => {
+                  e.preventDefault()
+                  if (pendingDelete?.kind === 'bulk') handleBulkDelete()
+                  else if (pendingDelete?.kind === 'single') handleDelete(pendingDelete.taskId)
+                  setPendingDelete(null)
+                }}
+                className={cn(buttonVariants({ variant: "destructive" }))}
+              >
+                {taskDeletionMode === 'delete' ? 'Delete' : 'Archive'}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
 
         {(() => {
           if (selectedTaskIds.size === 0) return null

@@ -32,7 +32,6 @@ export default function LoginPage() {
         toast.error("Could not open GitHub sign-in. Check that the desktop API is running and try again.")
         return
       }
-      setShowTokenFallback(true)
     } catch {
       toast.error("Could not open GitHub sign-in. Check that the desktop API is running and try again.")
     } finally {
@@ -48,7 +47,7 @@ export default function LoginPage() {
     event.preventDefault()
     const token = extractCallbackToken(callbackToken)
     if (!token) {
-      toast.error("Paste the token from the browser callback page.")
+      toast.error("Paste a callback link.")
       return
     }
 
@@ -133,18 +132,18 @@ export default function LoginPage() {
               className="mx-auto flex items-center gap-2 text-sm text-linear-text-tertiary hover:text-linear-text-secondary transition-colors"
             >
               <KeyRound className="w-4 h-4" />
-              Enter callback token
+              Trouble signing in?
             </button>
 
             {showTokenFallback && (
               <form onSubmit={handleTokenLogin} className="mt-3 space-y-3">
                 <p className="text-xs text-linear-text-tertiary">
-                  If the browser callback does not return to the app, paste the token or app link from that page here.
+                  Use this only if your browser did not hand the callback back to OpenLinear.
                 </p>
                 <textarea
                   value={callbackToken}
                   onChange={(event) => setCallbackToken(event.target.value)}
-                  placeholder="Paste token or openlinear://callback URL"
+                  placeholder="Paste openlinear://callback URL"
                   className="min-h-24 w-full resize-y rounded-sm border border-linear-border bg-linear-bg px-3 py-2 text-xs text-linear-text placeholder:text-linear-text-tertiary focus:outline-none focus:border-linear-border-hover font-mono"
                 />
                 <Button

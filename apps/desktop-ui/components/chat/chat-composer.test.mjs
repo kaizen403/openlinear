@@ -17,8 +17,10 @@ vi.mock('@/lib/audio-utils', () => ({
 vi.mock('lucide-react', () => ({
   Loader2: (props) => createElement('svg', { ...props, 'data-testid': 'loader2' }),
   Mic: (props) => createElement('svg', { ...props, 'data-testid': 'mic' }),
+  Paperclip: (props) => createElement('svg', { ...props, 'data-testid': 'paperclip' }),
   Send: (props) => createElement('svg', { ...props, 'data-testid': 'send' }),
   Square: (props) => createElement('svg', { ...props, 'data-testid': 'square' }),
+  X: (props) => createElement('svg', { ...props, 'data-testid': 'x' }),
 }))
 
 const { ChatComposer } = await import('./chat-composer.tsx')
@@ -43,7 +45,9 @@ describe('ChatComposer', () => {
     fireEvent.change(textarea, { target: { value: 'hello' } })
     fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: false })
 
-    expect(onSend).toHaveBeenCalledWith('hello')
+    // onSend(content, attachmentIds) — no attachments were added, so the
+    // second argument is undefined.
+    expect(onSend).toHaveBeenCalledWith('hello', undefined)
   })
 
   it('does not call onSend when value is empty', () => {

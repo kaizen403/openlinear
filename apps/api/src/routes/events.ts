@@ -5,37 +5,49 @@ import { prisma } from '@openlinear/db';
 import { clients, SSEClient } from '../sse';
 import { buildErrorEnvelope } from '../lib/http';
 import { getUserTeamIds } from '../services/team-scope';
+import { getJwtSecret } from '../lib/secrets';
+import { hashToken, isSessionRevoked } from '../services/sessions';
 
 const router: Router = Router();
 
 router.get('/', async (req: Request, res: Response) => {
+  // Prefer the Authorization header; `?token=` is retained only because the
+  // browser EventSource API cannot set headers. Query-string tokens land in
+  // proxy and access logs, so the client should migrate to a fetch-based stream.
+  const headerToken = req.headers.authorization?.startsWith('Bearer ')
+    ? req.headers.authorization.substring(7)
+    : '';
   const tokenRaw = req.query.token;
-  const token = typeof tokenRaw === 'string' ? tokenRaw : '';
+  const token = headerToken || (typeof tokenRaw === 'string' ? tokenRaw : '');
   if (!token) {
     res.status(401).json(buildErrorEnvelope('SSE_TOKEN_REQUIRED', 'SSE token is required'));
     return;
   }
 
-  const secret =
-    process.env.JWT_SECRET ||
-    (process.env.NODE_ENV === 'production'
-      ? null
-      : 'openlinear-dev-secret-change-in-production');
-  if (!secret) {
-    res.status(500).json(buildErrorEnvelope('SERVER_MISCONFIGURED', 'Server is misconfigured'));
-    return;
-  }
-
   let userId: string;
   try {
-    const claims = jwt.verify(token, secret) as { userId?: string };
+    const claims = jwt.verify(token, getJwtSecret()) as {
+      userId?: string;
+      twoFactorPending?: boolean;
+    };
     if (!claims?.userId) {
+      res.status(401).json(buildErrorEnvelope('INVALID_TOKEN', 'Invalid token'));
+      return;
+    }
+    // This endpoint bypassed the auth middleware, so it accepted 2FA-pending
+    // tokens and revoked sessions that every other route rejected.
+    if (claims.twoFactorPending) {
       res.status(401).json(buildErrorEnvelope('INVALID_TOKEN', 'Invalid token'));
       return;
     }
     userId = claims.userId;
   } catch {
     res.status(401).json(buildErrorEnvelope('INVALID_TOKEN', 'Invalid token'));
+    return;
+  }
+
+  if (await isSessionRevoked(hashToken(token))) {
+    res.status(401).json(buildErrorEnvelope('SESSION_REVOKED', 'Session has been revoked'));
     return;
   }
 

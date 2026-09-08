@@ -1,7 +1,7 @@
 import { Router, Response } from 'express';
 import crypto from 'node:crypto';
-import jwt from 'jsonwebtoken';
 import { requireAuth, AuthRequest } from '../middleware/auth';
+import { issueSessionToken } from '../lib/auth-tokens';
 import { prisma } from '@openlinear/db';
 import { buildErrorEnvelope } from '../lib/http';
 import {
@@ -16,15 +16,35 @@ import {
 
 const router: Router = Router();
 
-function getJwtSecret(): string {
-  const secret = process.env.JWT_SECRET;
-  if (!secret) {
-    if (process.env.NODE_ENV === 'production') {
-      throw new Error('[Auth] JWT_SECRET is required in production');
-    }
-    return 'openlinear-dev-secret-change-in-production';
+/**
+ * The OIDC login flow is disabled until it is rebuilt (Phase 1).
+ *
+ * As written it allows takeover of any account whose email address is known:
+ * `allowedDomains` is accepted with no proof of domain ownership, the OAuth
+ * `state` is unsigned base64 JSON, `authorizationCodeGrant` is called with an
+ * empty checks object (no state/nonce/PKCE validation), and `provisionSSOUser`
+ * binds an identity to an existing user purely by email address. Any user can
+ * create a workspace, point it at an IdP they control, claim a domain they do
+ * not own, and sign in as somebody else.
+ *
+ * Set `OPENLINEAR_ENABLE_SSO=1` to run it in a non-production environment for
+ * development of the replacement.
+ */
+function ssoLoginEnabled(): boolean {
+  return process.env.OPENLINEAR_ENABLE_SSO === '1' && process.env.NODE_ENV !== 'production';
+}
+
+function requireSSOEnabled(_req: unknown, res: Response, next: () => void): void {
+  if (!ssoLoginEnabled()) {
+    res.status(503).json(
+      buildErrorEnvelope(
+        'SSO_DISABLED',
+        'SSO sign-in is temporarily disabled pending a security rebuild.',
+      ),
+    );
+    return;
   }
-  return secret;
+  next();
 }
 
 function getFrontendUrl() {
@@ -111,7 +131,7 @@ router.delete('/workspaces/:workspaceId/sso', requireAuth, async (req: AuthReque
 });
 
 // GET /api/auth/sso/check?email= — public, check if email domain has SSO
-router.get('/auth/sso/check', async (req: AuthRequest, res: Response) => {
+router.get('/auth/sso/check', requireSSOEnabled, async (req: AuthRequest, res: Response) => {
   try {
     const email = req.query.email as string;
     if (!email || !email.includes('@')) {
@@ -141,7 +161,7 @@ router.get('/auth/sso/check', async (req: AuthRequest, res: Response) => {
 });
 
 // GET /api/auth/sso/callback?code=&state= — OIDC callback
-router.get('/auth/sso/callback', async (req: AuthRequest, res: Response) => {
+router.get('/auth/sso/callback', requireSSOEnabled, async (req: AuthRequest, res: Response) => {
   try {
     const { code, state } = req.query;
     if (!code || !state) {
@@ -185,10 +205,9 @@ router.get('/auth/sso/callback', async (req: AuthRequest, res: Response) => {
 
     const user = await provisionSSOUser(userInfo.email, userInfo.name, workspaceId);
 
-    const token = jwt.sign(
-      { userId: user.id, username: user.username },
-      getJwtSecret(),
-      { expiresIn: '7d' },
+    const token = await issueSessionToken(
+      { id: user.id, username: user.username },
+      req,
     );
 
     res.redirect(`${getFrontendUrl()}/auth/callback?token=${token}`);

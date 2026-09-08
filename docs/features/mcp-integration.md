@@ -44,7 +44,7 @@ Send the token on every MCP request:
 
 ```json
 {
-  "Authorization": "Bearer ol_pat_0123456789abcdef0123456789abcdef"
+  "Authorization": "Bearer ol_pat_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
 }
 ```
 

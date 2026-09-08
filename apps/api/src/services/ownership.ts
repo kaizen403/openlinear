@@ -53,15 +53,22 @@ export interface OwnedTask {
   id: string;
   teamId: string | null;
   projectId: string | null;
+  creatorId: string | null;
   archived: boolean;
   status: string;
 }
 
 /**
- * Tasks with no `teamId` are legacy/personal tasks accessible to any
- * authenticated user (backward compat). Project-scoped tasks use the new
- * project/workspace ACL when present; otherwise team membership remains the
- * fallback. Returns the task so callers don't refetch.
+ * Resolve access to a task, denying by default.
+ *
+ * A task with neither `projectId` nor `teamId` used to match no branch here and
+ * therefore fall through to "allowed" — readable and writable by ANY
+ * authenticated user, across tenants. Such rows are not hypothetical:
+ * `DELETE /api/projects/:id` produces them in bulk, because `Team.project` is
+ * `onDelete: Cascade` while `Task.team` is `SetNull`.
+ *
+ * Unscoped tasks now fall back to their creator, and anything with no creator
+ * either is denied outright. Returns the task so callers don't refetch.
  */
 export async function assertTaskAccess(
   taskId: string,
@@ -74,6 +81,7 @@ export async function assertTaskAccess(
       id: true,
       teamId: true,
       projectId: true,
+      creatorId: true,
       archived: true,
       status: true,
     },
@@ -90,6 +98,9 @@ export async function assertTaskAccess(
     if (!teamIds.includes(task.teamId)) {
       throw new OwnershipError('task', taskId, 'forbidden');
     }
+  } else if (!task.creatorId || task.creatorId !== userId) {
+    // Orphaned task: no project and no team. Only its creator may reach it.
+    throw new OwnershipError('task', taskId, 'forbidden');
   }
 
   return task;

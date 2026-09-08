@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import type { OpencodeClient } from '@opencode-ai/sdk';
 import { prisma } from '@openlinear/db';
 import { logger } from '@openlinear/api/logger';
 import {
@@ -9,11 +10,13 @@ import {
   formatExecutionMode,
   getInitialBatchLaunchIndexes,
   isBatchTaskTerminal,
+  parseModelOverride,
 } from '@openlinear/execution-core';
 import type {
   BatchSettings,
   BatchState,
   CreateBatchParams,
+  ModelOverride,
 } from '@openlinear/execution-core';
 import { getClientForUser } from '../opencode';
 import { ensureMainRepo, createWorktree, createBatchWorktree, cleanupBatch } from '../worktree';
@@ -27,6 +30,7 @@ import {
   broadcastBatchProgress,
   emitBatchLog,
   getBatchExecutionLogs,
+  scheduleBatchCleanup,
   updateTaskInDb,
 } from './shared';
 import { subscribeToSessionEvents, subscribeToTaskEvents } from './event-handler';
@@ -38,6 +42,31 @@ export { activeBatches } from './shared';
 
 export function getInMemoryBatchCount(): number {
   return activeBatches.size;
+}
+
+/**
+ * T9 (H-05/M-01) — batch execution previously ignored `Task.model` entirely;
+ * every batch task ran on whatever OpenCode's global default happened to be.
+ * Shares the same `provider/model` parsing (`parseModelOverride`) the
+ * single-task path uses (lifecycle.ts), falling back to the session's
+ * `config.get()` default only when the task has no per-task override.
+ */
+async function resolveBatchTaskModel(
+  modelStr: string | null | undefined,
+  client: OpencodeClient,
+): Promise<{ override: ModelOverride; label: string } | undefined> {
+  let resolved = modelStr;
+  if (!resolved) {
+    try {
+      const config = await client.config.get();
+      resolved = config.data?.model;
+    } catch (err) {
+      logger.debug({ err }, '[Batch] Could not read model config');
+    }
+  }
+  const override = parseModelOverride(resolved);
+  if (!override) return undefined;
+  return { override, label: resolved as string };
 }
 
 export async function createBatch(params: CreateBatchParams): Promise<BatchState> {
@@ -221,14 +250,21 @@ async function startTask(batch: BatchState, taskIndex: number): Promise<void> {
 
     const taskRecord = await prisma.task.findUnique({
       where: { id: task.taskId },
-      select: { title: true, description: true },
+      select: { title: true, description: true, model: true },
     });
 
     const prompt = buildSingleTaskPrompt(taskRecord, task.title);
+    const modelInfo = await resolveBatchTaskModel(taskRecord?.model, client);
+    if (modelInfo) {
+      emitBatchLog(task.taskId, 'info', `Using model: ${modelInfo.label}`);
+    }
 
     client.session.prompt({
       path: { id: sessionId },
-      body: { parts: [{ type: 'text', text: prompt }] },
+      body: {
+        parts: [{ type: 'text', text: prompt }],
+        ...(modelInfo?.override ? { model: modelInfo.override } : {}),
+      },
     }).then(() => {
       logger.info(`[Batch] Prompt sent for task ${task.taskId.slice(0, 8)} in batch ${batch.id.slice(0, 8)}`);
     }).catch((err: unknown) => {
@@ -258,13 +294,31 @@ async function startTask(batch: BatchState, taskIndex: number): Promise<void> {
   }
 }
 
-async function loadCombinedPrompt(batch: BatchState): Promise<string> {
+async function loadCombinedPrompt(batch: BatchState): Promise<{ prompt: string; taskRecords: Array<{ id: string; model: string | null }> }> {
   const taskIds = batch.tasks.map(t => t.taskId);
   const taskRecords = await prisma.task.findMany({
     where: { id: { in: taskIds } },
-    select: { id: true, identifier: true, title: true, description: true },
+    select: { id: true, identifier: true, title: true, description: true, model: true },
   });
-  return buildCombinedBatchPrompt(batch.tasks, taskRecords);
+  return { prompt: buildCombinedBatchPrompt(batch.tasks, taskRecords), taskRecords };
+}
+
+/**
+ * T9 (H-05) — a combined batch shares one OpenCode session for N tasks that
+ * may each carry a different `Task.model`. There is no per-task model
+ * selection within a single session, so the only two honest options are
+ * "ignore all selections" (the status quo this fixes) or "use the selection
+ * when every task agrees, and fall back to the session default — with a
+ * visible log line — when they don't." We take the latter: it honors the
+ * common case (the user picked the same model for everything they batched)
+ * without silently overriding a model some of the tasks did NOT ask for.
+ */
+function resolveCombinedBatchModel(taskRecords: Array<{ id: string; model: string | null }>): string | null {
+  const distinctModels = new Set(taskRecords.map(t => t.model).filter((m): m is string => !!m));
+  if (distinctModels.size === 1) {
+    return [...distinctModels][0];
+  }
+  return null;
 }
 
 async function startCombinedBatch(batch: BatchState): Promise<void> {
@@ -325,10 +379,25 @@ async function startCombinedBatch(batch: BatchState): Promise<void> {
     onComplete: (success, error) => handleCombinedBatchComplete(batch.id, success, error),
   });
 
-  const prompt = await loadCombinedPrompt(batch);
+  const { prompt, taskRecords } = await loadCombinedPrompt(batch);
+  const distinctModelStr = resolveCombinedBatchModel(taskRecords);
+  const modelInfo = await resolveBatchTaskModel(distinctModelStr, client);
+  if (modelInfo) {
+    emitBatchLog(activityId, 'info', `Using model: ${modelInfo.label}`);
+  } else if (taskRecords.some(t => t.model)) {
+    emitBatchLog(
+      activityId,
+      'info',
+      'Selected tasks specify different models; using the session default for this combined run',
+    );
+  }
+
   await client.session.prompt({
     path: { id: sessionId },
-    body: { parts: [{ type: 'text', text: prompt }] },
+    body: {
+      parts: [{ type: 'text', text: prompt }],
+      ...(modelInfo?.override ? { model: modelInfo.override } : {}),
+    },
   });
 
   logger.info(`[Batch] Combined prompt sent for ${batch.tasks.length} tasks in batch ${batch.id.slice(0, 8)}`);
@@ -384,6 +453,10 @@ export async function cancelBatch(batchId: string): Promise<void> {
   } catch (error) {
     logger.error({ err: error, batchId }, `[Batch] Cleanup failed for cancelled batch ${batchId.slice(0, 8)}`);
   }
+
+  // T11 (H-07) — release the batch (and the GitHub token it pins) after a
+  // grace period now that it has reached a terminal state.
+  scheduleBatchCleanup(batchId);
 }
 
 export async function cancelTask(batchId: string, taskId: string): Promise<void> {

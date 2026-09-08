@@ -30,6 +30,7 @@ import dashboardRouter from './routes/dashboard';
 import mcpUsageRouter from './routes/mcp-usage';
 import chatRouter from './routes/chat';
 import chatAttachmentsRouter from './routes/chat-attachments';
+import uploadsRouter from './routes/uploads';
 import eventsRouter from './routes/events';
 import usersRouter from './routes/users';
 import invitationsRouter from './routes/invitations';
@@ -44,7 +45,8 @@ import { isOwnershipError } from './services/ownership';
 import { isValidationError, isHttpError } from './errors';
 import { buildErrorEnvelope } from './lib/http';
 import { Prisma, prisma } from '@openlinear/db';
-import { requireAuth } from './middleware/auth';
+import { requireAuth, denyPersonalAccessTokens } from './middleware/auth';
+import { secretsAreConfigured } from './lib/secrets';
 
 function addLoopbackAliases(allowed: Set<string>, origin: string) {
   allowed.add(origin);
@@ -194,11 +196,13 @@ export function createApp(): Application {
 
   app.use('/api/auth', authRouter);
   app.use('/api/auth/2fa', totpRouter);
+  // Credential management must not be reachable with a long-lived API key.
+  app.use('/api/sessions', requireAuth, denyPersonalAccessTokens);
   app.use('/api/repos', reposRouter);
   app.use('/api/labels', labelRoutes);
   app.use('/api/tasks', tasksRouter);
   app.use('/api/settings', settingsRouter);
-  app.use('/api/pats', requireAuth, patsRouter);
+  app.use('/api/pats', requireAuth, denyPersonalAccessTokens, patsRouter);
   app.use('/api/teams', teamsRouter);
   app.use('/api/projects', projectsRouter);
   app.use('/api/workspaces', workspacesRouter);
@@ -213,7 +217,10 @@ export function createApp(): Application {
   app.use('/api/mcp', mcpUsageRouter);
    app.use('/api/chat/attachments', chatAttachmentsRouter);
    app.use('/api/chat', chatRouter);
-  app.use('/uploads', express.static('uploads'));
+  // Attachments are served through an authenticated, ownership-checked route
+  // that forces a download. `express.static` served them to anyone, with a
+  // content type inferred from an attacker-chosen extension.
+  app.use('/uploads', uploadsRouter);
   app.use('/api/events', eventsRouter);
   app.use('/api/users', requireAuth, usersRouter);
   app.use('/api/invitations', requireAuth, invitationsRouter);
@@ -221,6 +228,28 @@ app.use('/api/members', requireAuth, membersRouter);
   app.use('/api', ssoRouter);
   app.use('/api/workspaces', auditRouter);
   app.use('/api/sessions', sessionsRouter);
+
+  // Liveness must not touch the database: a Postgres blip should not cause the
+  // orchestrator to kill otherwise-healthy replicas.
+  app.get('/livez', (_req: Request, res: Response) => {
+    res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  });
+
+  app.get('/readyz', async (req: Request, res: Response) => {
+    try {
+      await prisma.$queryRaw`SELECT 1`;
+      res.json({
+        status: 'ok',
+        timestamp: new Date().toISOString(),
+        clients: clients.size,
+        database: 'ok',
+        secrets: secretsAreConfigured() ? 'ok' : 'misconfigured',
+      });
+    } catch (err) {
+      req.log?.warn({ err }, '[Health] readiness check failed');
+      res.status(503).json({ status: 'degraded', database: 'unavailable' });
+    }
+  });
 
   app.get('/health', async (req: Request, res: Response) => {
     try {

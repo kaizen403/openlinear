@@ -1,4 +1,5 @@
 import { getApiUrl, getSidecarApiUrl, getAuthHeader, getAuthToken } from './client';
+import { setToken } from './token-store';
 
 /**
  * Server error envelope shape — backend returns `{ error, code?, message?, details? }` on non-2xx.
@@ -76,11 +77,7 @@ function fireAuthExpired(tokenUsedForRequest: string | null) {
       return;
     }
     authExpiredFired = true;
-    try {
-      localStorage.removeItem('token');
-    } catch {
-      // Ignore quota/security errors — best effort
-    }
+    setToken(null);
     window.dispatchEvent(new CustomEvent('auth:expired'));
     // Reset the latch on next tick so subsequent sessions can re-trigger
     window.setTimeout(() => {

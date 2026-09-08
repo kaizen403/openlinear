@@ -11,6 +11,7 @@ import {
   logout as apiLogout,
   verifyCallbackToken,
 } from '@/lib/api';
+import { initTokenStore } from '@/lib/api/token-store';
 
 interface AuthContextType {
   user: User | null;
@@ -69,22 +70,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  // Note: this used to also read a `?token=` query param here and adopt it
+  // into storage on ANY route — since this effect runs app-wide (AuthProvider
+  // wraps the whole app), a link like `https://app/anything?token=<jwt>`
+  // would silently swap the victim's session to whoever crafted the link.
+  // `?token=` is now only ever handled by the dedicated `/auth/session`
+  // route (see app/auth/session/page.tsx), which explicitly verifies the
+  // token against the API before adopting it.
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const token = params.get('token');
-    const error = params.get('error');
-
-    if (token) {
-      localStorage.setItem('token', token);
-      window.history.replaceState({}, '', window.location.pathname);
-    }
-
-    if (error) {
-      console.error('Auth error:', error);
-      window.history.replaceState({}, '', window.location.pathname);
-    }
-
     (async () => {
+      await initTokenStore();
       const result = await loadUser();
       if (result.stale) return;
       if (result.user) {
@@ -113,7 +108,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       } catch (err) {
         console.warn('[Auth] Failed to verify Tauri callback token:', err);
-        toast.error('Could not finish GitHub sign-in. Paste the callback token from the browser page.');
+        toast.error('Could not finish GitHub sign-in. Try signing in again.');
       } finally {
         if (requestId === authRequestId.current) {
           setIsLoading(false);

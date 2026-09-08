@@ -1,11 +1,13 @@
 import { prisma, decryptToken } from '@openlinear/db';
 import { logger } from '@openlinear/api/logger';
+import { parseModelOverride, type ModelOverride } from '@openlinear/execution-core';
 import { getClientForUser } from '../opencode';
+import { ensureModelConfigured } from '../opencode-model';
 import { getOrCreateBuffer } from '../delta-buffer';
 import { getExecutionSettings } from '../execution-settings';
 
 import { cloneRepository, createBranch } from './git';
-import { subscribeToSessionEvents } from './events';
+import { subscribeToSessionEvents, failExecutionFromEventStream, claimFinalize } from './events';
 import { createAgentRun, finalizeAgentRun } from './agent-run';
 import {
   activeExecutions,
@@ -38,6 +40,8 @@ interface ExecutionInputs {
     title: string;
     description: string | null;
     model: string | null;
+    teamId: string | null;
+    creatorId: string | null;
     project: { id: string; localPath: string | null; repository: { id: string; name: string; fullName: string; cloneUrl: string; defaultBranch: string } | null } | null;
     labels: Array<{ taskId: string; labelId: string; label: { id: string; name: string; color: string } }>;
   };
@@ -163,8 +167,15 @@ function initializeExecution(
     branchName,
     userId,
     accessToken,
+    // T7 (H-02) — cached once here; every log line / progress broadcast for
+    // this run reuses it instead of a fresh Postgres lookup.
+    teamId: taskRecord.teamId,
+    creatorId: taskRecord.creatorId,
     timeoutId,
     streamTimeoutId: null,
+    progressTimeoutId: null,
+    watchdogSuspended: false,
+    finalized: false,
     status: 'executing',
     logs: [],
     client,
@@ -180,12 +191,16 @@ function initializeExecution(
     cancelled: false,
     agentRunId,
     cost: { input: 0, output: 0, total: 0 },
-    tokens: { input: 0, output: 0 },
+    tokens: { input: 0, output: 0, reasoning: 0, cacheRead: 0, cacheWrite: 0 },
     messageUsage: new Map(),
   };
 }
 
-async function startAgentSession(inputs: ExecutionInputs, executionState: ExecutionState): Promise<void> {
+async function startAgentSession(
+  inputs: ExecutionInputs,
+  executionState: ExecutionState,
+  resolvedOverride: { override: ModelOverride; label: string } | undefined,
+): Promise<void> {
   const { taskId, useLocalPath, repoPath, branchName, taskRecord } = inputs;
   const { client, sessionId } = executionState;
 
@@ -231,45 +246,81 @@ async function startAgentSession(inputs: ExecutionInputs, executionState: Execut
     '- Do not mark the task complete unless the repository contains the requested changes or you can explain why no code change is valid.',
   ].join('\n');
 
-  subscribeToSessionEvents(taskId, client, sessionId);
-
-  const modelOverride = executionState.agentRunId ? getModelOverride(taskRecord, client) : undefined;
-  const resolvedOverride = await modelOverride;
-
   if (resolvedOverride) {
     addLogEntry(taskId, 'info', `Using model: ${resolvedOverride.label}`);
   }
 
-  client.session.prompt({
-    path: { id: sessionId },
-    body: {
-      parts: [{ type: 'text', text: prompt }],
-      ...(resolvedOverride?.override ? { model: resolvedOverride.override } : {}),
-    },
-  }).then(() => {
-    logger.info(`[Execution] Prompt sent to session ${sessionId}`);
-    executionState.promptSent = true;
+  // T5 (R1 P0-4/H-01) — await the subscription before sending the prompt.
+  // `subscribeToSessionEvents` resolves once `client.event.subscribe()` has
+  // completed (the consuming loop then runs detached in the background), so
+  // by the time we prompt, a fast `session.error` (bad API key, rejected
+  // model) can no longer land in the gap and get silently swallowed until a
+  // watchdog fires.
+  await subscribeToSessionEvents(taskId, client, sessionId);
+
+  try {
+    // T5 (R1 P1-5) — `session.prompt` blocks until the full assistant turn
+    // completes, so its `.then()/.catch()` raced the event-driven completion
+    // path (whichever finished first "won", and both could fire). `session.
+    // promptAsync` (confirmed present in the pinned @opencode-ai/sdk@1.2.5 —
+    // POST /session/{id}/prompt_async, 204 "prompt accepted") returns as soon
+    // as OpenCode has accepted the turn; all real completion/error signal
+    // from here on arrives only through the event stream, which is the one
+    // path that already carries the double-finalize guard (claimFinalize).
+    const promptResult = await client.session.promptAsync({
+      path: { id: sessionId },
+      body: {
+        parts: [{ type: 'text', text: prompt }],
+        ...(resolvedOverride?.override ? { model: resolvedOverride.override } : {}),
+      },
+    });
+
+    if (promptResult.error) {
+      throw new Error(extractPromptErrorMessage(promptResult.error));
+    }
+
+    logger.info(`[Execution] Prompt accepted for session ${sessionId}`);
     addLogEntry(taskId, 'info', 'Task prompt sent to agent');
-  }).catch(async (err: Error) => {
+    // `promptSent` is set from the event stream (`session.status: busy`),
+    // not optimistically here — see event-stream-processor.ts.
+  } catch (err) {
     logger.error({ err, taskId }, `[Execution] Prompt error for task ${taskId}`);
-    const msg = err.message || 'Unknown error';
+    const msg = err instanceof Error ? err.message : String(err);
     const isAuth = msg.toLowerCase().includes('api key') || msg.toLowerCase().includes('unauthorized') || msg.toLowerCase().includes('401');
     const headline = isAuth
       ? 'Invalid API key — update it in Settings → AI Providers'
       : 'Failed to send prompt to agent';
-    addLogEntry(taskId, 'error', headline, msg);
-    broadcastProgress(taskId, 'error', headline);
-    await finalizeAgentRun(executionState, 'failed', { errorMessage: msg });
-    await updateTaskStatus(taskId, 'cancelled', null);
-    await persistLogs(taskId);
-    await cleanupExecution(taskId);
-  });
+    // Reuses the one finalize path shared with the event stream (idempotency
+    // guard included) rather than duplicating finalize/update/persist/cleanup
+    // here.
+    await failExecutionFromEventStream(taskId, headline, msg);
+  }
 }
 
+function extractPromptErrorMessage(error: unknown): string {
+  if (typeof error === 'string') return error;
+  if (error && typeof error === 'object') {
+    const err = error as Record<string, unknown>;
+    if (typeof err.message === 'string') return err.message;
+    if (err.data && typeof err.data === 'object') {
+      const data = err.data as Record<string, unknown>;
+      if (typeof data.message === 'string') return data.message;
+    }
+  }
+  return 'Prompt request was rejected';
+}
+
+/**
+ * T9 (H-04/M-01) — resolves the model exactly once per run and no longer
+ * ties the resolution (and therefore whether the user's selection is
+ * honored at all) to whether the `AgentRun` DB row happened to insert
+ * successfully. Falls back to OpenCode's global `config.get()` default only
+ * when the task has no per-task override.
+ */
 async function getModelOverride(
   taskRecord: ExecutionInputs['taskRecord'],
   client: OpencodeClient,
-): Promise<{ override: { providerID: string; modelID: string }; label: string } | undefined> {
+): Promise<{ override: ModelOverride; label: string } | undefined> {
   let modelStr: string | null | undefined = taskRecord.model;
   if (!modelStr) {
     try {
@@ -279,20 +330,12 @@ async function getModelOverride(
       logger.debug({ err, taskId: taskRecord.id }, `[Execution] Could not read model config for task ${taskRecord.id}`);
     }
   }
-  if (modelStr && modelStr.includes('/')) {
-    const slashIdx = modelStr.indexOf('/');
-    return {
-      override: {
-        providerID: modelStr.slice(0, slashIdx),
-        modelID: modelStr.slice(slashIdx + 1),
-      },
-      label: modelStr,
-    };
-  }
-  return undefined;
+  const override = parseModelOverride(modelStr);
+  if (!override) return undefined;
+  return { override, label: modelStr as string };
 }
 
-export async function executeTask({ taskId, userId }: ExecuteTaskParams): Promise<{ success: boolean; error?: string }> {
+export async function executeTask({ taskId, userId }: ExecuteTaskParams): Promise<{ success: boolean; error?: string; code?: string }> {
   const result = await gatherExecutionInputs({ taskId, userId });
   if (result.error || !result.inputs) {
     pendingExecutions.delete(taskId);
@@ -300,6 +343,26 @@ export async function executeTask({ taskId, userId }: ExecuteTaskParams): Promis
   }
 
   const inputs = result.inputs;
+
+  // T9 (H-23) — restored preflight: fail fast, before the expensive clone,
+  // when no model can be resolved at all. Only runs when the task has no
+  // per-task override — an explicit `Task.model` is trusted as-is.
+  if (!inputs.taskRecord.model) {
+    try {
+      const preflight = await ensureModelConfigured(inputs.userId);
+      if (!preflight.model) {
+        pendingExecutions.delete(taskId);
+        const error = preflight.hasProvider
+          ? 'A provider is connected but no model is selected. Choose a model in Settings → AI Providers.'
+          : 'No AI provider is configured. Connect one in Settings → AI Providers before running tasks.';
+        return { success: false, error, code: 'MODEL_NOT_CONFIGURED' };
+      }
+    } catch (err) {
+      // Best-effort: a transient OpenCode hiccup during the *check* should
+      // not itself block a run that might otherwise succeed.
+      logger.warn({ err, taskId }, '[Execution] Model preflight check failed; continuing without it');
+    }
+  }
 
   try {
     await setupRepository(inputs);
@@ -322,6 +385,9 @@ export async function executeTask({ taskId, userId }: ExecuteTaskParams): Promis
 
     logger.info(`[Execution] Session ${sessionId} created for task ${taskId.slice(0, 8)}`);
 
+    // T9 (M-01) — resolved exactly once; passed down to both the AgentRun
+    // label and the actual prompt body instead of calling `config.get()`
+    // (and re-parsing the model string) a second time.
     const modelInfo = await getModelOverride(inputs.taskRecord, client);
     const modelLabel = modelInfo?.label || 'unknown';
 
@@ -335,7 +401,7 @@ export async function executeTask({ taskId, userId }: ExecuteTaskParams): Promis
     const executionState = initializeExecution(inputs, client, sessionId, agentRunId);
     pendingExecutions.delete(taskId);
 
-    await startAgentSession(inputs, executionState);
+    await startAgentSession(inputs, executionState, modelInfo);
 
     logger.info(`[Execution] Started for task ${taskId} in ${inputs.repoPath}`);
     return { success: true };
@@ -352,6 +418,13 @@ export async function cancelTask(taskId: string): Promise<{ success: boolean; er
 
   if (!execution) {
     return { success: false, error: 'Task is not running' };
+  }
+
+  // T5 — share the same finalize claim as the event-driven paths. Without
+  // this, a cancel racing a same-tick `session.idle`/`session.error` could
+  // both run to completion and finalize the AgentRun/task status twice.
+  if (!claimFinalize(taskId)) {
+    return { success: false, error: 'Task is already finalizing' };
   }
 
   execution.cancelled = true;

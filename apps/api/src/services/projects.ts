@@ -287,7 +287,7 @@ export async function createProjectFull(input: {
     }
   }
 
-  const project = await prisma.project.create({
+  let project = await prisma.project.create({
     data: {
       workspaceId: resolvedWorkspaceId,
       key: resolvedKey,
@@ -305,6 +305,21 @@ export async function createProjectFull(input: {
     },
     include: projectInclude,
   });
+
+  if (!teamIds?.length) {
+    await prisma.team.create({
+      data: {
+        projectId: project.id,
+        name: `${input.name} Team`,
+        key: teamKeyFromProjectKey(resolvedKey),
+        members: { create: { userId, role: 'owner' } },
+      },
+    });
+    project = await prisma.project.findUniqueOrThrow({
+      where: { id: project.id },
+      include: projectInclude,
+    });
+  }
 
   await prisma.label.createMany({
     data: [

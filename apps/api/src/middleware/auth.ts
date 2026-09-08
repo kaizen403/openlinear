@@ -6,24 +6,30 @@ import {
   validatePersonalAccessToken,
 } from '../services/pats';
 import { hashToken, isSessionRevoked, touchSession } from '../services/sessions';
+import { getJwtSecret } from '../lib/secrets';
 
-function getJwtSecret(): string {
-  const secret = process.env.JWT_SECRET;
-  if (!secret) {
-    if (process.env.NODE_ENV === 'production') {
-      throw new Error('[Auth] JWT_SECRET is required in production');
-    }
-    return 'openlinear-dev-secret-change-in-production';
-  }
-  return secret;
+interface JwtClaims {
+  userId: string;
+  username: string;
+  /**
+   * Set on the short-lived token issued between password/OAuth success and TOTP
+   * verification. Such a token is NOT a credential: it may only be exchanged at
+   * the 2FA verification endpoint, which reads it directly rather than through
+   * this middleware.
+   */
+  twoFactorPending?: boolean;
 }
 
 function decodeToken(token: string): { userId: string; username: string } | null {
   try {
-    const verified = jwt.verify(token, getJwtSecret()) as {
-      userId: string;
-      username: string;
-    };
+    const verified = jwt.verify(token, getJwtSecret()) as JwtClaims;
+
+    // A 2FA-pending token previously authenticated every route, so enabling 2FA
+    // made an account strictly easier to access, not harder.
+    if (verified.twoFactorPending) {
+      return null;
+    }
+
     return { userId: verified.userId, username: verified.username };
   } catch {
     return null;
@@ -105,6 +111,33 @@ async function authenticateBearer(
 
 export function optionalAuth(req: AuthRequest, res: Response, next: NextFunction) {
   void authenticateBearer(req, res, next, { optional: true });
+}
+
+/**
+ * Reject personal access tokens on credential-management routes.
+ *
+ * A PAT is a long-lived, non-interactive credential. Without this, a leaked PAT
+ * could mint further PATs, read or reset the TOTP secret, list and revoke
+ * sessions, or change the account email — i.e. escalate a scoped API key into
+ * full, persistent account takeover. Those actions require a real user session.
+ *
+ * Mount AFTER an authentication middleware.
+ */
+export function denyPersonalAccessTokens(
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction,
+): void {
+  if (req.authSource === 'pat') {
+    res.status(403).json(
+      buildErrorEnvelope(
+        'SESSION_REQUIRED',
+        'This action requires an interactive session and cannot be performed with a personal access token.',
+      ),
+    );
+    return;
+  }
+  next();
 }
 
 export function requireAuth(req: AuthRequest, res: Response, next: NextFunction): void;

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback, useMemo, useRef } from "react"
+import { useState, useEffect, useCallback, useMemo } from "react"
 import { useRouter } from "next/navigation"
 import {
   Inbox, CheckCheck, AtSign, UserPlus, ArrowRightLeft,
@@ -8,7 +8,7 @@ import {
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { apiFetch } from "@/lib/api"
-import { getApiUrl, getAuthToken } from "@/lib/api/client"
+import { useSSESubscription } from "@/providers/sse-provider"
 import { EmptyState } from "@/components/empty-state"
 import { Skeleton } from "@/components/ui/skeleton"
 
@@ -134,39 +134,13 @@ async function markAllNotificationsRead(): Promise<void> {
   await apiFetch('/api/notifications/read-all', { method: 'POST' })
 }
 
-function readToken(): string | null {
-  if (typeof window === 'undefined') return null
-  return getAuthToken()
-}
-
+// Consumes the app's single shared SSE connection (see SSEProvider) instead
+// of opening a second EventSource just for this page.
 function useNotificationStream(onCreated: (n: AppNotification) => void): void {
-  const cbRef = useRef(onCreated)
-  useEffect(() => {
-    cbRef.current = onCreated
-  }, [onCreated])
-
-  const token = readToken()
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return
-    if (!token) return
-    const url = new URL(`${getApiUrl()}/api/events`)
-    url.searchParams.set('token', token)
-    const es = new EventSource(url.toString())
-    const handler = (event: MessageEvent) => {
-      try {
-        const data = JSON.parse(event.data) as AppNotification
-        cbRef.current(data)
-      } catch {
-        /* swallow malformed payloads */
-      }
-    }
-    es.addEventListener('notification:created', handler as EventListener)
-    return () => {
-      es.removeEventListener('notification:created', handler as EventListener)
-      es.close()
-    }
-  }, [token])
+  useSSESubscription((eventType, data) => {
+    if (eventType !== 'notification:created') return
+    onCreated(data as unknown as AppNotification)
+  })
 }
 
 function NotificationRow({

@@ -1,24 +1,13 @@
 import { Router, Response } from 'express';
-import { requireAuth, AuthRequest } from '../middleware/auth';
+import { requireAuth, denyPersonalAccessTokens, AuthRequest } from '../middleware/auth';
 import { prisma } from '@openlinear/db';
 import { buildErrorEnvelope } from '../lib/http';
 import { generateTOTPSecret, verifyTOTP, generateBackupCodes, verifyBackupCode } from '../services/totp';
-import jwt from 'jsonwebtoken';
+import { issueSessionToken, verifyTwoFactorPendingToken } from '../lib/auth-tokens';
 
 const router: Router = Router();
 
-function getJwtSecret(): string {
-  const secret = process.env.JWT_SECRET;
-  if (!secret) {
-    if (process.env.NODE_ENV === 'production') {
-      throw new Error('[Auth] JWT_SECRET is required in production');
-    }
-    return 'openlinear-dev-secret-change-in-production';
-  }
-  return secret;
-}
-
-router.post('/setup', requireAuth, async (req: AuthRequest, res: Response) => {
+router.post('/setup', requireAuth, denyPersonalAccessTokens, async (req: AuthRequest, res: Response) => {
   try {
     const user = await prisma.user.findUnique({ where: { id: req.userId } });
     if (!user) {
@@ -51,7 +40,7 @@ router.post('/setup', requireAuth, async (req: AuthRequest, res: Response) => {
   }
 });
 
-router.post('/verify', requireAuth, async (req: AuthRequest, res: Response) => {
+router.post('/verify', requireAuth, denyPersonalAccessTokens, async (req: AuthRequest, res: Response) => {
   try {
     const { code } = req.body;
     if (!code || typeof code !== 'string') {
@@ -87,7 +76,7 @@ router.post('/verify', requireAuth, async (req: AuthRequest, res: Response) => {
   }
 });
 
-router.post('/disable', requireAuth, async (req: AuthRequest, res: Response) => {
+router.post('/disable', requireAuth, denyPersonalAccessTokens, async (req: AuthRequest, res: Response) => {
   try {
     const { code } = req.body;
     if (!code || typeof code !== 'string') {
@@ -126,20 +115,15 @@ router.post('/validate', async (req: AuthRequest, res: Response) => {
       return;
     }
 
-    let payload: { userId: string; twoFactorPending?: boolean; username?: string };
-    try {
-      payload = jwt.verify(tempToken, getJwtSecret()) as typeof payload;
-    } catch {
+    // Only a token carrying `twoFactorPending` is accepted here, so a full
+    // session token cannot be replayed to satisfy the second factor.
+    const pending = verifyTwoFactorPendingToken(tempToken);
+    if (!pending) {
       res.status(401).json(buildErrorEnvelope('INVALID_TOKEN', 'Invalid or expired temp token'));
       return;
     }
 
-    if (!payload.twoFactorPending) {
-      res.status(400).json(buildErrorEnvelope('INVALID_TOKEN', 'Token is not a 2FA pending token'));
-      return;
-    }
-
-    const user = await prisma.user.findUnique({ where: { id: payload.userId } });
+    const user = await prisma.user.findUnique({ where: { id: pending.id } });
     if (!user || !user.totpEnabled || !user.totpSecret) {
       res.status(400).json(buildErrorEnvelope('TOTP_NOT_ENABLED', '2FA is not enabled'));
       return;
@@ -165,10 +149,9 @@ router.post('/validate', async (req: AuthRequest, res: Response) => {
       return;
     }
 
-    const token = jwt.sign(
-      { userId: user.id, username: user.username },
-      getJwtSecret(),
-      { expiresIn: '7d' },
+    const token = await issueSessionToken(
+      { id: user.id, username: user.username },
+      req,
     );
 
     res.json({ token });

@@ -193,8 +193,12 @@ function summarizeProviders(
     .sort(providerSort(currentModel));
 }
 
-router.get('/status', (_req, res: Response) => {
-  res.json(getOpenCodeStatus());
+router.get('/status', requireAuth, (_req: AuthRequest, res: Response) => {
+  // Never leak the OpenCode server's own loopback URL/port here — a page that
+  // discovers it can drive OpenCode's unauthenticated local API directly,
+  // bypassing every check in this router. See C6a F15.
+  const { serverUrl: _serverUrl, ...status } = getOpenCodeStatus();
+  res.json(status);
 });
 
 router.get('/setup-status', requireAuth, async (req: AuthRequest, res: Response) => {

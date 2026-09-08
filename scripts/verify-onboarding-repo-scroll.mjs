@@ -6,12 +6,15 @@ import { join } from 'node:path';
 import { spawn } from 'node:child_process';
 
 const onboardingPath = new URL('../apps/desktop-ui/components/onboarding/onboarding-wizard.tsx', import.meta.url);
+const projectStepPath = new URL('../apps/desktop-ui/components/onboarding/steps/project-step.tsx', import.meta.url);
+const onboardingUtilsPath = new URL('../apps/desktop-ui/components/onboarding/steps/onboarding-utils.ts', import.meta.url);
 const homePagePath = new URL('../apps/desktop-ui/app/(app)/page.tsx', import.meta.url);
 const projectHookPath = new URL('../apps/desktop-ui/hooks/use-project.tsx', import.meta.url);
+const chatPanelPath = new URL('../apps/desktop-ui/components/chat/chat-panel.tsx', import.meta.url);
 const chatMessageListPath = new URL('../apps/desktop-ui/components/chat/chat-message-list.tsx', import.meta.url);
 const chromiumPath = process.env.CHROMIUM_BIN || '/usr/bin/chromium';
 
-function assertSourceGuards(source) {
+function assertRepoPickerSourceGuards(source, utilsSource) {
   const repoItemStart = source.indexOf('const RepoItem = memo(function RepoItem');
   const repoListStart = source.indexOf('const GitHubRepoList = memo(function GitHubRepoList');
   assert.notEqual(repoItemStart, -1, 'RepoItem component not found');
@@ -23,13 +26,17 @@ function assertSourceGuards(source) {
   assert.equal(source.includes('useVirtualizer'), false, 'onboarding repo picker must not use scroll virtualization');
   assert.equal(source.includes('fetchGitHubBranches'), false, 'repo selection must not trigger automatic branch-list fetches');
   assert.equal(source.includes('Load more'), false, 'onboarding repo picker must not use paged browse/load-more');
-  assert.match(source, /const REPO_SEARCH_LIMIT = ([1-9]|1[0-2])\b/, 'repo search limit must stay at or below 12');
+  assert.match(utilsSource, /const REPO_SEARCH_LIMIT = ([1-9]|1[0-2])\b/, 'repo search limit must stay at or below 12');
   assert.match(repoListSource, /q: repoQuery/, 'repo fetches must be query-driven');
   assert.match(repoListSource, /!repoQuery[\s\S]*setRepos\(\[\]\)/, 'empty search must clear repos without fetching');
   assert.match(repoListSource, /data-testid="onboarding-github-repo-list"/, 'repo list test id missing');
   assert.match(repoItemSource, /data-testid="onboarding-github-repo-row"/, 'repo row test id missing');
   assert.match(repoItemSource, /<img[\s\S]*loading="lazy"[\s\S]*decoding="async"/, 'repo logos must be lazy and async decoded');
   assert.match(repoItemSource, /onError=\{\(event\) => event\.currentTarget\.remove\(\)\}/, 'repo logos need a cheap failure fallback');
+  assert.match(source, /className="max-h-44 overflow-y-auto/, 'repo list height should stay compact inside the card');
+}
+
+function assertOnboardingWizardSourceGuards(source) {
   assert.match(source, /initialWorkspaceId\?: string \| null/, 'wizard must accept an existing workspace id');
   assert.match(source, /initialProjectId\?: string \| null/, 'wizard must accept an existing project id for team setup');
   assert.match(source, /const workspaceIdForProject = createdWorkspaceId \?\? initialWorkspaceId/, 'project creation must fall back to the initial workspace id');
@@ -38,21 +45,13 @@ function assertSourceGuards(source) {
   assert.match(source, /isExistingProject=\{Boolean\(initialProjectId && createdProjectId === initialProjectId\)\}/, 'existing project step must render read-only project UI');
   assert.match(source, /onBack=\{\(\) => setCurrentStep\(1\)\}/, 'team setup must expose a back button');
   assert.match(source, /createdWorkspaceId, createdProjectId/, 'stored drafts must keep created ids needed by later steps');
-  assert.match(source, /className="max-h-44 overflow-y-auto/, 'repo list height should stay compact inside the card');
 }
 
 function assertHomePageSourceGuards(source) {
-  const wizardIndex = source.indexOf('<OnboardingWizard');
-  assert.notEqual(wizardIndex, -1, 'home page onboarding render not found');
-  const onboardingWrapperSource = source.slice(Math.max(0, wizardIndex - 250), wizardIndex + 350);
-  assert.match(onboardingWrapperSource, /overflow-hidden/, 'onboarding page wrapper must hide page-level overflow');
-  assert.equal(onboardingWrapperSource.includes('overflow-y-auto'), false, 'onboarding page wrapper must not use page-level vertical scrolling');
-  assert.match(onboardingWrapperSource, /initialWorkspaceId=\{onboardingWorkspaceId\}/, 'home page must pass the existing workspace id into onboarding');
-  assert.match(source, /projectWithoutTeam/, 'home page must keep onboarding active for teamless projects');
-  assert.match(onboardingWrapperSource, /initialProjectId=\{projectWithoutTeam\?\.id \?\? null\}/, 'home page must pass a teamless project id into onboarding');
-  assert.match(onboardingWrapperSource, /initialProjectName=\{projectWithoutTeam\?\.name \?\? null\}/, 'home page must pass a teamless project name into onboarding');
-  assert.match(source, /const isThinking = isStreaming && !streamingContent && activeToolCalls\.length === 0/, 'home page must compute an empty-response thinking state');
-  assert.match(source, /isThinking=\{isThinking\}/, 'home page must pass thinking state to chat message list');
+  assert.equal(source.includes('OnboardingWizard'), false, 'home page must not render onboarding before launch');
+  assert.match(source, /const shouldOpenProjects = projects\.length === 0 \|\| Boolean\(projectWithoutTeam\)/, 'empty or teamless setup must route to manual project management');
+  assert.match(source, /router\.replace\('\/projects'\)/, 'home page must redirect setup-empty users to projects');
+  assert.match(source, /shouldOpenProjects[\s\S]*return <HomePageSkeleton \/>/, 'home page must avoid flashing chat while redirecting to projects');
 }
 
 function assertProjectHookSourceGuards(source) {
@@ -64,6 +63,11 @@ function assertChatMessageListSourceGuards(source) {
   assert.match(source, /isThinking\?: boolean/, 'chat message list must accept thinking state');
   assert.match(source, /showThinking && <ChatThinkingIndicator \/>/, 'chat message list must render thinking before first assistant content');
   assert.match(source, /Loader2[\s\S]*animate-spin/, 'thinking indicator must show a spinner');
+}
+
+function assertChatPanelSourceGuards(source) {
+  assert.match(source, /const isThinking = isStreaming && !streamingContent/, 'chat panel must compute an empty-response thinking state');
+  assert.match(source, /isThinking=\{isThinking\}/, 'chat panel must pass thinking state to chat message list');
 }
 
 function buildFixtureHtml(rowCount = 8) {
@@ -343,12 +347,17 @@ async function runBrowserScrollCheck(html) {
 }
 
 const source = await readFile(onboardingPath, 'utf8');
+const projectStepSource = await readFile(projectStepPath, 'utf8');
+const onboardingUtilsSource = await readFile(onboardingUtilsPath, 'utf8');
 const homePageSource = await readFile(homePagePath, 'utf8');
 const projectHookSource = await readFile(projectHookPath, 'utf8');
+const chatPanelSource = await readFile(chatPanelPath, 'utf8');
 const chatMessageListSource = await readFile(chatMessageListPath, 'utf8');
-assertSourceGuards(source);
+assertRepoPickerSourceGuards(projectStepSource, onboardingUtilsSource);
+assertOnboardingWizardSourceGuards(source);
 assertHomePageSourceGuards(homePageSource);
 assertProjectHookSourceGuards(projectHookSource);
+assertChatPanelSourceGuards(chatPanelSource);
 assertChatMessageListSourceGuards(chatMessageListSource);
 
 const metrics = await runBrowserScrollCheck(buildFixtureHtml());

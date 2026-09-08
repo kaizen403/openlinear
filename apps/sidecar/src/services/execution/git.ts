@@ -2,9 +2,13 @@ import { existsSync, mkdirSync, rmSync, accessSync, constants } from 'fs';
 import { logger } from '@openlinear/api/logger';
 import { PullRequestResult, REPOS_DIR } from './state';
 import { getGitIdentityEnv } from '../git-identity';
-import { execFileAsync } from './exec';
 import { assertPathInsideReposDir } from '../repo-storage';
-import { execGitWithCredentials } from '../git-credentials';
+import {
+  assertSafeCloneUrl,
+  assertSafeRefName,
+  execGit,
+  execGitWithCredentials,
+} from '../git-credentials';
 
 export type CommitPushResult =
   | { status: 'no_changes' }
@@ -36,7 +40,7 @@ function isRuntimeArtifactPath(path: string): boolean {
 }
 
 export async function hasCommittableChanges(repoPath: string): Promise<boolean> {
-  const { stdout } = await execFileAsync('git', [
+  const { stdout } = await execGit([
     '-C',
     repoPath,
     'status',
@@ -51,7 +55,7 @@ export async function hasCommittableChanges(repoPath: string): Promise<boolean> 
 }
 
 export async function stageCommittableChanges(repoPath: string): Promise<boolean> {
-  await execFileAsync('git', [
+  await execGit([
     '-C',
     repoPath,
     'add',
@@ -61,9 +65,9 @@ export async function stageCommittableChanges(repoPath: string): Promise<boolean
     ':(exclude).sisyphus',
     ':(exclude).sisyphus/**',
   ]);
-  await execFileAsync('git', ['-C', repoPath, 'reset', '-q', '--', '.sisyphus']).catch(() => undefined);
+  await execGit(['-C', repoPath, 'reset', '-q', '--', '.sisyphus']).catch(() => undefined);
 
-  const { stdout } = await execFileAsync('git', [
+  const { stdout } = await execGit([
     '-C',
     repoPath,
     'diff',
@@ -80,7 +84,10 @@ export async function cloneRepository(
   accessToken: string | null,
   defaultBranch: string
 ): Promise<void> {
-  const safeRepoPath = assertPathInsideReposDir(repoPath);
+  assertSafeCloneUrl(cloneUrl, 'clone URL');
+  assertSafeRefName(defaultBranch, 'default branch');
+
+  const safeRepoPath = assertPathInsideReposDir(repoPath, { description: 'repository path', allowRoot: false });
   logger.info(`[Execution] Preparing to clone into ${safeRepoPath}`);
 
   if (!existsSync(REPOS_DIR)) {
@@ -100,18 +107,19 @@ export async function cloneRepository(
   }
 
   logger.info(`[Execution] Cloning ${cloneUrl} (branch: ${defaultBranch})...`);
+  // `--` ends option parsing before the clone URL: defense in depth on top of
+  // assertSafeCloneUrl() above, in case a future change relaxes that check.
   await execGitWithCredentials(
-    ['clone', '--depth', '1', '--branch', defaultBranch, cloneUrl, safeRepoPath],
+    ['clone', '--depth', '1', '--branch', defaultBranch, '--', cloneUrl, safeRepoPath],
     accessToken,
     cloneUrl,
   );
-  await execFileAsync('chmod', ['-R', 'a+rwX', safeRepoPath]);
   logger.info(`[Execution] Clone complete`);
 }
 
 export async function createBranch(repoPath: string, branchName: string): Promise<void> {
   logger.info(`[Execution] Creating branch: ${branchName}`);
-  await execFileAsync('git', ['-C', repoPath, 'checkout', '-B', branchName]);
+  await execGit(['-C', repoPath, 'checkout', '-B', branchName]);
   logger.info(`[Execution] Branch ready and checked out`);
 }
 
@@ -139,12 +147,42 @@ export async function commitAndPush(
 
     const commitMessage = `feat: ${taskTitle.toLowerCase().replace(/[^a-z0-9\s]/g, '').slice(0, 50)}`;
     logger.info(`[Execution] Committing: ${commitMessage}`);
-    await execFileAsync('git', ['-C', repoPath, 'commit', '-m', commitMessage], { env });
+    await execGit(['-C', repoPath, 'commit', '-m', commitMessage], { env });
 
     logger.info(`[Execution] Pushing to origin/${branchName}...`);
-    const { stdout: originUrl } = await execFileAsync('git', ['-C', repoPath, 'remote', 'get-url', 'origin']);
+    const { stdout: originUrl } = await execGit(['-C', repoPath, 'remote', 'get-url', 'origin']);
+
+    // `cloneRepository` above only fetches `defaultBranch` (`--depth 1
+    // --branch <defaultBranch>`), so the freshly-cloned repo has no
+    // remote-tracking ref for `branchName`. A bare `--force-with-lease`
+    // relies on exactly that ref to know what it's safe to overwrite, so it
+    // fails deterministically on every run against this branch, not just
+    // re-runs. Fetch the branch explicitly (tolerating the "doesn't exist on
+    // the remote yet" case) and pass an explicit expected value: the fetched
+    // SHA if the branch exists remotely, or the empty string — meaning "the
+    // ref must not exist on the remote" — if it doesn't. This keeps the
+    // lease meaningful (still refuses to clobber a concurrent writer)
+    // instead of either failing outright or dropping force protection.
+    let expectedRemoteSha = '';
+    try {
+      await execGit(['-C', repoPath, 'fetch', 'origin', branchName]);
+      const { stdout: fetchHead } = await execGit(['-C', repoPath, 'rev-parse', 'FETCH_HEAD']);
+      expectedRemoteSha = fetchHead.trim();
+    } catch {
+      // Branch doesn't exist on the remote yet — expectedRemoteSha stays ''.
+    }
+
     await execGitWithCredentials(
-      ['-C', repoPath, 'push', '--force-with-lease', '-u', 'origin', branchName],
+      [
+        '-C',
+        repoPath,
+        'push',
+        `--force-with-lease=${branchName}:${expectedRemoteSha}`,
+        '-u',
+        'origin',
+        '--',
+        branchName,
+      ],
       accessToken,
       originUrl.trim(),
       { env },

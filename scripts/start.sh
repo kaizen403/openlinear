@@ -31,9 +31,14 @@ trap cleanup INT TERM
 
 MODE="${1:-all}"
 
-# Acknowledge OpenCode's single-tenant model so the sidecar boots against
-# multi-user databases (e.g. shared dev DB, Neon). See docs/limitations.md.
-export OPENLINEAR_ALLOW_SHARED_OPENCODE="${OPENLINEAR_ALLOW_SHARED_OPENCODE:-1}"
+# NOTE (C6a F15): this used to default OPENLINEAR_ALLOW_SHARED_OPENCODE=1,
+# silently disabling the sidecar's multi-tenant guard for every run against a
+# shared database (Neon, a team DB, etc). That guard exists so a database
+# with more than one user doesn't end up with every user's OpenCode
+# session/auth state sharing one process. If your DATABASE_URL points at a
+# multi-user database and you've deliberately accepted that tradeoff, set
+# OPENLINEAR_ALLOW_SHARED_OPENCODE=1 yourself before running this script —
+# see docs/limitations.md.
 
 # ── Step 1: Check prerequisites ──────────────────────────────────
 

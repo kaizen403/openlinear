@@ -12,8 +12,37 @@ export const CHAT_TOOLS: Record<ChatToolName, ChatTool> = Object.fromEntries(
 
 assertNoToolShapeDrift();
 
+/**
+ * Tools withheld from the chat agent until human approval exists (Phase 4).
+ *
+ * These grant or change access. Untrusted text — task titles, descriptions,
+ * comments, uploaded files, GitHub content — is fed into the model context
+ * undelimited, and every mutating tool runs with no confirmation on
+ * model-chosen arguments. A prompt injection planted by any workspace
+ * co-tenant could therefore make the victim's own agent grant project access,
+ * invite members, or change roles.
+ *
+ * Withheld rather than merely discouraged: a system-prompt instruction is not
+ * an access control.
+ */
+export const WITHHELD_PRIVILEGE_TOOLS: ReadonlySet<string> = new Set([
+  'grant_project_access',
+  'invite_workspace_member',
+  'invite_team_member',
+  'change_workspace_member_role',
+  'change_team_member_role',
+]);
+
+function privilegeToolsEnabled(): boolean {
+  return process.env.OPENLINEAR_ENABLE_CHAT_PRIVILEGE_TOOLS === '1';
+}
+
+export function isToolWithheld(name: string): boolean {
+  return WITHHELD_PRIVILEGE_TOOLS.has(name) && !privilegeToolsEnabled();
+}
+
 export function getOpenAIFunctionSpecs() {
-  return CHAT_DOMAIN_TOOLS.map((tool) => ({
+  return CHAT_DOMAIN_TOOLS.filter((tool) => !isToolWithheld(tool.name)).map((tool) => ({
     type: 'function' as const,
     function: {
       name: tool.name,
@@ -101,6 +130,15 @@ export async function dispatchTool(name: string, ctx: ToolContext, args: JsonObj
   const tool = CHAT_TOOLS[name as ChatToolName];
   if (!tool) {
     return fail('UNKNOWN_TOOL', `Unknown tool: ${name}`);
+  }
+
+  // Defence in depth: the tool is already absent from the specs sent to the
+  // model, but a hallucinated or injected call must not execute either.
+  if (isToolWithheld(name)) {
+    return fail(
+      'TOOL_REQUIRES_APPROVAL',
+      `${name} changes access permissions and cannot be performed by the assistant. Ask the user to do it directly.`,
+    );
   }
 
   const existing = await findExistingResult(ctx);

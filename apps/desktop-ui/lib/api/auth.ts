@@ -4,6 +4,7 @@ import {
   getSidecarApiUrl,
   resolveKnownSidecarApiUrl,
 } from './client';
+import { getToken, setToken } from './token-store';
 import type { User } from './types';
 
 const TOKEN_VERIFY_TIMEOUT_MS = 15_000;
@@ -15,21 +16,13 @@ function isDesktopRuntime(): boolean {
 }
 
 function removeTokenIfCurrent(token: string): void {
-  try {
-    if (localStorage.getItem('token') === token) {
-      localStorage.removeItem('token');
-    }
-  } catch {}
+  if (getToken() === token) {
+    setToken(null);
+  }
 }
 
 function restoreToken(previousToken: string | null): void {
-  try {
-    if (previousToken) {
-      localStorage.setItem('token', previousToken);
-    } else {
-      localStorage.removeItem('token');
-    }
-  } catch {}
+  setToken(previousToken);
 }
 
 function sleep(ms: number): Promise<void> {
@@ -50,7 +43,7 @@ async function getAuthApiUrl(): Promise<string> {
 
 export async function fetchCurrentUser(): Promise<User | null> {
   if (typeof window === 'undefined') return null;
-  const token = localStorage.getItem('token');
+  const token = getToken();
   if (!token) return null;
 
   try {
@@ -104,8 +97,8 @@ export async function verifyCallbackToken(token: string): Promise<User> {
     throw new NetworkError('Cannot verify callback token outside the browser');
   }
 
-  const previousToken = localStorage.getItem('token');
-  localStorage.setItem('token', token);
+  const previousToken = getToken();
+  setToken(token);
 
   const deadline = Date.now() + TOKEN_VERIFY_TIMEOUT_MS;
   let retryDelayMs = TOKEN_VERIFY_MIN_RETRY_MS;
@@ -188,6 +181,6 @@ export async function updateEmail(email: string): Promise<User> {
 }
 
 export function logout(): void {
-  localStorage.removeItem('token');
+  setToken(null);
   window.location.href = '/';
 }

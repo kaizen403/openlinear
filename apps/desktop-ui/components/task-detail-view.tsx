@@ -186,8 +186,12 @@ export function TaskDetailView({ task, progress, open, onClose, onDelete, deleti
         side="right"
         // Override default narrow width; this is a full task detail panel, not a settings drawer.
         className="w-full sm:max-w-none md:w-[860px] lg:w-[960px] xl:w-[1100px] p-0 bg-linear-bg border-linear-border flex flex-col"
-        // Hide the built-in close button (we render our own X in the header)
-        onOpenAutoFocus={(e) => e.preventDefault()}
+        // Let Radix's default focus-on-open behavior run (don't preventDefault
+        // here): previously focus was left on whatever was focused before the
+        // sheet opened (usually the board behind it), so keydown events never
+        // entered the sheet's DOM subtree and the board's global keyboard
+        // shortcuts (e.g. 'd'/Backspace to delete) fired instead of whatever
+        // the user meant to type inside the sheet.
       >
         <SheetTitle className="sr-only">{task.title}</SheetTitle>
         <SheetDescription className="sr-only">Task detail view for {task.identifier || task.id}</SheetDescription>

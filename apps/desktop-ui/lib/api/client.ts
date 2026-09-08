@@ -1,3 +1,5 @@
+import { getToken } from './token-store';
+
 const DEFAULT_API_URL = 'http://127.0.0.1:3001';
 const CLOUD_DEFAULT = 'https://openlinear.tech';
 const TAURI_SIDECAR_URL_KEY = 'openlinear:tauri-sidecar-url';
@@ -193,17 +195,17 @@ export function getAuthHeader(): HeadersInit {
 }
 
 /**
- * Returns the current JWT token (or null). Single point of truth for token reads.
+ * Returns the current JWT token (or null).
+ *
+ * This delegates to `lib/api/token-store.ts`, the actual single point of
+ * truth for token reads/writes (localStorage on web, @tauri-apps/plugin-store
+ * on desktop) — re-exported here since most of `lib/api/*` already imports
+ * from `./client`.
  *
  * Use this for callsites that cannot use `apiFetch` directly — currently:
  * native EventSource (cannot set Authorization headers, must pass token via URL).
  * Do NOT use elsewhere; prefer `apiFetch` from `lib/api/fetch.ts`.
  */
 export function getAuthToken(): string | null {
-  if (typeof window === 'undefined') return null;
-  try {
-    return window.localStorage.getItem('token');
-  } catch {
-    return null;
-  }
+  return getToken();
 }

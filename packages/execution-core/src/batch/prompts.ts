@@ -5,6 +5,30 @@ export interface TaskPromptRecord {
   description?: string | null;
 }
 
+export interface ModelOverride {
+  providerID: string;
+  modelID: string;
+}
+
+/**
+ * T9 (H-04/H-05/M-01) — pure `provider/model` string parsing shared by the
+ * single-task path (lifecycle.ts) and the batch path (batch/orchestrator.ts)
+ * so both resolve a per-task model override the same way. Batch execution
+ * previously ignored `Task.model` entirely; this is the shared piece that
+ * lets both callers pass a real `model` field into `session.prompt`/
+ * `session.promptAsync` instead of silently falling back to whatever
+ * OpenCode's global default happens to be.
+ */
+export function parseModelOverride(modelStr: string | null | undefined): ModelOverride | undefined {
+  if (!modelStr) return undefined;
+  const slashIdx = modelStr.indexOf('/');
+  if (slashIdx <= 0 || slashIdx === modelStr.length - 1) return undefined;
+  return {
+    providerID: modelStr.slice(0, slashIdx),
+    modelID: modelStr.slice(slashIdx + 1),
+  };
+}
+
 export interface CombinedPromptRecord extends TaskPromptRecord {
   id: string;
   identifier?: string | null;

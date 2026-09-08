@@ -27,7 +27,7 @@ export default function AuthPage() {
       <p>Every MCP call must include an <code>Authorization</code> header:</p>
       <CodeBlock language="http">{`POST /mcp HTTP/1.1
 Host: mcp.openlinear.tech
-Authorization: Bearer ol_pat_25897b3edab3886a9601658071a9dac5
+Authorization: Bearer ol_pat_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 Content-Type: application/json
 Accept: application/json, text/event-stream`}</CodeBlock>
 

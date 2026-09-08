@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { gitHttpsUrlSchema, gitRefSchema } from './git';
 
 export const repoUrlBodySchema = z.object({
   url: z.string().min(1, 'URL is required').url('Must be a valid URL'),
@@ -9,9 +10,9 @@ export const importRepoBodySchema = z.object({
     id: z.union([z.number(), z.string()]),
     full_name: z.string().min(1),
     name: z.string().optional(),
-    clone_url: z.string().optional(),
+    clone_url: gitHttpsUrlSchema.optional(),
     html_url: z.string().optional(),
-    default_branch: z.string().optional(),
+    default_branch: gitRefSchema.optional(),
     private: z.boolean().optional(),
     owner: z
       .object({
@@ -23,12 +24,7 @@ export const importRepoBodySchema = z.object({
 });
 
 export const updateBaseBranchBodySchema = z.object({
-  baseBranch: z
-    .string()
-    .trim()
-    .min(1)
-    .max(255)
-    .regex(/^(?![/.])(?!.*\.\.)(?!.*\/\.)(?!.*\.$)(?!.*\/$)[A-Za-z0-9._/-]+$/),
+  baseBranch: gitRefSchema,
 });
 
 export type RepoUrlBody = z.infer<typeof repoUrlBodySchema>;

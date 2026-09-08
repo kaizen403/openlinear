@@ -13,6 +13,14 @@ import { useExecutionProgress } from "@/lib/execution-state-store"
 interface TaskCardProps {
   task: Task
   onExecute?: (taskId: string) => void
+  /**
+   * Whether execution is currently available (e.g. a repo/local path is
+   * connected). Kept as an explicit, cheaply-comparable prop — separate from
+   * `onExecute` itself, whose identity is not stable across parent renders —
+   * so the memo comparator below can react to it flipping without having to
+   * compare unstable function props.
+   */
+  canExecute?: boolean
   onCancel?: (taskId: string) => void
   onDelete?: (taskId: string) => void
   deletionMode?: "archive" | "delete"
@@ -64,7 +72,7 @@ const LiveDuration = memo(function LiveDuration({ startedAt }: { startedAt: stri
   return <>{formatDuration(ms)}</>
 })
 
-function TaskCardComponent({ task, onExecute, onCancel, onDelete, deletionMode, onMoveToInProgress, onTaskClick, executionProgress, selected, onToggleSelect, selectionMode, isBatchTask, isCompletedBatchTask, isDragging, suppressExecutionProgress }: TaskCardProps) {
+function TaskCardComponent({ task, onExecute, canExecute, onCancel, onDelete, deletionMode, onMoveToInProgress, onTaskClick, executionProgress, selected, onToggleSelect, selectionMode, isBatchTask, isCompletedBatchTask, isDragging, suppressExecutionProgress }: TaskCardProps) {
   const [cancelling, setCancelling] = useState(false)
   const liveProgress = useExecutionProgress(task.id)
   const currentProgress = suppressExecutionProgress ? undefined : (executionProgress ?? liveProgress)
@@ -298,7 +306,7 @@ function TaskCardComponent({ task, onExecute, onCancel, onDelete, deletionMode, 
                 Move
               </Button>
             )}
-            {task.status === 'in_progress' && onExecute && !isActiveProgress && !isBatchTask && (
+            {task.status === 'in_progress' && canExecute && onExecute && !isActiveProgress && !isBatchTask && (
               <Button
                 size="sm"
                 variant="ghost"
@@ -358,10 +366,19 @@ function TaskCardComponent({ task, onExecute, onCancel, onDelete, deletionMode, 
   )
 }
 
-/** Memoized wrapper — ignores function props because parent callbacks aren't stable references */
+/**
+ * Memoized wrapper — ignores function prop *identity* because parent
+ * callbacks (onExecute/onCancel/onTaskClick/...) aren't stable references
+ * across renders. `canExecute` is compared explicitly, though: it's a plain
+ * boolean the parent derives from connection state, and it's the one signal
+ * that determines whether the Execute button can render at all (see
+ * `canExecute` above) — without comparing it, a false→true flip would never
+ * trigger a re-render and the button would never appear.
+ */
 export const TaskCard = memo(TaskCardComponent, (prev, next) => {
   return (
     prev.task === next.task &&
+    prev.canExecute === next.canExecute &&
     prev.executionProgress === next.executionProgress &&
     prev.selected === next.selected &&
     prev.selectionMode === next.selectionMode &&

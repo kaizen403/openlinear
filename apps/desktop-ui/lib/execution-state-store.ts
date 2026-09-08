@@ -9,6 +9,9 @@ const EMPTY_LOGS: ExecutionLogEntry[] = []
 type Listener = () => void
 
 const logsByTaskId = new Map<string, ExecutionLogEntry[]>()
+// Dedupe keys for each task's current log entries (see logEntryKey) — always
+// rebuilt from the post-trim array so it can never drift from logsByTaskId.
+const logKeysByTaskId = new Map<string, Set<string>>()
 const progressByTaskId = new Map<string, ExecutionProgress>()
 const logListenersByTaskId = new Map<string, Set<Listener>>()
 const progressListenersByTaskId = new Map<string, Set<Listener>>()
@@ -70,14 +73,33 @@ function trimLogs(logs: ExecutionLogEntry[]) {
   return logs.slice(logs.length - MAX_LOGS_PER_TASK)
 }
 
+/**
+ * Stable dedupe key for a log entry. The server doesn't send a sequence/id
+ * on execution log events (see ExecutionLogEntry) — if it grows one, prefer
+ * that instead of this content-based key, which will (rarely) collapse two
+ * genuinely-identical lines emitted in the same millisecond.
+ */
+function logEntryKey(entry: ExecutionLogEntry): string {
+  return `${entry.timestamp}|${entry.type}|${entry.message}|${entry.details ?? ""}`
+}
+
 export function appendExecutionLog(taskId: string, entry: ExecutionLogEntry) {
+  const key = logEntryKey(entry)
+  // An SSE reconnect can replay recent log events the client already has
+  // (e.g. after re-fetching history) — without this, they render twice.
+  if (logKeysByTaskId.get(taskId)?.has(key)) return
+
   const current = logsByTaskId.get(taskId) ?? EMPTY_LOGS
-  logsByTaskId.set(taskId, trimLogs([...current, entry]))
+  const next = trimLogs([...current, entry])
+  logsByTaskId.set(taskId, next)
+  logKeysByTaskId.set(taskId, new Set(next.map(logEntryKey)))
   scheduleNotification("logs", taskId)
 }
 
 export function replaceExecutionLogs(taskId: string, logs: ExecutionLogEntry[]) {
-  logsByTaskId.set(taskId, trimLogs(logs))
+  const next = trimLogs(logs)
+  logsByTaskId.set(taskId, next)
+  logKeysByTaskId.set(taskId, new Set(next.map(logEntryKey)))
   scheduleNotification("logs", taskId)
 }
 

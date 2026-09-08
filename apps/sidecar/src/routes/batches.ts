@@ -1,7 +1,7 @@
 import { Router, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { prisma, decryptToken } from '@openlinear/db';
-import { optionalAuth, AuthRequest } from '@openlinear/api/middleware';
+import { requireAuth, AuthRequest } from '@openlinear/api/middleware';
 import { logger } from '@openlinear/api/logger';
 import { assertTaskOwned } from '@openlinear/api/ownership';
 import {
@@ -27,7 +27,7 @@ const CreateBatchSchema = z.object({
 
 const router: Router = Router();
 
-router.post('/', optionalAuth, async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.post('/', requireAuth, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const parsed = CreateBatchSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -36,26 +36,22 @@ router.post('/', optionalAuth, async (req: AuthRequest, res: Response, next: Nex
     }
 
     const { taskIds, mode } = parsed.data;
-    const userId = req.userId || null;
+    const userId = req.userId!;
 
-    if (userId) {
-      for (const tid of taskIds) {
-        await assertTaskOwned(tid, userId);
-      }
+    for (const tid of taskIds) {
+      await assertTaskOwned(tid, userId);
     }
 
     let accessToken: string | null = null;
-    if (userId) {
-      const user = await prisma.user.findUnique({
-        where: { id: userId },
-        select: { accessToken: true },
-      });
-      try {
-        accessToken = decryptToken(user?.accessToken ?? null);
-      } catch (err) {
-        logger.error({ err }, '[batch] failed to decrypt access token');
-        accessToken = null;
-      }
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { accessToken: true },
+    });
+    try {
+      accessToken = decryptToken(user?.accessToken ?? null);
+    } catch (err) {
+      logger.error({ err }, '[batch] failed to decrypt access token');
+      accessToken = null;
     }
 
     const batch = await createBatch({
@@ -74,22 +70,19 @@ router.post('/', optionalAuth, async (req: AuthRequest, res: Response, next: Nex
   }
 });
 
-function batchTaskGuard(batch: BatchState | undefined, userId: string | undefined): Promise<void> {
-  if (!batch || !userId) return Promise.resolve();
+function batchTaskGuard(batch: BatchState | undefined, userId: string): Promise<void> {
+  if (!batch) return Promise.resolve();
   return Promise.all(
     batch.tasks.map((t: BatchTask) => assertTaskOwned(t.taskId, userId)),
   ).then(() => undefined);
 }
 
-router.get('/', optionalAuth, async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.get('/', requireAuth, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const userId = req.userId;
+    const userId = req.userId!;
     const batches = getActiveBatches();
     const visible: BatchState[] = [];
     for (const b of batches) {
-      if (!userId) {
-        continue;
-      }
       try {
         await batchTaskGuard(b, userId);
         visible.push(b);
@@ -111,7 +104,7 @@ router.get('/', optionalAuth, async (req: AuthRequest, res: Response, next: Next
   }
 });
 
-router.get('/:id', optionalAuth, async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.get('/:id', requireAuth, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const id = req.params.id as string;
     const batch = getBatch(id);
@@ -120,9 +113,7 @@ router.get('/:id', optionalAuth, async (req: AuthRequest, res: Response, next: N
       return;
     }
 
-    if (req.userId) {
-      await batchTaskGuard(batch, req.userId);
-    }
+    await batchTaskGuard(batch, req.userId!);
 
     res.json(toBatchStatusResponse(batch));
   } catch (error) {
@@ -130,7 +121,7 @@ router.get('/:id', optionalAuth, async (req: AuthRequest, res: Response, next: N
   }
 });
 
-router.post('/:id/cancel', optionalAuth, async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.post('/:id/cancel', requireAuth, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const id = req.params.id as string;
     const batch = getBatch(id);
@@ -138,9 +129,7 @@ router.post('/:id/cancel', optionalAuth, async (req: AuthRequest, res: Response,
       res.status(404).json({ error: 'Batch not found' });
       return;
     }
-    if (req.userId) {
-      await batchTaskGuard(batch, req.userId);
-    }
+    await batchTaskGuard(batch, req.userId!);
     cancelBatch(id);
     res.json({ success: true });
   } catch (error) {
@@ -148,13 +137,11 @@ router.post('/:id/cancel', optionalAuth, async (req: AuthRequest, res: Response,
   }
 });
 
-router.post('/:id/tasks/:taskId/cancel', optionalAuth, async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.post('/:id/tasks/:taskId/cancel', requireAuth, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const id = req.params.id as string;
     const taskId = req.params.taskId as string;
-    if (req.userId) {
-      await assertTaskOwned(taskId, req.userId);
-    }
+    await assertTaskOwned(taskId, req.userId!);
     cancelTask(id, taskId);
     res.json({ success: true });
   } catch (error) {
@@ -162,7 +149,7 @@ router.post('/:id/tasks/:taskId/cancel', optionalAuth, async (req: AuthRequest, 
   }
 });
 
-router.post('/:id/approve', optionalAuth, async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.post('/:id/approve', requireAuth, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const id = req.params.id as string;
     const batch = getBatch(id);
@@ -170,9 +157,7 @@ router.post('/:id/approve', optionalAuth, async (req: AuthRequest, res: Response
       res.status(404).json({ error: 'Batch not found' });
       return;
     }
-    if (req.userId) {
-      await batchTaskGuard(batch, req.userId);
-    }
+    await batchTaskGuard(batch, req.userId!);
     approveNextTask(id);
     const updated = getBatch(id);
     if (!updated) {

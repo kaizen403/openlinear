@@ -1,14 +1,118 @@
-import { join, relative, resolve, isAbsolute } from 'path';
+import { lstatSync, mkdirSync, realpathSync } from 'fs';
+import { basename, dirname, isAbsolute, join, relative, resolve } from 'path';
+import { homedir } from 'os';
 
-export const REPOS_DIR = process.env.REPOS_DIR || '/tmp/openlinear-repos';
+function defaultReposDir(): string {
+  const home = homedir();
 
-const resolvedReposDir = resolve(REPOS_DIR);
+  if (process.platform === 'darwin') {
+    return join(home, 'Library', 'Application Support', 'OpenLinear', 'repos');
+  }
 
-export function assertPathInsideReposDir(targetPath: string, description = 'repository path'): string {
-  const resolvedTarget = resolve(targetPath);
-  const rel = relative(resolvedReposDir, resolvedTarget);
+  if (process.platform === 'win32') {
+    const base = process.env.LOCALAPPDATA || join(home, 'AppData', 'Local');
+    return join(base, 'OpenLinear', 'repos');
+  }
 
-  if (rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))) {
+  const xdgDataHome = process.env.XDG_DATA_HOME || join(home, '.local', 'share');
+  return join(xdgDataHome, 'openlinear', 'repos');
+}
+
+export const REPOS_DIR = process.env.REPOS_DIR || defaultReposDir();
+
+/**
+ * Resolves symlinks with the OS-native realpath, walking up to the nearest
+ * existing ancestor when the full path (or an internal segment) doesn't
+ * exist yet — e.g. a clone destination that hasn't been created. The
+ * not-yet-existing tail is joined back on lexically once a real ancestor is
+ * found, so containment checks still work against a target `git clone` is
+ * about to create. See C6a F10.
+ */
+function realpathOrNearestAncestor(targetPath: string): string {
+  const resolved = resolve(targetPath);
+  const missingSegments: string[] = [];
+  let current = resolved;
+
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    try {
+      const real = realpathSync.native(current);
+      return missingSegments.length === 0 ? real : join(real, ...missingSegments.reverse());
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code !== 'ENOENT' && code !== 'ENOTDIR') {
+        throw err;
+      }
+
+      const parent = dirname(current);
+      if (parent === current) {
+        // Hit the filesystem root without resolving anything real — fall
+        // back to the lexical resolution rather than looping forever.
+        return resolved;
+      }
+
+      missingSegments.push(basename(current));
+      current = parent;
+    }
+  }
+}
+
+function ensureReposDirIsSafe(dir: string): void {
+  let stat;
+  try {
+    stat = lstatSync(dir);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+      mkdirSync(dir, { recursive: true, mode: 0o700 });
+      return;
+    }
+    throw err;
+  }
+
+  if (stat.isSymbolicLink()) {
+    throw new Error(`[Sidecar] Refusing to use ${dir} as REPOS_DIR: it is a symlink`);
+  }
+
+  if (typeof process.getuid === 'function' && stat.uid !== process.getuid()) {
+    throw new Error(`[Sidecar] Refusing to use ${dir} as REPOS_DIR: not owned by the current user`);
+  }
+}
+
+// Refuse a symlinked or other-owned repo storage directory at import time,
+// creating it privately (0700) if it doesn't exist yet. See C6a F9.
+ensureReposDirIsSafe(REPOS_DIR);
+
+const resolvedReposDirReal = realpathOrNearestAncestor(REPOS_DIR);
+
+export interface AssertPathInsideReposDirOptions {
+  description?: string;
+  /**
+   * When false, the bare repository storage root itself is rejected even
+   * though it is (trivially) "inside" itself. Destructive callers — anything
+   * that eventually `rmSync`s the result — should set this to false so a bug
+   * that resolves an empty/undefined path can never wipe out all of
+   * REPOS_DIR. See C6a F21.
+   */
+  allowRoot?: boolean;
+}
+
+export function assertPathInsideReposDir(
+  targetPath: string,
+  options: AssertPathInsideReposDirOptions | string = {},
+): string {
+  const { description = 'repository path', allowRoot = true } =
+    typeof options === 'string' ? { description: options } : options;
+
+  const resolvedTarget = realpathOrNearestAncestor(targetPath);
+  const rel = relative(resolvedReposDirReal, resolvedTarget);
+  const isRoot = rel === '';
+  const isInside = !isRoot && !rel.startsWith('..') && !isAbsolute(rel);
+
+  if (isRoot && !allowRoot) {
+    throw new Error(`[Sidecar] Refusing ${description}: repository storage root is not a valid target`);
+  }
+
+  if (isRoot || isInside) {
     return resolvedTarget;
   }
 

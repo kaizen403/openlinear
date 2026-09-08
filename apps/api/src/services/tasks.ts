@@ -308,6 +308,7 @@ export async function updateTask(input: {
   }
 
   if (input.labelIds !== undefined) {
+    await assertLabelsInProject(input.labelIds, input.projectId ?? existing.projectId);
     data.labels = {
       deleteMany: {},
       create: input.labelIds.map((labelId) => ({ labelId })),
@@ -450,6 +451,65 @@ export async function bulkUpdateTaskStatus(input: {
   };
 }
 
+/**
+ * Reject label ids that do not belong to the task's project.
+ *
+ * The single-task create path validated this; the two update paths and the
+ * route-level create path did not, so a caller could attach another tenant's
+ * labels to their own task by id — and those labels then render on the board
+ * with the other workspace's name and colour.
+ */
+async function assertLabelsInProject(
+  labelIds: string[],
+  projectId: string | null | undefined,
+): Promise<void> {
+  const unique = [...new Set(labelIds)];
+  if (unique.length === 0) return;
+
+  if (!projectId) {
+    throw new ValidationError('Cannot attach labels to a task with no project');
+  }
+
+  const found = await prisma.label.findMany({
+    where: { id: { in: unique }, projectId },
+    select: { id: true },
+  });
+  if (found.length !== unique.length) {
+    const ok = new Set(found.map((label) => label.id));
+    throw new ValidationError(
+      `Invalid labelIds: ${unique.filter((id) => !ok.has(id)).join(', ')}`,
+    );
+  }
+}
+
+/**
+ * Reject assignee/watcher ids that are not members of the task's team.
+ * Without this, arbitrary user ids could be written into `TaskAssignee`,
+ * disclosing membership and surfacing strangers on a board.
+ */
+async function assertUsersInTeam(
+  userIds: string[],
+  teamId: string | null | undefined,
+): Promise<void> {
+  const unique = [...new Set(userIds)];
+  if (unique.length === 0) return;
+
+  if (!teamId) {
+    throw new ValidationError('Cannot assign users to a task with no team');
+  }
+
+  const members = await prisma.teamMember.findMany({
+    where: { teamId, userId: { in: unique } },
+    select: { userId: true },
+  });
+  if (members.length !== unique.length) {
+    const ok = new Set(members.map((member) => member.userId));
+    throw new ValidationError(
+      `Users are not members of this team: ${unique.filter((id) => !ok.has(id)).join(', ')}`,
+    );
+  }
+}
+
 export async function bulkArchiveTasks(input: {
   userId: string;
   projectId: string;
@@ -462,7 +522,16 @@ export async function bulkArchiveTasks(input: {
   const requestedIdentifiers = [...new Set((input.identifiers ?? []).map((identifier) => identifier.trim()).filter(Boolean))];
   const scopedRequests: Prisma.TaskWhereInput[] = [];
   if (requestedIds.length > 0) scopedRequests.push({ id: { in: requestedIds } });
-  if (requestedIdentifiers.length > 0) scopedRequests.push({ identifier: { in: requestedIdentifiers, mode: 'insensitive' } });
+  // `mode: 'insensitive'` lowercases the COLUMN but not the supplied values, so
+  // `in: ['TEAM1-12']` matched nothing while `in: ['team1-12']` matched — i.e.
+  // archiving by identifier silently failed for every normally-cased identifier
+  // and reported success with an empty `archived` list. The values must be
+  // lowercased to meet the lowercased column.
+  if (requestedIdentifiers.length > 0) {
+    scopedRequests.push({
+      identifier: { in: requestedIdentifiers.map((identifier) => identifier.toLowerCase()), mode: 'insensitive' },
+    });
+  }
 
   const tasks = await prisma.task.findMany({
     where: {
@@ -867,6 +936,7 @@ export async function createTaskRoute(input: {
     throw new ValidationError('Task must belong to a team or a project');
   }
   await assertTeamRole(resolvedTeamId, input.userId, ['owner', 'admin', 'member']);
+  await assertLabelsInProject(input.labelIds, input.projectId ?? null);
 
   const task = await prisma.$transaction(async (tx) => {
     const team = await tx.team.update({
@@ -1006,6 +1076,7 @@ export async function updateTaskRoute(input: {
   }
 
   if (input.labelIds !== undefined) {
+    await assertLabelsInProject(input.labelIds, input.projectId ?? existing.projectId);
     data.labels = {
       deleteMany: {},
       create: input.labelIds.map((labelId) => ({ labelId })),
@@ -1013,6 +1084,14 @@ export async function updateTaskRoute(input: {
   }
 
   const hasAssigneeSync = input.assigneeIds !== undefined || input.watcherIds !== undefined;
+  if (hasAssigneeSync) {
+    const effectiveTeam =
+      (data.teamId as string | null | undefined) ?? existing.teamId ?? null;
+    await assertUsersInTeam(
+      [...(input.assigneeIds ?? []), ...(input.watcherIds ?? [])],
+      effectiveTeam,
+    );
+  }
 
   const task = await prisma.task.update({
     where: { id: input.taskId },

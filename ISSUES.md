@@ -5,6 +5,101 @@
 
 ---
 
+## [2026-09-09] — Phase 0 "stop the bleeding": API/auth security, chat safety, test-DB guard
+
+**Status:** In progress (API stream done; sidecar + frontend streams in flight)
+**Agent:** Claude Opus 5 (lead) + 3 subagents
+**Branch:** `phase-0/stop-the-bleeding` — uncommitted
+
+### What was done (apps/api, packages/db)
+
+Implements Phase 0 of `~/Downloads/Open Linear Revamp Plan/03-phases/PHASE-0-stop-the-bleeding.md`.
+
+- **Test-database guard.** `apps/api/vitest.config.ts` fell back to the ambient `DATABASE_URL` — the repo `.env` points at a live Neon pooler — while the suite runs unscoped `deleteMany({})`. Now refuses any non-loopback host or any database not named `*_test`, before a connection opens. Verified: a production-shaped URL is blocked even with the CI override.
+- **Secrets.** One `lib/secrets.ts`; deleted the hard-coded `openlinear-dev-secret-change-in-production` fallback from all 5 source copies and the `TOKEN_ENCRYPTION_KEY` fallback in `packages/db/src/crypto.ts`. No environment exemption: missing, short (<32 chars) or known-published values throw at startup. `.env`/`.env.dev` currently hold that exact placeholder as `JWT_SECRET` — see the rotation runbook.
+- **2FA bypass.** `decodeToken` ignored `twoFactorPending`, so the 5-minute temp token was a full bearer credential; `/api/events` bypassed the middleware entirely. Both now reject it, and 2FA validation only accepts a token that actually carries the claim.
+- **Credential disclosure.** `getUserById` used `include` with no `select`, so `GET /api/auth/me` returned `totpSecret` and `backupCodes`. Replaced with an explicit `currentUserSelect` allowlist.
+- **Sessions.** `POST /api/auth/logout` was a no-op; it now revokes server-side. `isSessionRevoked` failed open on an unknown token hash and now fails closed (transition flag `OPENLINEAR_ALLOW_SESSIONLESS_JWT=1`). Added revocation caching (30s) and throttled `lastActiveAt` writes to 10 min — previously one SELECT + one UPDATE on every authenticated request.
+- **Token issuance centralised.** Four sites minted JWTs; only one created a `Session` row. All now go through `lib/auth-tokens.ts`.
+- **SSO login disabled** pending rebuild (unsigned state, no nonce/PKCE, unverified `allowedDomains`, bind-by-email => takeover of any account by email). **Self-service email change disabled** — combined with pending-invitation tokens it was a path into another tenant.
+- **Invitations** no longer return the acceptance `token` from either listing.
+- **Orphan tasks** (`teamId` and `projectId` both null) were readable/writable by any authenticated user; now creator-only.
+- **PATs.** Wildcard `['*']` default removed and scopes are required; PATs can no longer mint PATs or touch 2FA/sessions (`denyPersonalAccessTokens`).
+- **Input validation** (`schemas/git.ts`): `clone_url` https + host allowlist (blocks `ext::`-transport RCE via `git clone`), git ref names reject a leading `-` (option injection), `localPath` must be absolute and traversal-free.
+- **Uploads.** `/uploads` was `express.static` with no auth and CSP disabled, and multer kept the caller's extension — uploading `.html` gave same-origin script execution. Now authenticated + ownership-checked, MIME allowlist with magic-byte verification, extension derived from the allowlist, forced `attachment` download.
+- **Chat.** Boundary-safe history window (a window opening on a `tool` message was a provider 400); tool results now compacted in-flight as well as on replay; tool-call ids made unique per turn (`tool_<round>_<index>` collided across turns and replayed cached results); untrusted-content envelopes for attachments plus a system-prompt contract; 5 access-granting tools withheld from the model and refused at dispatch; `archive_issues` now requires explicit ids — omitting them archived every active issue in the project.
+- **Health/CI/infra.** Added `/livez` (no DB) and `/readyz` (DB + secrets). CI `db:push` -> `prisma migrate deploy` + drift check + a migration-safety gate (destructive DDL, non-`CONCURRENTLY` index). Azure `--max-replicas` clamped 3 -> 1 until the outbox lands: SSE fan-out, rate limits and the idempotency cache are per-process. `.gitignore` widened to `.env.*` and `.env.dev`/`.env.prod` untracked (they were committed with live credentials).
+- **Found and fixed a live bug:** `bulkArchiveTasks` used `identifier: { in: [...], mode: 'insensitive' }`. Prisma lowercases the column but not the supplied values, so archiving by a normally-cased identifier (`TEAM1-12`) silently matched nothing and reported success. Probed and confirmed against Postgres before fixing.
+
+### Files changed
+
+`apps/api/src/{lib/secrets.ts,lib/auth-tokens.ts,lib/selects.ts,lib/chat-prompts.ts,middleware/auth.ts,routes/{auth,totp,sso,events,pats,chat-attachments,uploads}.ts,schemas/{git,repos,projects}.ts,services/{sessions,github,ownership,tasks,invitations,chat}.ts,services/chat-tools/{index,domain}.ts,app.ts}`, `apps/api/vitest.config.ts`, `apps/api/src/__tests__/*`, `packages/db/src/crypto.ts`, `packages/db/prisma/manual/2026-09-09-phase0-hot-path-indexes.sql`, `.github/workflows/*.yml`, `.gitignore`, `docs/runbooks/*.md`.
+
+### Tests
+
+19 files / 165 passing. Added `security.phase0.test.ts` (12 regression tests, one per exploitable finding) plus PAT-scope, logout-revocation and archive-scope regressions. Existing tests that encoded the insecure behaviour (wildcard PAT default, "archive everything", unauthenticated logout) were updated to assert the new contract.
+
+### Issues encountered
+
+- **A subagent ran a bare `git stash`** (which implements itself as a hard reset) and its `pop` failed, wiping every uncommitted tracked-file change in the repo — this session's work and the repo owner's own pre-existing changes. Everything was recovered from `stash@{0}` via `git checkout stash@{0} -- .`; the stash is intentionally left in place as a backup. All agents are now barred from destructive git.
+- Attachment `mimeType` is trusted from the client for the allowlist decision; magic bytes are verified for binary formats but text formats have no signature. Acceptable for Phase 0, revisit with object storage in Phase 1.
+
+### Next steps / blockers
+
+- **Blocked on a human:** rotate every credential in `docs/runbooks/rotate-leaked-secrets.md` — the published PATs (one is live on the public MCP docs site), both Neon passwords, GitHub OAuth secrets, `JWT_SECRET`, `TOKEN_ENCRYPTION_KEY`. Code now refuses placeholders but cannot rotate what is already public.
+- Apply `packages/db/prisma/manual/2026-09-09-phase0-hot-path-indexes.sql` out of band (`docs/runbooks/apply-hot-path-indexes.md`), then reconcile Prisma or the CI drift-check will fail.
+- Remaining Phase 0: sidecar (Tauri per-install secret, process-group reaping, OpenCode config injection + watchdogs, supply-chain pinning) and frontend (shortcut guard, token storage, single EventSource, markdown sanitisation, making the 7 dead test files run).
+- SSO and email change are disabled, not fixed — Phase 1 rebuilds them.
+
+---
+
+## [2026-06-04] — Hide onboarding until launch and route to manual project creation
+
+**Status:** Done
+**Agent:** Codex
+
+### What was done
+- Disabled the app-entry onboarding takeover for now. When the user has no projects, or has a project without a team, the home page redirects to `/projects` instead of rendering `OnboardingWizard`.
+- Kept the onboarding wizard code in place for launch work; it is just not mounted from the home page.
+- Made manual API project creation create a default team with the creator as owner when no team is supplied, so manually created projects can immediately accept tasks.
+- Updated project API regression coverage for the default team behavior.
+- Updated the onboarding repo-picker guard script to match the current file layout and the temporary hidden-onboarding behavior.
+
+### Files changed
+- `apps/desktop-ui/app/(app)/page.tsx` — redirects setup-empty users to Projects and removes the onboarding render path.
+- `apps/api/src/services/projects.ts` — creates a default team during full/manual project creation when `teamIds` is omitted.
+- `apps/api/src/__tests__/projects.test.ts` — asserts manual project creation returns a default team and owner membership.
+- `scripts/verify-onboarding-repo-scroll.mjs` — updates source guards for hidden onboarding and current onboarding component file layout.
+
+### Issues encountered
+- `pnpm --filter @openlinear/desktop-ui test` needs a working Chromium binary and sandbox-free browser launch. It passed with `CHROMIUM_BIN="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"` and approved escalation.
+
+### Next steps / blockers
+- Revisit onboarding before launch and decide where to reintroduce it without blocking the normal manual project setup path.
+
+## [2026-06-04] — Make desktop GitHub OAuth callback automatic
+
+**Status:** Done
+**Agent:** Codex
+
+### What was done
+- Replaced the desktop GitHub OAuth copy-token bridge page with a direct redirect to `openlinear://callback?...`, so the desktop deep-link handler receives the auth result automatically after GitHub finishes.
+- Stopped the login page from automatically expanding the manual callback fallback after opening GitHub.
+- Reworded the remaining hidden recovery affordance and callback verification error so the normal flow no longer tells users to copy/paste a browser token.
+- Updated the auth regression test to expect a direct desktop callback redirect instead of the old HTML bridge.
+
+### Files changed
+- `apps/api/src/routes/auth.ts` — desktop OAuth success/error now redirect directly to the app protocol; removed the rendered callback bridge.
+- `apps/api/src/__tests__/auth.test.ts` — updated desktop OAuth callback expectation.
+- `apps/desktop-ui/app/login/page.tsx` — kept callback fallback hidden unless explicitly opened and removed token-copy wording.
+- `apps/desktop-ui/hooks/use-auth.tsx` — changed failed callback verification toast.
+
+### Issues encountered
+- The API suite initially failed inside the sandbox with Supertest `listen EPERM` errors; reran with approved escalation and it passed.
+
+### Next steps / blockers
+- Manually verify the GitHub OAuth flow in the packaged desktop app so the OS/browser protocol handoff is confirmed end to end.
+
 ## [2026-05-31] — Fix critical migration drift + docs accuracy + sidecar logging
 
 **Status:** Done
@@ -610,7 +705,7 @@
   1. Verify `OPENLINEAR_API_URL` in `apps/mcp/wrangler.toml` matches the Azure URL
   2. Run `cd apps/mcp && wrangler deploy` to redeploy Worker
   3. Update `.github/workflows/deploy.yml` for Azure (current workflow is SSH + PM2, VPS-style)
-- Smoke test PAT in production DB: `ol_pat_25897b3edab3886a9601658071a9dac5` (userId `8802cd83`, kaizen403)
+- Smoke test PAT in production DB: `ol_pat_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx` (userId `8802cd83`, kaizen403)
 - Test workspace: `workspace-aeb35ae41ef68718e82d59f45ad0c447`
 - Test team: `671dc3cb-c8dc-4922-b355-bc842ed1010b` (kaizen403's Team, key=KT)
 
@@ -1615,3 +1710,29 @@ The sidecar was likely not running when login was attempted (single-tenant guard
 
 ### Next steps / blockers
 - None. Codebase fully indexed.
+
+---
+
+## [2026-06-04] — Codebase performance review and P95 plan
+
+**Status:** Done
+**Agent:** Codex
+
+### What was done
+- Built a tracked codebase inventory for performance review scope: 989 tracked files and 121,194 tracked text lines across source, config, docs, schemas, scripts, and tests.
+- Reviewed performance-critical API, desktop UI, Prisma schema, SSE, chat, sidecar execution, batch execution, repository storage, and usage/reporting paths.
+- Created a detailed performance review report with cited bottlenecks, P95 target budgets, and validation requirements.
+- Created a phased P95 performance improvement plan covering instrumentation, query/index fixes, API request consolidation, auth/SSE reduction, frontend board performance, sidecar scalability, and production release gates.
+
+### Files changed
+- `docs/reports/performance-codebase-review-2026-06-04.md` — New codebase performance review report.
+- `docs/PERFORMANCE_IMPROVEMENT_PLAN.md` — New phased P95 improvement plan.
+- `ISSUES.md` — Added this work log entry.
+
+### Issues encountered
+- Existing dirty worktree changes were present before this work; they were left untouched.
+- The review is a static/local code-path audit. Production RUM, Lighthouse CI, load-test output, and database `EXPLAIN ANALYZE` evidence should be added before claiming measured P95 compliance.
+
+### Next steps / blockers
+- Implement Phase 0 from `docs/PERFORMANCE_IMPROVEMENT_PLAN.md`: route timing, slow-query logs, web-vitals collection, benchmark scripts, and seeded performance data.
+- Use those baselines to prioritize the index migration, bulk task endpoints, auth write throttling, and board render fixes.
