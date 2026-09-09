@@ -89,6 +89,11 @@ function makeExecution(overrides = {}) {
     backgroundTaskResultBuffer: '',
     completedToolKeys: new Set(),
     cancelled: false,
+    finalized: false,
+    watchdogSuspended: false,
+    progressTimeoutId: null,
+    teamId: null,
+    creatorId: null,
     agentRunId: 'run-1',
     cost: { input: 0, output: 0, total: 0 },
     tokens: { input: 0, output: 0 },
@@ -147,16 +152,22 @@ describe('execution event workflow', () => {
       if (typeof mock?.mockReset === 'function') mock.mockReset();
     }
     mocks.broadcastToTaskById.mockResolvedValue(undefined);
+    mocks.broadcastToTask.mockReturnValue(undefined);
     mocks.markThinking.mockReturnValue(true);
     mocks.taskUpdate.mockResolvedValue({ id: 'task-1', labels: [] });
     mocks.executeRaw.mockResolvedValue(1);
     mocks.commitAndPush.mockResolvedValue({ status: 'pushed' });
+    // Default: no recovered worktree. Tests that exercise the recover-and-PR
+    // path mock this true. A truthy default made ignored terminal events look
+    // like successful completions (stream-end recovery).
+    mocks.hasCommittableChanges.mockResolvedValue(false);
     mocks.createPullRequest.mockResolvedValue({ url: 'https://github.com/acme/repo/pull/1', type: 'pr' });
     mocks.repositoryFindUnique.mockResolvedValue({ fullName: 'acme/repo', defaultBranch: 'main' });
     mocks.taskFindUnique.mockResolvedValue({ title: 'Fix execution', description: 'Body', projectId: 'project-1' });
   });
 
   afterEach(async () => {
+    vi.useRealTimers();
     for (const taskId of [...state.activeExecutions.keys()]) {
       await state.cleanupExecution(taskId);
     }
@@ -171,7 +182,7 @@ describe('execution event workflow', () => {
       { type: 'message.part.updated', properties: { sessionID: 'ses_1', part: { type: 'text' }, delta: 'Working...' } },
       { type: 'message.part.updated', properties: { sessionID: 'ses_1', part: { type: 'tool', tool: 'edit', state: { status: 'completed', output: 'ok' } } } },
       { type: 'file.edited', properties: { sessionID: 'ses_1', file: 'src/index.ts' } },
-      { type: 'session.completed', properties: { sessionID: 'ses_1' } },
+      { type: 'session.idle', properties: { sessionID: 'ses_1' } },
     ]);
     execution.client = client;
     state.activeExecutions.set('task-1', execution);
@@ -232,9 +243,9 @@ describe('execution event workflow', () => {
         sessionId: null,
       }),
     }));
-    expect(mocks.broadcastToTaskById).toHaveBeenCalledWith(
-      'task-1',
+    expect(mocks.broadcastToTask).toHaveBeenCalledWith(
       'execution:progress',
+      expect.objectContaining({ id: 'task-1' }),
       expect.objectContaining({
         status: 'error',
         message: 'Invalid API key — update it in Settings → AI Providers',
@@ -262,7 +273,7 @@ describe('execution event workflow', () => {
             },
           },
         };
-        yield { type: 'session.completed', properties: { sessionID: 'ses_1' } };
+        yield { type: 'session.idle', properties: { sessionID: 'ses_1' } };
         await new Promise((resolve) => {
           releaseStream = resolve;
         });
@@ -293,7 +304,7 @@ describe('execution event workflow', () => {
 
   it('fails completion immediately when a background task failure is already recorded', async () => {
     const { execution } = await runEvents([
-      { type: 'session.completed', properties: { sessionID: 'ses_1' } },
+      { type: 'session.idle', properties: { sessionID: 'ses_1' } },
     ], { backgroundTaskFailure: 'background failed before completion' });
 
     expect(mocks.finalizeAgentRun).toHaveBeenCalledWith(execution, 'failed', {
@@ -324,12 +335,12 @@ describe('execution event workflow', () => {
     });
 
     await runEvents([
-      { type: 'session.completed', properties: { sessionID: 'ses_1' } },
+      { type: 'session.idle', properties: { sessionID: 'ses_1' } },
     ], { filesChanged: 2, toolsExecuted: 3 });
 
-    expect(mocks.broadcastToTaskById).toHaveBeenCalledWith(
-      'task-1',
+    expect(mocks.broadcastToTask).toHaveBeenCalledWith(
       'execution:progress',
+      expect.objectContaining({ id: 'task-1' }),
       expect.objectContaining({
         status: 'done',
         message: 'Changes pushed successfully',
@@ -343,7 +354,7 @@ describe('execution event workflow', () => {
     mocks.commitAndPush.mockResolvedValueOnce({ status: 'no_changes' });
 
     const { execution } = await runEvents([
-      { type: 'session.completed', properties: { sessionID: 'ses_1' } },
+      { type: 'session.idle', properties: { sessionID: 'ses_1' } },
     ]);
 
     expect(mocks.finalizeAgentRun).toHaveBeenCalledWith(execution, 'failed', {
@@ -361,7 +372,7 @@ describe('execution event workflow', () => {
     mocks.commitAndPush.mockResolvedValueOnce({ status: 'failed', reason: 'push denied' });
 
     const { execution } = await runEvents([
-      { type: 'session.completed', properties: { sessionID: 'ses_1' } },
+      { type: 'session.idle', properties: { sessionID: 'ses_1' } },
     ]);
 
     expect(mocks.finalizeAgentRun).toHaveBeenCalledWith(execution, 'failed', {
@@ -376,7 +387,7 @@ describe('execution event workflow', () => {
       .mockResolvedValueOnce({ title: 'Fix execution', description: null, projectId: null });
 
     const { execution } = await runEvents([
-      { type: 'session.completed', properties: { sessionID: 'ses_1' } },
+      { type: 'session.idle', properties: { sessionID: 'ses_1' } },
     ]);
 
     expect(mocks.projectFindUnique).not.toHaveBeenCalled();
@@ -392,7 +403,7 @@ describe('execution event workflow', () => {
     });
 
     await runEvents([
-      { type: 'session.completed', properties: { sessionID: 'ses_1' } },
+      { type: 'session.idle', properties: { sessionID: 'ses_1' } },
     ]);
 
     expect(mocks.createPullRequest).toHaveBeenCalledWith(
@@ -409,7 +420,7 @@ describe('execution event workflow', () => {
     mocks.createPullRequest.mockRejectedValueOnce(new Error('github down'));
 
     const { execution } = await runEvents([
-      { type: 'session.completed', properties: { sessionID: 'ses_1' } },
+      { type: 'session.idle', properties: { sessionID: 'ses_1' } },
     ]);
 
     expect(mocks.finalizeAgentRun).toHaveBeenCalledWith(execution, 'failed', {
@@ -487,7 +498,7 @@ describe('execution event workflow', () => {
       { type: 'tool.execute.before', properties: { sessionID: 'ses_1', tool: 'write' } },
       { type: 'tool.execute.after', properties: { sessionID: 'ses_1', tool: 'write', output: 'done' } },
       { type: 'file.edited', properties: { info: { sessionID: 'ses_1' }, file: 'src/app.ts' } },
-      { type: 'session.completed', properties: { sessionID: 'ses_1' } },
+      { type: 'session.idle', properties: { sessionID: 'ses_1' } },
     ]);
 
     expect(mocks.appendReasoningDelta).toHaveBeenCalledWith('task-1', 'thinking');
@@ -505,7 +516,7 @@ describe('execution event workflow', () => {
         },
       },
       { type: 'message.part.updated', properties: { sessionID: 'ses_1', part: { type: 'text' }, delta: 'Background task failed: tests failed' } },
-      { type: 'session.completed', properties: { sessionID: 'ses_1' } },
+      { type: 'session.idle', properties: { sessionID: 'ses_1' } },
     ]);
 
     expect(mocks.finalizeAgentRun).toHaveBeenCalledWith(execution, 'failed', {
@@ -522,8 +533,18 @@ describe('execution event workflow', () => {
           part: { type: 'tool', tool: 'task', state: { status: 'completed', output: 'Background task started\nBackground Task ID: bg_cancel\nstate: running' } },
         },
       },
-      { type: 'tool.execute.after', properties: { sessionID: 'ses_1', tool: 'background_cancel', output: 'Task cancelled successfully' } },
-      { type: 'session.completed', properties: { sessionID: 'ses_1' } },
+      {
+        type: 'message.part.updated',
+        properties: {
+          sessionID: 'ses_1',
+          part: {
+            type: 'tool',
+            tool: 'background_cancel',
+            state: { status: 'completed', output: 'Task cancelled successfully' },
+          },
+        },
+      },
+      { type: 'session.idle', properties: { sessionID: 'ses_1' } },
     ]);
 
     expect(mocks.finalizeAgentRun).toHaveBeenCalledWith(expect.any(Object), 'succeeded', expect.any(Object));
@@ -553,7 +574,7 @@ describe('execution event workflow', () => {
           part: { type: 'tool', tool: 'background_cancel', state: { status: 'completed', output: 'background task cancelled' } },
         },
       },
-      { type: 'session.completed', properties: { sessionID: 'ses_1' } },
+      { type: 'session.idle', properties: { sessionID: 'ses_1' } },
     ]);
 
     expect(mocks.finalizeAgentRun).toHaveBeenCalledWith(expect.any(Object), 'succeeded', expect.any(Object));
@@ -563,7 +584,7 @@ describe('execution event workflow', () => {
     const notPrompted = makeExecution({ promptSent: false });
     const client = clientFor([
       { type: 'unknown.event', properties: { sessionID: 'ses_1' } },
-      { type: 'session.completed', properties: { sessionID: 'ses_1' } },
+      { type: 'session.idle', properties: { sessionID: 'ses_1' } },
     ]);
     notPrompted.client = client;
     state.activeExecutions.set('task-1', notPrompted);
@@ -579,7 +600,7 @@ describe('execution event workflow', () => {
     mocks.finalizeAgentRun.mockClear();
     const cancelled = makeExecution({ cancelled: true });
     const cancelledClient = clientFor([
-      { type: 'session.completed', properties: { sessionID: 'ses_1' } },
+      { type: 'session.idle', properties: { sessionID: 'ses_1' } },
     ]);
     cancelled.client = cancelledClient;
     state.activeExecutions.set('task-1', cancelled);
@@ -623,9 +644,9 @@ describe('execution event workflow', () => {
     expect(mocks.finalizeAgentRun).toHaveBeenCalledWith(execution, 'failed', {
       errorMessage: '429 rate limit exceeded',
     });
-    expect(mocks.broadcastToTaskById).toHaveBeenCalledWith(
-      'task-1',
+    expect(mocks.broadcastToTask).toHaveBeenCalledWith(
       'execution:progress',
+      expect.objectContaining({ id: 'task-1' }),
       expect.objectContaining({ message: 'Rate limit exceeded — try again later' }),
     );
   });
@@ -760,7 +781,7 @@ describe('execution event workflow', () => {
         yield { type: 'tool.execute.before', properties: { sessionID: 'ses_1', tool: 'write' } };
         yield { type: 'tool.execute.after', properties: { sessionID: 'ses_1', tool: 'write', output: 'done' } };
         yield { type: 'file.edited', properties: { sessionID: 'ses_1', file: 'src/app.ts' } };
-        yield { type: 'session.completed', properties: { sessionID: 'ses_1' } };
+        yield { type: 'session.idle', properties: { sessionID: 'ses_1' } };
         done = true;
         yield { type: 'session.error', properties: { sessionID: 'ses_1', error: 'ignored' } };
       },
@@ -779,7 +800,9 @@ describe('execution event workflow', () => {
   });
 
   it('handles session mappings that outlive active execution state', async () => {
-    state.sessionToTask.set('ses_1', 'task-1');
+    // sessionToTask.set is a Proxy no-op; the mapping is registered by
+    // activeExecutions.set → executionStore.set (state.ts:130-132).
+    const execution = makeExecution();
     const stream = {
       async *[Symbol.asyncIterator]() {
         yield { type: 'session.status', properties: { sessionID: 'ses_1', status: { type: 'busy' } } };
@@ -789,6 +812,8 @@ describe('execution event workflow', () => {
       event: { subscribe: vi.fn().mockResolvedValue({ stream }) },
       session: { abort: vi.fn().mockResolvedValue({}) },
     };
+    execution.client = client;
+    state.activeExecutions.set('task-1', execution);
 
     await subscribeToSessionEvents('task-1', client, 'ses_1');
     await waitFor(() => mocks.markThinking.mock.calls.length > 0);
@@ -918,7 +943,7 @@ describe('execution event workflow', () => {
       { type: 'tool.execute.after', properties: { sessionID: 'ses_1', tool: 'write' } },
       { type: 'file.edited', properties: { sessionID: 'ses_1' } },
       { type: 'message.part.updated', properties: { sessionID: 'ses_1', part: { type: 'text' }, delta: 'background task canceled successfully' } },
-      { type: 'session.completed', properties: { sessionID: 'ses_1' } },
+      { type: 'session.idle', properties: { sessionID: 'ses_1' } },
     ]);
 
     expect(execution.backgroundTaskIds).toEqual(['bg_same']);
@@ -953,29 +978,36 @@ describe('execution event workflow', () => {
 
   it('fails executions when the event stream goes idle past the watchdog timeout', async () => {
     vi.useFakeTimers();
-    const execution = makeExecution();
-    const stream = {
-      async *[Symbol.asyncIterator]() {
-        await new Promise(() => undefined);
-      },
-      return: vi.fn(),
-    };
-    const client = {
-      event: { subscribe: vi.fn().mockResolvedValue({ stream }) },
-      session: { abort: vi.fn().mockResolvedValue({}) },
-    };
-    execution.client = client;
-    mocks.hasCommittableChanges.mockResolvedValueOnce(false);
-    state.activeExecutions.set('task-1', execution);
-    state.sessionToTask.set('ses_1', 'task-1');
+    try {
+      const hanging = {
+        async *[Symbol.asyncIterator]() {
+          await new Promise(() => undefined);
+        },
+        return: vi.fn(),
+      };
+      const execution = makeExecution();
+      const client = {
+        event: {
+          subscribe: vi.fn()
+            .mockResolvedValueOnce({ stream: hanging })
+            .mockRejectedValueOnce(new Error('reconnect failed')),
+        },
+        session: { abort: vi.fn().mockResolvedValue({}) },
+      };
+      execution.client = client;
+      mocks.hasCommittableChanges.mockResolvedValueOnce(false);
+      state.activeExecutions.set('task-1', execution);
+      state.sessionToTask.set('ses_1', 'task-1');
 
-    await subscribeToSessionEvents('task-1', client, 'ses_1');
-    await vi.advanceTimersByTimeAsync(30_000);
+      await subscribeToSessionEvents('task-1', client, 'ses_1');
+      await vi.advanceTimersByTimeAsync(60_000);
 
-    expect(mocks.finalizeAgentRun).toHaveBeenCalledWith(execution, 'failed', {
-      errorMessage: 'Agent event stream timed out',
-    });
-    vi.useRealTimers();
+      expect(mocks.finalizeAgentRun).toHaveBeenCalledWith(execution, 'failed', {
+        errorMessage: 'Agent event stream timed out: reconnect failed',
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('ignores subscription failures after execution state has already gone away', async () => {
@@ -1037,7 +1069,7 @@ describe('execution event workflow', () => {
     mocks.projectFindUnique.mockResolvedValueOnce({ repository: null });
 
     const { execution } = await runEvents([
-      { type: 'session.completed', properties: { sessionID: 'ses_1' } },
+      { type: 'session.idle', properties: { sessionID: 'ses_1' } },
     ]);
 
     expect(mocks.finalizeAgentRun).toHaveBeenCalledWith(execution, 'failed', {
@@ -1049,7 +1081,7 @@ describe('execution event workflow', () => {
     mocks.createPullRequest.mockRejectedValueOnce('github down');
 
     const { execution } = await runEvents([
-      { type: 'session.completed', properties: { sessionID: 'ses_1' } },
+      { type: 'session.idle', properties: { sessionID: 'ses_1' } },
     ]);
 
     expect(mocks.finalizeAgentRun).toHaveBeenCalledWith(execution, 'failed', {
@@ -1063,7 +1095,7 @@ describe('execution event workflow', () => {
       .mockResolvedValueOnce(null);
 
     await runEvents([
-      { type: 'session.completed', properties: { sessionID: 'ses_1' } },
+      { type: 'session.idle', properties: { sessionID: 'ses_1' } },
     ]);
 
     expect(mocks.commitAndPush).toHaveBeenCalledWith('/repo', 'openlinear/task-1', 'Task', 'token');
