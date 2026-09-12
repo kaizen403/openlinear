@@ -21,6 +21,9 @@ COPY pnpm-lock.yaml pnpm-workspace.yaml package.json turbo.json ./
 COPY apps/api/package.json          apps/api/package.json
 COPY packages/db/package.json       packages/db/package.json
 COPY packages/types/package.json    packages/types/package.json
+COPY packages/api-core/package.json packages/api-core/package.json
+COPY packages/api-client/package.json packages/api-client/package.json
+COPY packages/telemetry/package.json packages/telemetry/package.json
 
 RUN pnpm install --frozen-lockfile --ignore-scripts
 
@@ -31,6 +34,9 @@ COPY --from=deps /app /app
 COPY apps/api        apps/api
 COPY packages/db     packages/db
 COPY packages/types  packages/types
+COPY packages/api-core packages/api-core
+COPY packages/api-client packages/api-client
+COPY packages/telemetry packages/telemetry
 
 ENV DATABASE_URL=postgresql://x:x@localhost:5432/x
 
@@ -53,9 +59,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-COPY --from=build /app/pruned/node_modules ./node_modules
-COPY --from=build /app/apps/api/dist       ./dist
-COPY --from=build /app/packages/db/prisma  ./prisma
+RUN groupadd --gid 10001 openlinear \
+ && useradd --uid 10001 --gid 10001 --home-dir /app --shell /usr/sbin/nologin openlinear
+
+COPY --from=build --chown=10001:10001 /app/pruned/node_modules ./node_modules
+COPY --from=build --chown=10001:10001 /app/apps/api/dist       ./dist
+COPY --from=build --chown=10001:10001 /app/packages/db/prisma  ./prisma
+
+USER 10001
 
 EXPOSE 3001
 

@@ -39,7 +39,9 @@ ensure_database() {
 ensure_database
 
 export API_PORT="${API_PORT:-3001}"
-export OPENLINEAR_ALLOW_SHARED_OPENCODE="${OPENLINEAR_ALLOW_SHARED_OPENCODE:-1}"
+# OpenCode is single-tenant. Do not default this to 1; set it explicitly
+# if this machine's database has more than one user.
+# export OPENLINEAR_ALLOW_SHARED_OPENCODE=1
 export NEXT_PUBLIC_API_URL="http://127.0.0.1:$API_PORT"
 export FRONTEND_URL="http://127.0.0.1:3000"
 REQUIRED_CORS_ORIGINS="http://127.0.0.1:3000,http://localhost:3000,tauri://localhost,https://tauri.localhost"

@@ -4,8 +4,20 @@
 
 Phase 0 code changes make the application *refuse to start* with a placeholder or
 missing secret, but code cannot rotate a credential that has already been
-published. Everything in this file requires a human with access to the relevant
-console. Nothing here has been done automatically.
+published.
+
+## Status (2026-09-10)
+
+| Item | State |
+|---|---|
+| Public MCP docs PAT literals | **Done.** Redeployed `apps/mcp-docs` to Vercel production (`docs.openlinear.tech` and `mcp-docs-one.vercel.app`). Pages now use `ol_pat_` + 32 `x`. |
+| Leaked PAT (`ol_pat_25897b3e…`) | **Owner revoked.** Still confirm `revoked_at` on every prod row when the prod DB is reachable. |
+| Dev Neon (`ep-lively-tooth-…`) | **Done.** Password rotated; 3 GitHub tokens re-encrypted under a new `TOKEN_ENCRYPTION_KEY`. New values are in gitignored `.env.dev` (mode 0600). GitHub OAuth leftovers were blanked after the apps were removed. |
+| Prod Neon (`ep-wild-feather-…`, `ep-muddy-butterfly-…`) | **Blocked.** Git-history password already rejected. Need Azure Container App `DATABASE_URL` (or Neon console) to confirm PAT revocation and rotate JWT / enc key. |
+| GitHub OAuth | **Removed.** Leaked dev secret now 404s (app gone). Leaked prod secret 401s (dead). `/api/auth/github` returns `GITHUB_OAUTH_DISABLED`. Do not put new secrets in Azure until replacement apps exist. |
+| `JWT_SECRET` in `.env.example` | **Done.** Placeholder removed so clones cannot copy a published value. |
+| Secret scanning + push protection | **On** for `kaizen403/openlinear`. |
+| History purge (`git filter-repo`) | **Not done** (force-push; coordinate clones). Rotation is the real fix. |
 
 ## 1. What is exposed, and where
 
@@ -43,26 +55,34 @@ Rotate in this order so you do not lock yourself out.
    re-encrypt rather than simply swap:
    ```bash
    # with BOTH the old and new key available
-   pnpm --filter @openlinear/db db:encrypt-tokens
+   OLD_TOKEN_ENCRYPTION_KEY='<old>' TOKEN_ENCRYPTION_KEY='<new>' \
+     pnpm --filter @openlinear/db db:reencrypt-tokens
    ```
-   Read `packages/db/scripts/encrypt-tokens.ts` before running it and take a
-   database snapshot first. If re-encryption is not practical, the fallback is to
-   null out `User.accessToken` for all users and have them reconnect GitHub —
-   disruptive but safe.
+   `db:encrypt-tokens` only encrypts leftover **plaintext**. Use
+   `packages/db/scripts/reencrypt-tokens.ts` when ciphertext already exists.
+   Take a database snapshot first. If re-encryption is not practical, the
+   fallback is to null out `User.accessToken` for all users. Reconnect-GitHub
+   is not available until replacement OAuth apps exist.
 
 4. **`JWT_SECRET`.** Generate with `openssl rand -base64 48`. Rotating it
    invalidates every existing session, which is the desired outcome here. Set it
    in Azure config. For the desktop app, the Tauri launcher now generates a
    per-install random secret into the OS keychain — no shared value ships.
+   Skip `OPENLINEAR_ALLOW_SESSIONLESS_JWT`.
 
-5. **History.** The values above remain readable in every clone of this
+5. **GitHub OAuth.** The leaked apps are gone. Login stays 503
+   (`GITHUB_OAUTH_DISABLED`). Clear `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET`
+   from Azure when you can; the API no longer requires them to boot. Do not
+   mint replacement apps unless you intend to turn login back on.
+
+6. **History.** The values above remain readable in every clone of this
    repository. Rotation makes them worthless, which is the real fix. Purging
    history (`git filter-repo`) additionally requires a force-push and coordination
    with everyone who has a clone; it was deliberately **not** done automatically.
    Decide explicitly whether to do it, and if the repo is public treat all five
    credential classes as compromised regardless.
 
-6. **Prevent recurrence.** Enable GitHub secret scanning + push protection on
+7. **Prevent recurrence.** Enable GitHub secret scanning + push protection on
    the repository, and add `gitleaks` to pre-commit and CI (see
    `04-infrastructure/A5-observability-cicd-infra.md` §2 in the revamp plan).
 

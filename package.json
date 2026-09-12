@@ -9,7 +9,7 @@
     "start": "./scripts/start-prod-preview.sh",
     "dev:live": "./scripts/dev-live.sh",
     "dev-live": "./scripts/dev-live.sh",
-    "lint": "turbo run lint",
+    "lint": "biome check --error-on-warnings apps/api/src/tenancy apps/api/src/events apps/api/src/worker.ts apps/api/src/registry.ts apps/api/src/jobs apps/api/src/modules apps/api/src/storage packages/api-core/src packages/api-client/src packages/telemetry/src apps/api/src/__tests__/tenancy.test.ts apps/api/src/__tests__/events.outbox.test.ts apps/api/src/__tests__/authorization-matrix.test.ts",
     "test": "turbo run test",
     "typecheck": "turbo run typecheck",
     "db:push": "pnpm --filter @openlinear/db db:push",
@@ -21,11 +21,12 @@
     "build:desktop": "pnpm --filter @openlinear/desktop tauri build"
   },
   "devDependencies": {
-    "@opencode-ai/sdk": "^1.2.5",
+    "@opencode-ai/sdk": "^1.18.23",
     "png-to-ico": "^3.0.1",
     "sharp": "^0.34.5",
     "turbo": "^2.8.9",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "@biomejs/biome": "^2.2.0"
   },
   "packageManager": "pnpm@9.0.0"
 }

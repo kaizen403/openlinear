@@ -40,6 +40,29 @@ jobs:
       - name: Lint
         run: pnpm lint
 
+      - name: Migration safety review
+        run: |
+          FILES=$(git diff --name-only origin/${{ github.event.repository.default_branch }}...HEAD -- 'packages/db/prisma/migrations/**' || true)
+          if [ -z "$FILES" ]; then
+            echo "No migration changes."
+            exit 0
+          fi
+          FAIL=0
+          for f in $FILES; do
+            [ -f "$f" ] || continue
+            if grep -q 'migration-safety: allow' "$f"; then
+              echo "skip (opt-in): $f"
+              continue
+            fi
+            if grep -iEq '^[[:space:]]*(DROP[[:space:]]+(TABLE|COLUMN)|ALTER[[:space:]]+TABLE[^;]*DROP[[:space:]]+COLUMN|TRUNCATE)' "$f"; then
+              echo "::error file=$f::destructive DDL without '-- migration-safety: allow'"; FAIL=1
+            fi
+            if grep -iE '^[[:space:]]*CREATE[[:space:]]+(UNIQUE[[:space:]]+)?INDEX' "$f" | grep -ivq 'CONCURRENTLY'; then
+              echo "::error file=$f::CREATE INDEX without CONCURRENTLY"; FAIL=1
+            fi
+          done
+          exit $FAIL
+
   test:
     name: Test
     runs-on: ubuntu-latest
@@ -60,6 +83,8 @@ jobs:
           --health-retries 5
     env:
       DATABASE_URL: postgresql://openlinear:openlinear@localhost:5432/openlinear_test
+      TEST_DATABASE_URL: postgresql://openlinear:openlinear@localhost:5432/openlinear_test
+      OPENLINEAR_ALLOW_NONLOCAL_TEST_DB: '1'
     steps:
       - uses: actions/checkout@v4
 
