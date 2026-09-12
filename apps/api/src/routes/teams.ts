@@ -85,20 +85,20 @@ router.get('/', optionalAuth, async (req: AuthRequest, res: Response) => {
 
 router.post('/', requireAuth, validateBody(createTeamBodySchema),
   async (req: AuthRequest & ValidatedRequest<CreateTeamBody>, res: Response) => {
-    const replay = getIdempotencyRecord(req, req.userId!, 'POST /api/teams');
+    const replay = await getIdempotencyRecord(req, req.userId!, 'POST /api/teams');
     if (replay) { replayIdempotencyRecord(res, replay); return; }
     const team = await createTeam({ userId: req.userId!, ...req.validBody! });
-    storeIdempotencyRecord(req, req.userId!, 'POST /api/teams', 201, team);
+    await storeIdempotencyRecord(req, req.userId!, 'POST /api/teams', 201, team);
     res.status(201).json(team);
   },
 );
 
 router.post('/join', requireAuth, validateBody(joinTeamBodySchema),
   async (req: AuthRequest & ValidatedRequest<JoinTeamBody>, res: Response) => {
-    const replay = getIdempotencyRecord(req, req.userId!, 'POST /api/teams/join');
+    const replay = await getIdempotencyRecord(req, req.userId!, 'POST /api/teams/join');
     if (replay) { replayIdempotencyRecord(res, replay); return; }
     const result = await joinTeamRoute({ userId: req.userId!, inviteCode: req.validBody!.inviteCode });
-    storeIdempotencyRecord(req, req.userId!, 'POST /api/teams/join', 200, result);
+    await storeIdempotencyRecord(req, req.userId!, 'POST /api/teams/join', 200, result);
     res.json(result);
   },
 );
@@ -138,11 +138,11 @@ router.get('/:id/members', requireAuth, async (req: AuthRequest, res: Response) 
 router.post('/:id/members', requireAuth, validateBody(addMemberBodySchema),
   async (req: AuthRequest & ValidatedRequest<AddMemberBody>, res: Response) => {
     const id = req.params.id as string;
-    const replay = getIdempotencyRecord(req, req.userId!, `POST /api/teams/${id}/members`);
+    const replay = await getIdempotencyRecord(req, req.userId!, `POST /api/teams/${id}/members`);
     if (replay) { replayIdempotencyRecord(res, replay); return; }
     const { email, userId, role } = req.validBody!;
     const member = await addTeamMemberRoute({ teamId: id, actorUserId: req.userId!, email, userId, role });
-    storeIdempotencyRecord(req, req.userId!, `POST /api/teams/${id}/members`, 201, member);
+    await storeIdempotencyRecord(req, req.userId!, `POST /api/teams/${id}/members`, 201, member);
     res.status(201).json(member);
   },
 );

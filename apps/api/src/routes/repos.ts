@@ -59,7 +59,7 @@ router.post(
   validateBody(repoUrlBodySchema),
   async (req: AuthRequest & ValidatedRequest<RepoUrlBody>, res: Response, next: NextFunction) => {
     try {
-      const project = await addRepositoryByUrl(req.validBody!.url);
+      const project = await addRepositoryByUrl(req.userId!, req.validBody!.url);
       res.status(201).json(project);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to add repository';
@@ -68,39 +68,25 @@ router.post(
   },
 );
 
-router.get('/active/public', requireAuth, async (_req: AuthRequest, res: Response, next: NextFunction) => {
-
-  const project = await prisma.repository.findFirst({
-    where: { userId: null, isActive: true },
-  });
+router.get('/active/public', requireAuth, async (req: AuthRequest, res: Response, next: NextFunction) => {
+  const project = await getActiveRepository(req.userId!);
   res.json(project);
-  
 });
 
-router.get('/public', requireAuth, async (_req: AuthRequest, res: Response, next: NextFunction) => {
-
-  const projects = await prisma.repository.findMany({
-    where: { userId: null },
-    orderBy: { updatedAt: 'desc' },
-  });
+router.get('/public', requireAuth, async (req: AuthRequest, res: Response, next: NextFunction) => {
+  const projects = await getUserRepositories(req.userId!);
   res.json(projects);
-  
 });
 
 router.post('/:id/activate/public', requireAuth, async (req: AuthRequest, res: Response, next: NextFunction) => {
-
-  await prisma.repository.updateMany({
-    where: { userId: null },
-    data: { isActive: false },
-  });
-
-  const id = req.params.id as string;
-  const project = await prisma.repository.update({
-    where: { id },
-    data: { isActive: true },
-  });
-  res.json(project);
-  
+  try {
+    const id = req.params.id as string;
+    const project = await setActiveRepository(req.userId!, id);
+    res.json(project);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Repository not found';
+    return next(new HttpError(404, 'REPOSITORY_NOT_FOUND', message));
+  }
 });
 
 router.get('/', requireAuth, async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -193,11 +179,14 @@ router.post(
 );
 
 router.post('/:id/activate', requireAuth, async (req: AuthRequest, res: Response, next: NextFunction) => {
-
-  const id = req.params.id as string;
-  const project = await setActiveRepository(req.userId!, id);
-  res.json(project);
-  
+  try {
+    const id = req.params.id as string;
+    const project = await setActiveRepository(req.userId!, id);
+    res.json(project);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Repository not found';
+    return next(new HttpError(404, 'REPOSITORY_NOT_FOUND', message));
+  }
 });
 
 router.get('/active', requireAuth, async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -231,5 +220,16 @@ router.patch(
     
   },
 );
+
+router.get('/:id', requireAuth, async (req: AuthRequest, res: Response, next: NextFunction) => {
+  const id = req.params.id as string;
+  const repo = await prisma.repository.findFirst({
+    where: { id, userId: req.userId! },
+  });
+  if (!repo) {
+    return next(new HttpError(404, 'REPOSITORY_NOT_FOUND', 'Repository not found'));
+  }
+  res.json(repo);
+});
 
 export default router;

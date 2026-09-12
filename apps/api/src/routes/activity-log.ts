@@ -7,10 +7,11 @@ import {
   assertProjectAccess,
   assertTeamRole,
 } from '../services/ownership';
-import { getUserTeamIds } from '../services/team-scope';
 import { PRISMA_TX_OPTIONS } from '../lib/constants';
 import { paginated, paginationSkipTake } from '../schemas/pagination';
 import { ValidationError } from '../errors';
+import { resolveTenancyContext } from '../tenancy/context';
+import { scopedActivityWhere } from '../tenancy/scopes';
 
 const router: Router = Router();
 
@@ -43,20 +44,12 @@ router.get('/', requireAuth, async (req: AuthRequest, res: Response) => {
       ...(teamId ? { teamId } : {}),
     };
   } else {
-    const userId = req.userId!;
-    const teamIds = await getUserTeamIds(userId);
-    const projectIds = await prisma.projectAccess.findMany({
-      where: { userId },
-      select: { projectId: true },
-    }).then((rows) => rows.map((r) => r.projectId));
-
-    where = {
-      OR: [
-        { userId },
-        ...(teamIds.length > 0 ? [{ teamId: { in: teamIds } }] : []),
-        ...(projectIds.length > 0 ? [{ projectId: { in: projectIds } }] : []),
-      ],
-    };
+    const ctx = req.tenancy ?? await resolveTenancyContext({
+      userId: req.userId!,
+      authSource: req.authSource ?? 'jwt',
+      scopes: req.patScopes ?? [],
+    });
+    where = scopedActivityWhere(ctx);
   }
 
   const [activities, total] = await prisma.$transaction(

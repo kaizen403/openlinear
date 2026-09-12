@@ -271,7 +271,11 @@ export async function getGitHubBranches(
   return filteredBranches;
 }
 
-export async function addRepositoryByUrl(url: string): Promise<{
+export async function addRepositoryByUrl(
+  userId: string,
+  url: string,
+  options: { activate?: boolean } = {},
+): Promise<{
   id: string;
   name: string;
   fullName: string;
@@ -285,26 +289,50 @@ export async function addRepositoryByUrl(url: string): Promise<{
   }
 
   const repo = await fetchPublicRepo(parsed.owner, parsed.repo);
-  
+
   if (repo.private) {
     throw new Error('Private repositories require authentication');
   }
 
+  const activate = options.activate ?? true;
   const existing = await prisma.repository.findFirst({
-    where: { githubRepoId: repo.id, userId: null },
+    where: { githubRepoId: repo.id, userId },
   });
 
   if (existing) {
+    if (!activate) {
+      return prisma.repository.update({
+        where: { id: existing.id },
+        data: {
+          name: repo.name,
+          fullName: repo.full_name,
+          cloneUrl: repo.clone_url,
+          defaultBranch: repo.default_branch,
+        },
+      });
+    }
+    await prisma.repository.updateMany({
+      where: { userId, NOT: { id: existing.id } },
+      data: { isActive: false },
+    });
     return prisma.repository.update({
       where: { id: existing.id },
-      data: { isActive: true },
+      data: {
+        isActive: true,
+        name: repo.name,
+        fullName: repo.full_name,
+        cloneUrl: repo.clone_url,
+        defaultBranch: repo.default_branch,
+      },
     });
   }
 
-  await prisma.repository.updateMany({
-    where: { userId: null },
-    data: { isActive: false },
-  });
+  if (activate) {
+    await prisma.repository.updateMany({
+      where: { userId },
+      data: { isActive: false },
+    });
+  }
 
   return prisma.repository.create({
     data: {
@@ -313,7 +341,8 @@ export async function addRepositoryByUrl(url: string): Promise<{
       fullName: repo.full_name,
       cloneUrl: repo.clone_url,
       defaultBranch: repo.default_branch,
-      isActive: true,
+      userId,
+      isActive: activate,
     },
   });
 }
@@ -767,8 +796,16 @@ export async function setActiveRepository(userId: string, projectId: string) {
     data: { isActive: false },
   });
 
+  const owned = await prisma.repository.findFirst({
+    where: { id: projectId, userId },
+    select: { id: true },
+  });
+  if (!owned) {
+    throw new Error('Repository not found');
+  }
+
   return prisma.repository.update({
-    where: { id: projectId },
+    where: { id: owned.id },
     data: { isActive: true },
   });
 }

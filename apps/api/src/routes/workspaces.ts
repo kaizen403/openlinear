@@ -35,6 +35,7 @@ import {
   UpdateWorkspaceBody,
   UpdateWorkspaceMemberBody,
 } from '../schemas/workspaces';
+import { logAudit } from '../services/audit';
 
 const router: Router = Router();
 
@@ -63,10 +64,10 @@ router.get('/', requireAuth, async (req: AuthRequest, res: Response) => {
 
 router.post('/', requireAuth, validateBody(createWorkspaceBodySchema),
   async (req: AuthRequest & ValidatedRequest<CreateWorkspaceBody>, res: Response) => {
-    const replay = getIdempotencyRecord(req, req.userId!, 'POST /api/workspaces');
+    const replay = await getIdempotencyRecord(req, req.userId!, 'POST /api/workspaces');
     if (replay) { replayIdempotencyRecord(res, replay); return; }
     const detail = await createWorkspaceRoute({ userId: req.userId!, name: req.validBody!.name });
-    storeIdempotencyRecord(req, req.userId!, 'POST /api/workspaces', 201, detail);
+    await storeIdempotencyRecord(req, req.userId!, 'POST /api/workspaces', 201, detail);
     res.status(201).json(detail);
   },
 );
@@ -91,12 +92,12 @@ router.get('/:id/members', requireAuth, async (req: AuthRequest, res: Response) 
 router.post('/:id/members', requireAuth, validateBody(addWorkspaceMemberBodySchema),
   async (req: AuthRequest & ValidatedRequest<AddWorkspaceMemberBody>, res: Response) => {
     const id = req.params.id as string;
-    const replay = getIdempotencyRecord(req, req.userId!, `POST /api/workspaces/${id}/members`);
+    const replay = await getIdempotencyRecord(req, req.userId!, `POST /api/workspaces/${id}/members`);
     if (replay) { replayIdempotencyRecord(res, replay); return; }
     const { username, role } = req.validBody!;
     const { member, isNew } = await addWorkspaceMember({ workspaceId: id, actorUserId: req.userId!, username, role });
     const status = isNew ? 201 : 200;
-    storeIdempotencyRecord(req, req.userId!, `POST /api/workspaces/${id}/members`, status, member);
+    await storeIdempotencyRecord(req, req.userId!, `POST /api/workspaces/${id}/members`, status, member);
     res.status(status).json(member);
   },
 );
@@ -104,10 +105,10 @@ router.post('/:id/members', requireAuth, validateBody(addWorkspaceMemberBodySche
 router.post('/:id/members/bulk', requireAuth, validateBody(bulkWorkspaceMembersBodySchema),
   async (req: AuthRequest & ValidatedRequest<BulkWorkspaceMembersBody>, res: Response) => {
     const id = req.params.id as string;
-    const replay = getIdempotencyRecord(req, req.userId!, `POST /api/workspaces/${id}/members/bulk`);
+    const replay = await getIdempotencyRecord(req, req.userId!, `POST /api/workspaces/${id}/members/bulk`);
     if (replay) { replayIdempotencyRecord(res, replay); return; }
     const result = await bulkAddWorkspaceMembers({ workspaceId: id, actorUserId: req.userId!, invites: req.validBody!.invites });
-    storeIdempotencyRecord(req, req.userId!, `POST /api/workspaces/${id}/members/bulk`, 201, result);
+    await storeIdempotencyRecord(req, req.userId!, `POST /api/workspaces/${id}/members/bulk`, 201, result);
     res.status(201).json(result);
   },
 );
@@ -123,9 +124,19 @@ router.patch('/:id/members/:userId', requireAuth, validateBody(updateWorkspaceMe
 );
 
 router.delete('/:id/members/:userId', requireAuth, async (req: AuthRequest, res: Response) => {
+  const workspaceId = req.params.id as string;
+  const targetUserId = req.params.userId as string;
   await removeWorkspaceMember({
-    workspaceId: req.params.id as string, actorUserId: req.userId!,
-    targetUserId: req.params.userId as string,
+    workspaceId, actorUserId: req.userId!,
+    targetUserId,
+  });
+  await logAudit({
+    workspaceId,
+    actorId: req.userId!,
+    action: 'workspace.member_removed',
+    resourceType: 'workspace_member',
+    resourceId: targetUserId,
+    ipAddress: req.ip,
   });
   res.status(204).send();
 });

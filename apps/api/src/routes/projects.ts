@@ -95,7 +95,7 @@ router.get('/', optionalAuth, validateQuery(listProjectsQuerySchema),
 
 router.post('/', requireAuth, validateBody(createProjectBodySchema),
   async (req: AuthRequest & ValidatedRequest<CreateProjectBody>, res: Response) => {
-    const replay = getIdempotencyRecord(req, req.userId!, 'POST /api/projects');
+    const replay = await getIdempotencyRecord(req, req.userId!, 'POST /api/projects');
     if (replay) { replayIdempotencyRecord(res, replay); return; }
 
     const { workspaceId, key, teamIds, startDate, targetDate, repoUrl, repositoryId, defaultBranch, localPath, ...rest } = req.validBody!;
@@ -104,7 +104,7 @@ router.post('/', requireAuth, validateBody(createProjectBodySchema),
       workspaceId, key, teamIds, startDate, targetDate, repoUrl, repositoryId, defaultBranch, localPath, ...rest,
     });
 
-    storeIdempotencyRecord(req, req.userId!, 'POST /api/projects', 201, project);
+    await storeIdempotencyRecord(req, req.userId!, 'POST /api/projects', 201, project);
     res.status(201).json(project);
   },
 );
@@ -153,13 +153,13 @@ router.get('/:id/access', requireAuth, async (req: AuthRequest, res: Response) =
 router.post('/:id/access', requireAuth, validateBody(projectAccessBodySchema),
   async (req: AuthRequest & ValidatedRequest<ProjectAccessBody>, res: Response) => {
     const id = req.params.id as string;
-    const replay = getIdempotencyRecord(req, req.userId!, `POST /api/projects/${id}/access`);
+    const replay = await getIdempotencyRecord(req, req.userId!, `POST /api/projects/${id}/access`);
     if (replay) { replayIdempotencyRecord(res, replay); return; }
 
     const { userId, permission } = req.validBody!;
     const { access, isNew } = await grantProjectAccess({ projectId: id, actorUserId: req.userId!, userId, permission });
     const status = isNew ? 201 : 200;
-    storeIdempotencyRecord(req, req.userId!, `POST /api/projects/${id}/access`, status, access);
+    await storeIdempotencyRecord(req, req.userId!, `POST /api/projects/${id}/access`, status, access);
     res.status(status).json(access);
   },
 );
@@ -169,11 +169,11 @@ router.post('/:id/access', requireAuth, validateBody(projectAccessBodySchema),
 router.post('/:id/access/bulk', requireAuth, validateBody(bulkProjectAccessBodySchema),
   async (req: AuthRequest & ValidatedRequest<BulkProjectAccessBody>, res: Response) => {
     const id = req.params.id as string;
-    const replay = getIdempotencyRecord(req, req.userId!, `POST /api/projects/${id}/access/bulk`);
+    const replay = await getIdempotencyRecord(req, req.userId!, `POST /api/projects/${id}/access/bulk`);
     if (replay) { replayIdempotencyRecord(res, replay); return; }
 
     const result = await grantProjectAccessBulk({ projectId: id, actorUserId: req.userId!, grants: req.validBody!.grants });
-    storeIdempotencyRecord(req, req.userId!, `POST /api/projects/${id}/access/bulk`, 200, result);
+    await storeIdempotencyRecord(req, req.userId!, `POST /api/projects/${id}/access/bulk`, 200, result);
     res.json(result);
   },
 );

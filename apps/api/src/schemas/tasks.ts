@@ -49,6 +49,7 @@ export const updateTaskBodySchema = z.object({
   assigneeIds: z.array(z.string().uuid()).optional(),
   watcherIds: z.array(z.string().uuid()).optional(),
   model: z.string().min(1).nullable().optional(),
+  agent: z.string().min(1).nullable().optional(),
 });
 
 // "me" or a UUID — UUID is checked against caller's team membership in the route.
@@ -63,7 +64,28 @@ export const listTasksQuerySchema = z.object({
   pageSize: z.coerce.number().int().min(1).max(200).default(50),
 });
 
+export const bulkStatusBodySchema = z.object({
+  projectId: z.string().uuid(),
+  status: StatusEnum,
+  taskIds: z.array(z.string().uuid()).max(100).optional(),
+});
+
+export const bulkArchiveBodySchema = z.object({
+  projectId: z.string().uuid(),
+  taskIds: z.array(z.string().uuid()).max(100).optional(),
+  identifiers: z.array(z.string().min(1)).max(100).optional(),
+});
+
+export const bulkDeleteBodySchema = z.object({
+  projectId: z.string().uuid(),
+  taskIds: z.array(z.string().uuid()).min(1).max(100),
+  permanent: z.boolean().optional(),
+});
+
 export type CreateTaskBody = z.infer<typeof createTaskBodySchema>;
 export type BulkCreateTasksBody = z.infer<typeof bulkCreateTasksSchema>;
 export type UpdateTaskBody = z.infer<typeof updateTaskBodySchema>;
 export type ListTasksQuery = z.infer<typeof listTasksQuerySchema>;
+export type BulkStatusBody = z.infer<typeof bulkStatusBodySchema>;
+export type BulkArchiveBody = z.infer<typeof bulkArchiveBodySchema>;
+export type BulkDeleteBody = z.infer<typeof bulkDeleteBodySchema>;

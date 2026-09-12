@@ -14,7 +14,9 @@ import {
   assertTeamRole,
   OwnershipError,
 } from './ownership';
-import { buildProjectAccessWhere, buildProjectFullAccessWhere } from './workspaces';
+import { resolveTenancyContext } from '../tenancy/context';
+import { scopedTaskWhere } from '../tenancy/scopes';
+import type { TenancyContext } from '../tenancy/types';
 
 const labelSelect = { id: true, name: true, color: true, priority: true } as const;
 const taskInclude = {
@@ -51,28 +53,16 @@ async function resolveProjectTeamId(projectId: string): Promise<string> {
   return team.id;
 }
 
-async function buildTaskProjectAccessWhere(userId: string, teamIds: string[]): Promise<Prisma.TaskWhereInput> {
-  const projects = await prisma.project.findMany({
-    where: buildProjectAccessWhere(userId, teamIds),
-    select: { id: true },
-  });
-  const projectIds = projects.map((project) => project.id);
-  const visibility: Prisma.TaskWhereInput[] = [];
-  if (teamIds.length > 0) visibility.push({ projectId: null, teamId: { in: teamIds } });
-  if (projectIds.length > 0) visibility.push({ projectId: { in: projectIds } });
-  return { OR: visibility.length > 0 ? visibility : [{ id: { in: [] } }] };
+async function tenancyForUser(userId: string): Promise<TenancyContext> {
+  return resolveTenancyContext({ userId, authSource: 'jwt', scopes: [] });
 }
 
-async function buildTaskProjectFullAccessWhere(userId: string, teamIds: string[]): Promise<Prisma.TaskWhereInput> {
-  const projects = await prisma.project.findMany({
-    where: buildProjectFullAccessWhere(userId, teamIds),
-    select: { id: true },
-  });
-  const projectIds = projects.map((project) => project.id);
-  const visibility: Prisma.TaskWhereInput[] = [];
-  if (teamIds.length > 0) visibility.push({ projectId: null, teamId: { in: teamIds } });
-  if (projectIds.length > 0) visibility.push({ projectId: { in: projectIds } });
-  return { OR: visibility.length > 0 ? visibility : [{ id: { in: [] } }] };
+async function buildTaskProjectAccessWhere(userId: string): Promise<Prisma.TaskWhereInput> {
+  return scopedTaskWhere(await tenancyForUser(userId));
+}
+
+async function buildTaskProjectFullAccessWhere(userId: string): Promise<Prisma.TaskWhereInput> {
+  return scopedTaskWhere(await tenancyForUser(userId), {}, 'full');
 }
 
 export async function listTasks(input: {
@@ -89,7 +79,7 @@ export async function listTasks(input: {
   const userTeamIds = await getUserTeamIds(input.userId);
   const filters: Prisma.TaskWhereInput[] = [
     { archived: false },
-    await buildTaskProjectAccessWhere(input.userId, userTeamIds),
+    await buildTaskProjectAccessWhere(input.userId),
   ];
 
   if (input.workspaceId) {
@@ -152,6 +142,7 @@ export async function createTask(input: {
   projectId?: string | null;
   dueDate?: string | null;
   assigneeId?: string | null;
+  model?: string | null;
 }) {
   let resolvedTeamId = input.teamId ?? undefined;
   const projectId = input.projectId ?? undefined;
@@ -201,6 +192,7 @@ export async function createTask(input: {
         dueDate: input.dueDate ? new Date(input.dueDate) : undefined,
         assigneeId: input.assigneeId ?? undefined,
         creatorId: input.userId,
+        model: input.model ?? undefined,
         labels: labelIds.length ? { create: labelIds.map((labelId) => ({ labelId })) } : undefined,
       },
       include: taskInclude,
@@ -429,6 +421,13 @@ export async function bulkUpdateTaskStatus(input: {
     : [];
 
   const transformed = updated.map(flattenTaskLabels);
+  await broadcastToProject(input.projectId, 'tasks:bulk-updated', {
+    type: 'tasks:bulk-updated',
+    projectId: input.projectId,
+    count: transformed.length,
+    status: input.status,
+    taskIds: transformed.map((task) => task.id),
+  });
   for (const task of transformed) {
     broadcastToTask('task:updated', task);
   }
@@ -615,6 +614,7 @@ export async function bulkCreateTasks(input: {
     labelIds?: string[];
     parentId?: string;
     dueDate?: string | null;
+    assigneeIds?: string[];
   }>;
 }) {
   if (input.tasks.length > 100) {
@@ -699,6 +699,9 @@ export async function bulkCreateTasks(input: {
               creatorId: input.userId,
               labels: (task.labelIds ?? []).length
                 ? { create: (task.labelIds ?? []).map((labelId) => ({ labelId })) }
+                : undefined,
+              taskAssignees: task.assigneeIds?.length
+                ? { create: task.assigneeIds.map((userId) => ({ userId, role: 'assignee' as const })) }
                 : undefined,
             },
             include: taskInclude,
@@ -788,11 +791,10 @@ export async function addComment(input: { taskId: string; userId: string; body: 
 }
 
 export async function countWritableTasksForUser(userId: string) {
-  const teamIds = await getUserTeamIds(userId);
   return prisma.task.count({
     where: {
       archived: false,
-      AND: [await buildTaskProjectFullAccessWhere(userId, teamIds)],
+      AND: [await buildTaskProjectFullAccessWhere(userId)],
     },
   });
 }
@@ -811,7 +813,7 @@ export async function listTasksPaginated(input: {
   const userTeamIds = await getUserTeamIds(input.userId);
   const filters: Prisma.TaskWhereInput[] = [
     { archived: false },
-    await buildTaskProjectAccessWhere(input.userId, userTeamIds),
+    await buildTaskProjectAccessWhere(input.userId),
   ];
 
   if (input.teamId) {
@@ -871,11 +873,10 @@ export async function listArchivedTasksPaginated(input: {
   page: number;
   pageSize: number;
 }) {
-  const teamIds = await getUserTeamIds(input.userId);
   const where: Prisma.TaskWhereInput = {
     AND: [
       { archived: true },
-      await buildTaskProjectAccessWhere(input.userId, teamIds),
+      await buildTaskProjectAccessWhere(input.userId),
     ],
   };
   const [tasks, total] = await prisma.$transaction(
@@ -896,11 +897,10 @@ export async function listArchivedTasksPaginated(input: {
 }
 
 export async function deleteAllArchivedTasks(userId: string): Promise<void> {
-  const teamIds = await getUserTeamIds(userId);
   const where: Prisma.TaskWhereInput = {
     AND: [
       { archived: true },
-      await buildTaskProjectFullAccessWhere(userId, teamIds),
+      await buildTaskProjectFullAccessWhere(userId),
     ],
   };
   await prisma.task.deleteMany({ where });
@@ -926,72 +926,18 @@ export async function createTaskRoute(input: {
   dueDate?: string | null;
   model?: string | null;
 }) {
-  let resolvedTeamId = input.teamId;
-
-  if (input.projectId) {
-    await assertProjectOwned(input.projectId, input.userId);
-    resolvedTeamId = await resolveProjectTeamId(input.projectId);
-  }
-  if (!resolvedTeamId) {
-    throw new ValidationError('Task must belong to a team or a project');
-  }
-  await assertTeamRole(resolvedTeamId, input.userId, ['owner', 'admin', 'member']);
-  await assertLabelsInProject(input.labelIds, input.projectId ?? null);
-
-  const task = await prisma.$transaction(async (tx) => {
-    const team = await tx.team.update({
-      where: { id: resolvedTeamId },
-      data: { nextIssueNumber: { increment: 1 } },
-      select: { key: true, nextIssueNumber: true },
-    });
-    const number = team.nextIssueNumber - 1;
-    const identifier = `${team.key}-${number}`;
-
-    return tx.task.create({
-      data: {
-        title: input.title,
-        description: input.description,
-        priority: input.priority,
-        status: input.status,
-        teamId: resolvedTeamId,
-        projectId: input.projectId || undefined,
-        number,
-        identifier,
-        dueDate: input.dueDate ? new Date(input.dueDate) : undefined,
-        model: input.model ?? undefined,
-        creatorId: input.userId,
-        labels: {
-          create: input.labelIds.map((labelId) => ({ labelId })),
-        },
-      },
-      include: taskInclude,
-    });
-  }, PRISMA_TX_OPTIONS);
-
-  const transformed = flattenTaskLabels(task);
-  broadcastToTask('task:created', transformed);
-
-  await logActivity({
-    taskId: task.id,
-    projectId: task.projectId,
-    teamId: task.teamId,
+  return createTask({
     userId: input.userId,
-    action: 'task_created',
-    payload: { title: task.title, status: task.status, priority: task.priority, identifier: task.identifier },
+    title: input.title,
+    description: input.description,
+    priority: input.priority,
+    status: input.status,
+    labelIds: input.labelIds,
+    teamId: input.teamId,
+    projectId: input.projectId,
+    dueDate: input.dueDate,
+    model: input.model,
   });
-
-  const taskAssigneeId = (task as { assigneeId?: string | null }).assigneeId;
-  if (taskAssigneeId && taskAssigneeId !== input.userId) {
-    await createNotification({
-      recipientUserId: taskAssigneeId,
-      actorUserId: input.userId,
-      type: 'assignment',
-      taskId: task.id,
-      body: `Assigned to you: ${task.title}`,
-    });
-  }
-
-  return transformed;
 }
 
 export async function updateTaskRoute(input: {
@@ -1009,6 +955,7 @@ export async function updateTaskRoute(input: {
   assigneeIds?: string[];
   watcherIds?: string[];
   model?: string | null;
+  agent?: string | null;
 }) {
   const existing = await assertTaskOwned(input.taskId, input.userId);
   const previousTaskMeta = await prisma.task.findUnique({
@@ -1021,6 +968,7 @@ export async function updateTaskRoute(input: {
   if (input.description !== undefined) data.description = input.description;
   if (input.priority !== undefined) data.priority = input.priority;
   if (input.model !== undefined) data.model = input.model;
+  if (input.agent !== undefined) data.agent = input.agent;
 
   if (input.status !== undefined) {
     data.status = input.status;
@@ -1180,102 +1128,53 @@ export async function bulkCreateTasksRoute(input: {
     assigneeIds?: string[];
   }>;
 }) {
-  await assertProjectAccess(input.projectId, input.userId, 'full');
-
-  const project = await prisma.project.findUnique({
-    where: { id: input.projectId },
-    select: { id: true, teams: { take: 1, select: { id: true } } },
-  });
-  if (!project) throw new OwnershipError('project', input.projectId, 'not_found');
-  const resolvedTeamId = project.teams[0]?.id;
-  if (!resolvedTeamId) throw new ValidationError('Project must have a team');
-  await assertTeamRole(resolvedTeamId, input.userId, ['owner', 'admin', 'member']);
-
-  const labelIds = [...new Set(input.tasks.flatMap((t) => t.labelIds))];
-  const labels = labelIds.length
-    ? await prisma.label.findMany({ where: { id: { in: labelIds }, projectId: input.projectId }, select: { id: true } })
-    : [];
-  const validLabelIds = new Set(labels.map((l) => l.id));
-
-  const parentIds = [...new Set(input.tasks.map((t) => t.parentId).filter((id): id is string => Boolean(id)))];
-  const parentTasks = parentIds.length
-    ? await prisma.task.findMany({
-        where: { id: { in: parentIds }, OR: [{ projectId: input.projectId }, { teamId: resolvedTeamId }] },
-        select: { id: true },
-      })
-    : [];
-  const validParentIds = new Set(parentTasks.map((t) => t.id));
-
-  const failed: Array<{ index: number; error: string }> = [];
-  const validTasks = input.tasks
-    .map((task, index) => ({ task, index }))
-    .filter(({ task, index }) => {
-      const invalidLabels = task.labelIds.filter((id) => !validLabelIds.has(id));
-      if (invalidLabels.length > 0) {
-        failed.push({ index, error: `Invalid labelIds: ${invalidLabels.join(', ')}` });
-        return false;
-      }
-      if (task.parentId && !validParentIds.has(task.parentId)) {
-        failed.push({ index, error: 'parentId must reference an existing accessible task' });
-        return false;
-      }
-      return true;
-    });
-
-  const created: TaskWithInclude[] = validTasks.length
-    ? await prisma.$transaction(async (tx) => {
-        const team = await tx.team.update({
-          where: { id: resolvedTeamId },
-          data: { nextIssueNumber: { increment: validTasks.length } },
-          select: { key: true, nextIssueNumber: true },
-        });
-        const startNumber = team.nextIssueNumber - validTasks.length;
-        const createdTasks: TaskWithInclude[] = [];
-        for (let i = 0; i < validTasks.length; i += 1) {
-          const { task } = validTasks[i];
-          const number = startNumber + i;
-          createdTasks.push(await tx.task.create({
-            data: {
-              title: task.title,
-              description: task.description,
-              priority: task.priority,
-              status: task.status,
-              teamId: resolvedTeamId,
-              projectId: input.projectId,
-              parentId: task.parentId,
-              number,
-              identifier: `${team.key}-${number}`,
-              dueDate: task.dueDate ? new Date(task.dueDate) : undefined,
-              creatorId: input.userId,
-              labels: task.labelIds.length
-                ? { create: task.labelIds.map((labelId) => ({ labelId })) }
-                : undefined,
-              taskAssignees: task.assigneeIds?.length
-                ? { create: task.assigneeIds.map((userId) => ({ userId, role: 'assignee' as const })) }
-                : undefined,
-            },
-            include: taskInclude,
-          }));
-        }
-        return createdTasks;
-      }, PRISMA_TX_OPTIONS)
-    : [];
-
-  const transformed = created.map(flattenTaskLabels);
-  await broadcastToProject(input.projectId, 'tasks:bulk-created', {
-    type: 'tasks:bulk-created',
+  const result = await bulkCreateTasks({
+    userId: input.userId,
     projectId: input.projectId,
-    count: transformed.length,
-    taskIds: transformed.map((t) => t.id),
+    dryRun: false,
+    tasks: input.tasks,
+  });
+  if ('created' in result) {
+    return { created: result.created, failed: result.failed };
+  }
+  return { created: [], failed: result.failed };
+}
+
+export async function bulkDeleteTasks(input: {
+  userId: string;
+  projectId: string;
+  taskIds: string[];
+  permanent?: boolean;
+}) {
+  await assertProjectAccess(input.projectId, input.userId, 'full');
+  const uniqueIds = [...new Set(input.taskIds)];
+  const tasks = await prisma.task.findMany({
+    where: { id: { in: uniqueIds }, projectId: input.projectId },
+    select: { id: true, teamId: true },
+  });
+  const found = new Set(tasks.map((task) => task.id));
+  const failed = uniqueIds
+    .filter((id) => !found.has(id))
+    .map((id) => ({ id, error: 'Issue was not found in the selected project' }));
+
+  if (input.permanent) {
+    await prisma.task.deleteMany({ where: { id: { in: [...found] } } });
+  } else {
+    await prisma.task.updateMany({
+      where: { id: { in: [...found] } },
+      data: { archived: true },
+    });
+  }
+
+  await broadcastToProject(input.projectId, 'tasks:bulk-deleted', {
+    type: 'tasks:bulk-deleted',
+    projectId: input.projectId,
+    count: found.size,
+    taskIds: [...found],
+    permanent: Boolean(input.permanent),
   });
 
-  await Promise.all(created.map((task) => logActivity({
-    taskId: task.id, projectId: task.projectId, teamId: task.teamId, userId: input.userId,
-    action: 'task_created',
-    payload: { title: task.title, status: task.status, priority: task.priority, identifier: task.identifier, source: 'bulk' },
-  })));
-
-  return { created: transformed, failed };
+  return { deleted: [...found], failed, permanent: Boolean(input.permanent) };
 }
 
 export async function deleteTaskRoute(input: {

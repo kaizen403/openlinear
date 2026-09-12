@@ -4,6 +4,7 @@ import { broadcastToProject, broadcastToTaskById } from '../sse';
 import { requireAuth, AuthRequest } from '../middleware/auth';
 import { validateBody, validateQuery, ValidatedRequest } from '../middleware/validate';
 import {
+  assertProjectOwned,
   assertProjectMember,
   assertTaskOwned,
   OwnershipError,
@@ -21,7 +22,19 @@ import {
 
 const router: Router = Router();
 
-async function assertLabelAccess(labelId: string, userId: string): Promise<string> {
+async function assertLabelWrite(labelId: string, userId: string): Promise<string> {
+  const label = await prisma.label.findUnique({
+    where: { id: labelId },
+    select: { projectId: true },
+  });
+  if (!label) {
+    throw new OwnershipError('label', labelId, 'not_found');
+  }
+  await assertProjectOwned(label.projectId, userId);
+  return label.projectId;
+}
+
+async function assertLabelVisible(labelId: string, userId: string): Promise<string> {
   const label = await prisma.label.findUnique({
     where: { id: labelId },
     select: { projectId: true },
@@ -58,7 +71,7 @@ router.post(
   async (req: AuthRequest & ValidatedRequest<CreateLabelBody>, res: Response) => {
 
     const { projectId, ...rest } = req.validBody!;
-    await assertProjectMember(projectId, req.userId!);
+    await assertProjectOwned(projectId, req.userId!);
 
     const label = await prisma.label.create({
       data: { ...rest, projectId },
@@ -77,7 +90,7 @@ router.patch(
   async (req: AuthRequest & ValidatedRequest<UpdateLabelBody>, res: Response) => {
 
     const id = req.params.id as string;
-    const projectId = await assertLabelAccess(id, req.userId!);
+    const projectId = await assertLabelWrite(id, req.userId!);
 
     const label = await prisma.label.update({
       where: { id },
@@ -93,7 +106,7 @@ router.patch(
 router.delete('/:id', requireAuth, async (req: AuthRequest, res: Response) => {
 
   const id = req.params.id as string;
-  const projectId = await assertLabelAccess(id, req.userId!);
+  const projectId = await assertLabelWrite(id, req.userId!);
 
   await prisma.label.delete({ where: { id } });
   broadcastToProject(projectId, 'label:deleted', { id });
@@ -111,7 +124,7 @@ router.post(
     const { labelId } = req.validBody!;
 
     await assertTaskOwned(taskId, req.userId!);
-    await assertLabelAccess(labelId, req.userId!);
+    await assertLabelVisible(labelId, req.userId!);
 
     const taskLabel = await prisma.taskLabel.create({
       data: { taskId, labelId },

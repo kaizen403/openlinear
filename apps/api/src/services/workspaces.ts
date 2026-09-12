@@ -3,6 +3,8 @@ import { Prisma, prisma, type WorkspaceRole } from '@openlinear/db';
 import { broadcastToWorkspace } from '../sse';
 import { getUserTeamIds } from './team-scope';
 import { OwnershipError } from './ownership';
+import { projectAccessWhere } from '../tenancy/scopes';
+import { invalidateTenancyCache } from '../tenancy/context';
 
 export type ProjectPermissionLevel = 'view' | 'full';
 export type ProjectAccessSource = 'project_access' | 'workspace' | 'legacy_team';
@@ -142,66 +144,15 @@ export async function generateProjectKey(
 }
 
 function permissionFromWorkspaceRole(role: string): ProjectPermissionLevel {
-  return role === 'viewer' ? 'view' : 'full';
+  return role === 'owner' || role === 'admin' ? 'full' : 'view';
 }
 
 export function buildProjectAccessWhere(userId: string, teamIds: string[] = []): Prisma.ProjectWhereInput {
-  return {
-    NOT: { access: { some: { userId, permission: 'deny' } } },
-    OR: [
-      { workspace: { members: { some: { userId } } } },
-      {
-        workspaceId: null,
-        access: { some: { userId, permission: { in: ['full', 'view'] } } },
-      },
-      ...(teamIds.length > 0
-        ? [{ teams: { some: { id: { in: teamIds } } } }]
-        : []),
-    ],
-  };
+  return projectAccessWhere(userId, teamIds, 'view');
 }
 
 export function buildProjectFullAccessWhere(userId: string, teamIds: string[] = []): Prisma.ProjectWhereInput {
-  const legacyTeamAccessWhere: Prisma.ProjectWhereInput[] = teamIds.length > 0
-    ? [
-        {
-          teams: { some: { id: { in: teamIds } } },
-          NOT: { workspace: { members: { some: { userId } } } },
-          OR: [
-            { workspaceId: { not: null } },
-            { NOT: { access: { some: { userId, permission: 'view' } } } },
-          ],
-        },
-      ]
-    : [];
-
-  return {
-    NOT: { access: { some: { userId, permission: 'deny' } } },
-    OR: [
-      {
-        workspaceId: { not: null },
-        workspace: { members: { some: { userId } } },
-        access: { some: { userId, permission: 'full' } },
-      },
-      {
-        workspaceId: { not: null },
-        workspace: {
-          members: {
-            some: {
-              userId,
-              role: { in: ['owner', 'admin', 'member'] },
-            },
-          },
-        },
-        NOT: { access: { some: { userId, permission: 'view' } } },
-      },
-      {
-        workspaceId: null,
-        access: { some: { userId, permission: 'full' } },
-      },
-      ...legacyTeamAccessWhere,
-    ],
-  };
+  return projectAccessWhere(userId, teamIds, 'full');
 }
 
 export async function resolveProjectAccess(
@@ -504,6 +455,7 @@ export async function addWorkspaceMember(input: {
     data: { workspaceId: input.workspaceId, userId: user.id, role: input.role, joinedAt: new Date() },
     include: memberInclude,
   });
+  invalidateTenancyCache(user.id);
   const workspace = await loadWorkspaceDetail(input.workspaceId, user.id);
   broadcastToUser(user.id, 'workspace:joined', workspace);
   broadcastToWorkspace(input.workspaceId, 'workspace:member-added', member);
@@ -566,6 +518,7 @@ export async function updateWorkspaceMember(input: {
     include: memberInclude,
   });
   broadcastToWorkspace(input.workspaceId, 'workspace:member-updated', member);
+  invalidateTenancyCache(input.targetUserId);
   return member;
 }
 
@@ -582,10 +535,21 @@ export async function removeWorkspaceMember(input: {
   await ensureNotLastOwner(input.workspaceId, input.targetUserId);
 
   await prisma.$transaction(async (tx) => {
-    await tx.projectAccess.deleteMany({ where: { userId: input.targetUserId, project: { workspaceId: input.workspaceId } } });
-    await tx.workspaceMember.delete({ where: { workspaceId_userId: { workspaceId: input.workspaceId, userId: input.targetUserId } } });
+    await tx.projectAccess.deleteMany({
+      where: { userId: input.targetUserId, project: { workspaceId: input.workspaceId } },
+    });
+    await tx.teamMember.deleteMany({
+      where: {
+        userId: input.targetUserId,
+        team: { project: { workspaceId: input.workspaceId } },
+      },
+    });
+    await tx.workspaceMember.delete({
+      where: { workspaceId_userId: { workspaceId: input.workspaceId, userId: input.targetUserId } },
+    });
   });
 
+  invalidateTenancyCache(input.targetUserId);
   broadcastToUser(input.targetUserId, 'workspace:left', { workspaceId: input.workspaceId });
   broadcastToWorkspace(input.workspaceId, 'workspace:member-removed', { userId: input.targetUserId });
 }

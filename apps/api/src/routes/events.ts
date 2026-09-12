@@ -1,55 +1,96 @@
 import { Router, Request, Response } from 'express';
-import { randomUUID } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import jwt from 'jsonwebtoken';
 import { prisma } from '@openlinear/db';
-import { clients, SSEClient } from '../sse';
+import { formatSseMessage, registerClient, unregisterClient, type SSEClient } from '../events/hub';
+import { parseLastEventId, replaySince } from '../events/outbox';
+import { executionSseId, parseExecutionSseId } from '@openlinear/execution-core';
 import { buildErrorEnvelope } from '../lib/http';
 import { getUserTeamIds } from '../services/team-scope';
 import { getJwtSecret } from '../lib/secrets';
 import { hashToken, isSessionRevoked } from '../services/sessions';
+import { requireInteractiveSession, type AuthRequest } from '../middleware/auth';
 
 const router: Router = Router();
+const TICKET_TTL_MS = 60_000;
+const SSE_TICKET_PREFIX = 'ol_sse_';
 
-router.get('/', async (req: Request, res: Response) => {
-  // Prefer the Authorization header; `?token=` is retained only because the
-  // browser EventSource API cannot set headers. Query-string tokens land in
-  // proxy and access logs, so the client should migrate to a fetch-based stream.
-  const headerToken = req.headers.authorization?.startsWith('Bearer ')
-    ? req.headers.authorization.substring(7)
-    : '';
-  const tokenRaw = req.query.token;
-  const token = headerToken || (typeof tokenRaw === 'string' ? tokenRaw : '');
-  if (!token) {
-    res.status(401).json(buildErrorEnvelope('SSE_TOKEN_REQUIRED', 'SSE token is required'));
-    return;
+interface SseIdentity {
+  userId: string;
+}
+
+async function consumeTicket(ticket: string): Promise<SseIdentity | null> {
+  if (!ticket.startsWith(SSE_TICKET_PREFIX)) return null;
+  const row = await prisma.sseTicket.findUnique({
+    where: { tokenHash: hashToken(ticket) },
+  });
+  if (!row || row.consumedAt || row.expiresAt <= new Date()) return null;
+  await prisma.sseTicket.update({
+    where: { id: row.id },
+    data: { consumedAt: new Date() },
+  });
+  return { userId: row.userId };
+}
+
+async function identityFromBearer(token: string): Promise<SseIdentity | 'pending' | null> {
+  if (token.startsWith(SSE_TICKET_PREFIX)) {
+    return consumeTicket(token);
   }
-
-  let userId: string;
   try {
     const claims = jwt.verify(token, getJwtSecret()) as {
       userId?: string;
       twoFactorPending?: boolean;
+      typ?: string;
     };
-    if (!claims?.userId) {
-      res.status(401).json(buildErrorEnvelope('INVALID_TOKEN', 'Invalid token'));
-      return;
-    }
-    // This endpoint bypassed the auth middleware, so it accepted 2FA-pending
-    // tokens and revoked sessions that every other route rejected.
-    if (claims.twoFactorPending) {
-      res.status(401).json(buildErrorEnvelope('INVALID_TOKEN', 'Invalid token'));
-      return;
-    }
-    userId = claims.userId;
+    if (!claims?.userId) return null;
+    if (claims.twoFactorPending || claims.typ === 'refresh') return 'pending';
+    if (await isSessionRevoked(hashToken(token))) return null;
+    return { userId: claims.userId };
   } catch {
-    res.status(401).json(buildErrorEnvelope('INVALID_TOKEN', 'Invalid token'));
+    return null;
+  }
+}
+
+router.post('/ticket', requireInteractiveSession, async (req: AuthRequest, res: Response) => {
+  const ticket = `${SSE_TICKET_PREFIX}${randomBytes(24).toString('base64url')}`;
+  await prisma.sseTicket.create({
+    data: {
+      userId: req.userId!,
+      tokenHash: hashToken(ticket),
+      expiresAt: new Date(Date.now() + TICKET_TTL_MS),
+    },
+  });
+  res.status(201).json({ ticket, expiresIn: TICKET_TTL_MS / 1000 });
+});
+
+router.get('/', async (req: Request, res: Response) => {
+  if (typeof req.query.token === 'string' && req.query.token.length > 0) {
+    res.status(400).json(
+      buildErrorEnvelope(
+        'SSE_TOKEN_QUERY_REMOVED',
+        'Pass a short-lived ticket from POST /api/events/ticket as ?ticket=, or an Authorization header. JWT query tokens are no longer accepted.',
+      ),
+    );
     return;
   }
 
-  if (await isSessionRevoked(hashToken(token))) {
-    res.status(401).json(buildErrorEnvelope('SESSION_REVOKED', 'Session has been revoked'));
+  const headerToken = req.headers.authorization?.startsWith('Bearer ')
+    ? req.headers.authorization.substring(7)
+    : '';
+  const ticketRaw = req.query.ticket;
+  const ticket = typeof ticketRaw === 'string' ? ticketRaw : '';
+  const token = ticket || headerToken;
+  if (!token) {
+    res.status(401).json(buildErrorEnvelope('SSE_TOKEN_REQUIRED', 'SSE ticket is required'));
     return;
   }
+
+  const identity = await identityFromBearer(token);
+  if (identity === 'pending' || !identity) {
+    res.status(401).json(buildErrorEnvelope('INVALID_TOKEN', 'Invalid token'));
+    return;
+  }
+  const { userId } = identity;
 
   let teamIds: string[] = [];
   let workspaceIds: string[] = [];
@@ -64,7 +105,7 @@ router.get('/', async (req: Request, res: Response) => {
     req.log?.warn({ err, userId }, '[SSE] failed to load team memberships');
   }
 
-  const clientId = randomUUID();
+  const clientId = randomBytes(16).toString('hex');
 
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
@@ -72,18 +113,59 @@ router.get('/', async (req: Request, res: Response) => {
   res.setHeader('X-Accel-Buffering', 'no');
   res.flushHeaders();
 
-  const client: SSEClient = { id: clientId, res, userId, teamIds, workspaceIds };
-  clients.set(clientId, client);
+  const client: SSEClient = {
+    id: clientId,
+    res,
+    userId,
+    teamIds,
+    workspaceIds,
+    connectedAt: Date.now(),
+  };
+  registerClient(client);
 
   req.log?.info(
-    { clientId, userId, teamCount: teamIds.length, total: clients.size },
+    { clientId, userId, teamCount: teamIds.length },
     '[SSE] client connected',
   );
 
   try {
-    res.write(`data: ${JSON.stringify({ type: 'connected', clientId })}\n\n`);
+    res.write(formatSseMessage('connected', { type: 'connected', clientId }));
   } catch (err) {
     req.log?.warn({ err, clientId }, '[SSE] initial write failed');
+  }
+
+  const lastRaw = req.headers['last-event-id'] ?? req.query.lastEventId;
+  const lastRun = typeof lastRaw === 'string' ? parseExecutionSseId(lastRaw) : null;
+  if (lastRun) {
+    try {
+      const missed = await prisma.agentRunEvent.findMany({
+        where: { runId: lastRun.runId, seq: { gt: lastRun.seq } },
+        orderBy: { seq: 'asc' },
+        take: 500,
+      });
+      for (const event of missed) {
+        res.write(formatSseMessage('execution:progress', {
+          runId: event.runId,
+          seq: event.seq,
+          type: event.type,
+          payload: event.payload,
+        }, executionSseId(event.runId, event.seq)));
+      }
+    } catch (err) {
+      req.log?.warn({ err, clientId, lastEventId: lastRaw }, '[SSE] run journal replay failed');
+    }
+  } else {
+    const lastEventId = parseLastEventId(lastRaw);
+    if (lastEventId !== null) {
+      try {
+        const missed = await replaySince(lastEventId, { userId, teamIds, workspaceIds });
+        for (const event of missed) {
+          res.write(formatSseMessage(event.type, event.payload, event.id.toString()));
+        }
+      } catch (err) {
+        req.log?.warn({ err, clientId, lastEventId: lastEventId.toString() }, '[SSE] replay failed');
+      }
+    }
   }
 
   const heartbeatInterval = setInterval(() => {
@@ -101,9 +183,9 @@ router.get('/', async (req: Request, res: Response) => {
     if (cleaned) return;
     cleaned = true;
     clearInterval(heartbeatInterval);
-    clients.delete(clientId);
+    unregisterClient(clientId);
     req.log?.info(
-      { clientId, userId, total: clients.size },
+      { clientId, userId },
       '[SSE] client disconnected',
     );
   }

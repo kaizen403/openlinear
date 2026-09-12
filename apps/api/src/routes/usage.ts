@@ -52,7 +52,7 @@ router.get(
     const [totals, runs] = await Promise.all([
       prisma.agentRun.aggregate({
         where: scopedSince,
-        _sum: { costUsd: true, inputTokens: true, outputTokens: true },
+        _sum: { costUsd: true, inputTokens: true, outputTokens: true, cachedInputTokens: true, cacheWriteTokens: true, reasoningTokens: true },
         _count: { _all: true },
       }),
       prisma.agentRun.findMany({
@@ -65,6 +65,9 @@ router.get(
     const totalCostUsd = decimalToNumber(totals._sum.costUsd);
     const totalInputTokens = totals._sum.inputTokens ?? 0;
     const totalOutputTokens = totals._sum.outputTokens ?? 0;
+    const totalCachedInputTokens = totals._sum.cachedInputTokens ?? 0;
+    const totalCacheWriteTokens = totals._sum.cacheWriteTokens ?? 0;
+    const totalReasoningTokens = totals._sum.reasoningTokens ?? 0;
     const totalRuns = totals._count._all;
     const avgCostPerRun = totalRuns > 0 ? totalCostUsd / totalRuns : 0;
 
@@ -92,6 +95,9 @@ router.get(
       totalRuns,
       totalInputTokens,
       totalOutputTokens,
+      totalCachedInputTokens,
+      totalCacheWriteTokens,
+      totalReasoningTokens,
       avgCostPerRun: Number(avgCostPerRun.toFixed(6)),
       daily,
     });
@@ -132,7 +138,7 @@ router.get(
     const groups = await prisma.agentRun.groupBy({
       by: ['taskId'],
       where,
-      _sum: { costUsd: true, inputTokens: true, outputTokens: true },
+      _sum: { costUsd: true, inputTokens: true, outputTokens: true, cachedInputTokens: true, cacheWriteTokens: true, reasoningTokens: true },
       _count: { _all: true },
       _max: { startedAt: true },
       orderBy,
@@ -164,6 +170,9 @@ router.get(
         totalCostUsd: Number(decimalToNumber(g._sum.costUsd).toFixed(6)),
         totalInputTokens: g._sum.inputTokens ?? 0,
         totalOutputTokens: g._sum.outputTokens ?? 0,
+        totalCachedInputTokens: g._sum.cachedInputTokens ?? 0,
+        totalCacheWriteTokens: g._sum.cacheWriteTokens ?? 0,
+        totalReasoningTokens: g._sum.reasoningTokens ?? 0,
         lastRunAt: g._max.startedAt,
       };
     });

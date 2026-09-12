@@ -62,6 +62,7 @@ export const updateProjectBodySchema = z.object({
   teamIds: z.array(z.string().uuid()).max(1).optional(),
   repoUrl: z.string().nullable().optional(),
   localPath: localRepoPathSchema.nullable().optional(),
+  defaultAgent: z.string().min(1).nullable().optional(),
 });
 
 export const listProjectsQuerySchema = z.object({

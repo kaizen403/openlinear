@@ -6,6 +6,7 @@ import { broadcastToTeam, broadcastToUser } from '../sse';
 import { logActivity } from './activity';
 import { assertProjectAccess, assertTeamRole, OwnershipError } from './ownership';
 import { resolveUserByHandle } from './members';
+import { invalidateTenancyCache } from '../tenancy/context';
 
 const userSelect = { id: true, username: true, email: true, avatarUrl: true } as const;
 const memberInclude = { user: { select: userSelect } } as const;
@@ -188,6 +189,7 @@ export async function inviteTeamMember(input: {
   });
   broadcastToTeam(input.teamId, 'team:member-added', member);
   broadcastToUser(user.id, 'team:joined', { teamId: input.teamId });
+  invalidateTenancyCache(user.id);
   return member;
 }
 
@@ -278,6 +280,7 @@ export async function addTeamMemberRoute(input: {
   });
   broadcastToTeam(input.teamId, 'team:member-added', member);
   broadcastToUser(user.id, 'team:joined', { teamId: input.teamId });
+  invalidateTenancyCache(user.id);
   return member;
 }
 
@@ -304,6 +307,7 @@ export async function removeTeamMemberRoute(input: {
   });
   broadcastToTeam(input.teamId, 'team:member-removed', { userId: input.targetUserId });
   broadcastToUser(input.targetUserId, 'team:left', { teamId: input.teamId });
+  invalidateTenancyCache(input.targetUserId);
 }
 
 export { teamFullInclude, memberInclude as teamMemberInclude };

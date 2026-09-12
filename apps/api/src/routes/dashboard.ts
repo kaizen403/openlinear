@@ -1,56 +1,59 @@
 import { Router, Response } from 'express';
 import { prisma } from '@openlinear/db';
 import { requireAuth, AuthRequest } from '../middleware/auth';
-import { getUserTeamIds } from '../services/team-scope';
+import { scopedProjectWhere, scopedTaskWhere } from '../tenancy/scopes';
+import { resolveTenancyContext } from '../tenancy/context';
+import type { TenancyContext } from '../tenancy/types';
 
 const router: Router = Router();
+
+async function dashboardTenancy(req: AuthRequest): Promise<TenancyContext> {
+  if (req.tenancy) return req.tenancy;
+  return resolveTenancyContext({
+    userId: req.userId!,
+    authSource: req.authSource ?? 'jwt',
+    scopes: req.patScopes ?? [],
+  });
+}
 
 router.get(
   '/tasks',
   requireAuth,
   async (req: AuthRequest, res: Response) => {
-
-    const userId = req.userId!;
-    const teamIds = await getUserTeamIds(userId);
-
-    const where = teamIds.length > 0
-      ? { OR: [{ creatorId: userId }, { assigneeId: userId }, { teamId: { in: teamIds } }] }
-      : { OR: [{ creatorId: userId }, { assigneeId: userId }] };
+    const ctx = await dashboardTenancy(req);
+    const where = scopedTaskWhere(ctx, { archived: false });
 
     const results = await Promise.allSettled([
       prisma.task.groupBy({
         by: ['status'],
-        where: { ...where, archived: false },
+        where,
         _count: { _all: true },
       }),
       prisma.task.groupBy({
         by: ['priority'],
-        where: { ...where, archived: false },
+        where,
         _count: { _all: true },
       }),
       prisma.task.count({
-        where: {
-          ...where,
+        where: scopedTaskWhere(ctx, {
           archived: false,
           status: { not: 'done' },
           dueDate: { lt: new Date() },
-        },
+        }),
       }),
       prisma.task.count({
-        where: {
-          ...where,
+        where: scopedTaskWhere(ctx, {
           archived: false,
           status: { not: 'done' },
           assigneeId: null,
-        },
+        }),
       }),
-      prisma.task.count({ where: { ...where, archived: false } }),
+      prisma.task.count({ where }),
       prisma.task.count({
-        where: {
-          ...where,
+        where: scopedTaskWhere(ctx, {
           archived: false,
           createdAt: { gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) },
-        },
+        }),
       }),
     ]);
 
@@ -81,7 +84,6 @@ router.get(
         high: priorityMap.high ?? 0,
       },
     });
-    
   },
 );
 
@@ -89,13 +91,8 @@ router.get(
   '/projects',
   requireAuth,
   async (req: AuthRequest, res: Response) => {
-
-    const userId = req.userId!;
-    const teamIds = await getUserTeamIds(userId);
-
-    const where = teamIds.length > 0
-      ? { OR: [{ leadId: userId }, { teams: { some: { id: { in: teamIds } } } }] }
-      : { leadId: userId };
+    const ctx = await dashboardTenancy(req);
+    const where = scopedProjectWhere(ctx);
 
     const [statusCounts, total, projects] = await Promise.all([
       prisma.project.groupBy({
@@ -181,7 +178,6 @@ router.get(
       },
       projects: projectsWithHealth,
     });
-    
   },
 );
 

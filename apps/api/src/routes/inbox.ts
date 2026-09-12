@@ -2,10 +2,12 @@ import { Router, Response } from 'express';
 import { prisma } from '@openlinear/db';
 import { requireAuth, optionalAuth, AuthRequest } from '../middleware/auth';
 import { validateQuery, ValidatedRequest } from '../middleware/validate';
-import { getUserTeamIds } from '../services/team-scope';
 import { assertTaskOwned } from '../services/ownership';
 import { paginationQuerySchema, paginated, paginationSkipTake, PaginationQuery } from '../schemas/pagination';
 import { PRISMA_TX_OPTIONS } from '../lib/constants';
+import { resolveTenancyContext } from '../tenancy/context';
+import { scopedTaskWhere } from '../tenancy/scopes';
+import type { TenancyContext } from '../tenancy/types';
 
 const router: Router = Router();
 
@@ -13,28 +15,30 @@ function completedOrCancelled() {
   return { OR: [{ status: 'done' as const }, { status: 'cancelled' as const }] };
 }
 
-async function teamScope(userId?: string): Promise<Record<string, unknown> | null> {
-  if (!userId) return null;
-  const teamIds = await getUserTeamIds(userId);
-  return { teamId: { in: teamIds } };
+async function inboxTenancy(req: AuthRequest): Promise<TenancyContext | null> {
+  if (req.tenancy) return req.tenancy;
+  if (!req.userId) return null;
+  return resolveTenancyContext({
+    userId: req.userId,
+    authSource: req.authSource ?? 'jwt',
+    scopes: req.patScopes ?? [],
+  });
 }
 
 router.get('/count', optionalAuth, async (req: AuthRequest, res: Response) => {
-
-  const scope = await teamScope(req.userId);
-  if (!scope) {
+  const ctx = await inboxTenancy(req);
+  if (!ctx) {
     res.json({ total: 0, unread: 0 });
     return;
   }
 
-  const baseWhere = { ...completedOrCancelled(), archived: false, ...scope };
+  const baseWhere = scopedTaskWhere(ctx, { ...completedOrCancelled(), archived: false });
 
   const total = await prisma.task.count({ where: baseWhere });
   const unread = await prisma.task.count({
-    where: { ...baseWhere, inboxRead: false },
+    where: scopedTaskWhere(ctx, { ...completedOrCancelled(), archived: false, inboxRead: false }),
   });
   res.json({ total, unread });
-  
 });
 
 router.get(
@@ -42,19 +46,14 @@ router.get(
   optionalAuth,
   validateQuery(paginationQuerySchema),
   async (req: AuthRequest & ValidatedRequest<unknown, PaginationQuery>, res: Response) => {
-
     const { page, pageSize } = req.validQuery!;
-    const scope = await teamScope(req.userId);
-    if (!scope) {
+    const ctx = await inboxTenancy(req);
+    if (!ctx) {
       res.json(paginated([], 0, page, pageSize));
       return;
     }
 
-    const where = {
-      ...completedOrCancelled(),
-      archived: false,
-      ...scope,
-    };
+    const where = scopedTaskWhere(ctx, { ...completedOrCancelled(), archived: false });
 
     const [tasks, total] = await prisma.$transaction(
       async (tx) => {
@@ -80,12 +79,10 @@ router.get(
     }));
 
     res.json(paginated(flatTasks, total, page, pageSize));
-    
   },
 );
 
 router.patch('/read/:id', requireAuth, async (req: AuthRequest, res: Response) => {
-
   const id = req.params.id as string;
   await assertTaskOwned(id, req.userId!);
   await prisma.task.update({
@@ -93,28 +90,24 @@ router.patch('/read/:id', requireAuth, async (req: AuthRequest, res: Response) =
     data: { inboxRead: true },
   });
   res.json({ success: true });
-  
 });
 
 router.patch('/read-all', optionalAuth, async (req: AuthRequest, res: Response) => {
-
-  const scope = await teamScope(req.userId);
-  if (!scope) {
+  const ctx = await inboxTenancy(req);
+  if (!ctx) {
     res.json({ success: true });
     return;
   }
 
   await prisma.task.updateMany({
-    where: {
+    where: scopedTaskWhere(ctx, {
       ...completedOrCancelled(),
       inboxRead: false,
       archived: false,
-      ...scope,
-    },
+    }),
     data: { inboxRead: true },
   });
   res.json({ success: true });
-  
 });
 
 export default router;

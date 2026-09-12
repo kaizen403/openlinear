@@ -12,6 +12,7 @@ import {
   assertWorkspaceRole,
 } from './workspaces';
 import { addRepositoryByUrl, addRepositoryFromCloneUrl } from './github';
+import { invalidateTenancyCache } from '../tenancy/context';
 
 const userSelect = { id: true, username: true, email: true, avatarUrl: true } as const;
 
@@ -276,7 +277,7 @@ export async function createProjectFull(input: {
       }
     } else {
       try {
-        const repo = await addRepositoryByUrl(repoUrl);
+        const repo = await addRepositoryByUrl(userId, repoUrl, { activate: false });
         resolvedRepositoryId = repo.id;
         if (defaultBranch && defaultBranch !== repo.defaultBranch) {
           await prisma.repository.update({ where: { id: repo.id }, data: { defaultBranch } });
@@ -434,6 +435,7 @@ export async function updateProjectFull(input: {
   color?: string;
   icon?: string | null;
   leadId?: string | null;
+  defaultAgent?: string | null;
 }): Promise<ProjectWithInclude> {
   const { userId, projectId, isDesktopClient, teamIds, startDate, targetDate, repoUrl, localPath, workspaceId, key } = input;
 
@@ -494,7 +496,7 @@ export async function updateProjectFull(input: {
   if (repoUrl !== undefined) {
     if (repoUrl) {
       try {
-        const repo = await addRepositoryByUrl(repoUrl);
+        const repo = await addRepositoryByUrl(userId, repoUrl, { activate: false });
         repositoryId = repo.id;
       } catch (err) {
         throw new HttpError(400, 'REPOSITORY_CONNECT_FAILED', `Failed to connect repository: ${(err as Error).message}`);
@@ -511,6 +513,7 @@ export async function updateProjectFull(input: {
   if (input.color !== undefined) updateData.color = input.color;
   if (input.icon !== undefined) updateData.icon = input.icon;
   if (input.leadId !== undefined) updateData.leadId = input.leadId;
+  if (input.defaultAgent !== undefined) updateData.defaultAgent = input.defaultAgent;
 
   const project = await prisma.$transaction(async (tx) => {
     if (teamIds !== undefined) {
@@ -646,6 +649,7 @@ export async function grantProjectAccess(input: {
     include: projectAccessInclude,
   });
 
+  invalidateTenancyCache(input.userId);
   await broadcastToProject(input.projectId, 'project:access-changed', { projectId: input.projectId, access });
   return { access, isNew: !existing };
 }
@@ -729,6 +733,7 @@ export async function revokeProjectAccess(input: {
   });
 
   const payload = { projectId: input.projectId, userId: input.targetUserId, permission: 'deny' };
+  invalidateTenancyCache(input.targetUserId);
   await broadcastToProject(input.projectId, 'project:access-changed', payload);
   broadcastToUser(input.targetUserId, 'project:access-changed', payload);
 }
