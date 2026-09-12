@@ -462,7 +462,7 @@ async function handleSessionComplete(taskId: string, opts: { alreadyClaimed?: bo
 }
 
 // Extract session ID from various OpenCode event structures.
-// Exported so other event-stream consumers (e.g. services/batch/event-handler.ts)
+// Exported so other event-stream consumers (e.g. services/session-manager.ts)
 // reuse this instead of hand-rolling a second, divergent parser (see C-01).
 export function extractSessionId(event: { type: string; properties?: Record<string, unknown> }): string | undefined {
   const props = event.properties || {};

@@ -489,6 +489,7 @@ describe('T3 (R1 P0-1/P0-2/P1-9) — injected OpenCode config', () => {
       expect(config.permission.read['*.env.*']).toBe('deny');
       expect(config.permission.read['*.env.example']).toBe('allow');
       expect(config.compaction).toEqual({ auto: true, prune: true });
+      expect(config.plugin).toEqual(['opencode-openlinear']);
     } finally {
       if (originalDbUrl === undefined) delete process.env.DATABASE_URL;
       else process.env.DATABASE_URL = originalDbUrl;

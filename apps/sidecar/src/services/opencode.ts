@@ -107,22 +107,24 @@ type AgentOpenCodeConfig = OpenCodeServerConfig & {
     tail_turns?: number;
     preserve_recent_tokens?: number;
   };
+  plugin?: string[];
 };
 
 function buildAgentConfig(): AgentOpenCodeConfig {
   return {
     autoupdate: false,
     share: 'disabled',
-    permission: {
-      doom_loop: 'deny',
-      external_directory: 'deny',
-      read: {
-        '*.env': 'deny',
-        '*.env.*': 'deny',
-        '*.env.example': 'allow',
+      permission: {
+        doom_loop: 'deny',
+        external_directory: 'deny',
+        read: {
+          '*.env': 'deny',
+          '*.env.*': 'deny',
+          '*.env.example': 'allow',
+        },
       },
-    },
-    compaction: { auto: true, prune: true },
+      compaction: { auto: true, prune: true },
+      plugin: ['opencode-openlinear'],
   };
 }
 

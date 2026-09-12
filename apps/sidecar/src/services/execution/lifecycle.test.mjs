@@ -491,22 +491,15 @@ describe('execution lifecycle', () => {
     });
   });
 
-  it('uses the anonymous active repository fallback but rejects execution without a user id', async () => {
+  it('does not fall back to a global unscoped repository', async () => {
     mocks.taskFindUnique.mockResolvedValue(makeTask({ project: null }));
-    mocks.repositoryFindFirst.mockResolvedValue({
-      id: 'repo-1',
-      name: 'repo',
-      fullName: 'acme/repo',
-      cloneUrl: 'https://github.com/acme/repo.git',
-      defaultBranch: 'main',
-    });
 
     await expect(lifecycle.executeTask({ taskId: 'task-12345678' })).resolves.toEqual({
       success: false,
-      error: 'userId is required for execution',
+      error: 'No active project selected',
     });
 
-    expect(mocks.repositoryFindFirst).toHaveBeenCalledWith({ where: { userId: null, isActive: true } });
+    expect(mocks.repositoryFindFirst).not.toHaveBeenCalled();
   });
 
   it('returns execution setup errors from the outer catch', async () => {

@@ -6,16 +6,16 @@ import {
   isBackgroundTaskCancellation,
   isBackgroundTaskCompletion,
   isBackgroundTaskFailure,
-} from '../../utils/background-task';
-import { extractSessionId } from '../execution/events';
-import { getOrCreateBuffer, appendTextDelta, appendReasoningDelta, flushDeltaBuffer, markThinking } from '../delta-buffer';
+} from '../utils/background-task';
+import { extractSessionId } from './execution/events';
+import { getOrCreateBuffer, appendTextDelta, appendReasoningDelta, flushDeltaBuffer, markThinking } from './delta-buffer';
 import {
   emitBatchLog,
   emitBatchLogs,
   broadcastBatchProgress,
   flushTaskBuffers,
   cleanupTaskBuffers,
-} from './shared';
+} from './batch/shared';
 
 // T4 (C-07 / R1 P0-3): liveness vs. progress are two different questions.
 // - Transport watchdog: any event at all (including `server.heartbeat`, which
@@ -48,8 +48,8 @@ export function subscribeToTaskEvents(
   batchId: string,
   taskId: string,
   onComplete: (success: boolean, error?: string) => Promise<void>,
-): void {
-  subscribeToSessionEvents({
+): { ready: Promise<void> } {
+  return subscribeToSessionEvents({
     client,
     sessionId,
     batchId,
@@ -64,7 +64,7 @@ export function subscribeToSessionEvents({
   batchId,
   taskIds,
   onComplete,
-}: SessionEventSubscription): void {
+}: SessionEventSubscription): { ready: Promise<void> } {
   let promptSent = false;
   let finished = false;
   let backgroundTaskRunning = false;
@@ -206,9 +206,15 @@ export function subscribeToSessionEvents({
     getOrCreateBuffer(taskId, (msg) => emitBatchLog(taskId, 'agent', msg));
   }
 
+  let resolveReady: () => void = () => undefined;
+  const ready = new Promise<void>((resolve) => {
+    resolveReady = resolve;
+  });
+
   (async () => {
     try {
       const events = await client.event.subscribe();
+      resolveReady();
       resetTransportWatchdog();
       resetProgressWatchdog();
 
@@ -254,6 +260,7 @@ export function subscribeToSessionEvents({
         }
 
         if (type === 'session.compacted') {
+          resumeWatchdogs();
           emitBatchLogs(taskIds, 'info', 'Session context was compacted');
           continue;
         }
@@ -354,6 +361,7 @@ export function subscribeToSessionEvents({
               emitBatchLogs(taskIds, 'error', `Failed: ${toolName}`, state.output);
             }
           } else if (part?.type === 'compaction') {
+            suspendWatchdogs();
             emitBatchLogs(taskIds, 'info', 'Session compaction started');
           } else if (part?.type === 'reasoning') {
             if (delta && delta.length > 0) {
@@ -387,4 +395,5 @@ export function subscribeToSessionEvents({
       clearProgressWatchdog();
     }
   })();
+  return { ready };
 }

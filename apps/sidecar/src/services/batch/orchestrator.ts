@@ -33,7 +33,7 @@ import {
   scheduleBatchCleanup,
   updateTaskInDb,
 } from './shared';
-import { subscribeToSessionEvents, subscribeToTaskEvents } from './event-handler';
+import { subscribeToSessionEvents, subscribeToTaskEvents } from '../session-manager';
 import { handleTaskComplete, handleCombinedBatchComplete, advanceQueue } from './completion';
 import { completionKey } from '@openlinear/execution-core';
 
@@ -99,7 +99,7 @@ export async function createBatch(params: CreateBatchParams): Promise<BatchState
     project = await prisma.repository.findFirst({
       where: params.userId
         ? { userId: params.userId, isActive: true }
-        : { userId: null, isActive: true },
+        : { id: { in: [] } },
     });
   }
 
@@ -246,7 +246,8 @@ async function startTask(batch: BatchState, taskIndex: number): Promise<void> {
     emitBatchLog(task.taskId, 'info', `${modeLabel} started for this issue`);
     broadcastBatchProgress([task.taskId], 'executing', `${modeLabel} started for this issue`);
 
-    subscribeToTaskEvents(client, sessionId, batch.id, task.taskId, (success, error) => handleTaskComplete(batch.id, task.taskId, success, error));
+    const subscribed = subscribeToTaskEvents(client, sessionId, batch.id, task.taskId, (success, error) => handleTaskComplete(batch.id, task.taskId, success, error));
+    await subscribed.ready;
 
     const taskRecord = await prisma.task.findUnique({
       where: { id: task.taskId },
@@ -259,7 +260,7 @@ async function startTask(batch: BatchState, taskIndex: number): Promise<void> {
       emitBatchLog(task.taskId, 'info', `Using model: ${modelInfo.label}`);
     }
 
-    client.session.prompt({
+    client.session.promptAsync({
       path: { id: sessionId },
       body: {
         parts: [{ type: 'text', text: prompt }],
@@ -371,13 +372,14 @@ async function startCombinedBatch(batch: BatchState): Promise<void> {
     `Combined Execution started for ${batch.tasks.length} selected issues`,
   );
 
-  subscribeToSessionEvents({
+  const subscribed = subscribeToSessionEvents({
     client,
     sessionId,
     batchId: batch.id,
     taskIds: [activityId],
     onComplete: (success, error) => handleCombinedBatchComplete(batch.id, success, error),
   });
+  await subscribed.ready;
 
   const { prompt, taskRecords } = await loadCombinedPrompt(batch);
   const distinctModelStr = resolveCombinedBatchModel(taskRecords);
@@ -392,7 +394,7 @@ async function startCombinedBatch(batch: BatchState): Promise<void> {
     );
   }
 
-  await client.session.prompt({
+  await client.session.promptAsync({
     path: { id: sessionId },
     body: {
       parts: [{ type: 'text', text: prompt }],

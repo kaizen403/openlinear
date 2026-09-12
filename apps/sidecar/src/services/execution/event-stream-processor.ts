@@ -179,10 +179,7 @@ export function processEvent(event: OpenCodeEvent, state: EventProcessorState): 
           actions.push({ type: 'log', level: 'error', message: `Failed: ${toolName}`, details: toolState.output });
         }
       } else if (part?.type === 'compaction') {
-        // T3/R1 P1-9 — surfaces a compaction as it happens rather than
-        // silently dropping it (the default branch below). Compaction is
-        // "progress", not idle time, so the caller resets the no-progress
-        // watchdog on any handled event including this one.
+        actions.push({ type: 'suspendWatchdog' });
         actions.push({ type: 'log', level: 'info', message: 'Session compaction started' });
       } else if (part?.type === 'reasoning') {
         if (delta && delta.length > 0) {
@@ -226,6 +223,7 @@ export function processEvent(event: OpenCodeEvent, state: EventProcessorState): 
     }
 
     case 'session.compacted': {
+      actions.push({ type: 'resumeWatchdog' });
       actions.push({ type: 'log', level: 'info', message: 'Session context was compacted' });
       return actions;
     }

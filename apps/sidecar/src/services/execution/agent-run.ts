@@ -66,12 +66,19 @@ export function recordMessageUsage(
     cost: number;
     inputTokens: number;
     outputTokens: number;
-    reasoningTokens: number;
-    cacheReadTokens: number;
-    cacheWriteTokens: number;
+    reasoningTokens?: number;
+    cacheReadTokens?: number;
+    cacheWriteTokens?: number;
   },
 ): void {
-  state.messageUsage.set(messageId, snapshot);
+  state.messageUsage.set(messageId, {
+    cost: snapshot.cost,
+    inputTokens: snapshot.inputTokens,
+    outputTokens: snapshot.outputTokens,
+    reasoningTokens: snapshot.reasoningTokens ?? 0,
+    cacheReadTokens: snapshot.cacheReadTokens ?? 0,
+    cacheWriteTokens: snapshot.cacheWriteTokens ?? 0,
+  });
   let totalCost = 0;
   let inputTokens = 0;
   let outputTokens = 0;
@@ -112,6 +119,12 @@ export async function finalizeAgentRun(
     }
     if (state.tokens.input > 0) data.inputTokens = state.tokens.input;
     if (state.tokens.output > 0) data.outputTokens = state.tokens.output;
+    if (state.messageUsage.size > 0) {
+      data.cachedInputTokens = state.tokens.cacheRead;
+      data.cacheWriteTokens = state.tokens.cacheWrite;
+      data.reasoningTokens = state.tokens.reasoning;
+      data.costBasis = 'opencode.message.updated';
+    }
     if (extra.prUrl) data.prUrl = extra.prUrl;
     if (extra.errorMessage) data.errorMessage = extra.errorMessage.slice(0, 1000);
 

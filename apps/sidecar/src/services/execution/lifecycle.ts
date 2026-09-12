@@ -1,10 +1,12 @@
-import { prisma, decryptToken } from '@openlinear/db';
 import { logger } from '@openlinear/api/logger';
 import { parseModelOverride, type ModelOverride } from '@openlinear/execution-core';
 import { getClientForUser } from '../opencode';
 import { ensureModelConfigured } from '../opencode-model';
 import { getOrCreateBuffer } from '../delta-buffer';
 import { getExecutionSettings } from '../execution-settings';
+import { resolveAgentId } from '../../engine/resolve-agent';
+import { cancelRun } from '../../engine/cancel';
+import { getSidecarStore } from '../../persistence/store';
 
 import { cloneRepository, createBranch } from './git';
 import { subscribeToSessionEvents, failExecutionFromEventStream, claimFinalize } from './events';
@@ -42,8 +44,9 @@ interface ExecutionInputs {
     model: string | null;
     teamId: string | null;
     creatorId: string | null;
-    project: { id: string; localPath: string | null; repository: { id: string; name: string; fullName: string; cloneUrl: string; defaultBranch: string } | null } | null;
+    project: { id: string; localPath: string | null; defaultAgent?: string | null; repository: { id: string; name: string; fullName: string; cloneUrl: string; defaultBranch: string } | null } | null;
     labels: Array<{ taskId: string; labelId: string; label: { id: string; name: string; color: string } }>;
+    agent?: string | null;
   };
   branchName: string;
   repoPath: string;
@@ -63,28 +66,19 @@ async function gatherExecutionInputs({ taskId, userId }: ExecuteTaskParams): Pro
     return { error: `Parallel limit reached (${parallelLimit} tasks max)` };
   }
 
+  const store = await getSidecarStore();
   let accessToken: string | null = null;
 
   if (userId) {
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { accessToken: true },
-    });
     try {
-      accessToken = decryptToken(user?.accessToken ?? null);
+      accessToken = await store.getScmToken(userId);
     } catch (err) {
       logger.error({ err, userId }, `[Execution] Failed to decrypt access token for user ${userId}`);
       return { error: 'Failed to decrypt access token' };
     }
   }
 
-  const taskWithProject = await prisma.task.findUnique({
-    where: { id: taskId },
-    include: {
-      project: { include: { repository: true } },
-      labels: { include: { label: true } },
-    },
-  });
+  const taskWithProject = await store.getTask(taskId);
 
   if (!taskWithProject) {
     return { error: 'Task not found' };
@@ -98,13 +92,7 @@ async function gatherExecutionInputs({ taskId, userId }: ExecuteTaskParams): Pro
   } else if (taskWithProject.project?.repository) {
     project = taskWithProject.project.repository;
   } else if (userId) {
-    project = await prisma.repository.findFirst({
-      where: { userId, isActive: true },
-    });
-  } else {
-    project = await prisma.repository.findFirst({
-      where: { userId: null, isActive: true },
-    });
+    project = await store.getActiveRepository();
   }
 
   if (!project && !useLocalPath) {
@@ -224,10 +212,8 @@ async function startAgentSession(
     executionProgress: 0,
   });
 
-  await prisma.task.update({
-    where: { id: taskId },
-    data: { batchId: null },
-  });
+  const store = await getSidecarStore();
+  await store.updateTask(taskId, { batchId: null });
 
   let prompt = taskRecord.title;
   if (taskRecord.description) {
@@ -365,11 +351,10 @@ export async function executeTask({ taskId, userId }: ExecuteTaskParams): Promis
   }
 
   try {
+    const clientPromise = getClientForUser(inputs.userId, inputs.repoPath);
     await setupRepository(inputs);
-
     broadcastProgress(taskId, 'executing', 'Starting OpenCode agent...');
-
-    const client = await getClientForUser(inputs.userId, inputs.repoPath);
+    const client = await clientPromise;
 
     const sessionResponse = await client.session.create({
       body: { title: inputs.taskRecord.title },
@@ -391,10 +376,14 @@ export async function executeTask({ taskId, userId }: ExecuteTaskParams): Promis
     const modelInfo = await getModelOverride(inputs.taskRecord, client);
     const modelLabel = modelInfo?.label || 'unknown';
 
+    const runnerId = resolveAgentId({
+      taskAgent: inputs.taskRecord.agent,
+      projectDefaultAgent: inputs.taskRecord.project?.defaultAgent,
+    });
     const agentRunId = await createAgentRun({
       taskId,
       userId: inputs.userId,
-      agent: 'opencode',
+      agent: runnerId,
       model: modelLabel,
     });
 
@@ -446,7 +435,19 @@ export async function cancelTask(taskId: string): Promise<{ success: boolean; er
   });
 
   try {
-    await execution.client.session.abort({ path: { id: execution.sessionId } });
+    const session = {
+      externalId: execution.sessionId,
+      events: { async *[Symbol.asyncIterator]() { /* cancelled */ } },
+      interrupt: async () => {
+        const interrupt = (execution.client.session as { interrupt?: (args: unknown) => Promise<unknown> }).interrupt;
+        if (interrupt) await interrupt({ path: { id: execution.sessionId } });
+      },
+      abort: async () => {
+        await execution.client.session.abort({ path: { id: execution.sessionId } });
+      },
+      replyPermission: async () => undefined,
+    };
+    await cancelRun({ session });
   } catch (error) {
     logger.error({ err: error, taskId }, `[Execution] Abort call failed for task ${taskId}`);
   }
