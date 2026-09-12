@@ -3,6 +3,7 @@ import { HttpError } from '../errors';
 import { broadcastToUser, broadcastToWorkspace } from '../sse';
 import { OwnershipError } from './ownership';
 import { assertWorkspaceRole } from './workspaces';
+import { invalidateTenancyCache } from '../tenancy/context';
 
 const userSelect = { id: true, username: true, email: true, avatarUrl: true } as const;
 const workspaceMemberInclude = { user: { select: userSelect } } as const;
@@ -139,6 +140,7 @@ export async function inviteWorkspaceMember(input: {
     include: workspaceMemberInclude,
   });
 
+  invalidateTenancyCache(user.id);
   const workspace = await loadWorkspaceForUser(input.workspaceId, user.id);
   if (workspace) broadcastToUser(user.id, 'workspace:joined', workspace);
   broadcastToWorkspace(input.workspaceId, 'workspace:member-added', member);

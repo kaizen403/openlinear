@@ -52,7 +52,12 @@ export function hashToken(token: string): string {
   return crypto.createHash('sha256').update(token).digest('hex');
 }
 
-export async function createSession(userId: string, tokenHash: string, req: Request) {
+export async function createSession(
+  userId: string,
+  tokenHash: string,
+  req: Request,
+  extras: { refreshTokenHash?: string; familyId?: string; expiresAt?: Date } = {},
+) {
   const deviceInfo = req.headers['user-agent'] || null;
   const ipAddress = req.ip || req.socket.remoteAddress || null;
 
@@ -62,6 +67,9 @@ export async function createSession(userId: string, tokenHash: string, req: Requ
       tokenHash,
       deviceInfo,
       ipAddress,
+      refreshTokenHash: extras.refreshTokenHash,
+      familyId: extras.familyId,
+      expiresAt: extras.expiresAt,
     },
   });
 }

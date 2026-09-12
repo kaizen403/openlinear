@@ -14,13 +14,39 @@ import { prisma } from '@openlinear/db';
 import { buildErrorEnvelope } from '../lib/http';
 import { hashToken, revokeSessionByTokenHash } from '../services/sessions';
 import { getJwtSecret } from '../lib/secrets';
-import { issueSessionToken, issueTwoFactorPendingToken } from '../lib/auth-tokens';
+import { issueSession, issueTwoFactorPendingToken, rotateRefreshToken } from '../lib/auth-tokens';
+import { REFRESH_TOKEN_TTL_MS } from '@openlinear/api-core';
 import { toCurrentUser } from '../lib/selects';
 
 const router: Router = Router();
 
 const STATE_TTL_MS = 10 * 60 * 1000;
 const DESKTOP_CALLBACK_SCHEME = 'openlinear://callback';
+
+/**
+ * GitHub OAuth login is off until replacement apps exist. The client IDs that
+ * leaked in this repository (`Ov23liy8…` / `Ov23limW…`) have been removed, so a
+ * live `/github` redirect would send users to a dead authorize URL.
+ *
+ * Set `OPENLINEAR_ENABLE_GITHUB_OAUTH=1` in a non-production environment to
+ * exercise the flow against a new OAuth app. Production always stays off.
+ */
+function githubOAuthEnabled(): boolean {
+  return process.env.OPENLINEAR_ENABLE_GITHUB_OAUTH === '1' && process.env.NODE_ENV !== 'production';
+}
+
+function requireGitHubOAuth(_req: unknown, res: Response, next: () => void): void {
+  if (!githubOAuthEnabled()) {
+    res.status(503).json(
+      buildErrorEnvelope(
+        'GITHUB_OAUTH_DISABLED',
+        'GitHub sign-in is disabled. Use a personal access token, or wait for a replacement OAuth app.',
+      ),
+    );
+    return;
+  }
+  next();
+}
 
 type OAuthClient = 'web' | 'desktop' | 'dashboard';
 
@@ -120,18 +146,30 @@ function buildWebSuccessRedirect(client: OAuthClient, token: string): string {
   return `${getFrontendUrl()}/auth/session?token=${encodeURIComponent(token)}`;
 }
 
-function buildDesktopCallbackUrl(params: { token?: string; error?: string }): string {
+function setRefreshCookie(res: Response, refreshToken: string): void {
+  res.cookie('ol_refresh', refreshToken, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    path: '/api/auth',
+    maxAge: REFRESH_TOKEN_TTL_MS,
+  });
+}
+
+function buildDesktopCallbackUrl(params: { token?: string; refreshToken?: string; error?: string }): string {
   const query = new URLSearchParams();
   if (params.token) query.set('token', params.token);
+  if (params.refreshToken) query.set('refreshToken', params.refreshToken);
   if (params.error) query.set('error', params.error);
   return `${DESKTOP_CALLBACK_SCHEME}?${query.toString()}`;
 }
 
-function respondWithSuccess(client: OAuthClient, token: string, res: Response): void {
+function respondWithSuccess(client: OAuthClient, token: string, res: Response, refreshToken?: string): void {
+  if (refreshToken) setRefreshCookie(res, refreshToken);
   if (client === 'desktop') {
     res
       .set('Cache-Control', 'no-store')
-      .redirect(buildDesktopCallbackUrl({ token }));
+      .redirect(buildDesktopCallbackUrl({ token, refreshToken }));
     return;
   }
   res.redirect(buildWebSuccessRedirect(client, token));
@@ -154,7 +192,7 @@ function respondWithError(client: OAuthClient, error: string, res: Response): vo
   res.redirect(`${getFrontendUrl()}/auth/session?error=${encoded}`);
 }
 
-router.get('/github', (req: Request, res: Response) => {
+router.get('/github', requireGitHubOAuth, (req: Request, res: Response) => {
   const clientParam = req.query.client;
   const requestedClient: OAuthClient =
     clientParam === 'desktop' ? 'desktop' : clientParam === 'dashboard' ? 'dashboard' : 'web';
@@ -169,7 +207,7 @@ router.get('/github', (req: Request, res: Response) => {
   res.redirect(authUrl);
 });
 
-router.get('/github/callback', async (req: Request, res: Response) => {
+router.get('/github/callback', requireGitHubOAuth, async (req: Request, res: Response) => {
   const { code, error, error_description, state } = req.query;
   const stateStr = typeof state === 'string' ? state : '';
   const verified = verifyState(stateStr);
@@ -200,7 +238,7 @@ router.get('/github/callback', async (req: Request, res: Response) => {
     const user = await createOrUpdateUser(githubUser, accessToken);
 
     if (user.totpEnabled) {
-      const tempToken = issueTwoFactorPendingToken({
+      const tempToken = await issueTwoFactorPendingToken({
         id: user.id,
         username: user.username,
       });
@@ -216,12 +254,12 @@ router.get('/github/callback', async (req: Request, res: Response) => {
 
     // Session creation is not optional: `isSessionRevoked` fails closed, so a
     // token without a session row would be rejected on its very first use.
-    const token = await issueSessionToken(
+    const issued = await issueSession(
       { id: user.id, username: user.username },
       req,
     );
 
-    respondWithSuccess(client, token, res);
+    respondWithSuccess(client, issued.accessToken, res, issued.refreshToken);
   } catch (err) {
     console.error('[Auth] OAuth callback error:', err);
     const errorMsg = err instanceof Error ? err.message : 'auth_failed';
@@ -242,6 +280,28 @@ router.get('/me', requireAuth, async (req: AuthRequest, res: Response) => {
   } catch {
     res.status(500).json(buildErrorEnvelope('USER_LOOKUP_FAILED', 'Failed to load current user'));
   }
+});
+
+router.post('/refresh', async (req: Request, res: Response) => {
+  const bodyToken =
+    typeof req.body?.refreshToken === 'string' ? req.body.refreshToken : '';
+  const cookieHeader = req.headers.cookie ?? '';
+  const cookieMatch = /(?:^|;\s*)ol_refresh=([^;]+)/.exec(cookieHeader);
+  const cookieToken = cookieMatch?.[1] ? decodeURIComponent(cookieMatch[1]) : '';
+  const refreshToken = bodyToken || cookieToken;
+  if (!refreshToken) {
+    res.status(401).json(buildErrorEnvelope('REFRESH_REQUIRED', 'Refresh token is required'));
+    return;
+  }
+
+  const issued = await rotateRefreshToken(refreshToken, req);
+  if (!issued) {
+    res.status(401).json(buildErrorEnvelope('INVALID_REFRESH', 'Refresh token is invalid or expired'));
+    return;
+  }
+
+  setRefreshCookie(res, issued.refreshToken);
+  res.json({ token: issued.accessToken, refreshToken: issued.refreshToken });
 });
 
 router.patch('/me', requireAuth, async (_req: AuthRequest, res: Response) => {

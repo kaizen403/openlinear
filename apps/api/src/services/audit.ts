@@ -1,9 +1,22 @@
 import { prisma, Prisma } from '@openlinear/db';
 
+export const AUDIT_ACTIONS = [
+  'pat.created',
+  'pat.revoked',
+  'sso.configured',
+  'sso.deleted',
+  'workspace.member_removed',
+  'workspace.deleted',
+  'project.deleted',
+  'task.bulk_deleted',
+] as const;
+
+export type AuditAction = (typeof AUDIT_ACTIONS)[number];
+
 export interface AuditLogInput {
   workspaceId: string;
   actorId: string;
-  action: string;
+  action: AuditAction | string;
   resourceType: string;
   resourceId: string;
   metadata?: Prisma.InputJsonValue;

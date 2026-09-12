@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import { prisma, Prisma } from '@openlinear/db';
 import { HttpError } from '../errors';
 
 export { parseFields, pickFields, buildSelect } from './field-select';
@@ -58,66 +59,50 @@ export function parsePagination(
   };
 }
 
-interface IdempotencyRecord {
-  expiresAt: number;
-  status: number;
-  body: unknown;
-}
-
 const IDEMPOTENCY_TTL_MS = 60 * 60 * 1000;
-const IDEMPOTENCY_MAX_ENTRIES = 200;
-const idempotencyCache = new Map<string, IdempotencyRecord>();
 
-export function getIdempotencyRecord(
+export async function getIdempotencyRecord(
   req: Request,
   userId: string,
   routeKey: string,
-): IdempotencyRecord | null {
+): Promise<{ status: number; body: unknown } | null> {
   const header = req.header('Idempotency-Key');
   if (!header) return null;
-  const key = `${userId}:${routeKey}:${header}`;
-  const record = idempotencyCache.get(key);
-  if (!record) return null;
-  if (record.expiresAt <= Date.now()) {
-    idempotencyCache.delete(key);
-    return null;
-  }
-  return record;
+  const row = await prisma.idempotencyKey.findUnique({
+    where: { userId_routeKey_key: { userId, routeKey, key: header } },
+  });
+  if (!row || row.expiresAt <= new Date()) return null;
+  return { status: row.status, body: row.body };
 }
 
-export function storeIdempotencyRecord(
+export async function storeIdempotencyRecord(
   req: Request,
   userId: string,
   routeKey: string,
   status: number,
   body: unknown,
-): void {
+): Promise<void> {
   const header = req.header('Idempotency-Key');
   if (!header) return;
-  const key = `${userId}:${routeKey}:${header}`;
-  idempotencyCache.set(key, {
-    status,
-    body,
-    expiresAt: Date.now() + IDEMPOTENCY_TTL_MS,
+  await prisma.idempotencyKey.upsert({
+    where: { userId_routeKey_key: { userId, routeKey, key: header } },
+    create: {
+      userId,
+      routeKey,
+      key: header,
+      status,
+      body: body as Prisma.InputJsonValue,
+      expiresAt: new Date(Date.now() + IDEMPOTENCY_TTL_MS),
+    },
+    update: {
+      status,
+      body: body as Prisma.InputJsonValue,
+      expiresAt: new Date(Date.now() + IDEMPOTENCY_TTL_MS),
+    },
   });
-  pruneIdempotencyCache();
 }
 
-export function replayIdempotencyRecord(res: Response, record: IdempotencyRecord): void {
+export function replayIdempotencyRecord(res: Response, record: { status: number; body: unknown }): void {
   res.setHeader('Idempotency-Replayed', 'true');
   res.status(record.status).json(record.body);
-}
-
-function pruneIdempotencyCache(): void {
-  const now = Date.now();
-  for (const [key, record] of idempotencyCache) {
-    if (record.expiresAt <= now) {
-      idempotencyCache.delete(key);
-    }
-  }
-  while (idempotencyCache.size > IDEMPOTENCY_MAX_ENTRIES) {
-    const oldest = idempotencyCache.keys().next();
-    if (oldest.done) break;
-    idempotencyCache.delete(oldest.value);
-  }
 }

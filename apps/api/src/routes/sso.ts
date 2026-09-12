@@ -1,7 +1,7 @@
 import { Router, Response } from 'express';
-import crypto from 'node:crypto';
-import { requireAuth, AuthRequest } from '../middleware/auth';
-import { issueSessionToken } from '../lib/auth-tokens';
+import * as oidc from 'openid-client';
+import { requireInteractiveSession, AuthRequest } from '../middleware/auth';
+import { issueSession } from '../lib/auth-tokens';
 import { prisma } from '@openlinear/db';
 import { buildErrorEnvelope } from '../lib/http';
 import {
@@ -12,40 +12,14 @@ import {
   buildOIDCAuthUrl,
   handleOIDCCallback,
   provisionSSOUser,
+  verifyWorkspaceDomain,
+  ssoTxtRecord,
+  signSsoState,
+  verifySsoState,
 } from '../services/sso';
+import { logAudit } from '../services/audit';
 
 const router: Router = Router();
-
-/**
- * The OIDC login flow is disabled until it is rebuilt (Phase 1).
- *
- * As written it allows takeover of any account whose email address is known:
- * `allowedDomains` is accepted with no proof of domain ownership, the OAuth
- * `state` is unsigned base64 JSON, `authorizationCodeGrant` is called with an
- * empty checks object (no state/nonce/PKCE validation), and `provisionSSOUser`
- * binds an identity to an existing user purely by email address. Any user can
- * create a workspace, point it at an IdP they control, claim a domain they do
- * not own, and sign in as somebody else.
- *
- * Set `OPENLINEAR_ENABLE_SSO=1` to run it in a non-production environment for
- * development of the replacement.
- */
-function ssoLoginEnabled(): boolean {
-  return process.env.OPENLINEAR_ENABLE_SSO === '1' && process.env.NODE_ENV !== 'production';
-}
-
-function requireSSOEnabled(_req: unknown, res: Response, next: () => void): void {
-  if (!ssoLoginEnabled()) {
-    res.status(503).json(
-      buildErrorEnvelope(
-        'SSO_DISABLED',
-        'SSO sign-in is temporarily disabled pending a security rebuild.',
-      ),
-    );
-    return;
-  }
-  next();
-}
 
 function getFrontendUrl() {
   return process.env.FRONTEND_URL || 'http://localhost:3000';
@@ -61,8 +35,7 @@ async function verifyWorkspaceRole(userId: string, workspaceId: string, required
   return member;
 }
 
-// POST /api/workspaces/:workspaceId/sso — configure SSO (owner only)
-router.post('/workspaces/:workspaceId/sso', requireAuth, async (req: AuthRequest, res: Response) => {
+router.post('/workspaces/:workspaceId/sso', requireInteractiveSession, async (req: AuthRequest, res: Response) => {
   try {
     const workspaceId = req.params.workspaceId as string;
     const member = await verifyWorkspaceRole(req.userId!, workspaceId, ['owner']);
@@ -85,14 +58,43 @@ router.post('/workspaces/:workspaceId/sso', requireAuth, async (req: AuthRequest
       enforced,
     });
 
-    res.status(200).json({ id: config.id, workspaceId: config.workspaceId, provider: config.provider });
-  } catch (err) {
+    await logAudit({
+      workspaceId,
+      actorId: req.userId!,
+      action: 'sso.configured',
+      resourceType: 'sso_config',
+      resourceId: config.id,
+      ipAddress: req.ip,
+    });
+
+    res.status(200).json({
+      id: config.id,
+      workspaceId: config.workspaceId,
+      provider: config.provider,
+      domainVerifiedAt: config.domainVerifiedAt,
+      txtRecord: config.verificationToken ? ssoTxtRecord(config.verificationToken) : null,
+    });
+  } catch {
     res.status(500).json(buildErrorEnvelope('INTERNAL_ERROR', 'Failed to configure SSO'));
   }
 });
 
-// GET /api/workspaces/:workspaceId/sso — get config (admin/owner)
-router.get('/workspaces/:workspaceId/sso', requireAuth, async (req: AuthRequest, res: Response) => {
+router.post('/workspaces/:workspaceId/sso/verify-domain', requireInteractiveSession, async (req: AuthRequest, res: Response) => {
+  const workspaceId = req.params.workspaceId as string;
+  const member = await verifyWorkspaceRole(req.userId!, workspaceId, ['owner']);
+  if (!member) {
+    res.status(403).json(buildErrorEnvelope('FORBIDDEN', 'Only workspace owners can verify SSO domains'));
+    return;
+  }
+  const result = await verifyWorkspaceDomain(workspaceId);
+  if (!result.verified) {
+    res.status(400).json(buildErrorEnvelope('DOMAIN_NOT_VERIFIED', 'TXT record not found', { extras: { record: result.record } }));
+    return;
+  }
+  res.json({ verified: true, record: result.record });
+});
+
+router.get('/workspaces/:workspaceId/sso', requireInteractiveSession, async (req: AuthRequest, res: Response) => {
   try {
     const workspaceId = req.params.workspaceId as string;
     const member = await verifyWorkspaceRole(req.userId!, workspaceId, ['owner', 'admin']);
@@ -107,14 +109,16 @@ router.get('/workspaces/:workspaceId/sso', requireAuth, async (req: AuthRequest,
       return;
     }
 
-    res.json(config);
-  } catch (err) {
+    res.json({
+      ...config,
+      txtRecord: config.verificationToken ? ssoTxtRecord(config.verificationToken) : null,
+    });
+  } catch {
     res.status(500).json(buildErrorEnvelope('INTERNAL_ERROR', 'Failed to get SSO config'));
   }
 });
 
-// DELETE /api/workspaces/:workspaceId/sso — delete config (owner only)
-router.delete('/workspaces/:workspaceId/sso', requireAuth, async (req: AuthRequest, res: Response) => {
+router.delete('/workspaces/:workspaceId/sso', requireInteractiveSession, async (req: AuthRequest, res: Response) => {
   try {
     const workspaceId = req.params.workspaceId as string;
     const member = await verifyWorkspaceRole(req.userId!, workspaceId, ['owner']);
@@ -124,14 +128,21 @@ router.delete('/workspaces/:workspaceId/sso', requireAuth, async (req: AuthReque
     }
 
     await deleteSSOConfigForWorkspace(workspaceId);
+    await logAudit({
+      workspaceId,
+      actorId: req.userId!,
+      action: 'sso.deleted',
+      resourceType: 'sso_config',
+      resourceId: workspaceId,
+      ipAddress: req.ip,
+    });
     res.status(204).send();
-  } catch (err) {
+  } catch {
     res.status(500).json(buildErrorEnvelope('INTERNAL_ERROR', 'Failed to delete SSO config'));
   }
 });
 
-// GET /api/auth/sso/check?email= — public, check if email domain has SSO
-router.get('/auth/sso/check', requireSSOEnabled, async (req: AuthRequest, res: Response) => {
+router.get('/auth/sso/check', async (req: AuthRequest, res: Response) => {
   try {
     const email = req.query.email as string;
     if (!email || !email.includes('@')) {
@@ -140,6 +151,10 @@ router.get('/auth/sso/check', requireSSOEnabled, async (req: AuthRequest, res: R
     }
 
     const domain = email.split('@')[1];
+    if (!domain) {
+      res.status(400).json(buildErrorEnvelope('VALIDATION_ERROR', 'Valid email required'));
+      return;
+    }
     const config = await getSSOConfigByDomain(domain);
 
     if (!config) {
@@ -147,71 +162,81 @@ router.get('/auth/sso/check', requireSSOEnabled, async (req: AuthRequest, res: R
       return;
     }
 
-    const state = crypto.randomBytes(16).toString('hex');
-    const statePayload = JSON.stringify({ workspaceId: config.workspaceId, email, ts: Date.now() });
-    const stateToken = Buffer.from(statePayload).toString('base64url');
+    const codeVerifier = oidc.randomPKCECodeVerifier();
+    const codeChallenge = await oidc.calculatePKCECodeChallenge(codeVerifier);
+    const nonce = oidc.randomNonce();
+    const state = signSsoState({
+      workspaceId: config.workspaceId,
+      codeVerifier,
+      nonce,
+      ts: Date.now(),
+    });
 
     const redirectUri = `${getFrontendUrl()}/api/auth/sso/callback`;
-    const authUrl = await buildOIDCAuthUrl(config, stateToken, redirectUri);
+    const authUrl = await buildOIDCAuthUrl(config, state, redirectUri, { codeChallenge, nonce });
 
     res.json({ ssoEnabled: true, authUrl, enforced: config.enforced });
-  } catch (err) {
+  } catch {
     res.status(500).json(buildErrorEnvelope('INTERNAL_ERROR', 'Failed to check SSO'));
   }
 });
 
-// GET /api/auth/sso/callback?code=&state= — OIDC callback
-router.get('/auth/sso/callback', requireSSOEnabled, async (req: AuthRequest, res: Response) => {
+router.get('/auth/sso/callback', async (req: AuthRequest, res: Response) => {
   try {
     const { code, state } = req.query;
-    if (!code || !state) {
+    if (!code || !state || typeof state !== 'string') {
       res.status(400).json(buildErrorEnvelope('VALIDATION_ERROR', 'Missing code or state'));
       return;
     }
 
-    let statePayload: { workspaceId?: string; ts?: number };
-    try {
-      statePayload = JSON.parse(Buffer.from(state as string, 'base64url').toString());
-    } catch {
-      res.status(400).json(buildErrorEnvelope('VALIDATION_ERROR', 'Malformed SSO state parameter'));
-      return;
-    }
-    const { workspaceId, ts } = statePayload;
-
-    if (!workspaceId || !ts || Date.now() - ts > 10 * 60 * 1000) {
-      res.status(400).json(buildErrorEnvelope('EXPIRED', 'SSO state expired'));
+    const payload = verifySsoState(state);
+    if (!payload) {
+      res.status(400).json(buildErrorEnvelope('VALIDATION_ERROR', 'Malformed or expired SSO state'));
       return;
     }
 
-    const config = await prisma.sSOConfig.findUnique({ where: { workspaceId } });
-    if (!config) {
-      res.status(404).json(buildErrorEnvelope('NOT_FOUND', 'SSO config not found'));
+    const config = await prisma.sSOConfig.findUnique({ where: { workspaceId: payload.workspaceId } });
+    if (!config?.domainVerifiedAt) {
+      res.status(404).json(buildErrorEnvelope('NOT_FOUND', 'SSO config not found or domain is unverified'));
       return;
     }
 
     const redirectUri = `${getFrontendUrl()}/api/auth/sso/callback`;
-    const userInfo = await handleOIDCCallback(config, code as string, redirectUri);
+    const currentUrl = new URL(redirectUri);
+    currentUrl.search = new URL(req.originalUrl, 'http://localhost').search;
 
-    if (!userInfo.email) {
-      res.status(400).json(buildErrorEnvelope('SSO_ERROR', 'No email returned from identity provider'));
+    const userInfo = await handleOIDCCallback(config, currentUrl, {
+      expectedState: state,
+      expectedNonce: payload.nonce,
+      pkceCodeVerifier: payload.codeVerifier,
+    });
+
+    if (!userInfo.email || !userInfo.sub) {
+      res.status(400).json(buildErrorEnvelope('SSO_ERROR', 'Identity provider did not return email and subject'));
       return;
     }
 
     const emailDomain = userInfo.email.split('@')[1];
-    if (!config.allowedDomains.includes(emailDomain)) {
+    if (!emailDomain || !config.allowedDomains.includes(emailDomain)) {
       res.status(403).json(buildErrorEnvelope('FORBIDDEN', 'Email domain not allowed for this SSO configuration'));
       return;
     }
 
-    const user = await provisionSSOUser(userInfo.email, userInfo.name, workspaceId);
+    const user = await provisionSSOUser({
+      issuer: userInfo.issuer,
+      subject: userInfo.sub,
+      email: userInfo.email,
+      name: userInfo.name,
+      workspaceId: payload.workspaceId,
+    });
 
-    const token = await issueSessionToken(
+    const issued = await issueSession(
       { id: user.id, username: user.username },
       req,
     );
 
-    res.redirect(`${getFrontendUrl()}/auth/callback?token=${token}`);
-  } catch (err) {
+    res.redirect(`${getFrontendUrl()}/auth/session?token=${encodeURIComponent(issued.accessToken)}`);
+  } catch {
     res.redirect(`${getFrontendUrl()}/auth/error?reason=sso_failed`);
   }
 });
