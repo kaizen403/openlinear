@@ -7,6 +7,14 @@ const mocks = vi.hoisted(() => ({
   assertSafeRefName: vi.fn((ref) => ref),
   getGitIdentityEnv: vi.fn(() => ({ GIT_AUTHOR_NAME: 'OpenLinear' })),
   assertPathInsideReposDir: vi.fn((path) => path),
+  acquireLocalWorktree: vi.fn(async ({ runId }) => ({
+    kind: 'local-worktree',
+    runId,
+    worktreePath: `/tmp/openlinear-repos/worktrees/${runId}`,
+    mirrorPath: '/tmp/openlinear-repos/acme/repo.git',
+    branch: `openlinear/${runId}`,
+  })),
+  assertStagingAllowlist: vi.fn(async () => undefined),
   existsSync: vi.fn(() => false),
   mkdirSync: vi.fn(),
   rmSync: vi.fn(),
@@ -33,6 +41,12 @@ vi.mock('../repo-storage', () => ({
   REPOS_DIR: '/tmp/openlinear-repos',
   assertPathInsideReposDir: mocks.assertPathInsideReposDir,
 }));
+vi.mock('../../workspace/local-worktree', () => ({
+  acquireLocalWorktree: mocks.acquireLocalWorktree,
+}));
+vi.mock('../../engine/staging-allowlist', () => ({
+  assertStagingAllowlist: mocks.assertStagingAllowlist,
+}));
 
 const {
   cloneRepository,
@@ -53,6 +67,14 @@ describe('execution git helpers', () => {
     mocks.assertSafeRefName.mockImplementation((ref) => ref);
     mocks.getGitIdentityEnv.mockReturnValue({ GIT_AUTHOR_NAME: 'OpenLinear' });
     mocks.assertPathInsideReposDir.mockImplementation((path) => path);
+    mocks.assertStagingAllowlist.mockResolvedValue(undefined);
+    mocks.acquireLocalWorktree.mockImplementation(async ({ runId }) => ({
+      kind: 'local-worktree',
+      runId,
+      worktreePath: `/tmp/openlinear-repos/worktrees/${runId}`,
+      mirrorPath: '/tmp/openlinear-repos/acme/repo.git',
+      branch: `openlinear/${runId}`,
+    }));
     mocks.existsSync.mockReturnValue(false);
     globalThis.fetch = mocks.fetch;
   });
@@ -85,7 +107,7 @@ describe('execution git helpers', () => {
 
     await expect(stageCommittableChanges('/repo')).resolves.toBe(true);
 
-    expect(mocks.execGit).toHaveBeenNthCalledWith(1, [
+    expect(mocks.execGit).toHaveBeenCalledWith([
       '-C',
       '/repo',
       'add',
@@ -106,22 +128,19 @@ describe('execution git helpers', () => {
     await expect(stageCommittableChanges('/repo')).resolves.toBe(true);
   });
 
-  it('clones into a safe repo path without broadening permissions', async () => {
-    mocks.existsSync.mockReturnValueOnce(false).mockReturnValueOnce(true);
+  it('clones into a safe repo path via local-worktree', async () => {
+    mocks.existsSync.mockReturnValueOnce(false);
     mocks.execGitWithCredentials.mockResolvedValue(undefined);
 
     await cloneRepository('https://github.com/acme/repo.git', '/tmp/openlinear-repos/repo', 'token', 'main');
 
     expect(mocks.assertSafeCloneUrl).toHaveBeenCalledWith('https://github.com/acme/repo.git', 'clone URL');
     expect(mocks.assertSafeRefName).toHaveBeenCalledWith('main', 'default branch');
-    expect(mocks.rmSync).toHaveBeenCalledWith('/tmp/openlinear-repos/repo', { recursive: true, force: true });
-    expect(mocks.execGitWithCredentials).toHaveBeenCalledWith(
-      ['clone', '--depth', '1', '--branch', 'main', '--', 'https://github.com/acme/repo.git', '/tmp/openlinear-repos/repo'],
-      'token',
-      'https://github.com/acme/repo.git',
-    );
-    // The F3 chmod -R a+rwX call must be gone entirely.
-    expect(mocks.execGit).not.toHaveBeenCalled();
+    expect(mocks.acquireLocalWorktree).toHaveBeenCalledWith(expect.objectContaining({
+      cloneUrl: 'https://github.com/acme/repo.git',
+      baseRef: 'main',
+      accessToken: 'token',
+    }));
   });
 
   it('rejects an unsafe clone URL before touching the filesystem', async () => {
@@ -134,7 +153,7 @@ describe('execution git helpers', () => {
     ).rejects.toThrow('Refusing unsafe clone URL');
 
     expect(mocks.execGitWithCredentials).not.toHaveBeenCalled();
-    expect(mocks.rmSync).not.toHaveBeenCalled();
+    expect(mocks.acquireLocalWorktree).not.toHaveBeenCalled();
   });
 
   it('clones without creating or removing directories when storage exists and repo path is absent', async () => {
@@ -145,7 +164,7 @@ describe('execution git helpers', () => {
 
     expect(mocks.mkdirSync).not.toHaveBeenCalled();
     expect(mocks.rmSync).not.toHaveBeenCalled();
-    expect(mocks.execGitWithCredentials).toHaveBeenCalled();
+    expect(mocks.acquireLocalWorktree).toHaveBeenCalled();
   });
 
   it('fails clone early when repo storage is not writable', async () => {
@@ -157,6 +176,7 @@ describe('execution git helpers', () => {
       .rejects.toThrow('No write access');
 
     expect(mocks.execGitWithCredentials).not.toHaveBeenCalled();
+    expect(mocks.acquireLocalWorktree).not.toHaveBeenCalled();
   });
 
   it('checks out branches without shelling through a command string', async () => {

@@ -8,6 +8,7 @@ import {
   execGit,
   execGitWithCredentials,
 } from './git-credentials';
+import { withRepoLock } from '../workspace/local-worktree';
 
 export async function ensureMainRepo(
   projectId: string,
@@ -19,29 +20,33 @@ export async function ensureMainRepo(
   const projectDir = buildReposPath(projectId);
   const mainRepoPath = buildReposPath(projectId, '.main');
 
-  try {
-    if (existsSync(mainRepoPath)) {
-      logger.info(`[Worktree] Fetching latest for project ${projectId}`);
-      await execGitWithCredentials(['-C', mainRepoPath, 'fetch', 'origin', '--prune'], accessToken, cloneUrl);
-      logger.info(`[Worktree] Fetch complete for project ${projectId}`);
-    } else {
-      if (!existsSync(projectDir)) {
-        mkdirSync(projectDir, { recursive: true });
-        logger.info(`[Worktree] Created project directory: ${projectDir}`);
+  return withRepoLock(projectId, async () => {
+    try {
+      if (existsSync(mainRepoPath)) {
+        logger.info(`[Worktree] Fetching latest for project ${projectId}`);
+        await execGitWithCredentials(['-C', mainRepoPath, 'fetch', 'origin', '--prune'], accessToken, cloneUrl);
+        logger.info(`[Worktree] Fetch complete for project ${projectId}`);
+      } else {
+        if (!existsSync(projectDir)) {
+          mkdirSync(projectDir, { recursive: true });
+          logger.info(`[Worktree] Created project directory: ${projectDir}`);
+        }
+
+        logger.info(`[Worktree] Creating blobless bare clone for project ${projectId}`);
+        await execGitWithCredentials(
+          ['clone', '--bare', '--filter=blob:none', '--', cloneUrl, mainRepoPath],
+          accessToken,
+          cloneUrl,
+        );
+        logger.info(`[Worktree] Bare clone complete for project ${projectId}`);
       }
 
-      logger.info(`[Worktree] Creating bare clone for project ${projectId}`);
-      // `--` ends option parsing before the clone URL: defense in depth on
-      // top of assertSafeCloneUrl() above.
-      await execGitWithCredentials(['clone', '--bare', '--', cloneUrl, mainRepoPath], accessToken, cloneUrl);
-      logger.info(`[Worktree] Bare clone complete for project ${projectId}`);
+      return mainRepoPath;
+    } catch (error) {
+      logger.error({ err: error, projectId }, `[Worktree] Failed to ensure main repo for project ${projectId}`);
+      throw error;
     }
-
-    return mainRepoPath;
-  } catch (error) {
-    logger.error({ err: error, projectId }, `[Worktree] Failed to ensure main repo for project ${projectId}`);
-    throw error;
-  }
+  });
 }
 
 async function removeStaleWorktreeForBranch(
@@ -325,7 +330,7 @@ export async function mergeBranch(
   targetBranch: string
 ): Promise<boolean> {
   const mainRepoPath = buildReposPath(projectId, '.main');
-  const mergePath = buildReposPath(projectId, 'merge-temp');
+  const mergePath = buildReposPath(projectId, `merge-temp-${taskBranch.replace(/[^A-Za-z0-9._-]+/g, '-')}`);
 
   try {
     // Validated inside the try/catch (rather than at the top of the

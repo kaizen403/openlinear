@@ -74,13 +74,17 @@ export const HARDENED_GIT_ENV: NodeJS.ProcessEnv = {
  *   see C6a F6.
  */
 function hardenedConfigArgs(): string[] {
-  return [
+  const args = [
     '-c', 'core.hooksPath=/dev/null',
     '-c', 'core.fsmonitor=',
     '-c', 'core.pager=cat',
     '-c', 'protocol.allow=never',
     '-c', 'protocol.https.allow=always',
   ];
+  if (process.env.NODE_ENV === 'test' && process.env.OPENLINEAR_ALLOW_FILE_GIT === '1') {
+    args.push('-c', 'protocol.file.allow=always');
+  }
+  return args;
 }
 
 export function buildHardenedGitArgs(args: ReadonlyArray<string>): string[] {
@@ -160,6 +164,10 @@ export function assertSafeRefName(ref: unknown, description = 'ref name'): strin
 export function assertSafeCloneUrl(url: unknown, description = 'clone URL'): string {
   if (typeof url !== 'string' || url.length === 0) {
     throw new Error(`[Sidecar] Refusing unsafe ${description}: empty`);
+  }
+
+  if (process.env.NODE_ENV === 'test' && process.env.OPENLINEAR_ALLOW_FILE_GIT === '1') {
+    if (url.startsWith('file://') || url.startsWith('/')) return url;
   }
 
   let parsed: URL;

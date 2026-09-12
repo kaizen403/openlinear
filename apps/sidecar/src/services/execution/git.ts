@@ -9,6 +9,8 @@ import {
   execGit,
   execGitWithCredentials,
 } from '../git-credentials';
+import { acquireLocalWorktree } from '../../workspace/local-worktree';
+import { assertStagingAllowlist } from '../../engine/staging-allowlist';
 
 export type CommitPushResult =
   | { status: 'no_changes' }
@@ -55,6 +57,7 @@ export async function hasCommittableChanges(repoPath: string): Promise<boolean> 
 }
 
 export async function stageCommittableChanges(repoPath: string): Promise<boolean> {
+  await assertStagingAllowlist(repoPath);
   await execGit([
     '-C',
     repoPath,
@@ -88,7 +91,7 @@ export async function cloneRepository(
   assertSafeRefName(defaultBranch, 'default branch');
 
   const safeRepoPath = assertPathInsideReposDir(repoPath, { description: 'repository path', allowRoot: false });
-  logger.info(`[Execution] Preparing to clone into ${safeRepoPath}`);
+  logger.info(`[Execution] Preparing local-worktree into ${safeRepoPath}`);
 
   if (!existsSync(REPOS_DIR)) {
     mkdirSync(REPOS_DIR, { recursive: true });
@@ -101,19 +104,22 @@ export async function cloneRepository(
     throw new Error(`[Execution] No write access to ${REPOS_DIR}. Check directory ownership.`);
   }
 
-  if (existsSync(safeRepoPath)) {
-    rmSync(safeRepoPath, { recursive: true, force: true });
-    logger.info(`[Execution] Removed existing directory: ${safeRepoPath}`);
-  }
-
-  logger.info(`[Execution] Cloning ${cloneUrl} (branch: ${defaultBranch})...`);
-  // `--` ends option parsing before the clone URL: defense in depth on top of
-  // assertSafeCloneUrl() above, in case a future change relaxes that check.
-  await execGitWithCredentials(
-    ['clone', '--depth', '1', '--branch', defaultBranch, '--', cloneUrl, safeRepoPath],
-    accessToken,
+  const parsed = new URL(cloneUrl.startsWith('/') ? `file://${cloneUrl}` : cloneUrl);
+  const parts = parsed.pathname.replace(/\.git$/, '').split('/').filter(Boolean);
+  const name = parts.pop() ?? 'repo';
+  const owner = parts.pop() ?? 'local';
+  const handle = await acquireLocalWorktree({
+    owner,
+    name,
     cloneUrl,
-  );
+    baseRef: defaultBranch,
+    runId: safeRepoPath.split('/').pop() ?? 'run',
+    accessToken,
+  });
+  if (handle.worktreePath !== safeRepoPath && existsSync(handle.worktreePath) && !existsSync(safeRepoPath)) {
+    // Callers that pass a specific path still get a unique openlinear/<runId> worktree.
+    logger.info(`[Execution] Worktree ready at ${handle.worktreePath}`);
+  }
   logger.info(`[Execution] Clone complete`);
 }
 

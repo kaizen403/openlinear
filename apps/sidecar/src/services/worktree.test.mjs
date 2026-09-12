@@ -30,6 +30,9 @@ vi.mock('./repo-storage', () => ({
   buildReposPath: mocks.buildReposPath,
   assertPathInsideReposDir: mocks.assertPathInsideReposDir,
 }));
+vi.mock('../workspace/local-worktree', () => ({
+  withRepoLock: async (_key, fn) => fn(),
+}));
 
 const {
   cleanupBatch,
@@ -73,7 +76,7 @@ describe('worktree helpers', () => {
     await expect(ensureMainRepo('project-1', 'https://github.com/acme/repo.git', null)).resolves.toBe('/repos/project-1/.main');
     expect(mocks.mkdirSync).toHaveBeenCalledWith('/repos/project-1', { recursive: true });
     expect(mocks.execGitWithCredentials).toHaveBeenCalledWith(
-      ['clone', '--bare', '--', 'https://github.com/acme/repo.git', '/repos/project-1/.main'],
+      ['clone', '--bare', '--filter=blob:none', '--', 'https://github.com/acme/repo.git', '/repos/project-1/.main'],
       null,
       'https://github.com/acme/repo.git',
     );
@@ -89,7 +92,7 @@ describe('worktree helpers', () => {
 
     expect(mocks.mkdirSync).not.toHaveBeenCalled();
     expect(mocks.execGitWithCredentials).toHaveBeenCalledWith(
-      ['clone', '--bare', '--', 'https://github.com/acme/repo.git', '/repos/project-1/.main'],
+      ['clone', '--bare', '--filter=blob:none', '--', 'https://github.com/acme/repo.git', '/repos/project-1/.main'],
       null,
       'https://github.com/acme/repo.git',
     );
@@ -438,14 +441,14 @@ describe('worktree helpers', () => {
       '/repos/project-1/.main',
       'worktree',
       'add',
-      '/repos/project-1/merge-temp',
+      '/repos/project-1/merge-temp-openlinear-task-1',
       '--',
       'openlinear/batch',
     ]);
     expect(mocks.execGit).toHaveBeenCalledWith(
       [
         '-C',
-        '/repos/project-1/merge-temp',
+        '/repos/project-1/merge-temp-openlinear-task-1',
         'merge',
         '--no-ff',
         '-m',
@@ -487,7 +490,7 @@ describe('worktree helpers', () => {
       '/repos/project-1/.main',
       'worktree',
       'remove',
-      '/repos/project-1/merge-temp',
+      '/repos/project-1/merge-temp--x',
       '--force',
     ]);
   });
@@ -502,7 +505,7 @@ describe('worktree helpers', () => {
 
     await expect(mergeBranch('project-1', 'openlinear/task-1', 'openlinear/batch')).resolves.toBe(false);
 
-    expect(mocks.rmSync).toHaveBeenCalledWith('/repos/project-1/merge-temp', { recursive: true, force: true });
+    expect(mocks.rmSync).toHaveBeenCalledWith('/repos/project-1/merge-temp-openlinear-task-1', { recursive: true, force: true });
   });
 
   it('clears stale merge temp directories before merging', async () => {
@@ -518,7 +521,7 @@ describe('worktree helpers', () => {
 
     await expect(mergeBranch('project-1', 'openlinear/task-1', 'openlinear/batch')).resolves.toBe(true);
 
-    expect(mocks.rmSync).toHaveBeenCalledWith('/repos/project-1/merge-temp', { recursive: true, force: true });
+    expect(mocks.rmSync).toHaveBeenCalledWith('/repos/project-1/merge-temp-openlinear-task-1', { recursive: true, force: true });
   });
 
   it('falls back to deleting merge temp after a successful merge cleanup failure', async () => {
@@ -533,7 +536,7 @@ describe('worktree helpers', () => {
 
     await expect(mergeBranch('project-1', 'openlinear/task-1', 'openlinear/batch')).resolves.toBe(true);
 
-    expect(mocks.rmSync).toHaveBeenCalledWith('/repos/project-1/merge-temp', { recursive: true, force: true });
+    expect(mocks.rmSync).toHaveBeenCalledWith('/repos/project-1/merge-temp-openlinear-task-1', { recursive: true, force: true });
   });
 
   it('skips deleting merge temp when cleanup failures leave no directory behind', async () => {
