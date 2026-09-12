@@ -13,7 +13,8 @@
     "db:migrate:deploy": "pnpm exec prisma migrate deploy",
     "db:migrate:reset": "pnpm exec prisma migrate reset",
     "db:studio": "pnpm exec prisma studio",
-    "db:encrypt-tokens": "pnpm --filter @openlinear/api exec tsx ../../packages/db/scripts/encrypt-tokens.ts"
+    "db:encrypt-tokens": "pnpm --filter @openlinear/api exec tsx ../../packages/db/scripts/encrypt-tokens.ts",
+    "db:reencrypt-tokens": "pnpm --filter @openlinear/api exec tsx ../../packages/db/scripts/reencrypt-tokens.ts"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.4.0",
