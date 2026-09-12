@@ -5,6 +5,214 @@
 
 ---
 
+## [2026-09-12] — Phase 2 verification + type/test fixes
+
+**Status:** Done
+**Agent:** Cursor Grok 4.6
+**Branch:** `phase-2/execution-engine-v2`
+
+### What was done
+- Started existing `openlinear-test-pg` on `127.0.0.1:55432` and applied `20260911000000_phase2_agent_run_journal`.
+- Restored missing `express` `Router`/`Response` imports in `apps/api/src/routes/tasks.ts`.
+- Added `name` on `tool.finished` AgentEvent; annotated `createSidecarApp(): Application`.
+- Skip cancel grace `setTimeout` when wait is 0 so fake-timer lifecycle tests can finish.
+- Aligned git staging mocks with allowlist + 3 git calls; unique merge-temp path for unsafe `-x`.
+
+### Verification
+- Typecheck: `@openlinear/api`, `@openlinear/sidecar`, `@openlinear/execution-core`, `@openlinear/api-client` green.
+- API tests: **188 passed**, 2 skipped (`TEST_DATABASE_URL` → `127.0.0.1:55432`).
+- Sidecar: **335 passed**. execution-core: **28 passed**.
+
+### Next steps / blockers
+- Commit Phase 0+1+2 when asked. Do not push unless asked.
+
+---
+
+## [2026-09-11] — Phase 2 Execution Engine v2
+
+**Status:** Done (in-repo). Soak / 300MB latency remain scripts, not PR gates. Claude Code runner and T1 sandbox stay later phases.
+**Agent:** Cursor Grok 4.6
+**Branch:** `phase-2/execution-engine-v2`
+
+### What was done
+- Wave 0: `AgentRun` session/runner/5-field usage, `Task.agent`, `Project.defaultAgent`, `agent_run_events`, `POST /api/agent-runs/progress` with SSE id `run:{runId}:{seq}`, api-client sidecar methods, execution-core `AgentEvent` / `AgentRunner`.
+- Wave 1: `SessionManager` + `RunCoordinator` + `OpenCodeRunner`; batch event-handler removed; `promptAsync` after subscribe; fake-runner 3-task cancel isolation.
+- Wave 2: SQLite `RunJournal` (WAL) + RESUME/SALVAGE/FAIL boot recovery.
+- Wave 3: Sidecar persistence via `OpenLinearClient` / store; refuse `DATABASE_URL` unless `--with-cloud-api` (loopback `*_test` only); stop defaulting `OPENLINEAR_ALLOW_SHARED_OPENCODE=1`.
+- Wave 4: `local-worktree` blobless mirror, per-repo mutex, unique worktrees, git hardening, GC, real-git tests.
+- Wave 5: Budget watchdog, interrupt→abort→kill cancel chain, staging allowlist, cache-split usage columns.
+- Wave 6: `@opencode-ai/sdk` 1.18 + `/v2` adapter, system-prompt contract, deleted unused `codebase-context`; child sessions decoded at the runner (legacy background-task decoder kept for 1.x event tests).
+- Wave 7: Sidecar no longer mounts `createApp()`; execution/batches/opencode/transcribe + local `/api/events`.
+- Wave 8: `CodexRunner`, models.dev catalogue, `Task.agent` / `Project.defaultAgent` selection.
+
+### Files changed
+- `apps/sidecar/src/engine/*`, `apps/sidecar/src/runners/*`, `apps/sidecar/src/journal/*`, `apps/sidecar/src/workspace/local-worktree.ts`, `apps/sidecar/src/app.ts`, `apps/sidecar/src/index.ts`
+- `apps/api/src/routes/agent-runs.ts`, `apps/api/src/routes/models.ts`, `packages/db/prisma/migrations/20260911000000_phase2_agent_run_journal/`
+- `apps/sidecar/scripts/latency-bench.mjs`, `latency-300mb.mjs`, `soak.mjs`
+
+### Issues encountered
+- Existing sidecar Vitest suite still mocks Prisma; `NODE_ENV=test` keeps a Prisma store so those tests do not require a live API.
+- `background-task.ts` string matching remains on the OpenCode 1.x event decoder path so `events.test.mjs` stays green; v2 runners use `session.children`.
+
+### Next steps / blockers
+- Commit Phase 0+1+2 when asked. Nightly: run soak + 300MB latency scripts. Phase 3: T1 sandbox + GitHub App broker.
+
+---
+
+## [2026-09-10] — Phase 1 platform foundations (code complete)
+
+**Status:** Done for in-repo work. Azure/staging exit criteria (3-replica SSE soak, canary, Front Door, Key Vault, Neon previews, off-subscription backups) are not done and were explicitly skipped.
+**Agent:** Cursor Grok 4.6
+**Branch:** `phase-0/stop-the-bleeding`
+
+### What was done
+
+Finished remaining Phase 1 code on top of the earlier 1.1 / 1.3 / 1.7 work.
+
+- Schema + migration `20260910120000_phase1_foundations` (Identity, TwoFactorChallenge, EmailChangeRequest, SseTicket, IdempotencyKey, Task.workspaceId, PAT workspaceId, session refresh, SSO domain verification, attachment scan fields). Destructive DDL marked `-- migration-safety: allow`.
+- Tenancy leftovers: workspace member → view, owner/admin → full; `removeWorkspaceMember` cascades team membership; labels writes need full; repos no longer use `userId: null`; route registry + authorization-matrix tests.
+- Packages: `@openlinear/api-core`, `@openlinear/api-client`, `@openlinear/telemetry`. Sidecar and MCP re-export the client. Task create/bulk forks collapsed.
+- SSE tickets (`POST /api/events/ticket`, `?token=` JWT rejected). pg-boss + hourly job loop. Bulk task status/archive/delete.
+- Auth rebuild: 1h JWT + rotating refresh, opaque 2FA challenge, verified email-change, SSO with PKCE/nonce/signed state + DNS TXT (no bind-by-email), closed PAT scopes, `requireInteractiveSession` so a PAT cannot mint another PAT (`SESSION_REQUIRED` before scope checks).
+- Idempotency now persisted in `idempotency_keys`. Audit catalog wired on PAT create/revoke, SSO configure/delete, workspace member remove.
+- Dockerfile `USER 10001`, local blob abstraction, runbooks, Renovate Prisma `<8`, catalogs, CI `TEST_DATABASE_URL` + migration-safety on `dev.yml`.
+
+### Verification
+
+- `pnpm --filter @openlinear/api typecheck` green.
+- API tests: **186 passed**, 2 skipped (`TEST_DATABASE_URL` → `127.0.0.1:55432`).
+- Sidecar: **331 passed**. desktop-ui unit: **57 passed**. `pnpm lint` green.
+
+### Not in this phase (by design)
+
+- Azure console: Front Door, Key Vault, canary, Neon PR branches, backups in another subscription, raising `--max-replicas` (stays 1 until Redis).
+- Sidecar still talks to Prisma (client switch is the Phase 2 prerequisite; DB URL removal is Phase 2).
+- Feature modules are re-exports, not a full extract of every aggregate.
+- GitHub OAuth stays off. Do not deploy until leaked-credential rotation on prod Azure is finished.
+
+### Files changed (high level)
+
+- `packages/db/prisma/schema.prisma`, `packages/db/prisma/migrations/20260910120000_phase1_foundations/`
+- `apps/api/src/tenancy/`, `events/`, `jobs/`, `storage/`, `registry.ts`, `middleware/auth.ts`, `routes/{auth,sso,totp,users,pats,events,tasks,workspaces}.ts`
+- `packages/{api-core,api-client,telemetry}/`
+- `apps/desktop-ui` (SSE tickets, refresh, PAT scopes)
+- `.github/workflows/dev.yml`, `turbo.json`, `renovate.json`, `docs/runbooks/`
+
+### Next steps / blockers
+
+- Do not start Phase 2 until this is committed and the human finishes prod secret rotation.
+- Staging: Redis + Blob + second replica before any soak or canary.
+- Uncommitted; do not push until asked.
+
+---
+
+## [2026-09-10] — Rotate leaked credentials (runbook)
+
+**Status:** Partial — docs + dev Neon + GitHub OAuth shutdown done; prod Azure still blocked
+**Agent:** Cursor Grok 4.6
+**Branch:** `phase-0/stop-the-bleeding`
+
+### What was done
+- Confirmed the live PAT was still served on `docs.openlinear.tech` and `mcp-docs-one.vercel.app` (Phase 0 scrubbed git, never redeployed docs). Redeployed `apps/mcp-docs` to Vercel production; both hosts now show `ol_pat_` + 32 `x`. Owner reports the leaked PAT is revoked; still confirm `revoked_at` on prod when the DB is reachable.
+- Hashed two `ol_pat_` values from git history. None were present on the **dev** Neon branch (0 active PATs). Production DB was unreachable with the git-history password (already rejected on `ep-wild-feather` and `ep-muddy-butterfly`).
+- Dev Neon (`ep-lively-tooth-…`): password rotated and verified; 3 `User.accessToken` rows decrypted with the leaked `TOKEN_ENCRYPTION_KEY` and re-encrypted under a new key. New `DATABASE_URL` / `JWT_SECRET` / `TOKEN_ENCRYPTION_KEY` written to gitignored `.env.dev` (0600). Blanked leftover `GITHUB_CLIENT_*` there after the OAuth apps were removed.
+- Removed the published JWT placeholder from `.env.example` and `apps/api/.env.example`. Added `packages/db/scripts/reencrypt-tokens.ts` (`db:reencrypt-tokens`) because `db:encrypt-tokens` only handles plaintext.
+- GitHub secret scanning + push protection are enabled on `kaizen403/openlinear`.
+- Scrubbed the stale git-history password out of on-disk `.env.prod` (it was already invalid).
+- Confirmed leaked GitHub OAuth secrets are dead (dev app 404, prod leaked secret 401). `/api/auth/github` now returns `GITHUB_OAUTH_DISABLED`. Production boot no longer requires `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET`. Login UI GitHub buttons are disabled.
+
+### What is blocked (needs you in a browser)
+- **Azure CLI session expired** (`AADSTS50132`). Device login is waiting; Microsoft password page is open for `rishivhavle20@outlook.com`. After login I can pull Container App `DATABASE_URL`, confirm PAT rows in prod, rotate prod JWT / enc key, and clear leftover GitHub secrets from the Container App.
+- `api.openlinear.tech` CNAMEs to `openlinear-api.whitesmoke-ccbab1c5.centralindia.azurecontainerapps.io`, which currently has **no A record**. Prod API DNS looks dead independently of this rotation.
+
+### Files changed
+- `docs/runbooks/rotate-leaked-secrets.md` — status table
+- `.env.example`, `apps/api/.env.example` — no published JWT placeholder; OAuth noted as disabled
+- `apps/api/src/env.ts`, `apps/api/src/routes/auth.ts` — GitHub OAuth optional / 503
+- `apps/desktop-ui` login, user-menu, profile, repo-picker — GitHub sign-in disabled
+- `packages/db/scripts/reencrypt-tokens.ts`, `packages/db/package.json`
+- gitignored `.env.dev` (new secrets), `.env.prod` (password and OAuth leftovers removed)
+
+### Next steps / blockers
+- Finish Azure device login, then rotate prod DB password + JWT + enc key in Container App secrets and confirm every prod PAT is revoked.
+- History purge still a separate, explicit decision (force-push).
+
+---
+
+## [2026-09-10] — Phase 1.1 tenancy, 1.3 outbox/SSE, 1.7 Biome; sidecar event tests
+
+**Status:** In progress (code + tests green locally; Phase 1 not committed)
+**Agent:** Cursor Grok 4.6
+**Branch:** `phase-0/stop-the-bleeding`
+
+### What was done
+
+Step 0: `events.ts` was already in `9e1aef8`. Sidecar `events.test.mjs` was stale against Phase 0 (not a production regression). Updated tests to the real SDK/runtime contract and got **331/331**.
+
+- Terminal event is `session.idle`, not `session.completed` (`events.ts:253-256`, `event-stream-processor.ts:95-118`).
+- Progress broadcasts go through `broadcastToTask` when execution state is cached (`state.ts:265-269`), not `broadcastToTaskById`.
+- Transport watchdog is 60s and re-subscribes before fail (`events.ts:44`, `191-206`); timeout message includes the reconnect error.
+- `sessionToTask.set()` is a Proxy no-op; mapping is registered by `activeExecutions.set()`.
+- `tool.execute.after` is not on the subscribed Event union; background cancel uses `message.part.updated`.
+
+Phase 1.1 — tenancy by construction:
+
+- `apps/api/src/tenancy/` — `resolveTenancyContext`, ALS, `assertCan`/`can`, correlated `scopedTaskWhere` / `scopedProjectWhere` / `scopedTeamWhere` / `scopedActivityWhere`.
+- Auth middleware binds `req.tenancy` after JWT/PAT success (`middleware/auth.ts:120-126`).
+- Deleted dead CASL: `services/ability-builder.ts`, `middleware/permissions.ts`, `@casl/ability`.
+- Search, inbox, dashboard, activity honour project `deny` (workspace+team member still cannot see denied project). Duplicate search route impl removed.
+- Task list/count/archive use `scopedTaskWhere` instead of materialised project-id lists.
+- Tenancy cache invalidated on membership/access mutations; cache off in `NODE_ENV=test`.
+
+Phase 1.3 — events:
+
+- Prisma `DomainEvent` / `domain_events` + migration `20260910000000_domain_events`.
+- `apps/api/src/events/` — outbox, Redis-or-memory bus, SSE hub with `id:` frames, `Last-Event-ID` / `?lastEventId=` replay, relay with `FOR UPDATE SKIP LOCKED`.
+- Existing `broadcastTo*` signatures kept (`sse.ts`). `broadcastToAll` (`opencode:status`) is local-only, not persisted.
+- `apps/api/src/worker.ts` for a dedicated relay. Azure `--max-replicas` stays **1** until Redis is actually in the environment.
+- Desktop-ui SSE reconnect passes `lastEventId`.
+
+Phase 1.7 — lint:
+
+- Root `pnpm lint` is `biome check --error-on-warnings` on the new tenancy/events/worker/test files (was a turbo echo of package no-ops).
+
+### Files changed
+
+- `apps/api/src/tenancy/*` — new authorization surface
+- `apps/api/src/events/*`, `apps/api/src/worker.ts`, `apps/api/src/sse.ts`, `apps/api/src/routes/events.ts`, `apps/api/src/index.ts`
+- `apps/api/src/routes/{search,inbox,dashboard,activity-log}.ts`, `apps/api/src/services/{search,tasks,workspaces,members,teams,projects}.ts`, `apps/api/src/middleware/auth.ts`
+- deleted `apps/api/src/services/ability-builder.ts`, `apps/api/src/middleware/permissions.ts`
+- `packages/db/prisma/schema.prisma`, `packages/db/prisma/migrations/20260910000000_domain_events/migration.sql`
+- `apps/desktop-ui/providers/sse-provider.tsx`
+- `apps/sidecar/src/services/execution/events.test.mjs`
+- `biome.json`, root `package.json`, `apps/api/package.json`, `.env.example` (`REDIS_URL`, `OPENLINEAR_OUTBOX_RELAY`)
+- `apps/api/src/__tests__/tenancy.test.ts`, `apps/api/src/__tests__/events.outbox.test.ts`
+
+### Tests (verified, not assumed)
+
+- `pnpm --filter @openlinear/{api,sidecar,desktop-ui,db} typecheck` clean
+- `pnpm lint` — 13 files, no warnings
+- API: `TEST_DATABASE_URL=postgresql://openlinear:openlinear@127.0.0.1:55432/openlinear_test` — **21 files / 177 passed / 2 skipped**. Host `:5432` is `omegle-postgres`; used dedicated `openlinear-test-pg` on **55432**. Did not defeat the vitest loopback/`*_test` guard.
+- Sidecar: **22 files / 331 passed**
+- desktop-ui: **10 files / 57 passed**
+
+### Issues encountered
+
+- Sidecar suite was **not** 330/330 on this tree at session start (21 failures in `events.test.mjs`). Root cause was stale tests vs Phase 0 T4/T6/T7, not Phase 1.
+- `persistAndDeliver` initially returned the pre-publish row (`publishedAt: null`); returns `{ ...row, publishedAt: row.publishedAt ?? new Date() }` (`outbox.ts:109`).
+
+### Next steps / blockers
+
+- **Blocked on a human:** rotate every credential in `docs/runbooks/rotate-leaked-secrets.md`. Phase 1 is not safe to deploy until that lands.
+- **Blocked on a human:** apply `packages/db/prisma/manual/2026-09-09-phase0-hot-path-indexes.sql` out of band (`docs/runbooks/apply-hot-path-indexes.md`). CI drift-check fails until then, by design.
+- Do not raise Azure `--max-replicas` until Redis is in the environment.
+- Deliberately not in this slice (plan 1.1/1.3 leftovers): `Task.projectId` / `Project.workspaceId` NOT NULL, `Role`/`roleId` schema drop, repository IDOR + `userId: null` namespace, workspace-tier tightening, authorization-matrix route registry, SSE ticket (no `?token=`), pg-boss job set.
+- Do not start Phase 2 — it depends on `packages/api-client` from Phase 1.2.
+- SSO login and email change stay disabled (Phase 1.4).
+- Sidecar test repairs committed and pushed as `3939cc8`. Phase 1.1 / 1.3 / 1.7 remain uncommitted in the working tree.
+
+---
+
 ## [2026-09-09] — Phase 0 "stop the bleeding": API/auth security, chat safety, test-DB guard
 
 **Status:** In progress (API stream done; sidecar + frontend streams in flight)
