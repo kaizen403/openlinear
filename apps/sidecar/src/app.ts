@@ -1,10 +1,14 @@
-import type { NextFunction, Request, Response } from 'express';
+import express, { type Application, type NextFunction, type Request, type Response } from 'express';
+import cors from 'cors';
+import helmet from 'helmet';
+import cookieParser from 'cookie-parser';
 import rateLimit, { RateLimitRequestHandler } from 'express-rate-limit';
-import { createApp, buildErrorHandler } from '@openlinear/api/app';
+import { buildErrorHandler } from '@openlinear/api/app';
 import executionRouter from './routes/execution';
 import opencodeRouter from './routes/opencode';
 import batchesRouter from './routes/batches';
 import transcribeRouter from './routes/transcribe';
+import { createLocalEventsRouter } from './sse/local';
 
 function makeRateLimiter(windowMs: number, max: number, name: string): RateLimitRequestHandler {
   return rateLimit({
@@ -112,25 +116,28 @@ export function createHostOriginGuard(port: number) {
   };
 }
 
-export function createSidecarApp(options: { port?: number } = {}) {
-  const app = createApp();
+export function createSidecarApp(options: { port?: number } = {}): Application {
+  const app = express();
   const port = options.port ?? Number(process.env.API_PORT ?? 3001);
 
-  // Mounted ahead of every sidecar-owned router below so none of them can be
-  // reached with a spoofed Host or a cross-site simple request. Note: this
-  // cannot retroactively protect the cloud-API routers `createApp()` already
-  // mounted internally (they run earlier in the stack) — see C6a F1 for the
-  // separate, larger fix of not mounting the full cloud API in the sidecar.
+  app.disable('x-powered-by');
+  app.use(helmet({ contentSecurityPolicy: false }));
+  app.use(cors({ origin: true, credentials: true }));
+  app.use(express.json({ limit: '10mb' }));
+  app.use(cookieParser());
   app.use(createHostOriginGuard(port));
+  app.use(makeRateLimiter(60_000, 120, 'sidecar'));
+
+  app.get('/health', (_req, res) => {
+    res.json({ ok: true, service: 'sidecar' });
+  });
 
   app.use('/api/tasks', executionRouter);
   app.use('/api/opencode', opencodeRouter);
   app.use('/api/batches', batchesRouter);
   app.use('/api/transcribe', transcribeRouter);
+  app.use('/api/events', createLocalEventsRouter());
 
-  // Re-mount the shared JSON error envelope handler AFTER sidecar routes so
-  // their `next(error)` calls produce structured JSON instead of falling
-  // through to Express's default HTML 404 page. See buildErrorHandler() docs.
   app.use(buildErrorHandler());
 
   return app;

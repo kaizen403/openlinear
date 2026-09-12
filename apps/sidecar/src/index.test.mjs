@@ -41,6 +41,7 @@ async function loadIndex(options = {}) {
     process.env.OPENLINEAR_SIDECAR_AUTOSTART = options.autostart ?? '0';
   }
   process.env.OPENLINEAR_SKIP_DOTENV = options.skipDotenv ?? '1';
+  process.env.OPENLINEAR_APP_DATA ??= '/tmp/openlinear-sidecar-test-app-data';
   if (options.apiPort !== undefined) process.env.API_PORT = options.apiPort;
   if (options.frontendUrl !== undefined) process.env.FRONTEND_URL = options.frontendUrl;
   if (options.interceptorPort !== undefined) {

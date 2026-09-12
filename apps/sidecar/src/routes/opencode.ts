@@ -476,4 +476,13 @@ router.post('/config/model', requireAuth, async (req: AuthRequest, res: Response
   }
 });
 
+router.get('/runners', requireAuth, async (_req: AuthRequest, res: Response) => {
+  try {
+    const { listRunnerCatalogue } = await import('../catalogue/models-dev');
+    res.json({ runners: await listRunnerCatalogue() });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : 'Failed to list runners' });
+  }
+});
+
 export default router;

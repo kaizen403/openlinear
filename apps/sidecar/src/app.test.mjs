@@ -8,7 +8,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // importing this module for `createHostOriginGuard`/`createSidecarApp`
 // doesn't pull in the cloud API's 28 routers, Prisma, etc.
 vi.mock('@openlinear/api/app', () => ({
-  createApp: () => express(),
   buildErrorHandler: () => (err, _req, res, _next) => {
     res.status(500).json({ error: err instanceof Error ? err.message : 'error' });
   },

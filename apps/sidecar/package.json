@@ -16,7 +16,9 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.74.0",
     "@cartesia/cartesia-js": "^3.1.0",
-    "@opencode-ai/sdk": "^1.2.5",
+    "@opencode-ai/sdk": "^1.18.23",
+    "@openai/codex-sdk": "^0.147.0",
+    "@openlinear/api-client": "workspace:*",
     "@openlinear/api": "workspace:*",
     "@openlinear/db": "workspace:*",
     "@openlinear/execution-core": "workspace:*",

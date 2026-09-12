@@ -1,6 +1,5 @@
 import express from 'express';
 import type { Server } from 'node:http';
-import { prisma } from '@openlinear/db';
 import { logger } from '@openlinear/api/logger';
 import { validateStartupEnv } from '@openlinear/api/env';
 import { createSidecarApp } from './app';
@@ -9,6 +8,9 @@ import {
   recoverInFlightExecutions,
   recoverActiveBatches,
 } from './services/execution/recovery';
+import { assertSidecarPersistenceMode, shouldUsePrisma } from './persistence/boot';
+import { RunJournal } from './journal/sqlite';
+import { gcLocalWorktrees } from './workspace/local-worktree';
 
 const PORT = Number(process.env.API_PORT ?? 3001);
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
@@ -62,7 +64,10 @@ export function closeServer(server: Server, name: string): Promise<void> {
 
 export async function start() {
   await loadDotenvIfPresent();
-  validateStartupEnv();
+  assertSidecarPersistenceMode();
+  if (shouldUsePrisma()) {
+    validateStartupEnv();
+  }
   const app = createSidecarApp({ port: PORT });
   registerShutdownHandlers();
 
@@ -105,11 +110,14 @@ export async function start() {
     void (async () => {
       await closeServer(interceptServer, 'oauth interceptor');
       await closeServer(server, 'server');
-      try {
-        await prisma.$disconnect();
-        logger.info('[Sidecar] prisma disconnected');
-      } catch (disconnectErr) {
-        logger.error({ err: disconnectErr }, '[Sidecar] prisma disconnect failed');
+      if (shouldUsePrisma()) {
+        try {
+          const { prisma } = await import('@openlinear/db');
+          await prisma.$disconnect();
+          logger.info('[Sidecar] prisma disconnected');
+        } catch (disconnectErr) {
+          logger.error({ err: disconnectErr }, '[Sidecar] prisma disconnect failed');
+        }
       }
       clearTimeout(forceExit);
       process.exit(0);
@@ -132,40 +140,51 @@ export async function start() {
   });
 
   try {
-    await prisma.$connect();
-    await recoverInFlightExecutions();
+    void gcLocalWorktrees({ maxAgeHours: 24, maxBytes: 20 * 1024 * 1024 * 1024 }).catch((err) => {
+      logger.warn({ err }, '[Sidecar] worktree GC failed');
+    });
+    const journal = new RunJournal(RunJournal.defaultPath());
+    await recoverInFlightExecutions({ journal });
     await recoverActiveBatches();
   } catch (err) {
     logger.error({ err }, '[Sidecar] recovery sweep failed (continuing boot)');
   }
 
-  // OpenCode runs in single-tenant mode (one shared subprocess for all users).
-  // See docs/limitations.md. Refuse to boot in obvious multi-user setups unless
-  // the operator has explicitly acknowledged the shared-state risk.
-  printOpenCodeSingleTenantBanner();
-  try {
-    const userCount = await prisma.user.count();
-    const allowShared = process.env.OPENLINEAR_ALLOW_SHARED_OPENCODE === '1';
-    if (userCount > 1 && !allowShared) {
-      logger.fatal(
-        { userCount },
-        '[Sidecar] Multi-user database detected but OpenCode runs in single-tenant mode. ' +
-          'All users would share OpenCode provider credentials and sessions. ' +
-          'Set OPENLINEAR_ALLOW_SHARED_OPENCODE=1 to acknowledge and proceed, ' +
-          'or run one sidecar instance per user. See docs/limitations.md.',
-      );
-      await prisma.$disconnect().catch(() => undefined);
-      process.exit(2);
+  if (shouldUsePrisma()) {
+    const { prisma } = await import('@openlinear/db');
+    try {
+      await prisma.$connect();
+    } catch (err) {
+      logger.error({ err }, '[Sidecar] prisma connect failed (continuing boot)');
     }
-    if (userCount > 1 && allowShared) {
-      logger.warn(
-        { userCount },
-        '[Sidecar] Multi-user database with OPENLINEAR_ALLOW_SHARED_OPENCODE=1 — ' +
-          'users WILL share OpenCode auth state. See docs/limitations.md.',
-      );
+
+    printOpenCodeSingleTenantBanner();
+    try {
+      const userCount = await prisma.user.count();
+      const allowShared = process.env.OPENLINEAR_ALLOW_SHARED_OPENCODE === '1';
+      if (userCount > 1 && !allowShared) {
+        logger.fatal(
+          { userCount },
+          '[Sidecar] Multi-user database detected but OpenCode runs in single-tenant mode. ' +
+            'All users would share OpenCode provider credentials and sessions. ' +
+            'Set OPENLINEAR_ALLOW_SHARED_OPENCODE=1 to acknowledge and proceed, ' +
+            'or run one sidecar instance per user. See docs/limitations.md.',
+        );
+        await prisma.$disconnect().catch(() => undefined);
+        process.exit(2);
+      }
+      if (userCount > 1 && allowShared) {
+        logger.warn(
+          { userCount },
+          '[Sidecar] Multi-user database with OPENLINEAR_ALLOW_SHARED_OPENCODE=1 — ' +
+            'users WILL share OpenCode auth state. See docs/limitations.md.',
+        );
+      }
+    } catch (err) {
+      logger.error({ err }, '[Sidecar] Failed to count users for single-tenant guard (continuing)');
     }
-  } catch (err) {
-    logger.error({ err }, '[Sidecar] Failed to count users for single-tenant guard (continuing)');
+  } else {
+    printOpenCodeSingleTenantBanner();
   }
 
   try {
