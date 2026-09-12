@@ -22,12 +22,16 @@
     "build": "node esbuild.config.js",
     "build:pkg": "pkg . --out-path dist",
     "start": "node dist/index.js",
+    "worker": "tsx src/worker.ts",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "lint": "biome check --error-on-warnings src/tenancy src/events src/worker.ts src/registry.ts src/jobs src/modules src/storage src/__tests__/tenancy.test.ts src/__tests__/events.outbox.test.ts src/__tests__/authorization-matrix.test.ts"
   },
   "dependencies": {
-    "@casl/ability": "^7.0.0",
+    "@openlinear/api-core": "workspace:*",
     "@openlinear/db": "workspace:*",
+    "@openlinear/execution-core": "workspace:*",
+    "@openlinear/telemetry": "workspace:*",
     "@types/multer": "^2.1.0",
     "cors": "^2.8.5",
     "dotenv": "^17.2.4",
@@ -35,12 +39,14 @@
     "express-rate-limit": "^8.4.1",
     "helmet": "^8.1.0",
     "jsonwebtoken": "^9.0.3",
+    "ioredis": "^5.8.2",
     "multer": "^2.1.1",
     "openid-client": "^6.8.4",
     "otpauth": "^9.5.1",
     "pdf-parse": "^2.4.5",
     "pino": "^10.3.1",
     "pino-http": "^11.0.0",
+    "pg-boss": "^10.3.2",
     "zod": "^3.25.6"
   },
   "devDependencies": {

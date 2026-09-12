@@ -26,6 +26,7 @@ import notificationsRouter from './routes/notifications';
 import activityLogRouter from './routes/activity-log';
 import agentRunsRouter from './routes/agent-runs';
 import usageRouter from './routes/usage';
+import modelsRouter from './routes/models';
 import dashboardRouter from './routes/dashboard';
 import mcpUsageRouter from './routes/mcp-usage';
 import chatRouter from './routes/chat';
@@ -45,7 +46,7 @@ import { isOwnershipError } from './services/ownership';
 import { isValidationError, isHttpError } from './errors';
 import { buildErrorEnvelope } from './lib/http';
 import { Prisma, prisma } from '@openlinear/db';
-import { requireAuth, denyPersonalAccessTokens } from './middleware/auth';
+import { requireAuth, requireInteractiveSession } from './middleware/auth';
 import { secretsAreConfigured } from './lib/secrets';
 
 function addLoopbackAliases(allowed: Set<string>, origin: string) {
@@ -197,12 +198,12 @@ export function createApp(): Application {
   app.use('/api/auth', authRouter);
   app.use('/api/auth/2fa', totpRouter);
   // Credential management must not be reachable with a long-lived API key.
-  app.use('/api/sessions', requireAuth, denyPersonalAccessTokens);
+  app.use('/api/sessions', requireInteractiveSession, sessionsRouter);
   app.use('/api/repos', reposRouter);
   app.use('/api/labels', labelRoutes);
   app.use('/api/tasks', tasksRouter);
   app.use('/api/settings', settingsRouter);
-  app.use('/api/pats', requireAuth, denyPersonalAccessTokens, patsRouter);
+  app.use('/api/pats', requireInteractiveSession, patsRouter);
   app.use('/api/teams', teamsRouter);
   app.use('/api/projects', projectsRouter);
   app.use('/api/workspaces', workspacesRouter);
@@ -213,6 +214,7 @@ export function createApp(): Application {
   app.use('/api/search', searchRouter);
   app.use('/api/agent-runs', agentRunsRouter);
   app.use('/api/usage', usageRouter);
+  app.use('/api/models', modelsRouter);
   app.use('/api/dashboard', dashboardRouter);
   app.use('/api/mcp', mcpUsageRouter);
    app.use('/api/chat/attachments', chatAttachmentsRouter);
@@ -222,12 +224,11 @@ export function createApp(): Application {
   // content type inferred from an attacker-chosen extension.
   app.use('/uploads', uploadsRouter);
   app.use('/api/events', eventsRouter);
-  app.use('/api/users', requireAuth, usersRouter);
+  app.use('/api/users', usersRouter);
   app.use('/api/invitations', requireAuth, invitationsRouter);
 app.use('/api/members', requireAuth, membersRouter);
   app.use('/api', ssoRouter);
   app.use('/api/workspaces', auditRouter);
-  app.use('/api/sessions', sessionsRouter);
 
   // Liveness must not touch the database: a Postgres blip should not cause the
   // orchestrator to kill otherwise-healthy replicas.
