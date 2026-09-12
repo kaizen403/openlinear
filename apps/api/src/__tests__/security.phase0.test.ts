@@ -82,8 +82,14 @@ describe('Phase 0 security regressions', () => {
 
     it('refuses a 2FA-pending token on the SSE stream', async () => {
       const pending = sign({ userId, username: 'sec-phase0', twoFactorPending: true });
-      const res = await request(app).get(`/api/events?token=${pending}`);
-      expect(res.status).toBe(401);
+      const query = await request(app).get(`/api/events?token=${pending}`);
+      expect(query.status).toBe(400);
+      expect(query.body.code).toBe('SSE_TOKEN_QUERY_REMOVED');
+
+      const header = await request(app)
+        .get('/api/events')
+        .set('Authorization', `Bearer ${pending}`);
+      expect(header.status).toBe(401);
     });
   });
 
@@ -136,10 +142,28 @@ describe('Phase 0 security regressions', () => {
   });
 
   describe('SSO takeover (F-003)', () => {
-    it('keeps the SSO login flow disabled', async () => {
+    it('does not advertise SSO for an unknown domain', async () => {
       const res = await request(app).get('/api/auth/sso/check?email=someone@example.com');
-      expect(res.status).toBe(503);
-      expect(res.body.error?.code ?? res.body.code).toBe('SSO_DISABLED');
+      expect(res.status).toBe(200);
+      expect(res.body.ssoEnabled).toBe(false);
+    });
+  });
+
+  describe('GitHub OAuth (removed apps)', () => {
+    it('keeps GitHub sign-in disabled', async () => {
+      const previous = process.env.OPENLINEAR_ENABLE_GITHUB_OAUTH;
+      delete process.env.OPENLINEAR_ENABLE_GITHUB_OAUTH;
+      try {
+        const res = await request(app).get('/api/auth/github').redirects(0);
+        expect(res.status).toBe(503);
+        expect(res.body.error?.code ?? res.body.code).toBe('GITHUB_OAUTH_DISABLED');
+      } finally {
+        if (previous === undefined) {
+          delete process.env.OPENLINEAR_ENABLE_GITHUB_OAUTH;
+        } else {
+          process.env.OPENLINEAR_ENABLE_GITHUB_OAUTH = previous;
+        }
+      }
     });
   });
 

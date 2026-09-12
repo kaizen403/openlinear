@@ -8,7 +8,7 @@ describe('validateStartupEnv', () => {
 
   it('throws in production when required env vars are missing', () => {
     expect(() => validateStartupEnv({ NODE_ENV: 'production' })).toThrow(
-      /DATABASE_URL, JWT_SECRET, GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET, TOKEN_ENCRYPTION_KEY/,
+      /DATABASE_URL, JWT_SECRET, TOKEN_ENCRYPTION_KEY/,
     );
   });
 
@@ -18,9 +18,20 @@ describe('validateStartupEnv', () => {
         NODE_ENV: 'production',
         DATABASE_URL: 'postgresql://user:pass@localhost:5432/openlinear',
         JWT_SECRET: 'secret',
-        GITHUB_CLIENT_ID: 'client-id',
-        GITHUB_CLIENT_SECRET: 'client-secret',
         TOKEN_ENCRYPTION_KEY: 'token-encryption-key-must-be-long-enough',
+      }),
+    ).not.toThrow();
+  });
+
+  it('does not require GitHub OAuth client credentials in production', () => {
+    expect(() =>
+      validateStartupEnv({
+        NODE_ENV: 'production',
+        DATABASE_URL: 'postgresql://user:pass@localhost:5432/openlinear',
+        JWT_SECRET: 'secret',
+        TOKEN_ENCRYPTION_KEY: 'token-encryption-key-must-be-long-enough',
+        GITHUB_CLIENT_ID: '',
+        GITHUB_CLIENT_SECRET: '',
       }),
     ).not.toThrow();
   });
@@ -34,8 +45,6 @@ describe('validateStartupEnv', () => {
         NODE_ENV: 'production',
         DATABASE_URL: 'x',
         JWT_SECRET: 'x',
-        GITHUB_CLIENT_ID: 'x',
-        GITHUB_CLIENT_SECRET: 'x',
         TOKEN_ENCRYPTION_KEY: 'x',
         OPENLINEAR_TRUST_PROXY_AUTH: '1',
       }),

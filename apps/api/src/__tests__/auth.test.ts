@@ -10,6 +10,7 @@ describe('Auth API', () => {
   const app = createApp();
   const originalGitHubRedirectUri = process.env.GITHUB_REDIRECT_URI;
   const originalCorsOrigin = process.env.CORS_ORIGIN;
+  const originalGitHubOAuth = process.env.OPENLINEAR_ENABLE_GITHUB_OAUTH;
 
   afterEach(() => {
     if (originalGitHubRedirectUri === undefined) {
@@ -21,6 +22,11 @@ describe('Auth API', () => {
       delete process.env.CORS_ORIGIN;
     } else {
       process.env.CORS_ORIGIN = originalCorsOrigin;
+    }
+    if (originalGitHubOAuth === undefined) {
+      delete process.env.OPENLINEAR_ENABLE_GITHUB_OAUTH;
+    } else {
+      process.env.OPENLINEAR_ENABLE_GITHUB_OAUTH = originalGitHubOAuth;
     }
   });
 
@@ -47,13 +53,22 @@ describe('Auth API', () => {
   });
 
   describe('GET /api/auth/github', () => {
+    it('stays disabled unless OPENLINEAR_ENABLE_GITHUB_OAUTH=1', async () => {
+      delete process.env.OPENLINEAR_ENABLE_GITHUB_OAUTH;
+      const res = await request(app).get('/api/auth/github').redirects(0);
+      expect(res.status).toBe(503);
+      expect(res.body.error?.code ?? res.body.code).toBe('GITHUB_OAUTH_DISABLED');
+    });
+
     it('redirects to GitHub OAuth URL', async () => {
+      process.env.OPENLINEAR_ENABLE_GITHUB_OAUTH = '1';
       const res = await request(app).get('/api/auth/github').redirects(0);
       expect(res.status).toBe(302);
       expect(res.headers.location).toContain('github.com/login/oauth/authorize');
     });
 
     it('includes correct scopes in redirect URL', async () => {
+      process.env.OPENLINEAR_ENABLE_GITHUB_OAUTH = '1';
       const res = await request(app).get('/api/auth/github').redirects(0);
       const location = res.headers.location;
       expect(location).toContain('scope=');
@@ -61,6 +76,7 @@ describe('Auth API', () => {
     });
 
     it('uses the current loopback sidecar port for desktop OAuth redirects', async () => {
+      process.env.OPENLINEAR_ENABLE_GITHUB_OAUTH = '1';
       process.env.GITHUB_REDIRECT_URI = 'http://localhost:3001/api/auth/github/callback';
 
       const res = await request(app)
@@ -76,6 +92,7 @@ describe('Auth API', () => {
     });
 
     it('keeps the configured redirect URI for web OAuth redirects', async () => {
+      process.env.OPENLINEAR_ENABLE_GITHUB_OAUTH = '1';
       process.env.GITHUB_REDIRECT_URI = 'http://localhost:3001/api/auth/github/callback';
 
       const res = await request(app)
@@ -90,6 +107,7 @@ describe('Auth API', () => {
     });
 
     it('redirects directly to the desktop callback when desktop OAuth returns an error', async () => {
+      process.env.OPENLINEAR_ENABLE_GITHUB_OAUTH = '1';
       process.env.GITHUB_REDIRECT_URI = 'http://localhost:3001/api/auth/github/callback';
 
       const startRes = await request(app)
@@ -111,7 +129,15 @@ describe('Auth API', () => {
   });
 
   describe('GET /api/auth/github/callback', () => {
+    it('stays disabled unless OPENLINEAR_ENABLE_GITHUB_OAUTH=1', async () => {
+      delete process.env.OPENLINEAR_ENABLE_GITHUB_OAUTH;
+      const res = await request(app).get('/api/auth/github/callback?code=x').redirects(0);
+      expect(res.status).toBe(503);
+      expect(res.body.error?.code ?? res.body.code).toBe('GITHUB_OAUTH_DISABLED');
+    });
+
     it('redirects with error when error param is present', async () => {
+      process.env.OPENLINEAR_ENABLE_GITHUB_OAUTH = '1';
       const res = await request(app)
         .get('/api/auth/github/callback?error=access_denied&error_description=User+denied')
         .redirects(0);
@@ -120,6 +146,7 @@ describe('Auth API', () => {
     });
 
     it('redirects with error when code is missing', async () => {
+      process.env.OPENLINEAR_ENABLE_GITHUB_OAUTH = '1';
       const res = await request(app)
         .get('/api/auth/github/callback')
         .redirects(0);
@@ -128,6 +155,7 @@ describe('Auth API', () => {
     });
 
     it('sends the web client to the dedicated session-adoption route', async () => {
+      process.env.OPENLINEAR_ENABLE_GITHUB_OAUTH = '1';
       // Contract with apps/desktop-ui: the app no longer reads `?token=` on
       // arbitrary routes (that let any link swap the victim's session), so the
       // OAuth redirect must land on /auth/session, which verifies the token
