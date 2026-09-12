@@ -1,13 +1,13 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect } from "react"
 import { Loader2, User as UserIcon, Github } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { toast } from "sonner"
-import { startLogin, updateEmail } from "@/lib/api"
+import { updateEmail } from "@/lib/api"
 import { useAuth } from "@/hooks/use-auth"
 import { EmptyState } from "@/components/empty-state"
 
@@ -15,13 +15,6 @@ export function ProfileSection() {
   const { user, isLoading: authLoading, refreshUser } = useAuth()
   const [emailInput, setEmailInput] = useState("")
   const [emailSaving, setEmailSaving] = useState(false)
-
-  const handleGitHubLogin = useCallback(async () => {
-    const started = await startLogin()
-    if (!started) {
-      toast.error("Could not open GitHub sign-in. Check that the desktop API is running and try again.")
-    }
-  }, [])
 
   useEffect(() => {
     if (user?.email) setEmailInput(user.email)
@@ -53,11 +46,11 @@ export function ProfileSection() {
             <EmptyState
               icon={UserIcon}
               title="Not signed in"
-              description="Sign in with GitHub to manage your profile."
+              description="GitHub sign-in is disabled until a replacement OAuth app is created."
               action={
                 <Button
-                  onClick={() => void handleGitHubLogin()}
-                  className="bg-linear-accent hover:bg-linear-accent-hover text-white gap-2"
+                  disabled
+                  className="bg-linear-accent text-white gap-2 opacity-60"
                 >
                   <Github className="w-4 h-4" />
                   Sign in with GitHub
@@ -135,13 +128,13 @@ export function ProfileSection() {
                 <div>
                   <p className="text-sm text-linear-text">Reconnect GitHub</p>
                   <p className="text-xs text-linear-text-tertiary">
-                    Re-run OAuth to refresh permissions and pull latest profile data.
+                    GitHub OAuth is disabled until a replacement app exists.
                   </p>
                 </div>
                 <Button
                   variant="outline"
-                  onClick={() => void handleGitHubLogin()}
-                  className="border-linear-border text-linear-text hover:bg-linear-bg-tertiary gap-2"
+                  disabled
+                  className="border-linear-border text-linear-text gap-2 opacity-60"
                 >
                   <Github className="w-4 h-4" />
                   Reconnect

@@ -28,6 +28,8 @@ export {
   extractCallbackToken,
   fetchCurrentUser,
   getLoginUrl,
+  GITHUB_OAUTH_AVAILABLE,
+  GITHUB_OAUTH_UNAVAILABLE_MESSAGE,
   startLogin,
   logout,
   updateEmail,

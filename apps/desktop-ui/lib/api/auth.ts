@@ -129,6 +129,15 @@ export function getLoginUrl(): string {
   return `${getApiUrl()}/api/auth/github`;
 }
 
+/**
+ * GitHub OAuth apps that leaked in this repository have been removed.
+ * `/api/auth/github` returns 503 until replacement apps exist.
+ */
+export const GITHUB_OAUTH_AVAILABLE = false;
+
+export const GITHUB_OAUTH_UNAVAILABLE_MESSAGE =
+  'GitHub sign-in is disabled until a replacement OAuth app is created.';
+
 async function waitForDesktopAuthRoute(apiUrl: string): Promise<void> {
   const deadline = Date.now() + 2_500;
   while (Date.now() < deadline) {
@@ -154,6 +163,9 @@ async function getDesktopLoginUrl(): Promise<string> {
 }
 
 export async function startLogin(): Promise<boolean> {
+  if (!GITHUB_OAUTH_AVAILABLE) {
+    return false;
+  }
   if (isDesktopRuntime()) {
     const url = await getDesktopLoginUrl();
     void import('@tauri-apps/plugin-shell')

@@ -117,3 +117,45 @@ export function setToken(token: string | null): void {
     writeLocalStorage(token)
   }
 }
+
+const REFRESH_KEY = "refreshToken"
+let memoryRefresh: string | null = null
+
+function readLocalRefresh(): string | null {
+  if (typeof window === "undefined") return null
+  try {
+    return window.localStorage.getItem(REFRESH_KEY)
+  } catch {
+    return null
+  }
+}
+
+function writeLocalRefresh(token: string | null) {
+  if (typeof window === "undefined") return
+  try {
+    if (token) window.localStorage.setItem(REFRESH_KEY, token)
+    else window.localStorage.removeItem(REFRESH_KEY)
+  } catch {}
+}
+
+export function getRefreshToken(): string | null {
+  if (memoryRefresh) return memoryRefresh
+  return readLocalRefresh()
+}
+
+export function setRefreshToken(token: string | null): void {
+  memoryRefresh = token
+  if (isTauriRuntime()) {
+    void getTauriStore()
+      .then(async (store) => {
+        if (token) await store.set(REFRESH_KEY, token)
+        else await store.delete(REFRESH_KEY)
+        await store.save()
+      })
+      .catch(() => {})
+    writeLocalRefresh(null)
+  } else {
+    writeLocalRefresh(token)
+  }
+}
+

@@ -28,11 +28,13 @@ export async function fetchPersonalAccessTokens(): Promise<PersonalAccessToken[]
 export async function createPersonalAccessToken(data: {
   name: string;
   expiresAt?: string;
+  scopes: string[];
 }): Promise<CreatedPersonalAccessToken> {
   return apiFetch<CreatedPersonalAccessToken>('/api/pats', {
     method: 'POST',
     body: JSON.stringify({
       name: data.name,
+      scopes: data.scopes,
       ...(data.expiresAt ? { expiresAt: data.expiresAt } : {}),
     }),
   });

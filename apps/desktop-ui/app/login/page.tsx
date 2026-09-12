@@ -1,10 +1,10 @@
 "use client"
 
 import { CheckCircle2, Github, KeyRound, Loader2 } from "lucide-react"
-import { useEffect, useState, type FormEvent, type MouseEvent } from "react"
+import { useEffect, useState, type FormEvent } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
-import { ApiError, NetworkError, extractCallbackToken, startLogin, verifyCallbackToken } from "@/lib/api"
+import { ApiError, NetworkError, extractCallbackToken, verifyCallbackToken } from "@/lib/api"
 import { useAuth } from "@/hooks/use-auth"
 import { BRAND_COLORS } from "@/lib/design-tokens"
 import { toast } from "sonner"
@@ -12,7 +12,6 @@ import { toast } from "sonner"
 export default function LoginPage() {
   const router = useRouter()
   const { isAuthenticated, isLoading: isAuthLoading, refreshUser } = useAuth()
-  const [isStartingLogin, setIsStartingLogin] = useState(false)
   const [showTokenFallback, setShowTokenFallback] = useState(false)
   const [callbackToken, setCallbackToken] = useState("")
   const [isCompletingTokenLogin, setIsCompletingTokenLogin] = useState(false)
@@ -23,25 +22,6 @@ export default function LoginPage() {
       router.replace("/")
     }
   }, [authSuccessMessage, isAuthLoading, isAuthenticated, router])
-
-  const handleGitHubLogin = async () => {
-    setIsStartingLogin(true)
-    try {
-      const started = await startLogin()
-      if (!started) {
-        toast.error("Could not open GitHub sign-in. Check that the desktop API is running and try again.")
-        return
-      }
-    } catch {
-      toast.error("Could not open GitHub sign-in. Check that the desktop API is running and try again.")
-    } finally {
-      setIsStartingLogin(false)
-    }
-  }
-
-  const handleCancel = () => {
-    setIsStartingLogin(false)
-  }
 
   const handleTokenLogin = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -81,38 +61,17 @@ export default function LoginPage() {
 
         <div className="bg-linear-bg-secondary border border-linear-border rounded-sm p-6">
           <p className="text-sm text-linear-text-secondary text-center mb-4">
-            Sign in with your GitHub account to access OpenLinear
+            GitHub sign-in is disabled. Existing sessions still work until they expire.
           </p>
 
           <Button
-            onClick={handleGitHubLogin}
-            disabled={isStartingLogin}
-            className="w-full text-white"
+            disabled
+            className="w-full text-white opacity-60"
             style={{ backgroundColor: BRAND_COLORS.githubBg }}
-            onMouseEnter={(e: MouseEvent<HTMLButtonElement>) => { e.currentTarget.style.backgroundColor = BRAND_COLORS.githubBgHover }}
-            onMouseLeave={(e: MouseEvent<HTMLButtonElement>) => { e.currentTarget.style.backgroundColor = BRAND_COLORS.githubBg }}
           >
-            {isStartingLogin ? (
-              <>
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                Redirecting to GitHub...
-              </>
-            ) : (
-              <>
-                <Github className="w-5 h-5 mr-2" />
-                Sign in with GitHub
-              </>
-            )}
+            <Github className="w-5 h-5 mr-2" />
+            Sign in with GitHub
           </Button>
-
-          {isStartingLogin && (
-            <button
-              onClick={handleCancel}
-              className="w-full mt-3 text-sm text-linear-text-tertiary hover:text-linear-text-secondary transition-colors"
-            >
-              Cancel
-            </button>
-          )}
 
           {authSuccessMessage && (
             <div

@@ -5,7 +5,7 @@ import { GitBranch, Lock, Loader2, FolderOpen } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
-import { fetchGitHubRepos, startLogin, type GitHubRepo } from "@/lib/api"
+import { fetchGitHubRepos, startLogin, GITHUB_OAUTH_UNAVAILABLE_MESSAGE, type GitHubRepo } from "@/lib/api"
 import { toast } from "sonner"
 import { mapErrorToForm, type ProjectFormData } from "@/hooks/use-projects"
 
@@ -28,7 +28,7 @@ export function RepoPickerField({ formData, setFormData, isDesktopApp, namePrefi
   const handleGitHubLogin = useCallback(async () => {
     const started = await startLogin()
     if (!started) {
-      toast.error("Could not open GitHub sign-in. Check that the desktop API is running and try again.")
+      toast.error(GITHUB_OAUTH_UNAVAILABLE_MESSAGE)
     }
   }, [])
 
