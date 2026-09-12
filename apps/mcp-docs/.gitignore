@@ -3,4 +3,5 @@ node_modules
 .vercel
 *.tsbuildinfo
 .DS_Store
-.env*.local
+# Ignore all env files in this app. `.env.example` lives at the repo root.
+.env*
