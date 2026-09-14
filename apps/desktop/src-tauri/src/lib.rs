@@ -41,9 +41,21 @@ pub fn run() {
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
-        .run(|_app_handle, event| {
-            if let tauri::RunEvent::ExitRequested { .. } = event {
-                sidecar::shutdown_sidecar();
+        .run(|app_handle, event| match event {
+            tauri::RunEvent::ExitRequested { .. } => {
+                sidecar::shutdown_sidecar(app_handle);
             }
+            // Final catch-all for exit paths that don't fire
+            // ExitRequested (e.g. a forced OS-level quit). shutdown_sidecar
+            // is idempotent — it no-ops once the child has already been
+            // taken/killed — so calling it again here is safe. Deliberately
+            // NOT hooked to per-window Destroyed/CloseRequested: on macOS
+            // closing the last window doesn't quit the app (the dock icon
+            // stays, and the window can be reopened), and killing the
+            // sidecar there would break that flow.
+            tauri::RunEvent::Exit => {
+                sidecar::shutdown_sidecar(app_handle);
+            }
+            _ => {}
         });
 }

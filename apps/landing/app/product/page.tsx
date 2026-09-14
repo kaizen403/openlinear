@@ -158,7 +158,7 @@ export default function ProductPage() {
                 icon: Monitor,
                 title: "Desktop Architecture",
                 description: "Runs as a desktop application with a local API sidecar. The sidecar manages repository operations, agent sessions, and database state. No cloud dependency for execution.",
-                details: ["Electron desktop app", "Local PostgreSQL", "API sidecar", "SSE real-time streaming"],
+                details: ["Tauri desktop app", "Local PostgreSQL", "API sidecar", "SSE real-time streaming"],
               },
               {
                 icon: Compass,

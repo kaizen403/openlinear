@@ -8,6 +8,10 @@ const mocks = vi.hoisted(() => ({
   broadcastToTaskById: vi.fn(),
   flushDeltaBuffer: vi.fn(),
   cleanupDeltaBuffer: vi.fn(),
+  loggerInfo: vi.fn(),
+  loggerError: vi.fn(),
+  loggerWarn: vi.fn(),
+  loggerDebug: vi.fn(),
 }));
 
 vi.mock('@openlinear/db', () => ({
@@ -23,6 +27,18 @@ vi.mock('@openlinear/db', () => ({
 vi.mock('@openlinear/api/sse', () => ({
   broadcastToTask: mocks.broadcastToTask,
   broadcastToTaskById: mocks.broadcastToTaskById,
+}));
+
+// state.ts has used the structured logger (not console.*) since the 38eb4c4
+// migration; mock it the same way agent-run.test.mjs does rather than
+// spying on console, which the real logger never writes to directly.
+vi.mock('@openlinear/api/logger', () => ({
+  logger: {
+    info: mocks.loggerInfo,
+    error: mocks.loggerError,
+    warn: mocks.loggerWarn,
+    debug: mocks.loggerDebug,
+  },
 }));
 
 vi.mock('../delta-buffer', () => ({
@@ -41,8 +57,13 @@ function makeExecution(overrides = {}) {
     branchName: 'openlinear/task-1',
     userId: 'user-1',
     accessToken: null,
+    teamId: 'team-1',
+    creatorId: 'user-1',
     timeoutId: setTimeout(() => undefined, 10_000),
     streamTimeoutId: setTimeout(() => undefined, 10_000),
+    progressTimeoutId: null,
+    watchdogSuspended: false,
+    finalized: false,
     status: 'executing',
     logs: [],
     client: { session: { abort: vi.fn() } },
@@ -58,7 +79,7 @@ function makeExecution(overrides = {}) {
     cancelled: false,
     agentRunId: 'run-1',
     cost: { input: 0, output: 0, total: 0 },
-    tokens: { input: 0, output: 0 },
+    tokens: { input: 0, output: 0, reasoning: 0, cacheRead: 0, cacheWrite: 0 },
     messageUsage: new Map(),
     ...overrides,
   };
@@ -94,33 +115,50 @@ describe('execution state helpers', () => {
     expect(state.findTaskBySessionId('missing')).toBeUndefined();
   });
 
-  it('adds logs and broadcasts them for active executions', () => {
-    const execution = makeExecution();
+  it('adds logs and broadcasts them via the cached execution routing metadata (T7)', () => {
+    const execution = makeExecution({ teamId: 'team-9', creatorId: 'user-9' });
     state.activeExecutions.set('task-1', execution);
 
     state.addLogEntry('task-1', 'info', 'Started', 'details');
 
     expect(execution.logs).toHaveLength(1);
     expect(execution.logs[0]).toMatchObject({ type: 'info', message: 'Started', details: 'details' });
-    expect(mocks.broadcastToTaskById).toHaveBeenCalledWith('task-1', 'execution:log', {
-      taskId: 'task-1',
-      entry: execution.logs[0],
-    });
+    // T7 (H-02): when the execution is cached, broadcast synchronously via
+    // the routing metadata already on hand — no per-log-line DB lookup.
+    expect(mocks.broadcastToTask).toHaveBeenCalledWith(
+      'execution:log',
+      { id: 'task-1', teamId: 'team-9', creatorId: 'user-9' },
+      { taskId: 'task-1', entry: execution.logs[0] },
+    );
+    expect(mocks.broadcastToTaskById).not.toHaveBeenCalled();
 
     state.addLogEntry('task-1', 'tool', 'Object details', { file: 'src/index.ts' });
 
     expect(execution.logs).toHaveLength(2);
   });
 
-  it('ignores log entries for missing executions', () => {
-    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+  it('falls back to the DB-lookup broadcast when no execution is cached', () => {
+    // No `activeExecutions.set(...)` — simulates a broadcast for a taskId
+    // the in-memory store doesn't know about.
+    state.broadcastProgress('task-1', 'executing', 'Running', { percentage: 50 });
 
+    expect(mocks.broadcastToTaskById).toHaveBeenCalledWith('task-1', 'execution:progress', {
+      taskId: 'task-1',
+      status: 'executing',
+      message: 'Running',
+      percentage: 50,
+    });
+    expect(mocks.broadcastToTask).not.toHaveBeenCalled();
+  });
+
+  it('ignores log entries for missing executions', () => {
     state.addLogEntry('missing-task', 'info', 'lost');
 
-    expect(consoleLog).toHaveBeenCalledWith(
+    expect(mocks.loggerInfo).toHaveBeenCalledWith(
       '[Execution] Warning: No execution found for task missing- when adding log',
     );
     expect(mocks.broadcastToTaskById).not.toHaveBeenCalled();
+    expect(mocks.broadcastToTask).not.toHaveBeenCalled();
   });
 
   it('returns an empty log list when execution state is missing', () => {
@@ -139,7 +177,6 @@ describe('execution state helpers', () => {
   });
 
   it('retries critical progress broadcasts after transient failures', async () => {
-    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     mocks.broadcastToTaskById
       .mockRejectedValueOnce(new Error('socket busy'))
       .mockResolvedValueOnce(undefined);
@@ -149,15 +186,14 @@ describe('execution state helpers', () => {
     vi.advanceTimersByTime(1_000);
     await Promise.resolve();
 
-    expect(consoleError).toHaveBeenCalledWith(
-      '[Execution] Failed to broadcast execution:progress for task task-1 (attempt 1):',
-      expect.any(Error),
+    expect(mocks.loggerError).toHaveBeenCalledWith(
+      { err: expect.any(Error), event: 'execution:progress', attempt: 1 },
+      '[Execution] Failed to broadcast execution:progress for task task-1 (attempt 1)',
     );
     expect(mocks.broadcastToTaskById).toHaveBeenCalledTimes(2);
   });
 
   it('stops retrying critical broadcasts after the maximum attempts', async () => {
-    vi.spyOn(console, 'error').mockImplementation(() => undefined);
     mocks.broadcastToTaskById.mockRejectedValue(new Error('still down'));
 
     state.broadcastProgress('task-1', 'error', 'Failed');
@@ -194,12 +230,14 @@ describe('execution state helpers', () => {
   });
 
   it('logs task status update failures without throwing', async () => {
-    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     mocks.taskUpdate.mockRejectedValue(new Error('db down'));
 
     await expect(state.updateTaskStatus('task-1', 'cancelled', null)).resolves.toBeUndefined();
 
-    expect(consoleError).toHaveBeenCalledWith('[Execution] Failed to update task task-1:', expect.any(Error));
+    expect(mocks.loggerError).toHaveBeenCalledWith(
+      { err: expect.any(Error), taskId: 'task-1' },
+      '[Execution] Failed to update task task-1',
+    );
   });
 
   it('estimates progress from tools, files, and elapsed time with a cap', () => {
@@ -237,16 +275,15 @@ describe('execution state helpers', () => {
   });
 
   it('logs persist failures without throwing', async () => {
-    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const execution = makeExecution({ logs: [{ timestamp: 'now', type: 'info', message: 'Started' }] });
     state.activeExecutions.set('task-1', execution);
     mocks.executeRaw.mockRejectedValue(new Error('json write failed'));
 
     await expect(state.persistLogs('task-1')).resolves.toBeUndefined();
 
-    expect(consoleError).toHaveBeenCalledWith(
-      '[Execution] Failed to persist logs for task task-1:',
-      expect.any(Error),
+    expect(mocks.loggerError).toHaveBeenCalledWith(
+      { err: expect.any(Error), taskId: 'task-1' },
+      '[Execution] Failed to persist logs for task task-1',
     );
   });
 
@@ -266,7 +303,6 @@ describe('execution state helpers', () => {
   });
 
   it('continues cleanup when event stream cleanup throws', async () => {
-    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const eventStreamCleanup = vi.fn().mockRejectedValue(new Error('stream cleanup failed'));
     const execution = makeExecution({ eventStreamCleanup });
     state.activeExecutions.set('task-1', execution);
@@ -274,12 +310,22 @@ describe('execution state helpers', () => {
 
     await state.cleanupExecution('task-1');
 
-    expect(consoleError).toHaveBeenCalledWith(
-      '[Execution] Failed to clean up event stream for task task-1:',
-      expect.any(Error),
+    expect(mocks.loggerError).toHaveBeenCalledWith(
+      { err: expect.any(Error), taskId: 'task-1' },
+      '[Execution] Failed to clean up event stream for task task-1',
     );
     expect(state.activeExecutions.has('task-1')).toBe(false);
     expect(state.sessionToTask.has('ses_1')).toBe(false);
+  });
+
+  it('clears the no-progress watchdog timer on cleanup', async () => {
+    const progressTimeoutId = setTimeout(() => undefined, 10_000);
+    const execution = makeExecution({ progressTimeoutId });
+    state.activeExecutions.set('task-1', execution);
+
+    await state.cleanupExecution('task-1');
+
+    expect(execution.progressTimeoutId).toBeNull();
   });
 
   it('ignores cleanup for missing executions and falls back to generic task titles', async () => {
@@ -289,5 +335,187 @@ describe('execution state helpers', () => {
     await expect(state.getTaskTitle('missing')).resolves.toBe('Task');
 
     expect(mocks.flushDeltaBuffer).not.toHaveBeenCalled();
+  });
+
+  describe('T11 — execution log ring buffer', () => {
+    it('caps the log array at MAX_EXECUTION_LOG_ENTRIES, dropping the oldest', () => {
+      const execution = makeExecution();
+      state.activeExecutions.set('task-1', execution);
+
+      for (let i = 0; i < state.MAX_EXECUTION_LOG_ENTRIES + 5; i++) {
+        state.addLogEntry('task-1', 'info', `entry-${i}`);
+      }
+
+      expect(execution.logs).toHaveLength(state.MAX_EXECUTION_LOG_ENTRIES);
+      expect(execution.logs[0].message).toBe('entry-5');
+      expect(execution.logs.at(-1).message).toBe(`entry-${state.MAX_EXECUTION_LOG_ENTRIES + 4}`);
+    });
+  });
+
+  describe('T10 — secret redaction in addLogEntry', () => {
+    it('redacts a GitHub token appearing in a single log message', () => {
+      const execution = makeExecution();
+      state.activeExecutions.set('task-1', execution);
+
+      state.addLogEntry('task-1', 'info', 'token is ghp_abcdefghijklmnopqrstuvwxyz0123456789 done');
+
+      expect(execution.logs[0].message).not.toContain('ghp_abcdefghijklmnopqrstuvwxyz0123456789');
+      expect(execution.logs[0].message).toContain('[REDACTED]');
+    });
+
+    it('redacts known secret env assignments in details', () => {
+      const execution = makeExecution();
+      state.activeExecutions.set('task-1', execution);
+
+      state.addLogEntry('task-1', 'tool', 'env dump', 'DATABASE_URL=postgres://u:p@host:5432/db JWT_SECRET=abc123supersecret');
+
+      expect(execution.logs[0].details).not.toContain('supersecret');
+      expect(execution.logs[0].details).toContain('[REDACTED]');
+    });
+
+    it('catches a secret split across two addLogEntry calls (stateful across chunk boundaries)', () => {
+      const execution = makeExecution();
+      state.activeExecutions.set('task-1', execution);
+
+      // "sk-abcdefghijklmnop" split mid-token across two chunks.
+      state.addLogEntry('task-1', 'agent', 'here is a key sk-abcdefg');
+      state.addLogEntry('task-1', 'agent', 'hijklmnopqrstuvwxyz more text after');
+
+      const combined = execution.logs.map((l) => l.message).join(' ');
+      expect(combined).not.toContain('sk-abcdefghijklmnopqrstuvwxyz');
+    });
+
+    it('does not mangle ordinary log text with no secrets', () => {
+      const execution = makeExecution();
+      state.activeExecutions.set('task-1', execution);
+
+      state.addLogEntry('task-1', 'info', 'Running: pnpm install');
+
+      expect(execution.logs[0].message).toBe('Running: pnpm install');
+    });
+
+    it('clears per-task redaction carry state on cleanup', async () => {
+      const execution = makeExecution();
+      state.activeExecutions.set('task-1', execution);
+      state.addLogEntry('task-1', 'info', 'sk-partial');
+
+      await state.cleanupExecution('task-1');
+
+      // Re-registering the same taskId after cleanup must not treat leftover
+      // carry state from the previous run as a secret continuation.
+      const second = makeExecution();
+      state.activeExecutions.set('task-1', second);
+      state.addLogEntry('task-1', 'info', 'token-completely-unrelated-text');
+
+      expect(second.logs[0].message).toBe('token-completely-unrelated-text');
+    });
+  });
+
+  it('uses the executionStore directly for session lookup fallback', () => {
+    const { executionStore } = state;
+    executionStore.reset();
+
+    const ex = makeExecution({ taskId: 'task-2', sessionId: 'ses_fallback' });
+    executionStore.set('task-2', ex);
+    expect(executionStore.getBySession('ses_fallback')).toBe(ex);
+    expect(executionStore.getTaskIdBySession('ses_fallback')).toBe('task-2');
+
+    executionStore.remove('task-2');
+    expect(executionStore.get('task-2')).toBeUndefined();
+    expect(executionStore.getBySession('ses_fallback')).toBeUndefined();
+  });
+
+  it('covers executionStore remove for non-existent task', () => {
+    const { executionStore } = state;
+    executionStore.reset();
+    executionStore.set('task-3', makeExecution({ taskId: 'task-3' }));
+    executionStore.remove('non-existent');
+    expect(executionStore.get('task-3')).toBeDefined();
+  });
+
+  it('uses executionStore fallback scan when session map is stale', () => {
+    const { executionStore } = state;
+    executionStore.reset();
+
+    const ex = makeExecution({ taskId: 'task-3', sessionId: 'ses_orphan' });
+    executionStore.set('task-3', ex);
+    executionStore.setSessionMapping('ses_orphan', 'task-3');
+    executionStore.setSessionMapping('ses_orphan', 'wrong');
+
+    expect(executionStore.getTaskIdBySession('ses_orphan')).toBe('wrong');
+    executionStore.reset();
+    expect(executionStore.getTaskIdBySession('ses_orphan')).toBeUndefined();
+  });
+
+  it('covers all activeExecutions proxy trap operations', () => {
+    state.activeExecutions.clear();
+    const ex = makeExecution();
+    state.activeExecutions.set('task-1', ex);
+
+    const keys = [...state.activeExecutions.keys()];
+    expect(keys).toContain('task-1');
+
+    const values = [...state.activeExecutions.values()];
+    expect(values).toContain(ex);
+
+    const entries = [...state.activeExecutions.entries()];
+    expect(entries).toHaveLength(1);
+
+    const iterated = [...state.activeExecutions];
+    expect(iterated).toHaveLength(1);
+
+    let forEachCount = 0;
+    state.activeExecutions.forEach(() => { forEachCount++; });
+    expect(forEachCount).toBe(1);
+
+    expect(state.activeExecutions[Symbol.toStringTag]).toBe('Map');
+
+    state.activeExecutions.clear();
+    expect(state.activeExecutions.size).toBe(0);
+    expect(state.getRunningTaskCount()).toBe(0);
+  });
+
+  it('covers activeExecutions proxy delete trap', () => {
+    state.activeExecutions.clear();
+    const ex = makeExecution();
+    state.activeExecutions.set('task-1', ex);
+    expect(state.activeExecutions.delete('task-1')).toBe(true);
+    expect(state.activeExecutions.has('task-1')).toBe(false);
+  });
+
+  it('covers sessionToTask proxy trap operations', () => {
+    state.sessionToTask.clear();
+    state.sessionToTask.set('ses_1', 'task-1');
+    expect(state.sessionToTask.has('ses_1')).toBe(true);
+    expect(state.sessionToTask.get('ses_1')).toBe('task-1');
+
+    // delete is a no-op — managed by executionStore.remove()
+    expect(state.sessionToTask.delete('ses_1')).toBe(true);
+    expect(state.sessionToTask.has('ses_1')).toBe(true);
+
+    state.sessionToTask.clear();
+    expect(state.sessionToTask.get('ses_1')).toBeUndefined();
+  });
+
+  it('covers sessionToTask Symbol.iterator', () => {
+    state.sessionToTask.clear();
+    state.sessionToTask.set('ses_1', 'task-1');
+    state.sessionToTask.set('ses_2', 'task-2');
+
+    const pairs = [];
+    for (const entry of state.sessionToTask) {
+      pairs.push(entry);
+    }
+    expect(pairs).toEqual(expect.arrayContaining([['ses_1', 'task-1'], ['ses_2', 'task-2']]));
+  });
+
+  it('covers proxy default return paths for unknown properties', () => {
+    expect(state.activeExecutions.unknownProp).toBeUndefined();
+    expect(state.sessionToTask.unknownProp).toBeUndefined();
+  });
+
+  it('covers Symbol.toStringTag on proxies', () => {
+    expect(Object.prototype.toString.call(state.activeExecutions)).toBe('[object Map]');
+    expect(Object.prototype.toString.call(state.sessionToTask)).toBe('[object Map]');
   });
 });

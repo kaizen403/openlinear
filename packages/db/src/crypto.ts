@@ -38,26 +38,44 @@ function deriveKey(material: string): Buffer {
   return createHash("sha256").update(material, "utf8").digest();
 }
 
-function getEncryptionKey(): Buffer {
-  const raw = process.env.TOKEN_ENCRYPTION_KEY;
-  if (raw && raw.length >= 16) {
-    if (cachedKey && cachedKeySource === raw) return cachedKey;
-    cachedKey = deriveKey(raw);
-    cachedKeySource = raw;
-    return cachedKey;
-  }
+const MIN_KEY_LENGTH = 32;
 
-  if (process.env.NODE_ENV === "production") {
+/**
+ * Values published in this repository. Accepting any of them would mean every
+ * stored GitHub token is encrypted under a key an attacker already has.
+ */
+const PUBLISHED_KEYS = new Set([
+  "openlinear-dev-token-encryption-key",
+  "openlinear-dev-secret-change-in-production",
+]);
+
+function getEncryptionKey(): Buffer {
+  const raw = process.env.TOKEN_ENCRYPTION_KEY?.trim();
+
+  // No environment exemption. Previously any non-production process — including
+  // every packaged desktop build, which never sets NODE_ENV — silently derived
+  // the key from JWT_SECRET or from a literal in this file, so the ciphertext
+  // protecting users' GitHub tokens was decryptable by anyone with the source.
+  if (!raw) {
     throw new Error(
-      "[crypto] TOKEN_ENCRYPTION_KEY must be set in production (>=16 chars)",
+      "[crypto] TOKEN_ENCRYPTION_KEY is not set. Generate one with `openssl rand -base64 48`. " +
+        "There is no development fallback: a shared default would be a published key.",
+    );
+  }
+  if (PUBLISHED_KEYS.has(raw)) {
+    throw new Error(
+      "[crypto] TOKEN_ENCRYPTION_KEY is set to a placeholder published in this repository and must be rotated.",
+    );
+  }
+  if (raw.length < MIN_KEY_LENGTH) {
+    throw new Error(
+      `[crypto] TOKEN_ENCRYPTION_KEY must be at least ${MIN_KEY_LENGTH} characters (got ${raw.length}).`,
     );
   }
 
-  const fallback =
-    process.env.JWT_SECRET || "openlinear-dev-token-encryption-key";
-  if (cachedKey && cachedKeySource === fallback) return cachedKey;
-  cachedKey = deriveKey(fallback);
-  cachedKeySource = fallback;
+  if (cachedKey && cachedKeySource === raw) return cachedKey;
+  cachedKey = deriveKey(raw);
+  cachedKeySource = raw;
   return cachedKey;
 }
 

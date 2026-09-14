@@ -12,6 +12,18 @@ import { TaskFormDialog } from "@/components/task-form"
 import { TaskDetailView } from "@/components/task-detail-view"
 import { ProviderSetupDialog } from "@/components/provider-setup-dialog"
 import { EmptyState } from "@/components/empty-state"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
+import { buttonVariants } from "@/components/ui/button"
+import { cn } from "@/lib/utils"
 import { Plus, Settings2, GitBranch, CircleDot, Layers, Play, Pencil, Inbox } from "lucide-react"
 import { Task } from "@/types/task"
 import { Project, Repository } from "@/lib/api"
@@ -22,6 +34,9 @@ import { DoneColumnContent } from "./done-column-content"
 import { ModelSelector } from "./model-selector"
 import { formatBatchExecutionMode } from "./batch-mode"
 import { useRouter } from "next/navigation"
+import { BoardFilters, useBoardFilters } from "./board-filters"
+import { useTeamMembers } from "@/hooks/use-team-members"
+import { isEditableTarget, isInsideOverlay } from "./keyboard-guards"
 
 interface ProjectConfigPanelProps {
   selectedProject: Project | undefined
@@ -201,6 +216,27 @@ export function KanbanBoard(props: KanbanBoardProps) {
 
   const boardRef = useRef<HTMLDivElement>(null)
   const [isDragging, setIsDragging] = useState(false)
+  // Confirmation gate for the 'd'/Backspace board shortcut — deleting (or
+  // archiving) a task is destructive and, unlike the trash-icon button, has
+  // no visible affordance before it fires, so it needs an explicit "are you
+  // sure" step.
+  const [pendingDelete, setPendingDelete] = useState<
+    { kind: 'single'; taskId: string } | { kind: 'bulk'; count: number } | null
+  >(null)
+
+  const filters = useBoardFilters()
+  const { members } = useTeamMembers()
+
+  const getFilteredTasksByStatus = useCallback((status: Task['status']) => {
+    const statusTasks = getTasksByStatus(status)
+    if (filters.assigneeIds.length === 0) return statusTasks
+    return statusTasks.filter((t) => filters.assigneeIds.includes(t.assigneeId || ""))
+  }, [getTasksByStatus, filters.assigneeIds])
+
+  const handleFiltersChange = useCallback((state: { assigneeIds: string[]; groupByAssignee: boolean }) => {
+    filters.setAssigneeIds(state.assigneeIds)
+    filters.setGroupByAssignee(state.groupByAssignee)
+  }, [filters.setAssigneeIds, filters.setGroupByAssignee])
 
   const handleDragStart = useCallback(() => {
     setIsDragging(true)
@@ -218,13 +254,14 @@ export function KanbanBoard(props: KanbanBoardProps) {
   }, [handleDragEnd])
 
   useEffect(() => {
+    const handler = () => setIsTaskFormOpen(true)
+    window.addEventListener("openlinear:new-issue", handler)
+    return () => window.removeEventListener("openlinear:new-issue", handler)
+  }, [setIsTaskFormOpen])
+
+  useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement | null
-      const isEditable =
-        target?.tagName === 'INPUT' ||
-        target?.tagName === 'TEXTAREA' ||
-        target?.isContentEditable
-      if (isEditable) return
+      if (isEditableTarget(e.target)) return
 
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'a') {
         e.preventDefault()
@@ -233,11 +270,89 @@ export function KanbanBoard(props: KanbanBoardProps) {
       }
       if (e.key === 'Escape' && selectionActive) {
         clearSelection()
+        return
+      }
+      if (e.key === 'Escape' && selectedTaskId) {
+        handleDrawerClose()
+        return
+      }
+
+      if (e.metaKey || e.ctrlKey || e.altKey) return
+      const k = e.key.toLowerCase()
+
+      const allTasks = COLUMNS.flatMap(col => getTasksByStatus(col.status))
+      const currentIdx = selectedTaskId
+        ? allTasks.findIndex(t => t.id === selectedTaskId)
+        : -1
+
+      if (k === 'j') {
+        e.preventDefault()
+        const nextIdx = currentIdx < allTasks.length - 1 ? currentIdx + 1 : 0
+        if (allTasks[nextIdx]) handleTaskClick(allTasks[nextIdx].id)
+        return
+      }
+      if (k === 'k') {
+        e.preventDefault()
+        const prevIdx = currentIdx > 0 ? currentIdx - 1 : allTasks.length - 1
+        if (allTasks[prevIdx]) handleTaskClick(allTasks[prevIdx].id)
+        return
+      }
+      if (k === 'x') {
+        e.preventDefault()
+        if (selectedTaskId) toggleTaskSelect(selectedTaskId)
+        return
+      }
+      if (k === 'e') {
+        e.preventDefault()
+        if (selectedTaskId && canExecute) handleExecute(selectedTaskId)
+        return
+      }
+      if (k === 'd' || k === 'backspace') {
+        // Focus can legitimately be inside an open dialog/sheet/popover on a
+        // non-input element (e.g. a button) — the overlay owns keyboard input
+        // at that point, so the board's destructive shortcut must not fire.
+        if (isInsideOverlay(e.target)) return
+        e.preventDefault()
+        if (selectionActive) {
+          if (selectedTaskIds.size > 0) setPendingDelete({ kind: 'bulk', count: selectedTaskIds.size })
+        } else if (selectedTaskId) {
+          setPendingDelete({ kind: 'single', taskId: selectedTaskId })
+        }
+        return
+      }
+      if (k === 'l') {
+        e.preventDefault()
+        if (selectedTaskId) handleMoveToInProgress(selectedTaskId)
+        return
+      }
+      if (k === '1') {
+        e.preventDefault()
+        if (selectionActive) handleBulkChangeStatus('todo')
+        else if (selectedTaskId) handleBulkChangeStatus('todo')
+        return
+      }
+      if (k === '2') {
+        e.preventDefault()
+        if (selectionActive) handleBulkChangeStatus('in_progress')
+        else if (selectedTaskId) handleBulkChangeStatus('in_progress')
+        return
+      }
+      if (k === '3') {
+        e.preventDefault()
+        if (selectionActive) handleBulkChangeStatus('done')
+        else if (selectedTaskId) handleBulkChangeStatus('done')
+        return
+      }
+      if (k === '4') {
+        e.preventDefault()
+        if (selectionActive) handleBulkChangeStatus('cancelled')
+        else if (selectedTaskId) handleBulkChangeStatus('cancelled')
+        return
       }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [selectAllVisible, clearSelection, selectionActive])
+  }, [selectAllVisible, clearSelection, selectionActive, selectedTaskId, selectedTaskIds, getTasksByStatus, handleTaskClick, toggleTaskSelect, canExecute, handleExecute, handleMoveToInProgress, handleBulkChangeStatus, handleDrawerClose])
 
   const renderTask = (task: Task, index: number, isCompletedBatch?: boolean) => {
     const dragDisabled =
@@ -264,7 +379,8 @@ export function KanbanBoard(props: KanbanBoardProps) {
               <TaskCard
                 task={task}
                 onMoveToInProgress={task.status === 'todo' ? handleMoveToInProgress : undefined}
-                onExecute={task.status === 'in_progress' && canExecute ? handleExecute : undefined}
+                onExecute={handleExecute}
+                canExecute={canExecute}
                 onCancel={task.status === 'in_progress' ? handleCancel : undefined}
                 onDelete={handleDelete}
                 onTaskClick={handleTaskClick}
@@ -331,9 +447,84 @@ export function KanbanBoard(props: KanbanBoardProps) {
           selectedTaskIds={selectedTaskIds}
           activeBatch={activeBatch}
         />
+        <BoardFilters
+          value={{ assigneeIds: filters.assigneeIds, groupByAssignee: filters.groupByAssignee }}
+          onChange={handleFiltersChange}
+        />
+        {filters.groupByAssignee ? (
+          <div className="flex-1 min-h-0 overflow-y-auto">
+            {(() => {
+              const assigneesToShow = filters.assigneeIds.length > 0
+                ? members.filter((m) => filters.assigneeIds.includes(m.id))
+                : [...members, { id: "__unassigned__", username: "Unassigned", displayName: "Unassigned", avatarUrl: null }]
+
+              return assigneesToShow.map((member) => {
+                const isUnassigned = member.id === "__unassigned__"
+                const laneTasks = tasks.filter((t) => {
+                  if (isUnassigned) return !t.assigneeId
+                  return t.assigneeId === member.id
+                })
+                if (laneTasks.length === 0 && isUnassigned) return null
+                return (
+                  <div key={member.id} className="border-b border-linear-border last:border-b-0">
+                    <div className="flex items-center gap-2 px-4 py-2 bg-linear-bg-secondary">
+                      {member.avatarUrl ? (
+                        <img src={member.avatarUrl} alt="" className="w-5 h-5 rounded-full" />
+                      ) : (
+                        <div className="w-5 h-5 rounded-full bg-linear-bg-tertiary flex items-center justify-center">
+                          <span className="text-[10px] text-linear-text-tertiary uppercase">
+                            {member.username?.charAt(0) || "?"}
+                          </span>
+                        </div>
+                      )}
+                      <span className="text-sm font-medium text-linear-text">
+                        {member.displayName || member.username}
+                      </span>
+                      <span className="text-xs text-linear-text-tertiary">
+                        {laneTasks.length} {laneTasks.length === 1 ? "issue" : "issues"}
+                      </span>
+                    </div>
+                    <div className="flex md:grid md:grid-cols-2 lg:grid-cols-4 overflow-x-auto overflow-y-hidden snap-x snap-mandatory md:overflow-x-visible md:snap-none">
+                      {COLUMNS.map((column) => {
+                        const columnTasks = laneTasks.filter((t) => t.status === column.status)
+                        return (
+                          <div key={column.id} className="min-w-[280px] md:min-w-0 snap-start border-r border-linear-border last:border-r-0 p-2">
+                            <div className="text-[10px] uppercase tracking-wider text-linear-text-tertiary mb-1 px-1">
+                              {column.title} ({columnTasks.length})
+                            </div>
+                            <div className="space-y-1.5">
+                              {columnTasks.map((task) => (
+                                <TaskCard
+                                  key={task.id}
+                                  task={task}
+                                  onMoveToInProgress={task.status === 'todo' ? handleMoveToInProgress : undefined}
+                                  onExecute={handleExecute}
+                                  canExecute={canExecute}
+                                  onCancel={task.status === 'in_progress' ? handleCancel : undefined}
+                                  onDelete={handleDelete}
+                                  onTaskClick={handleTaskClick}
+                                  selected={selectedTaskIds.has(task.id)}
+                                  onToggleSelect={toggleTaskSelect}
+                                  selectionMode={selectionActive}
+                                  isBatchTask={batchTaskIds.includes(task.id)}
+                                  isDragging={false}
+                                  deletionMode={taskDeletionMode}
+                                />
+                              ))}
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )
+              })
+            })()}
+          </div>
+        ) : (
         <div className="flex md:grid md:grid-cols-2 lg:grid-cols-4 flex-1 min-h-0 overflow-x-auto overflow-y-hidden snap-x snap-mandatory md:overflow-x-visible md:snap-none">
           {COLUMNS.map((column) => {
-            const columnTasks = getTasksByStatus(column.status)
+            const columnTasks = getFilteredTasksByStatus(column.status)
             const hasParallelGroup =
               column.status === 'in_progress' && batchTaskIds.length > 0
             const selectionActive = !hasParallelGroup && selectingColumns.has(column.id)
@@ -413,7 +604,7 @@ export function KanbanBoard(props: KanbanBoardProps) {
             )
           })}
         </div>
-
+        )}
         <TaskFormDialog
           open={isTaskFormOpen}
           onOpenChange={setIsTaskFormOpen}
@@ -441,6 +632,39 @@ export function KanbanBoard(props: KanbanBoardProps) {
           onOpenChange={setShowProviderSetup}
           onSetupComplete={handleProviderSetupComplete}
         />
+
+        <AlertDialog
+          open={pendingDelete !== null}
+          onOpenChange={(open) => { if (!open) setPendingDelete(null) }}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>
+                {taskDeletionMode === 'delete' ? 'Delete' : 'Archive'}{' '}
+                {pendingDelete?.kind === 'bulk' ? `${pendingDelete.count} tasks` : 'task'}?
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                {taskDeletionMode === 'delete'
+                  ? 'This permanently deletes the task and cannot be undone.'
+                  : 'This moves the task to Archived. You can restore it later.'}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={(e) => {
+                  e.preventDefault()
+                  if (pendingDelete?.kind === 'bulk') handleBulkDelete()
+                  else if (pendingDelete?.kind === 'single') handleDelete(pendingDelete.taskId)
+                  setPendingDelete(null)
+                }}
+                className={cn(buttonVariants({ variant: "destructive" }))}
+              >
+                {taskDeletionMode === 'delete' ? 'Delete' : 'Archive'}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
 
         {(() => {
           if (selectedTaskIds.size === 0) return null

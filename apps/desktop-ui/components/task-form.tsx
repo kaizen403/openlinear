@@ -32,9 +32,12 @@ import {
 import { LabelPicker } from "@/components/label-picker"
 import { DatePicker } from "@/components/ui/date-picker"
 import { TaskFormModelSelector } from "@/components/task-form-model-selector"
+import { AssigneePicker } from "@/components/ui/assignee-picker"
 import { Project } from "@/lib/api"
 import { useTeams } from "@/providers/teams-provider"
 import { useProject } from "@/hooks/use-project"
+import { useTeamMembers } from "@/hooks/use-team-members"
+import { useAuth } from "@/hooks/use-auth"
 import type { Task } from "@/types/task"
 
 const getFormSchema = (hasProjects: boolean) => z.object({
@@ -42,6 +45,7 @@ const getFormSchema = (hasProjects: boolean) => z.object({
   description: z.string().optional(),
   status: z.enum(["todo", "in_progress", "done", "cancelled"]),
   labelIds: z.array(z.string()),
+  assigneeIds: z.array(z.string()),
   projectId: hasProjects ? z.string().min(1, "Project is required") : z.string().optional(),
   teamId: z.string().optional(),
   dueDate: z.string().optional(),
@@ -82,6 +86,8 @@ export function TaskFormDialog({
   const hasProjects = projects.length > 0
   const { teams } = useTeams()
   const { activeProject } = useProject()
+  const { members } = useTeamMembers()
+  const { user } = useAuth()
 
   const effectiveProjectId = defaultProjectId || activeProject?.id || null
   const projectTeams = effectiveProjectId
@@ -92,6 +98,7 @@ export function TaskFormDialog({
     description: "",
     status: defaultStatus || "todo",
     labelIds: [],
+    assigneeIds: [],
     projectId: defaultProjectId || (hasProjects ? "" : undefined),
     teamId: "",
     dueDate: "",
@@ -124,6 +131,7 @@ export function TaskFormDialog({
           description: values.description || undefined,
           status: values.status,
           labelIds: values.labelIds.length > 0 ? values.labelIds : undefined,
+          assigneeIds: values.assigneeIds.length > 0 ? values.assigneeIds : undefined,
           projectId: values.projectId || undefined,
           teamId: values.teamId || undefined,
           dueDate: values.dueDate ? new Date(values.dueDate).toISOString() : undefined,
@@ -348,6 +356,24 @@ export function TaskFormDialog({
                       <TaskFormModelSelector
                         value={field.value ?? null}
                         onChange={field.onChange}
+                      />
+                    </FormControl>
+                    <FormMessage className="text-red-400 text-xs" />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="assigneeIds"
+                render={({ field }) => (
+                  <FormItem className="space-y-0">
+                    <FormControl>
+                      <AssigneePicker
+                        value={field.value}
+                        onChange={field.onChange}
+                        members={members}
+                        currentUserId={user?.id}
                       />
                     </FormControl>
                     <FormMessage className="text-red-400 text-xs" />

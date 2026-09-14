@@ -10,7 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 
 function BoardSkeleton() {
   return (
-    <main className="flex flex-1 flex-col bg-linear-bg">
+    <main className="flex flex-1 flex-col min-h-0 bg-linear-bg">
       <header className="min-h-14 border-b border-linear-border flex items-center px-4 sm:px-6 py-2 sm:py-0 bg-linear-bg gap-2 sm:gap-4">
         <Skeleton className="h-5 w-36" />
         <div className="ml-auto flex items-center gap-2">

@@ -1,3 +1,5 @@
+import { getToken } from './token-store';
+
 const DEFAULT_API_URL = 'http://127.0.0.1:3001';
 const CLOUD_DEFAULT = 'https://openlinear.tech';
 const TAURI_SIDECAR_URL_KEY = 'openlinear:tauri-sidecar-url';
@@ -8,11 +10,7 @@ let cachedSidecarUrl: string | null = null;
 let listenerInstalled = false;
 
 function isDesktopRuntime(): boolean {
-  return isElectronRuntime() || isTauriRuntime();
-}
-
-function isElectronRuntime(): boolean {
-  return typeof window !== 'undefined' && 'electronAPI' in window && window.electronAPI?.isElectron === true;
+  return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 }
 
 function isTauriRuntime(): boolean {
@@ -49,12 +47,6 @@ function clearCachedSidecarUrl() {
 }
 
 async function readSidecarPort(command: 'get_api_server_port' | 'start_api_server'): Promise<number | null> {
-  if (isElectronRuntime()) {
-    const api = window.electronAPI;
-    if (!api) return null;
-    const result = await api.invoke(command).catch(() => null);
-    return typeof result === 'number' ? result : null;
-  }
   const { invoke } = await import('@tauri-apps/api/core');
   return invoke<number | null>(command).catch(() => null);
 }
@@ -93,26 +85,15 @@ async function ensureSidecarListener() {
   if (!isDesktopRuntime()) return;
   listenerInstalled = true;
   try {
-    if (isElectronRuntime()) {
-      const api = window.electronAPI;
-      if (api) {
-        api.onSidecarReady((event) => {
-          if (event?.api_url) {
-            persistSidecarUrl(event.api_url);
-          }
-        });
-      }
-    } else {
-      const { listen } = await import('@tauri-apps/api/event');
-      await listen<{ port: number; api_url: string; health_url: string }>(
-        'sidecar:ready',
-        (event) => {
-          if (event.payload?.api_url) {
-            persistSidecarUrl(event.payload.api_url);
-          }
-        },
-      );
-    }
+    const { listen } = await import('@tauri-apps/api/event');
+    await listen<{ port: number; api_url: string; health_url: string }>(
+      'sidecar:ready',
+      (event) => {
+        if (event.payload?.api_url) {
+          persistSidecarUrl(event.payload.api_url);
+        }
+      },
+    );
 
     const port = await readSidecarPort('get_api_server_port');
     if (port) {
@@ -214,17 +195,17 @@ export function getAuthHeader(): HeadersInit {
 }
 
 /**
- * Returns the current JWT token (or null). Single point of truth for token reads.
+ * Returns the current JWT token (or null).
+ *
+ * This delegates to `lib/api/token-store.ts`, the actual single point of
+ * truth for token reads/writes (localStorage on web, @tauri-apps/plugin-store
+ * on desktop) — re-exported here since most of `lib/api/*` already imports
+ * from `./client`.
  *
  * Use this for callsites that cannot use `apiFetch` directly — currently:
  * native EventSource (cannot set Authorization headers, must pass token via URL).
  * Do NOT use elsewhere; prefer `apiFetch` from `lib/api/fetch.ts`.
  */
 export function getAuthToken(): string | null {
-  if (typeof window === 'undefined') return null;
-  try {
-    return window.localStorage.getItem('token');
-  } catch {
-    return null;
-  }
+  return getToken();
 }

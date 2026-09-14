@@ -12,7 +12,6 @@ import {
   Pencil,
   Settings,
   FolderKanban,
-  ListTodo,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { buttonVariants } from "@/components/ui/button"
@@ -23,13 +22,9 @@ import {
   SettingsSection,
 } from "@/components/settings/settings-layout"
 import {
-  PRIORITY_COLORS,
   PROJECT_STATUS_COLORS,
-  STATUS_COLORS,
   TEAM_ROLE_COLORS,
   type ColorTriad,
-  type PriorityKey,
-  type StatusKey,
 } from "@/lib/design-tokens"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -78,23 +73,7 @@ const roleIcons = {
   member: User,
 }
 
-const taskStatusColorKeys: Record<string, StatusKey> = {
-  backlog: "todo",
-  completed: "done",
-  done: "done",
-  in_progress: "in_progress",
-  todo: "todo",
-}
-
 const getBadgeColorClasses = (colors: ColorTriad) => cn(colors.text, "bg-transparent border-linear-border")
-
-interface Task {
-  id: string
-  title: string
-  status: string
-  priority: string
-  identifier: string | null
-}
 
 export default function TeamDetailPage() {
   return (
@@ -117,8 +96,6 @@ function TeamDetailPageContent() {
   const [teamColor, setTeamColor] = useState("#10b981")
   const [isSavingTeam, setIsSavingTeam] = useState(false)
   const [copiedInviteCode, setCopiedInviteCode] = useState(false)
-  const [tasks, setTasks] = useState<Task[]>([])
-  const [isLoadingTasks, setIsLoadingTasks] = useState(false)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
   const [removeMemberId, setRemoveMemberId] = useState<string | null>(null)
@@ -140,33 +117,13 @@ function TeamDetailPageContent() {
     }
   }, [teamId])
 
-  const loadTasks = useCallback(async () => {
-    if (!teamId) return
-    try {
-      setIsLoadingTasks(true)
-      const data = await apiFetch<{ items: Task[] } | Task[]>(`/api/tasks?teamId=${teamId}`)
-      setTasks(Array.isArray(data) ? data : data.items)
-    } catch (error) {
-      console.error("Failed to fetch tasks:", error)
-      if (!(error instanceof ApiError && error.status === 401)) {
-        toast.error(error instanceof Error ? error.message : 'Failed to fetch tasks')
-      }
-    } finally {
-      setIsLoadingTasks(false)
-    }
-  }, [teamId])
-
   useEffect(() => {
     loadTeam()
-    loadTasks()
-  }, [loadTeam, loadTasks])
+  }, [loadTeam])
 
   useSSESubscription((eventType) => {
     if (['team:created', 'team:updated', 'team:deleted'].includes(eventType)) {
       loadTeam()
-    }
-    if (['task:created', 'task:updated', 'task:deleted'].includes(eventType)) {
-      loadTasks()
     }
   })
 
@@ -253,15 +210,6 @@ function TeamDetailPageContent() {
       .join('')
       .toUpperCase()
       .slice(0, 2)
-  }
-
-  const getPriorityColor = (priority: string) => {
-    const key = priority.toLowerCase() as PriorityKey
-    return getBadgeColorClasses(PRIORITY_COLORS[key] ?? PRIORITY_COLORS.low)
-  }
-
-  const getStatusColor = (status: string) => {
-    return getBadgeColorClasses(STATUS_COLORS[taskStatusColorKeys[status.toLowerCase()] ?? "todo"])
   }
 
   const getProjectStatusColor = (status: string) => {
@@ -498,68 +446,6 @@ function TeamDetailPageContent() {
                   <p className="text-xs text-linear-text-tertiary">Add members to collaborate on issues</p>
                 </div>
               )}
-        </SettingsSection>
-
-        <SettingsSection
-          title="Issues"
-          description={`${tasks.length} ${tasks.length === 1 ? "issue" : "issues"} currently attached to this team`}
-          icon={<ListTodo className="h-4 w-4" />}
-        >
-              <SettingsPanel className="overflow-hidden">
-                {isLoadingTasks ? (
-                  <div className="py-8 text-center text-linear-text-tertiary">Loading issues...</div>
-                ) : tasks.length > 0 ? (
-                  <table className="w-full">
-                    <thead>
-                      <tr className="border-b border-linear-border bg-linear-bg-tertiary/50">
-                        <th className="text-left py-2 px-4 text-xs font-medium text-linear-text-tertiary uppercase tracking-wider">
-                          Title
-                        </th>
-                        <th className="text-left py-2 px-4 text-xs font-medium text-linear-text-tertiary uppercase tracking-wider w-[120px]">
-                          Status
-                        </th>
-                        <th className="text-left py-2 px-4 text-xs font-medium text-linear-text-tertiary uppercase tracking-wider w-[120px]">
-                          Priority
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {tasks.map((task) => (
-                        <tr
-                          key={task.id}
-                          className="border-b border-linear-border/50 hover:bg-linear-bg-tertiary/30 transition-colors cursor-pointer"
-                          onClick={() => router.push(`/?teamId=${teamId}`)}
-                        >
-                          <td className="py-3 px-4">
-                            <div className="flex items-center gap-2">
-                              {task.identifier && (
-                                <span className="text-xs font-mono text-linear-text-tertiary">{task.identifier}</span>
-                              )}
-                              <span className="text-sm text-linear-text truncate">{task.title}</span>
-                            </div>
-                          </td>
-                          <td className="py-3 px-4">
-                            <Badge variant="outline" className={cn(getStatusColor(task.status), "text-xs capitalize whitespace-nowrap")}>
-                              {task.status.replace('_', ' ')}
-                            </Badge>
-                          </td>
-                          <td className="py-3 px-4">
-                            <Badge variant="outline" className={cn(getPriorityColor(task.priority), "text-xs capitalize whitespace-nowrap")}>
-                              {task.priority}
-                            </Badge>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                ) : (
-                  <div className="text-center py-8">
-                    <ListTodo className="w-8 h-8 text-linear-text-tertiary mx-auto mb-2" />
-                    <p className="text-sm text-linear-text-secondary">No issues yet</p>
-                    <p className="text-xs text-linear-text-tertiary">Issues assigned to this team will appear here</p>
-                  </div>
-                )}
-              </SettingsPanel>
         </SettingsSection>
 
         <SettingsSection

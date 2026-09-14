@@ -129,7 +129,7 @@ export function ModelSelector() {
 
           <SelectContent
             className={cn(
-              "bg-[#1a1a1a] border-[#2a2a2a] min-w-[280px] max-h-[400px]",
+              "bg-linear-bg-secondary border-linear-border min-w-[280px] max-h-[400px]",
               "shadow-elevation rounded-lg p-0 overflow-hidden",
               "data-[state=open]:animate-in data-[state=closed]:animate-out",
               "data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
@@ -140,7 +140,7 @@ export function ModelSelector() {
             position="popper"
             sideOffset={4}
           >
-            <div className="px-3 py-2 border-b border-[#2a2a2a]">
+            <div className="px-3 py-2 border-b border-linear-border">
               <div className="flex items-center gap-2">
                 <Sparkles className="w-3.5 h-3.5 text-linear-accent" />
                 <span className="text-[10px] uppercase tracking-[0.16em] text-linear-text-tertiary font-semibold">
@@ -162,7 +162,7 @@ export function ModelSelector() {
               ) : modelsList.map((provider, providerIndex) => (
                 <div key={provider.id}>
                   {providerIndex > 0 && (
-                    <SelectSeparator className="bg-[#2a2a2a] my-1" />
+                    <SelectSeparator className="bg-linear-border my-1" />
                   )}
 
                   <div className="px-3 py-1.5">
@@ -183,9 +183,9 @@ export function ModelSelector() {
                           "relative flex items-center gap-2 px-3 py-2 mx-1 rounded-md",
                           "text-[13px] text-linear-text cursor-pointer",
                           "transition-colors duration-150 ease-out",
-                          "focus:bg-[#252525] focus:text-linear-text",
-                          "data-[highlighted]:bg-[#252525] data-[highlighted]:text-linear-text",
-                          "hover:bg-[#252525]",
+                          "focus:bg-linear-bg-tertiary focus:text-linear-text",
+                          "data-[highlighted]:bg-linear-bg-tertiary data-[highlighted]:text-linear-text",
+                          "hover:bg-linear-bg-tertiary",
                           "outline-none select-none"
                         )}
                       >
@@ -220,7 +220,7 @@ export function ModelSelector() {
               ))}
             </div>
 
-            <div className="px-3 py-2 border-t border-[#2a2a2a] flex justify-center">
+            <div className="px-3 py-2 border-t border-linear-border flex justify-center">
               <ChevronDown className="w-3.5 h-3.5 text-linear-text-tertiary opacity-60" />
             </div>
           </SelectContent>

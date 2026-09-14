@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback, ReactNode, Suspense } from "react"
 import { Sidebar } from "./sidebar"
+import { BrainstormDrawer } from "@/components/brainstorm/brainstorm-drawer"
 
 const MIN_WIDTH = 200
 const MAX_WIDTH = 400
@@ -44,6 +45,12 @@ export function AppShell({ children }: AppShellProps) {
         setSidebarOpen(true)
         setSidebarWidth(readStoredNumber(STORAGE_KEY_WIDTH, DEFAULT_WIDTH))
         setMounted(true)
+    }, [])
+
+    useEffect(() => {
+        const handleToggle = () => setSidebarOpen(v => !v)
+        window.addEventListener("openlinear:toggle-sidebar", handleToggle)
+        return () => window.removeEventListener("openlinear:toggle-sidebar", handleToggle)
     }, [])
 
     /* Track mobile breakpoint */
@@ -175,6 +182,8 @@ export function AppShell({ children }: AppShellProps) {
             >
                 {children}
             </div>
+
+            <BrainstormDrawer />
 
             {/* Floating sidebar toggle */}
             <button

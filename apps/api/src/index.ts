@@ -3,18 +3,25 @@ import { resolve } from 'path';
 
 config({ path: resolve(import.meta.dirname, '../../../.env') });
 
+import { startTelemetry } from '@openlinear/telemetry';
 import { prisma } from '@openlinear/db';
 import { createApp } from './app';
 import { validateStartupEnv } from './env';
 import { logger } from './logger';
+import { startRealtime, stopOutboxRelay } from './events/relay';
+import { stopEventBus } from './events/bus';
 
 validateStartupEnv();
+startTelemetry();
 
 const app = createApp();
 const PORT = Number(process.env.API_PORT ?? 3001);
 
 const server = app.listen(PORT, () => {
   logger.info({ port: PORT }, '[API] server listening');
+  void startRealtime().catch((err) => {
+    logger.error({ err }, '[API] failed to start realtime fan-out');
+  });
 });
 
 let shuttingDown = false;
@@ -35,6 +42,8 @@ function shutdown(signal: NodeJS.Signals) {
       logger.error({ err }, '[API] server.close error');
     }
     try {
+      stopOutboxRelay();
+      await stopEventBus();
       await prisma.$disconnect();
       logger.info('[API] prisma disconnected');
     } catch (disconnectErr) {

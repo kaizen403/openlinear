@@ -6,10 +6,11 @@
     "build:app": "./scripts/build-and-test-desktop.sh",
     "dev": "./scripts/dev.sh",
     "dev:web": "./scripts/dev-web.sh",
+    "debug": "./scripts/debug.sh",
     "start": "./scripts/start-prod-preview.sh",
     "dev:live": "./scripts/dev-live.sh",
     "dev-live": "./scripts/dev-live.sh",
-    "lint": "turbo run lint",
+    "lint": "biome check --error-on-warnings apps/api/src/tenancy apps/api/src/events apps/api/src/worker.ts apps/api/src/registry.ts apps/api/src/jobs apps/api/src/modules apps/api/src/storage packages/api-core/src packages/api-client/src packages/telemetry/src apps/api/src/__tests__/tenancy.test.ts apps/api/src/__tests__/events.outbox.test.ts apps/api/src/__tests__/authorization-matrix.test.ts",
     "test": "turbo run test",
     "typecheck": "turbo run typecheck",
     "db:push": "pnpm --filter @openlinear/db db:push",
@@ -18,18 +19,15 @@
     "db:seed": "pnpm --filter @openlinear/api exec tsx ../../packages/db/prisma/seed.ts",
     "db:studio": "pnpm --filter @openlinear/db db:studio",
     "build:sidecar": "./scripts/build-sidecar.sh",
-    "build:desktop": "pnpm --filter @openlinear/desktop tauri build",
-    "build:electron": "pnpm --filter @openlinear/desktop-ui build:electron && pnpm --filter @openlinear/desktop-electron build:app",
-    "build:electron:linux": "pnpm --filter @openlinear/desktop-ui build:electron && pnpm --filter @openlinear/desktop-electron build:app:linux",
-    "dev:electron": "pnpm --filter @openlinear/desktop-electron dev",
-    "start:electron": "pnpm --filter @openlinear/desktop-ui build:electron && pnpm --filter @openlinear/desktop-electron start"
+    "build:desktop": "pnpm --filter @openlinear/desktop tauri build"
   },
   "devDependencies": {
-    "@opencode-ai/sdk": "^1.2.5",
+    "@opencode-ai/sdk": "^1.18.23",
     "png-to-ico": "^3.0.1",
     "sharp": "^0.34.5",
     "turbo": "^2.8.9",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "@biomejs/biome": "^2.2.0"
   },
   "packageManager": "pnpm@9.0.0"
 }

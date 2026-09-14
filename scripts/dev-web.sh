@@ -37,7 +37,9 @@ pnpm db:seed
 
 # Acknowledge OpenCode's single-tenant model so the sidecar boots against
 # multi-user databases (shared dev DB, Neon). See docs/limitations.md.
-export OPENLINEAR_ALLOW_SHARED_OPENCODE="${OPENLINEAR_ALLOW_SHARED_OPENCODE:-1}"
+# OpenCode is single-tenant. Do not default this to 1; set it explicitly
+# if this machine's database has more than one user.
+# export OPENLINEAR_ALLOW_SHARED_OPENCODE=1
 
 # Honor SIDECAR=0 to start the CRUD-only API instead (faster boot, no execution).
 # Default is execution-capable mode so the kanban board's Execute/Parallel/Queue work.

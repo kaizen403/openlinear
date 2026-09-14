@@ -163,7 +163,7 @@ export default function MyIssuesPage() {
         <div className="flex-1 h-full" data-tauri-drag-region />
       </header>
 
-      <div className="flex-1 overflow-y-auto bg-linear-bg">
+      <div className="flex-1 min-h-0 overflow-y-auto bg-linear-bg">
         {loading ? (
           <div>
             {Array.from({ length: 2 }).map((_, gi) => (

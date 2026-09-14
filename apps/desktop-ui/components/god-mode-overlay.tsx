@@ -1,34 +1,36 @@
 "use client"
 
 import { useState, useRef, useCallback, useEffect } from "react"
+import { usePathname } from "next/navigation"
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion"
 import {
   Plus,
-  Globe,
   Mic,
   ArrowUp,
   Brain,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { checkBrainstormAvailability, transcribeAudio } from "@/lib/api/brainstorm"
+import { transcribeChatAudio } from "@/lib/api/chat"
 import { isWhisperHallucination } from "@/lib/audio-utils"
+import { useChatPanelHandoff } from "@/hooks/use-chat-panel-handoff"
 
 type OverlayState = "idle" | "pill"
 
 const SPRING = { type: "spring" as const, stiffness: 300, damping: 30 }
 
 export function GodModeOverlay() {
+  const pathname = usePathname()
+  const isHomePage = pathname === "/" || pathname === ""
   const [state, setState] = useState<OverlayState>("idle")
   const [query, setQuery] = useState("")
-  const [webSearchEnabled, setWebSearchEnabled] = useState(false)
   const [isRecording, setIsRecording] = useState(false)
   const [micSupported, setMicSupported] = useState(true)
-  const [webSearchAvailable, setWebSearchAvailable] = useState(false)
   const reduceMotion = useReducedMotion()
   const inputRef = useRef<HTMLInputElement>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioChunksRef = useRef<Blob[]>([])
   const recordingStartRef = useRef<number>(0)
+  const { queueQuery } = useChatPanelHandoff()
 
   const showPill = state === "pill"
 
@@ -41,9 +43,6 @@ export function GodModeOverlay() {
 
   useEffect(() => {
     setMicSupported(!!navigator.mediaDevices?.getUserMedia)
-    checkBrainstormAvailability()
-      .then((res) => setWebSearchAvailable(res.webSearchAvailable ?? false))
-      .catch(() => setWebSearchAvailable(false))
   }, [])
 
   useEffect(() => {
@@ -51,7 +50,7 @@ export function GodModeOverlay() {
       if (e.key === "Escape") {
         setState("idle")
         setQuery("")
-        setWebSearchEnabled(false)
+        /* webSearchEnabled removed */
         return
       }
 
@@ -64,7 +63,7 @@ export function GodModeOverlay() {
         setState((prev) => (prev === "idle" ? "pill" : "idle"))
         if (state !== "idle") {
           setQuery("")
-          setWebSearchEnabled(false)
+          /* webSearchEnabled removed */
         }
       }
     }
@@ -77,7 +76,7 @@ export function GodModeOverlay() {
     setState((prev) => {
       if (prev === "idle") return "pill"
       setQuery("")
-      setWebSearchEnabled(false)
+      /* webSearchEnabled removed */
       return "idle"
     })
   }, [])
@@ -86,14 +85,12 @@ export function GodModeOverlay() {
     const trimmed = query.trim()
     if (!trimmed) return
 
-    window.dispatchEvent(
-      new CustomEvent("brainstorm-query", { detail: { query: trimmed, webSearch: webSearchEnabled, mode: 'basic' } })
-    )
+    queueQuery(trimmed)
 
     setState("idle")
     setQuery("")
-    setWebSearchEnabled(false)
-  }, [query, webSearchEnabled])
+    /* webSearchEnabled removed */
+  }, [query, queueQuery])
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -104,6 +101,8 @@ export function GodModeOverlay() {
     },
     [handleSubmit]
   )
+
+  if (isHomePage) return null
 
   return (
     <div className="fixed inset-0 z-50 pointer-events-none">
@@ -170,20 +169,6 @@ export function GodModeOverlay() {
                 Brainstorm
               </span>
 
-              {webSearchAvailable && (
-                <button
-                  onClick={() => setWebSearchEnabled((prev) => !prev)}
-                  className={cn(
-                    "flex h-6 w-6 items-center justify-center rounded-sm transition-colors",
-                    webSearchEnabled
-                      ? "text-linear-accent bg-linear-accent/10"
-                      : "text-linear-text-tertiary hover:text-linear-text-secondary hover:bg-linear-bg-tertiary"
-                  )}
-                >
-                  <Globe className="h-3.5 w-3.5" />
-                </button>
-              )}
-
               <button
                 onClick={async () => {
                   if (!micSupported) return
@@ -213,7 +198,7 @@ export function GodModeOverlay() {
                           return
                         }
                         try {
-                          const result = await transcribeAudio(blob)
+                          const result = await transcribeChatAudio(blob)
                           const text = result.text?.trim()
                           if (text && !isWhisperHallucination(text)) {
                             setQuery(text)

@@ -2,9 +2,8 @@
 
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
-import { X, Loader2, ChevronDown, ChevronUp, Check, AlertCircle, SkipForward, Ban, Clock, ExternalLink, GitPullRequest, ArrowRight } from "lucide-react"
+import { X, Loader2, ChevronDown, ChevronUp, Check, AlertCircle, SkipForward, Ban, Clock, ExternalLink, GitPullRequest, ArrowRight, Eye } from "lucide-react"
 import { cn, openExternal } from "@/lib/utils"
-import { BATCH_STATUS_COLORS } from "@/lib/design-tokens"
 import { useExecutionLogs, useExecutionProgress } from "@/lib/execution-state-store"
 import { formatBatchExecutionMode, getBatchActivityId } from "./batch-mode"
 
@@ -26,21 +25,23 @@ interface BatchProgressProps {
   onApproveNext?: (batchId: string) => void
 }
 
-const statusConfig: Record<string, { color: string; bg: string; icon: typeof Check; label: string; dot?: string }> = {
-  queued: { color: BATCH_STATUS_COLORS.queued.text, bg: BATCH_STATUS_COLORS.queued.bg, icon: Clock, label: 'Queued' },
-  running: { color: BATCH_STATUS_COLORS.running.text, bg: BATCH_STATUS_COLORS.running.bg, icon: Loader2, label: 'Running' },
-  completed: { color: BATCH_STATUS_COLORS.completed.text, bg: BATCH_STATUS_COLORS.completed.bg, icon: Check, label: 'Done', dot: BATCH_STATUS_COLORS.completed.dot },
-  failed: { color: BATCH_STATUS_COLORS.failed.text, bg: BATCH_STATUS_COLORS.failed.bg, icon: AlertCircle, label: 'Failed', dot: BATCH_STATUS_COLORS.failed.dot },
-  skipped: { color: BATCH_STATUS_COLORS.skipped.text, bg: BATCH_STATUS_COLORS.skipped.bg, icon: SkipForward, label: 'Skipped' },
-  cancelled: { color: BATCH_STATUS_COLORS.cancelled.text, bg: BATCH_STATUS_COLORS.cancelled.bg, icon: Ban, label: 'Cancelled' },
+const statusConfig: Record<string, { color: string; bg: string; bar: string; icon: typeof Check; label: string }> = {
+  queued: { color: 'text-linear-text-tertiary', bg: 'bg-linear-bg-tertiary', bar: 'bg-[#252525]', icon: Clock, label: 'Queued' },
+  running: { color: 'text-linear-accent', bg: 'bg-linear-accent/10', bar: 'bg-[#064e3b]', icon: Loader2, label: 'Running' },
+  completed: { color: 'text-green-400', bg: 'bg-green-500/10', bar: 'bg-[#14532d]', icon: Check, label: 'Done' },
+  failed: { color: 'text-red-400', bg: 'bg-red-500/10', bar: 'bg-[#7f1d1d]', icon: AlertCircle, label: 'Failed' },
+  skipped: { color: 'text-amber-400', bg: 'bg-amber-500/10', bar: 'bg-[#451a03]', icon: SkipForward, label: 'Skipped' },
+  cancelled: { color: 'text-linear-text-tertiary', bg: 'bg-linear-bg-tertiary', bar: 'bg-[#333]', icon: Ban, label: 'Cancelled' },
 }
 
 function BatchTaskActivityPreview({
   task,
   prefix,
+  onViewActivity,
 }: {
   task: BatchProgressTask
   prefix?: string
+  onViewActivity?: (taskId: string) => void
 }) {
   const progress = useExecutionProgress(task.taskId)
   const message = progress?.message || (task.status === 'running' ? 'Agent session is starting' : null)
@@ -48,11 +49,24 @@ function BatchTaskActivityPreview({
   if (!message) return null
 
   return (
-    <div className="flex items-center gap-2 text-xs text-linear-text-secondary min-w-0">
-      <span className="shrink-0 text-linear-text-tertiary">{prefix}</span>
-      <span className="truncate text-linear-text-tertiary">{task.title}</span>
-      <span className="text-linear-text-tertiary">/</span>
-      <span className="truncate">{message}</span>
+    <div className="flex items-center gap-2 text-xs min-w-0 group">
+      <span className="shrink-0 text-[10px] uppercase tracking-wider text-linear-text-tertiary w-16">
+        {prefix}
+      </span>
+      <div className="flex-1 min-w-0 flex items-center gap-2">
+        <span className="truncate text-linear-text-tertiary">{task.title}</span>
+        <span className="text-linear-text-tertiary/50">/</span>
+        <span className="truncate text-linear-text-secondary">{message}</span>
+      </div>
+      {onViewActivity && (
+        <button
+          onClick={() => onViewActivity(task.taskId)}
+          className="shrink-0 inline-flex items-center gap-1 text-[10px] text-linear-text-tertiary hover:text-linear-accent transition-colors opacity-0 group-hover:opacity-100"
+        >
+          <Eye className="w-3 h-3" />
+          View
+        </button>
+      )}
     </div>
   )
 }
@@ -81,7 +95,7 @@ function BatchTaskRow({
         : `Issue ${index + 1}`
 
   return (
-    <div className="bg-linear-bg-secondary border border-linear-border rounded-sm p-3">
+    <div className="bg-[#161616] border border-[#2a2a2a] rounded-sm p-3">
       <div className="flex items-center gap-3">
         <span className="w-12 shrink-0 text-[10px] uppercase tracking-wider text-linear-text-tertiary">
           {stepLabel}
@@ -94,8 +108,9 @@ function BatchTaskRow({
         {mode !== 'combined' && (
           <button
             onClick={() => onViewActivity?.(task.taskId)}
-            className="text-sm text-linear-text-tertiary hover:text-linear-accent flex-shrink-0"
+            className="text-sm text-linear-text-tertiary hover:text-linear-accent flex-shrink-0 inline-flex items-center gap-1 transition-colors"
           >
+            <Eye className="w-3.5 h-3.5" />
             View activity
           </button>
         )}
@@ -138,8 +153,6 @@ export function BatchProgress({ batchId, status, mode, tasks, prUrl, onCancel, o
     if (isCombined) return `${modeLabel}: ${total} issue${total === 1 ? '' : 's'} together`
     return `${modeLabel}: ${completed}/${total} complete`
   })()
-  // Queue mode without auto-approve: when nothing is running but tasks are
-  // still queued, the batch is waiting for the user to release the next task.
   const showApproveNext = !!onApproveNext
     && mode === 'queue'
     && status === 'running'
@@ -147,11 +160,12 @@ export function BatchProgress({ batchId, status, mode, tasks, prUrl, onCancel, o
     && queued > 0
 
   return (
-    <div className="mx-3 sm:mx-6 mt-4 mb-3 bg-linear-bg-secondary border border-linear-border rounded-sm">
-      <div className="p-3 bg-gradient-to-b from-linear-bg-secondary to-linear-bg-secondary">
-        <div className="flex items-center justify-between mb-2">
+    <div className="mx-3 sm:mx-6 mt-4 mb-3 bg-[#141414] border border-[#252525] rounded-sm">
+      <div className="p-3">
+        {/* Header row */}
+        <div className="flex items-center justify-between mb-2.5">
           <button
-            className="flex items-center gap-2 hover:opacity-80"
+            className="flex items-center gap-2 hover:opacity-80 transition-opacity"
             onClick={() => setExpanded(!expanded)}
           >
             {isRunning ? (
@@ -160,15 +174,15 @@ export function BatchProgress({ batchId, status, mode, tasks, prUrl, onCancel, o
               <div
                 className={cn(
                   "w-2 h-2 rounded-full",
-                  status === 'completed' ? statusConfig.completed.dot
-                    : status === 'failed' ? statusConfig.failed.dot
-                    : 'bg-linear-border-hover'
+                  status === 'completed' ? 'bg-green-500'
+                    : status === 'failed' ? 'bg-red-500'
+                    : 'bg-[#333]'
                 )}
               />
             )}
-            <span className="text-sm text-linear-text">
+            <span className="text-sm text-linear-text font-medium">
               {headerText}
-              {failed > 0 && <span className={cn("ml-1", BATCH_STATUS_COLORS.failed.text)}>({failed} failed)</span>}
+              {failed > 0 && <span className="ml-1.5 text-red-400">({failed} failed)</span>}
             </span>
             {expanded ? (
               <ChevronUp className="w-3.5 h-3.5 text-linear-text-tertiary" />
@@ -176,130 +190,137 @@ export function BatchProgress({ batchId, status, mode, tasks, prUrl, onCancel, o
               <ChevronDown className="w-3.5 h-3.5 text-linear-text-tertiary" />
             )}
           </button>
-          {!isStarting && isRunning && (
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => { setCancelling(true); onCancel(batchId) }}
-              disabled={cancelling}
-              className="h-7 text-xs text-linear-text-tertiary hover:text-red-400"
-            >
-              {cancelling ? (
-                <>
-                  <Loader2 className="w-3 h-3 animate-spin mr-1" />
-                  Cancelling
-                </>
-              ) : (
-                <>
-                  <X className="w-3 h-3 mr-1" />
-                  Cancel
-                </>
-              )}
-            </Button>
-          )}
-          {showApproveNext && (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={async () => {
-                setApproving(true)
-                try {
-                  await onApproveNext!(batchId)
-                } finally {
-                  setApproving(false)
-                }
-              }}
-              disabled={approving}
-              className="h-7 text-xs border-linear-accent/40 text-linear-accent hover:bg-linear-accent/10 gap-1"
-            >
-              {approving ? (
-                <Loader2 className="w-3 h-3 animate-spin" />
-              ) : (
-                <ArrowRight className="w-3 h-3" />
-              )}
-              Approve next
-            </Button>
-          )}
-          {prUrl && !isRunning && (
-            <div className="flex items-center gap-1">
+
+          <div className="flex items-center gap-1">
+            {!isStarting && isRunning && (
               <Button
                 size="sm"
                 variant="ghost"
-                onClick={() => openExternal(prUrl)}
-                className="h-7 text-xs text-linear-accent hover:text-linear-accent-hover gap-1.5"
+                onClick={() => { setCancelling(true); onCancel(batchId) }}
+                disabled={cancelling}
+                className="h-7 text-xs text-linear-text-tertiary hover:text-red-400"
               >
-                <GitPullRequest className="w-3.5 h-3.5" />
-                Open PR
-                <ExternalLink className="w-3 h-3" />
+                {cancelling ? (
+                  <>
+                    <Loader2 className="w-3 h-3 animate-spin mr-1" />
+                    Cancelling
+                  </>
+                ) : (
+                  <>
+                    <X className="w-3 h-3 mr-1" />
+                    Cancel
+                  </>
+                )}
               </Button>
-              {onDismiss && (
+            )}
+            {showApproveNext && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={async () => {
+                  setApproving(true)
+                  try {
+                    await onApproveNext!(batchId)
+                  } finally {
+                    setApproving(false)
+                  }
+                }}
+                disabled={approving}
+                className="h-7 text-xs border-[#2a2a2a] text-linear-text hover:bg-[#1f1f1f] hover:border-[#333] gap-1"
+              >
+                {approving ? (
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                ) : (
+                  <ArrowRight className="w-3 h-3" />
+                )}
+                Approve next
+              </Button>
+            )}
+            {prUrl && !isRunning && (
+              <div className="flex items-center gap-1">
                 <Button
                   size="sm"
                   variant="ghost"
-                  onClick={onDismiss}
-                  className="h-7 w-7 p-0 text-linear-text-tertiary hover:text-linear-text"
+                  onClick={() => openExternal(prUrl)}
+                  className="h-7 text-xs text-linear-accent hover:text-linear-accent-hover gap-1.5"
                 >
-                  <X className="w-3 h-3" />
+                  <GitPullRequest className="w-3.5 h-3.5" />
+                  Open PR
+                  <ExternalLink className="w-3 h-3" />
                 </Button>
-              )}
-            </div>
-          )}
-          {!isRunning && !prUrl && onDismiss && (
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={onDismiss}
-              className="h-7 w-7 p-0 text-linear-text-tertiary hover:text-linear-text"
-            >
-              <X className="w-3 h-3" />
-            </Button>
-          )}
+                {onDismiss && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={onDismiss}
+                    className="h-7 w-7 p-0 text-linear-text-tertiary hover:text-linear-text"
+                  >
+                    <X className="w-3 h-3" />
+                  </Button>
+                )}
+              </div>
+            )}
+            {!isRunning && !prUrl && onDismiss && (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={onDismiss}
+                className="h-7 w-7 p-0 text-linear-text-tertiary hover:text-linear-text"
+              >
+                <X className="w-3 h-3" />
+              </Button>
+            )}
+          </div>
         </div>
 
-        <div className="flex gap-0.5">
+        {/* Progress bar */}
+        <div className="flex gap-0.5 h-1.5">
           {tasks.map(task => {
             const cfg = statusConfig[task.status] || statusConfig.queued
             return (
               <div
                 key={task.taskId}
-                className={cn("h-1.5 flex-1 rounded-full", cfg.bg)}
+                className={cn("flex-1 rounded-full first:rounded-l-full last:rounded-r-full transition-colors", cfg.bar)}
               />
             )
           })}
         </div>
 
+        {/* Compact preview rows */}
         {isStarting && (
-          <p className="mt-2 text-xs text-linear-text-secondary">
+          <p className="mt-2.5 text-xs text-linear-text-secondary">
             Preparing the repository and agent session for the selected issues.
           </p>
         )}
 
         {!expanded && isCombined && (
-          <div className="mt-2 text-xs text-linear-text-secondary truncate">
+          <div className="mt-2.5 text-xs text-linear-text-secondary truncate">
             {combinedProgress?.message || latestCombinedLog?.message || 'One agent session is working across all selected issues.'}
           </div>
         )}
 
         {!expanded && mode === 'queue' && currentQueueTask && (
-          <div className="mt-2 space-y-1">
+          <div className="mt-2.5">
             <BatchTaskActivityPreview
               task={currentQueueTask}
               prefix={`Step ${currentQueueIndex + 1}/${total}`}
+              onViewActivity={onViewActivity}
             />
           </div>
         )}
 
         {!expanded && mode === 'parallel' && previewTasks.length > 0 && (
-          <div className="mt-2 space-y-1">
+          <div className="mt-2.5 space-y-1.5">
             {previewTasks.map(task => (
               <BatchTaskActivityPreview
                 key={task.taskId}
                 task={task}
                 prefix={`Lane ${tasks.findIndex(t => t.taskId === task.taskId) + 1}`}
+                onViewActivity={onViewActivity}
               />
             ))}
             {running > previewTasks.length && (
-              <p className="text-xs text-linear-text-tertiary">
+              <p className="text-xs text-linear-text-tertiary pl-[4.5rem]">
                 {running - previewTasks.length} more running issue{running - previewTasks.length === 1 ? '' : 's'}
               </p>
             )}
@@ -307,10 +328,11 @@ export function BatchProgress({ batchId, status, mode, tasks, prUrl, onCancel, o
         )}
       </div>
 
+      {/* Expanded detail view */}
       {expanded && (
-        <div className="border-t border-linear-border px-3 py-2 space-y-2">
+        <div className="border-t border-[#252525] px-3 py-2.5 space-y-2">
           {isCombined && (
-            <div className="rounded-sm border border-linear-border bg-linear-bg-tertiary px-3 py-2 text-xs text-linear-text-secondary">
+            <div className="rounded-sm border border-[#2a2a2a] bg-[#161616] px-3 py-2.5 text-xs text-linear-text-secondary">
               <div className="font-medium text-linear-text-secondary">
                 {combinedProgress?.message || 'Combined activity'}
               </div>

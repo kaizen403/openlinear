@@ -1,4 +1,5 @@
 import { getApiUrl, getSidecarApiUrl, getAuthHeader, getAuthToken } from './client';
+import { getRefreshToken, setRefreshToken, setToken } from './token-store';
 
 /**
  * Server error envelope shape — backend returns `{ error, code?, message?, details? }` on non-2xx.
@@ -60,6 +61,34 @@ export interface ApiFetchInit extends Omit<RequestInit, 'headers'> {
 }
 
 let authExpiredFired = false;
+let refreshInFlight: Promise<boolean> | null = null
+
+async function tryRefreshAccessToken(): Promise<boolean> {
+  const refreshToken = getRefreshToken()
+  if (!refreshToken) return false
+  if (!refreshInFlight) {
+    refreshInFlight = (async () => {
+      try {
+        const res = await fetch(`${getApiUrl()}/api/auth/refresh`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ refreshToken }),
+        })
+        if (!res.ok) return false
+        const body = (await res.json()) as { token?: string; refreshToken?: string }
+        if (!body.token) return false
+        setToken(body.token)
+        if (body.refreshToken) setRefreshToken(body.refreshToken)
+        return true
+      } catch {
+        return false
+      } finally {
+        refreshInFlight = null
+      }
+    })()
+  }
+  return refreshInFlight
+}
 
 function getBearerToken(headers: Headers): string | null {
   const authHeader = headers.get('Authorization');
@@ -76,11 +105,7 @@ function fireAuthExpired(tokenUsedForRequest: string | null) {
       return;
     }
     authExpiredFired = true;
-    try {
-      localStorage.removeItem('token');
-    } catch {
-      // Ignore quota/security errors — best effort
-    }
+    setToken(null);
     window.dispatchEvent(new CustomEvent('auth:expired'));
     // Reset the latch on next tick so subsequent sessions can re-trigger
     window.setTimeout(() => {
@@ -125,6 +150,14 @@ export async function apiFetch<T = unknown>(
         ? `Could not reach OpenLinear server: ${err.message}`
         : 'Could not reach OpenLinear server',
     );
+  }
+
+  if (response.status === 401 && !allowUnauthenticated && path !== '/api/auth/refresh') {
+    const refreshed = await tryRefreshAccessToken();
+    if (refreshed) {
+      const retryHeaders = buildHeaders(customHeaders, body);
+      response = await fetch(url, { ...rest, headers: retryHeaders, body });
+    }
   }
 
   if (response.status === 401 && !allowUnauthenticated) {

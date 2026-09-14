@@ -231,7 +231,7 @@ export default function ArchivedPage() {
           </div>
         </div>
 
-        <div className="flex-1 overflow-auto">
+        <div className="flex-1 min-h-0 overflow-auto">
           {loading ? (
             <div className="divide-y divide-linear-border/50">
               {Array.from({ length: 6 }).map((_, i) => (

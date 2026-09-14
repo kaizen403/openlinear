@@ -1,38 +1,52 @@
 import { existsSync, mkdirSync, rmSync } from 'fs';
+import { logger } from '@openlinear/api/logger';
 import { getGitIdentityEnv } from './git-identity';
-import { execFileAsync } from './execution/exec';
 import { assertPathInsideReposDir, buildReposPath } from './repo-storage';
-import { execGitWithCredentials } from './git-credentials';
+import {
+  assertSafeCloneUrl,
+  assertSafeRefName,
+  execGit,
+  execGitWithCredentials,
+} from './git-credentials';
+import { withRepoLock } from '../workspace/local-worktree';
 
 export async function ensureMainRepo(
   projectId: string,
   cloneUrl: string,
   accessToken: string | null
 ): Promise<string> {
+  assertSafeCloneUrl(cloneUrl, 'clone URL');
+
   const projectDir = buildReposPath(projectId);
   const mainRepoPath = buildReposPath(projectId, '.main');
 
-  try {
-    if (existsSync(mainRepoPath)) {
-      console.log(`[Worktree] Fetching latest for project ${projectId}`);
-      await execGitWithCredentials(['-C', mainRepoPath, 'fetch', 'origin', '--prune'], accessToken, cloneUrl);
-      console.log(`[Worktree] Fetch complete for project ${projectId}`);
-    } else {
-      if (!existsSync(projectDir)) {
-        mkdirSync(projectDir, { recursive: true });
-        console.log(`[Worktree] Created project directory: ${projectDir}`);
+  return withRepoLock(projectId, async () => {
+    try {
+      if (existsSync(mainRepoPath)) {
+        logger.info(`[Worktree] Fetching latest for project ${projectId}`);
+        await execGitWithCredentials(['-C', mainRepoPath, 'fetch', 'origin', '--prune'], accessToken, cloneUrl);
+        logger.info(`[Worktree] Fetch complete for project ${projectId}`);
+      } else {
+        if (!existsSync(projectDir)) {
+          mkdirSync(projectDir, { recursive: true });
+          logger.info(`[Worktree] Created project directory: ${projectDir}`);
+        }
+
+        logger.info(`[Worktree] Creating blobless bare clone for project ${projectId}`);
+        await execGitWithCredentials(
+          ['clone', '--bare', '--filter=blob:none', '--', cloneUrl, mainRepoPath],
+          accessToken,
+          cloneUrl,
+        );
+        logger.info(`[Worktree] Bare clone complete for project ${projectId}`);
       }
 
-      console.log(`[Worktree] Creating bare clone for project ${projectId}`);
-      await execGitWithCredentials(['clone', '--bare', cloneUrl, mainRepoPath], accessToken, cloneUrl);
-      console.log(`[Worktree] Bare clone complete for project ${projectId}`);
+      return mainRepoPath;
+    } catch (error) {
+      logger.error({ err: error, projectId }, `[Worktree] Failed to ensure main repo for project ${projectId}`);
+      throw error;
     }
-
-    return mainRepoPath;
-  } catch (error) {
-    console.error(`[Worktree] Failed to ensure main repo for project ${projectId}:`, error);
-    throw error;
-  }
+  });
 }
 
 async function removeStaleWorktreeForBranch(
@@ -40,7 +54,7 @@ async function removeStaleWorktreeForBranch(
   branchName: string
 ): Promise<void> {
   try {
-    const { stdout: worktreeList } = await execFileAsync('git', [
+    const { stdout: worktreeList } = await execGit([
       '-C',
       mainRepoPath,
       'worktree',
@@ -55,13 +69,13 @@ async function removeStaleWorktreeForBranch(
           if (lines[j] === `branch refs/heads/${branchName}`) {
             let safeWtPath: string;
             try {
-              safeWtPath = assertPathInsideReposDir(wtPath, 'stale worktree path');
+              safeWtPath = assertPathInsideReposDir(wtPath, { description: 'stale worktree path', allowRoot: false });
             } catch (error) {
-              console.error(`[Worktree] Refusing to remove stale worktree outside repo storage: ${wtPath}`, error);
+              logger.error({ err: error, wtPath }, `[Worktree] Refusing to remove stale worktree outside repo storage: ${wtPath}`);
               continue;
             }
-            console.log(`[Worktree] Removing stale worktree at ${safeWtPath} for branch ${branchName}`);
-            await execFileAsync('git', [
+            logger.info(`[Worktree] Removing stale worktree at ${safeWtPath} for branch ${branchName}`);
+            await execGit([
               '-C',
               mainRepoPath,
               'worktree',
@@ -85,9 +99,10 @@ async function deleteBranchIfExists(
   branchName: string
 ): Promise<void> {
   try {
-    await execFileAsync('git', ['-C', mainRepoPath, 'branch', '-D', branchName]);
-    console.log(`[Worktree] Deleted stale branch ${branchName}`);
+    await execGit(['-C', mainRepoPath, 'branch', '-D', branchName]);
+    logger.info(`[Worktree] Deleted stale branch ${branchName}`);
   } catch {
+    // Branch doesn't exist or can't be deleted — expected for fresh repos
   }
 }
 
@@ -97,6 +112,8 @@ export async function createWorktree(
   taskId: string,
   defaultBranch: string
 ): Promise<string> {
+  assertSafeRefName(defaultBranch, 'default branch');
+
   const mainRepoPath = buildReposPath(projectId, '.main');
   const batchDir = buildReposPath(projectId, `batch-${batchId}`);
   const worktreePath = buildReposPath(projectId, `batch-${batchId}`, `task-${taskId}`);
@@ -105,17 +122,19 @@ export async function createWorktree(
   try {
     if (!existsSync(batchDir)) {
       mkdirSync(batchDir, { recursive: true });
-      console.log(`[Worktree] Created batch directory: ${batchDir}`);
+      logger.info(`[Worktree] Created batch directory: ${batchDir}`);
     }
 
-    console.log(`[Worktree] Fetching latest before creating worktree for task ${taskId}`);
-    await execFileAsync('git', ['-C', mainRepoPath, 'fetch', 'origin']);
+    logger.info(`[Worktree] Fetching latest before creating worktree for task ${taskId}`);
+    await execGit(['-C', mainRepoPath, 'fetch', 'origin']);
 
     await removeStaleWorktreeForBranch(mainRepoPath, branchName);
     await deleteBranchIfExists(mainRepoPath, branchName);
 
-    console.log(`[Worktree] Creating worktree for task ${taskId} on branch ${branchName}`);
-    await execFileAsync('git', [
+    logger.info(`[Worktree] Creating worktree for task ${taskId} on branch ${branchName}`);
+    // `--` ends option parsing before `defaultBranch`, the one DB-sourced
+    // positional here — see assertSafeRefName() above for the primary check.
+    await execGit([
       '-C',
       mainRepoPath,
       'worktree',
@@ -123,16 +142,17 @@ export async function createWorktree(
       worktreePath,
       '-b',
       branchName,
+      '--',
       defaultBranch,
     ]);
-    console.log(`[Worktree] Worktree created at ${worktreePath}`);
+    logger.info(`[Worktree] Worktree created at ${worktreePath}`);
 
     return worktreePath;
   } catch (error) {
-    console.error(`[Worktree] Failed to create worktree for task ${taskId}:`, error);
+    logger.error({ err: error, taskId }, `[Worktree] Failed to create worktree for task ${taskId}`);
     if (existsSync(worktreePath)) {
       try {
-        await execFileAsync('git', [
+        await execGit([
           '-C',
           mainRepoPath,
           'worktree',
@@ -154,6 +174,8 @@ export async function createBatchWorktree(
   branchName: string,
   defaultBranch: string
 ): Promise<string> {
+  assertSafeRefName(defaultBranch, 'default branch');
+
   const mainRepoPath = buildReposPath(projectId, '.main');
   const batchDir = buildReposPath(projectId, `batch-${batchId}`);
   const worktreePath = buildReposPath(projectId, `batch-${batchId}`, 'combined');
@@ -161,17 +183,17 @@ export async function createBatchWorktree(
   try {
     if (!existsSync(batchDir)) {
       mkdirSync(batchDir, { recursive: true });
-      console.log(`[Worktree] Created batch directory: ${batchDir}`);
+      logger.info(`[Worktree] Created batch directory: ${batchDir}`);
     }
 
-    console.log(`[Worktree] Fetching latest before creating combined worktree for batch ${batchId}`);
-    await execFileAsync('git', ['-C', mainRepoPath, 'fetch', 'origin']);
+    logger.info(`[Worktree] Fetching latest before creating combined worktree for batch ${batchId}`);
+    await execGit(['-C', mainRepoPath, 'fetch', 'origin']);
 
     await removeStaleWorktreeForBranch(mainRepoPath, branchName);
     await deleteBranchIfExists(mainRepoPath, branchName);
 
-    console.log(`[Worktree] Creating combined worktree for batch ${batchId} on branch ${branchName}`);
-    await execFileAsync('git', [
+    logger.info(`[Worktree] Creating combined worktree for batch ${batchId} on branch ${branchName}`);
+    await execGit([
       '-C',
       mainRepoPath,
       'worktree',
@@ -179,16 +201,17 @@ export async function createBatchWorktree(
       worktreePath,
       '-b',
       branchName,
+      '--',
       defaultBranch,
     ]);
-    console.log(`[Worktree] Combined worktree created at ${worktreePath}`);
+    logger.info(`[Worktree] Combined worktree created at ${worktreePath}`);
 
     return worktreePath;
   } catch (error) {
-    console.error(`[Worktree] Failed to create combined worktree for batch ${batchId}:`, error);
+    logger.error({ err: error, batchId }, `[Worktree] Failed to create combined worktree for batch ${batchId}`);
     if (existsSync(worktreePath)) {
       try {
-        await execFileAsync('git', [
+        await execGit([
           '-C',
           mainRepoPath,
           'worktree',
@@ -209,11 +232,11 @@ export async function removeWorktree(
   worktreePath: string
 ): Promise<void> {
   const mainRepoPath = buildReposPath(projectId, '.main');
-  const safeWorktreePath = assertPathInsideReposDir(worktreePath, 'worktree path');
+  const safeWorktreePath = assertPathInsideReposDir(worktreePath, { description: 'worktree path', allowRoot: false });
 
   try {
-    console.log(`[Worktree] Removing worktree: ${safeWorktreePath}`);
-    await execFileAsync('git', [
+    logger.info(`[Worktree] Removing worktree: ${safeWorktreePath}`);
+    await execGit([
       '-C',
       mainRepoPath,
       'worktree',
@@ -221,14 +244,14 @@ export async function removeWorktree(
       safeWorktreePath,
       '--force',
     ]);
-    console.log(`[Worktree] Worktree removed: ${safeWorktreePath}`);
+    logger.info(`[Worktree] Worktree removed: ${safeWorktreePath}`);
   } catch (error) {
-    console.error(`[Worktree] Failed to remove worktree ${safeWorktreePath}:`, error);
+    logger.error({ err: error }, `[Worktree] Failed to remove worktree ${safeWorktreePath}`);
   }
 
   if (existsSync(safeWorktreePath)) {
     rmSync(safeWorktreePath, { recursive: true, force: true });
-    console.log(`[Worktree] Cleaned up remaining directory: ${safeWorktreePath}`);
+    logger.info(`[Worktree] Cleaned up remaining directory: ${safeWorktreePath}`);
   }
 }
 
@@ -242,7 +265,7 @@ export async function listWorktrees(
   }
 
   try {
-    const { stdout } = await execFileAsync('git', [
+    const { stdout } = await execGit([
       '-C',
       mainRepoPath,
       'worktree',
@@ -259,7 +282,7 @@ export async function listWorktrees(
 
     return paths;
   } catch (error) {
-    console.error(`[Worktree] Failed to list worktrees for project ${projectId}:`, error);
+    logger.error({ err: error, projectId }, `[Worktree] Failed to list worktrees for project ${projectId}`);
     return [];
   }
 }
@@ -271,15 +294,15 @@ export async function cleanupBatch(
   const batchDir = buildReposPath(projectId, `batch-${batchId}`);
 
   try {
-    console.log(`[Worktree] Cleaning up batch ${batchId} for project ${projectId}`);
+    logger.info(`[Worktree] Cleaning up batch ${batchId} for project ${projectId}`);
 
     const worktrees = await listWorktrees(projectId);
     for (const wt of worktrees) {
       let safeWt: string;
       try {
-        safeWt = assertPathInsideReposDir(wt, 'listed worktree path');
+        safeWt = assertPathInsideReposDir(wt, { description: 'listed worktree path', allowRoot: false });
       } catch (error) {
-        console.error(`[Worktree] Skipping cleanup for worktree outside repo storage: ${wt}`, error);
+        logger.error({ err: error, wt }, `[Worktree] Skipping cleanup for worktree outside repo storage: ${wt}`);
         continue;
       }
       if (safeWt === batchDir || safeWt.startsWith(`${batchDir}/`)) {
@@ -289,12 +312,12 @@ export async function cleanupBatch(
 
     if (existsSync(batchDir)) {
       rmSync(batchDir, { recursive: true, force: true });
-      console.log(`[Worktree] Removed batch directory: ${batchDir}`);
+      logger.info(`[Worktree] Removed batch directory: ${batchDir}`);
     }
 
-    console.log(`[Worktree] Batch ${batchId} cleanup complete`);
+    logger.info(`[Worktree] Batch ${batchId} cleanup complete`);
   } catch (error) {
-    console.error(`[Worktree] Failed to clean up batch ${batchId}:`, error);
+    logger.error({ err: error, batchId }, `[Worktree] Failed to clean up batch ${batchId}`);
     if (existsSync(batchDir)) {
       rmSync(batchDir, { recursive: true, force: true });
     }
@@ -307,13 +330,20 @@ export async function mergeBranch(
   targetBranch: string
 ): Promise<boolean> {
   const mainRepoPath = buildReposPath(projectId, '.main');
-  const mergePath = buildReposPath(projectId, 'merge-temp');
+  const mergePath = buildReposPath(projectId, `merge-temp-${taskBranch.replace(/[^A-Za-z0-9._-]+/g, '-')}`);
 
   try {
+    // Validated inside the try/catch (rather than at the top of the
+    // function) so an unsafe ref name is reported the same way every other
+    // failure mode here is: a `false` return, not an unhandled rejection —
+    // this function's whole contract is "boolean success", never throwing.
+    assertSafeRefName(taskBranch, 'task branch');
+    assertSafeRefName(targetBranch, 'target branch');
+
     const env = { ...process.env, ...getGitIdentityEnv() };
     if (existsSync(mergePath)) {
       try {
-        await execFileAsync('git', [
+        await execGit([
           '-C',
           mainRepoPath,
           'worktree',
@@ -326,34 +356,39 @@ export async function mergeBranch(
       }
     }
 
-    console.log(`[Worktree] Creating temp worktree for merge at ${mergePath}`);
-    await execFileAsync('git', [
+    logger.info(`[Worktree] Creating temp worktree for merge at ${mergePath}`);
+    // `--` ends option parsing before `targetBranch`.
+    await execGit([
       '-C',
       mainRepoPath,
       'worktree',
       'add',
       mergePath,
+      '--',
       targetBranch,
     ]);
 
     try {
-      console.log(`[Worktree] Merging ${taskBranch} into ${targetBranch}`);
-      await execFileAsync(
-        'git',
+      logger.info(`[Worktree] Merging ${taskBranch} into ${targetBranch}`);
+      // `-m` (and its value) are placed before `--` so they're still parsed
+      // as the message flag; `--` then ends option parsing before
+      // `taskBranch`, the DB-sourced positional.
+      await execGit(
         [
           '-C',
           mergePath,
           'merge',
           '--no-ff',
-          taskBranch,
           '-m',
           `Merge ${taskBranch}`,
+          '--',
+          taskBranch,
         ],
         { env }
       );
-      console.log(`[Worktree] Merge succeeded: ${taskBranch} → ${targetBranch}`);
+      logger.info(`[Worktree] Merge succeeded: ${taskBranch} → ${targetBranch}`);
 
-      const { stdout: mergeHead } = await execFileAsync('git', [
+      const { stdout: mergeHead } = await execGit([
         '-C',
         mergePath,
         'rev-parse',
@@ -361,7 +396,7 @@ export async function mergeBranch(
       ]);
       const mergeCommit = mergeHead.trim();
 
-      await execFileAsync('git', [
+      await execGit([
         '-C',
         mainRepoPath,
         'worktree',
@@ -372,7 +407,7 @@ export async function mergeBranch(
         if (existsSync(mergePath)) rmSync(mergePath, { recursive: true, force: true });
       });
 
-      await execFileAsync('git', [
+      await execGit([
         '-C',
         mainRepoPath,
         'update-ref',
@@ -382,19 +417,20 @@ export async function mergeBranch(
 
       return true;
     } catch (mergeError) {
-      console.error(`[Worktree] Merge conflict: ${taskBranch} → ${targetBranch}`, mergeError);
+      logger.error({ err: mergeError }, `[Worktree] Merge conflict: ${taskBranch} → ${targetBranch}`);
       try {
-        await execFileAsync('git', ['-C', mergePath, 'merge', '--abort']);
+        await execGit(['-C', mergePath, 'merge', '--abort']);
       } catch {
+        // merge --abort can fail if there's nothing to abort — harmless
       }
       return false;
     }
   } catch (error) {
-    console.error(`[Worktree] Failed to merge ${taskBranch} into ${targetBranch}:`, error);
+    logger.error({ err: error }, `[Worktree] Failed to merge ${taskBranch} into ${targetBranch}`);
     return false;
   } finally {
     try {
-      await execFileAsync('git', [
+      await execGit([
         '-C',
         mainRepoPath,
         'worktree',
@@ -403,6 +439,7 @@ export async function mergeBranch(
         '--force',
       ]);
     } catch {
+      // Final cleanup — if git worktree remove fails, rm the directory directly
       if (existsSync(mergePath)) {
         rmSync(mergePath, { recursive: true, force: true });
       }
@@ -415,12 +452,18 @@ export async function createBatchBranch(
   batchBranch: string,
   defaultBranch: string
 ): Promise<void> {
+  assertSafeRefName(batchBranch, 'batch branch');
+  assertSafeRefName(defaultBranch, 'default branch');
+
   const mainRepoPath = buildReposPath(projectId, '.main');
-  console.log(`[Worktree] Creating batch branch ${batchBranch} from ${defaultBranch}`);
-  await execFileAsync('git', [
+  logger.info(`[Worktree] Creating batch branch ${batchBranch} from ${defaultBranch}`);
+  // `--` ends option parsing before both positionals — see gitrevisions(7)
+  // "Disambiguating" for this exact `git branch -- <name>` idiom.
+  await execGit([
     '-C',
     mainRepoPath,
     'branch',
+    '--',
     batchBranch,
     defaultBranch,
   ]);
@@ -432,12 +475,16 @@ export async function pushBranch(
   cloneUrl: string,
   accessToken: string | null
 ): Promise<void> {
+  assertSafeCloneUrl(cloneUrl, 'clone URL');
+
   const mainRepoPath = buildReposPath(projectId, '.main');
-  console.log(`[Worktree] Pushing ${branchName} to remote`);
+  logger.info(`[Worktree] Pushing ${branchName} to remote`);
+  // `--` ends option parsing before the clone URL — defense in depth on top
+  // of assertSafeCloneUrl() above.
   await execGitWithCredentials(
-    ['-C', mainRepoPath, 'push', '--force-with-lease', cloneUrl, branchName],
+    ['-C', mainRepoPath, 'push', '--force-with-lease', '--', cloneUrl, branchName],
     accessToken,
     cloneUrl,
   );
-  console.log(`[Worktree] Push complete for ${branchName}`);
+  logger.info(`[Worktree] Push complete for ${branchName}`);
 }

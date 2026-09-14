@@ -316,21 +316,36 @@ export const CHAT_DOMAIN_TOOLS: ChatTool[] = [
   },
   {
     name: 'archive_issues',
-    description: 'Archive/delete/remove existing issues from the active project view. In OpenLinear, deleting active issues means archiving them; this is not a permanent purge. Omit ids/identifiers to archive all non-archived issues in the selected project.',
+    description: 'Archive specific issues. In OpenLinear, deleting active issues means archiving them; this is not a permanent purge. You MUST list the exact issues to archive.',
     mutating: true,
     parameters: objectParameters({
       projectId: projectIdProp,
-      issueIds: { type: 'array', items: { type: 'string' }, description: 'Optional issue/task UUIDs. Omit with issueIdentifiers to archive all active issues in the selected project.' },
-      issueIdentifiers: { type: 'array', items: { type: 'string' }, description: 'Optional human issue identifiers such as TEAM1-12. Omit with issueIds to archive all active issues in the selected project.' },
+      issueIds: { type: 'array', items: { type: 'string' }, description: 'Issue/task UUIDs to archive.' },
+      issueIdentifiers: { type: 'array', items: { type: 'string' }, description: 'Human issue identifiers such as TEAM1-12.' },
     }, []),
     handler: async (ctx, args) => {
       const projectId = scopedProjectId(ctx, args);
       if (!projectId) return missing('projectId');
+
+      const taskIds = stringArrayArg(args, 'issueIds');
+      const identifiers = stringArrayArg(args, 'issueIdentifiers');
+
+      // Omitting both used to archive EVERY active issue in the project. With
+      // malformed tool arguments degrading to `{}`, a single mis-parse — or an
+      // injected instruction — emptied a board. Archiving now requires an
+      // explicit list.
+      if (!taskIds?.length && !identifiers?.length) {
+        return fail(
+          'EXPLICIT_IDS_REQUIRED',
+          'Specify which issues to archive via issueIds or issueIdentifiers. Bulk-archiving an entire project from chat is not supported.',
+        );
+      }
+
       return ok('Issues archived', await bulkArchiveTasks({
         userId: ctx.userId,
         projectId,
-        taskIds: stringArrayArg(args, 'issueIds'),
-        identifiers: stringArrayArg(args, 'issueIdentifiers'),
+        taskIds,
+        identifiers,
       }));
     },
   },
@@ -349,15 +364,15 @@ export const CHAT_DOMAIN_TOOLS: ChatTool[] = [
   },
   {
     name: 'bulk_create_issues',
-    description: 'Preview or commit multiple issues. Always preview with dryRun=true before committing brainstormed work.',
+    description: 'Create multiple issues at once. Set dryRun=true only when the user explicitly asks for a preview.',
     mutating: true,
-    parameters: objectParameters({ projectId: projectIdProp, dryRun: { type: 'boolean', default: true }, items: { type: 'array', items: { type: 'object', properties: { title: { type: 'string' }, description: { type: ['string', 'null'] }, priority: { type: 'string', enum: [...priorityValues] }, status: { type: 'string', enum: [...statusValues] }, labelIds: { type: 'array', items: { type: 'string' } }, parentId: { type: 'string' }, dueDate: { type: ['string', 'null'] } }, required: ['title'], additionalProperties: false } } }, ['items']),
+    parameters: objectParameters({ projectId: projectIdProp, dryRun: { type: 'boolean', default: false }, items: { type: 'array', items: { type: 'object', properties: { title: { type: 'string' }, description: { type: ['string', 'null'] }, priority: { type: 'string', enum: [...priorityValues] }, status: { type: 'string', enum: [...statusValues] }, labelIds: { type: 'array', items: { type: 'string' } }, parentId: { type: 'string' }, dueDate: { type: ['string', 'null'] } }, required: ['title'], additionalProperties: false } } }, ['items']),
     handler: async (ctx, args) => {
       const projectId = scopedProjectId(ctx, args);
       if (!projectId) return missing('projectId');
       const items = bulkItems(args);
       if (items.length === 0) return missing('items');
-      return ok(boolArg(args, 'dryRun') === false ? 'Issues created' : 'Issue preview generated', await bulkCreateTasks({ userId: ctx.userId, projectId, dryRun: boolArg(args, 'dryRun') ?? true, tasks: items }));
+      return ok(boolArg(args, 'dryRun') === true ? 'Issue preview generated' : 'Issues created', await bulkCreateTasks({ userId: ctx.userId, projectId, dryRun: boolArg(args, 'dryRun') ?? false, tasks: items }));
     },
   },
   {

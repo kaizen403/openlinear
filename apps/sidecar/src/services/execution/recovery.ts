@@ -1,202 +1,117 @@
-import { prisma } from '@openlinear/db';
+import { decideRecovery, type JournalRun } from '@openlinear/execution-core';
+import type { AgentRunner } from '@openlinear/execution-core';
 import { logger } from '@openlinear/api/logger';
-import { broadcastToTask } from '@openlinear/api/sse';
-
-/**
- * T14 — Execution state recovery on sidecar restart.
- *
- * In-memory `activeExecutions` and `activeBatches` maps die with the process.
- * On boot, find tasks left in `in_progress` whose last AgentRun has no
- * `endedAt` and is older than 1 hour → mark them as `cancelled` (the schema
- * does not have a `failed` Status; cancelled is the closest terminal state)
- * with `outcome='sidecar_restart_orphan'`. Mark the AgentRun row itself as
- * `failed` with `errorMessage='sidecar_restart_orphan'` so analytics reflect
- * the failure mode.
- *
- * Tasks still within the 1h window get a "stuck" warning logged but are left
- * alone (T15 OpenCode reconnect work may rehydrate them later). We never
- * re-execute orphans automatically — that risks duplicate PRs.
- */
-
-const ORPHAN_THRESHOLD_MS = 60 * 60 * 1000; // 1 hour
+import { RunJournal } from '../../journal/sqlite';
+import { hasCommittableChanges } from './git';
+import { getSidecarStore } from '../../persistence/store';
 
 export interface RecoveryResult {
   recovered: number;
   orphaned: number;
+  resumed: number;
+  salvaged: number;
+  failed: number;
 }
 
-export async function recoverInFlightExecutions(): Promise<RecoveryResult> {
-  const result: RecoveryResult = { recovered: 0, orphaned: 0 };
+export interface RecoveryDeps {
+  journal: RunJournal;
+  runner?: AgentRunner | null;
+  now?: number;
+  hasDiff?: (worktreePath: string | null) => Promise<boolean>;
+}
 
-  let inFlight: Array<{
-    id: string;
-    teamId: string | null;
-    creatorId: string | null;
-    updatedAt: Date;
-    agentRuns: Array<{ id: string; startedAt: Date; endedAt: Date | null }>;
-  }>;
+async function defaultHasDiff(worktreePath: string | null): Promise<boolean> {
+  if (!worktreePath) return false;
   try {
-    inFlight = await prisma.task.findMany({
-      where: { status: 'in_progress' },
-      select: {
-        id: true,
-        teamId: true,
-        creatorId: true,
-        updatedAt: true,
-        agentRuns: {
-          orderBy: { startedAt: 'desc' },
-          take: 1,
-          select: { id: true, startedAt: true, endedAt: true },
-        },
-      },
+    return await hasCommittableChanges(worktreePath);
+  } catch {
+    return false;
+  }
+}
+
+async function probeRunner(runner: AgentRunner | null | undefined, externalId: string | null): Promise<{ found: boolean; busy: boolean }> {
+  if (!externalId || !runner) return { found: false, busy: false };
+  try {
+    const session = await runner.resume(externalId, {
+      worktreePath: '',
+      signal: new AbortController().signal,
     });
+    return { found: Boolean(session), busy: true };
   } catch (err) {
-    logger.error({ err }, '[Recovery] failed to query in-flight tasks; skipping recovery');
+    const message = err instanceof Error ? err.message : String(err);
+    if (/\b404\b/.test(message)) return { found: false, busy: false };
+    return { found: false, busy: false };
+  }
+}
+
+export async function recoverInFlightExecutions(deps?: RecoveryDeps): Promise<RecoveryResult> {
+  const result: RecoveryResult = { recovered: 0, orphaned: 0, resumed: 0, salvaged: 0, failed: 0 };
+  const journal = deps?.journal;
+  if (!journal) {
+    logger.info('[Recovery] no journal provided — skipping');
     return result;
   }
 
-  if (inFlight.length === 0) {
-    logger.info('[Recovery] no in-flight tasks to recover');
+  const now = deps?.now ?? Date.now();
+  const runs = journal.listRunning();
+  if (runs.length === 0) {
+    logger.info('[Recovery] no in-flight journal runs');
     return result;
   }
 
-  logger.info({ count: inFlight.length }, '[Recovery] inspecting in-flight tasks');
+  for (const run of runs) {
+    const { found, busy } = await probeRunner(deps?.runner, run.externalSessionId);
+    const hasDiff = await (deps?.hasDiff ?? defaultHasDiff)(run.worktreePath);
+    const action = decideRecovery({
+      status: run.status,
+      heartbeatAt: Number(run.heartbeatAt),
+      now,
+      runnerFound: found,
+      runnerBusy: busy,
+      hasDiff,
+    });
 
-  const now = Date.now();
-  for (const task of inFlight) {
-    const lastRun = task.agentRuns[0];
+    logger.info({ runId: run.id, action }, '[Recovery] journal decision');
 
-    // No AgentRun row at all OR last run is still open → check age.
-    const isOpen = !lastRun || lastRun.endedAt === null;
-
-    if (!isOpen) {
-      // Last run is closed but task.status was never updated → also orphan.
-      await markOrphan(task, lastRun?.id ?? null);
-      result.orphaned += 1;
+    if (action === 'RESUME') {
+      result.resumed += 1;
+      result.recovered += 1;
+      continue;
+    }
+    if (action === 'SALVAGE' || action === 'COMPLETE_IDEMPOTENT') {
+      journal.setStatus(run.id, 'completing');
+      result.salvaged += 1;
+      result.recovered += 1;
+      await markTaskFromJournal(run, action === 'SALVAGE' ? 'salvaged' : 'completing');
       continue;
     }
 
-    const referenceStart = lastRun?.startedAt?.getTime() ?? task.updatedAt?.getTime() ?? now;
-    const ageMs = now - referenceStart;
-
-    if (ageMs > ORPHAN_THRESHOLD_MS) {
-      await markOrphan(task, lastRun?.id ?? null);
-      result.orphaned += 1;
-    } else {
-      logger.warn(
-        { taskId: task.id, ageMs, agentRunId: lastRun?.id ?? null },
-        '[Recovery] task in_progress within 1h window — leaving for potential reconnect (T15)',
-      );
-      result.recovered += 1;
-    }
+    journal.setStatus(run.id, 'failed', Date.now());
+    result.failed += 1;
+    result.orphaned += 1;
+    await markTaskFromJournal(run, 'failed');
   }
 
-  logger.info(
-    { orphaned: result.orphaned, leftAlone: result.recovered },
-    '[Recovery] completed in-flight execution recovery',
-  );
   return result;
 }
 
-async function markOrphan(
-  task: { id: string; teamId: string | null; creatorId: string | null; updatedAt: Date },
-  agentRunId: string | null,
-): Promise<void> {
-  const reason = 'sidecar_restart_orphan';
+async function markTaskFromJournal(run: JournalRun, outcome: string): Promise<void> {
   try {
-    const elapsedMs = Date.now() - task.updatedAt.getTime();
-    const updated = await prisma.task.update({
-      where: { id: task.id },
-      data: {
-        status: 'cancelled',
-        outcome: reason,
-        sessionId: null,
-        executionElapsedMs: elapsedMs,
-        executionPausedAt: new Date(),
-      },
-      include: { labels: { include: { label: true } } },
+    const store = await getSidecarStore();
+    await store.updateTask(run.taskId, {
+      status: outcome === 'failed' ? 'cancelled' : undefined,
+      outcome: `sidecar_recovery_${outcome}`,
     });
-
-    if (agentRunId) {
-      try {
-        await prisma.agentRun.update({
-          where: { id: agentRunId },
-          data: {
-            status: 'failed',
-            endedAt: new Date(),
-            errorMessage: reason,
-          },
-        });
-      } catch (err) {
-        logger.error(
-          { err, agentRunId, taskId: task.id },
-          '[Recovery] failed to mark AgentRun as failed (continuing)',
-        );
-      }
-    }
-
-    // Best-effort SSE broadcast so any connected client refreshes.
-    try {
-      const flat = {
-        ...updated,
-        labels: updated.labels.map((tl) => tl.label),
-      };
-      broadcastToTask('task:updated', flat);
-    } catch (err) {
-      logger.warn({ err, taskId: task.id }, '[Recovery] broadcast failed (non-fatal)');
-    }
-
-    logger.info(
-      { taskId: task.id, agentRunId },
-      '[Recovery] orphan task marked cancelled (sidecar_restart_orphan)',
-    );
+    await store.updateAgentRun(run.id, {
+      status: outcome === 'failed' ? 'failed' : 'running',
+      errorMessage: outcome === 'failed' ? 'sidecar_restart_orphan' : null,
+    });
   } catch (err) {
-    logger.error(
-      { err, taskId: task.id },
-      '[Recovery] failed to mark task as orphan — manual cleanup may be required',
-    );
+    logger.warn({ err, runId: run.id }, '[Recovery] store update failed (non-fatal)');
   }
 }
 
-/**
- * Recover stale batch state. Since batches are not persisted as a separate
- * model, we treat any `in_progress` task with a non-null `batchId` whose
- * AgentRun is orphaned as covered by `recoverInFlightExecutions()`. This
- * helper additionally clears the in-memory map (which is empty on boot
- * anyway, but symmetric with the execution-state cleanup) and is a no-op
- * placeholder kept for future Batch persistence work.
- */
 export async function recoverActiveBatches(): Promise<RecoveryResult> {
-  const result: RecoveryResult = { recovered: 0, orphaned: 0 };
-
-  let stale: Array<{ batchId: string | null; count: number }>;
-  try {
-    const grouped = await prisma.task.groupBy({
-      by: ['batchId'],
-      where: {
-        batchId: { not: null },
-        status: 'in_progress',
-      },
-      _count: { _all: true },
-    });
-    stale = grouped.map((g) => ({ batchId: g.batchId, count: g._count._all }));
-  } catch (err) {
-    logger.error({ err }, '[Recovery] failed to query stale batches; skipping');
-    return result;
-  }
-
-  if (stale.length === 0) {
-    logger.info('[Recovery] no stale batches detected');
-    return result;
-  }
-
-  for (const s of stale) {
-    logger.warn(
-      { batchId: s.batchId, taskCount: s.count },
-      '[Recovery] stale batch detected — member tasks handled by execution recovery',
-    );
-    result.orphaned += s.count;
-  }
-
-  return result;
+  logger.info('[Recovery] batch membership is recovered via journal runs');
+  return { recovered: 0, orphaned: 0, resumed: 0, salvaged: 0, failed: 0 };
 }

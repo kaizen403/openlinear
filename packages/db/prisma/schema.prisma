@@ -116,6 +116,15 @@ enum ActivityAction {
   @@map("activity_actions")
 }
 
+enum InvitationStatus {
+  pending
+  accepted
+  revoked
+  expired
+
+  @@map("invitation_statuses")
+}
+
 model Task {
   id          String      @id @default(uuid())
   title       String
@@ -142,10 +151,13 @@ model Task {
   team               Team?     @relation(fields: [teamId], references: [id], onDelete: SetNull)
   projectId          String?
   project            Project?  @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  workspaceId        String?
+  workspace          Workspace? @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
   number             Int? // team-scoped issue number
   identifier         String? // e.g. "ENG-1"
   dueDate            DateTime?
   model              String? // Per-task AI model override (format: "provider/model"). Null = use global default.
+  agent              String? // Runner id: opencode | codex | claude-code. Null = Project.defaultAgent.
 
   // Assignment + authorship + hierarchy
   assigneeId String?
@@ -156,15 +168,17 @@ model Task {
   parent     Task?   @relation("Subtasks", fields: [parentId], references: [id], onDelete: SetNull)
   subtasks   Task[]  @relation("Subtasks")
 
-  comments      Comment[]
-  agentRuns     AgentRun[]
-  activityLogs  ActivityLog[]
-  notifications Notification[]
+  comments       Comment[]
+  agentRuns      AgentRun[]
+  activityLogs   ActivityLog[]
+  notifications  Notification[]
+  taskAssignees  TaskAssignee[]
 
   @@unique([teamId, number])
   @@index([teamId, archived])
   @@index([projectId, archived, createdAt])
   @@index([projectId])
+  @@index([workspaceId])
   @@index([status])
   @@index([assigneeId])
   @@index([creatorId])
@@ -195,6 +209,28 @@ model TaskLabel {
   @@map("task_labels")
 }
 
+enum TaskAssigneeRole {
+  assignee
+  watcher
+
+  @@map("task_assignee_roles")
+}
+
+model TaskAssignee {
+  id        String           @id @default(uuid())
+  taskId    String
+  userId    String
+  role      TaskAssigneeRole @default(assignee)
+  createdAt DateTime         @default(now())
+  task      Task             @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, userId])
+  @@index([userId])
+  @@index([taskId])
+  @@map("task_assignees")
+}
+
 model Settings {
   id            String  @id @default(uuid())
   userId        String? @unique
@@ -215,6 +251,7 @@ model User {
   id                   String            @id @default(uuid())
   githubId             String?           @unique
   username             String            @unique
+  displayName          String?
   email                String?           @unique
   avatarUrl            String?
   accessToken          String?
@@ -228,6 +265,7 @@ model User {
 
   assignedTasks Task[]         @relation("assignedTasks")
   createdTasks  Task[]         @relation("createdTasks")
+  taskAssignments TaskAssignee[]
   comments      Comment[]
   agentRuns     AgentRun[]
   notifications Notification[] @relation("notificationRecipient")
@@ -238,6 +276,23 @@ model User {
   chatSessions  ChatSession[]
   chatMessages  ChatMessage[]
   chatToolCalls ChatToolCall[]
+  chatAttachments ChatAttachment[]
+  sentInvitations  Invitation[] @relation("InvitedByUser")
+  commentMentions  CommentMention[] @relation("commentMentions")
+  notificationPreferences NotificationPreference[]
+  auditLogs     AuditLog[]
+  sessions      Session[]
+
+  // Two-Factor Authentication (TOTP)
+  totpSecret  String?
+  totpEnabled Boolean  @default(false)
+  backupCodes String[]
+  encryptionKeyVersion Int @default(1)
+
+  identities           Identity[]
+  twoFactorChallenges  TwoFactorChallenge[]
+  emailChangeRequests  EmailChangeRequest[]
+  sseTickets           SseTicket[]
 
   @@map("users")
 }
@@ -249,14 +304,17 @@ model PersonalAccessToken {
   name        String
   tokenHash   String    @unique
   tokenPrefix String
-  scopes      String[]  @default(["*"])
+  scopes      String[]  @default(["read"])
   lastUsedAt  DateTime?
   expiresAt   DateTime?
   createdAt   DateTime  @default(now())
   revokedAt   DateTime?
+  workspaceId String?
+  workspace   Workspace? @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
 
   @@index([userId])
   @@index([tokenHash])
+  @@index([workspaceId])
   @@map("personal_access_tokens")
 }
 
@@ -267,8 +325,8 @@ model Repository {
   fullName      String
   cloneUrl      String
   defaultBranch String    @default("main")
-  userId        String?
-  user          User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId        String
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   isActive      Boolean   @default(false)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
@@ -287,10 +345,33 @@ model Workspace {
   updatedAt DateTime          @updatedAt
   members   WorkspaceMember[]
   projects  Project[]
+  tasks     Task[]
   chatSessions  ChatSession[]
   chatToolCalls ChatToolCall[]
+  invitations   Invitation[]
+  ssoConfig     SSOConfig?
+  auditLogs     AuditLog[]
+  personalAccessTokens PersonalAccessToken[]
 
   @@map("workspaces")
+}
+
+model SSOConfig {
+  id                    String   @id @default(uuid())
+  workspaceId           String   @unique
+  provider              String   @default("oidc")
+  issuerUrl             String
+  clientId              String
+  clientSecretEncrypted String
+  allowedDomains        String[]
+  enforced              Boolean  @default(false)
+  domainVerifiedAt      DateTime?
+  verificationToken     String?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  workspace             Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@map("sso_configs")
 }
 
 model WorkspaceMember {
@@ -364,6 +445,7 @@ model Project {
   repository   Repository?     @relation(fields: [repositoryId], references: [id], onDelete: SetNull)
   localPath    String? // Absolute path to local folder (alternative to repo)
   repoUrl      String? // Original URL used to connect (for display)
+  defaultAgent String? // Default runner id for tasks in this project
   createdAt    DateTime        @default(now())
   updatedAt    DateTime        @updatedAt
   teams        Team[]
@@ -393,8 +475,6 @@ model ProjectAccess {
   @@map("project_access")
 }
 
-
-
 model Comment {
   id            String         @id @default(uuid())
   taskId        String
@@ -405,7 +485,8 @@ model Comment {
   mentions      String[]       @default([])
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
-  notifications Notification[]
+  notifications    Notification[]
+  commentMentions  CommentMention[]
 
   @@index([taskId, createdAt])
   @@map("comments")
@@ -446,9 +527,31 @@ model ChatMessage {
   createdAt   DateTime        @default(now())
   toolCallRows ChatToolCall[]
 
+  attachments ChatAttachment[]
+
   @@index([sessionId, createdAt])
   @@index([userId, createdAt])
   @@map("chat_messages")
+}
+
+model ChatAttachment {
+  id        String      @id @default(uuid())
+  messageId String?
+  message   ChatMessage? @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  filename  String
+  mimeType  String
+  url       String
+  size      Int
+  storageKey     String?
+  checksumSha256 String?
+  scanStatus     String  @default("pending")
+  createdAt DateTime    @default(now())
+
+  @@index([messageId])
+  @@index([userId, createdAt])
+  @@map("chat_attachments")
 }
 
 model ChatToolCall {
@@ -484,25 +587,48 @@ model ChatToolCall {
 }
 
 model AgentRun {
-  id           String         @id @default(uuid())
-  taskId       String
-  task         Task           @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  userId       String?
-  user         User?          @relation(fields: [userId], references: [id], onDelete: SetNull)
-  agent        String
-  model        String
-  startedAt    DateTime       @default(now())
-  endedAt      DateTime?
-  costUsd      Decimal?       @db.Decimal(12, 6)
-  inputTokens  Int?
-  outputTokens Int?
-  status       AgentRunStatus @default(pending)
-  prUrl        String?
-  errorMessage String?
+  id                 String         @id @default(uuid())
+  taskId             String
+  task               Task           @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  userId             String?
+  user               User?          @relation(fields: [userId], references: [id], onDelete: SetNull)
+  agent              String
+  runner             String?
+  externalSessionId  String?
+  model              String
+  startedAt          DateTime       @default(now())
+  endedAt            DateTime?
+  costUsd            Decimal?       @db.Decimal(12, 6)
+  costBasis          String?
+  inputTokens        Int?
+  outputTokens       Int?
+  cachedInputTokens  Int?
+  cacheWriteTokens   Int?
+  reasoningTokens    Int?
+  status             AgentRunStatus @default(pending)
+  prUrl              String?
+  errorMessage       String?
+  events             AgentRunEvent[]
 
   @@index([taskId, startedAt])
   @@index([userId, startedAt])
+  @@index([externalSessionId])
   @@map("agent_runs")
+}
+
+model AgentRunEvent {
+  id        String   @id @default(uuid())
+  runId     String
+  run       AgentRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  seq       Int
+  at        DateTime @default(now())
+  type      String
+  payload   Json
+  createdAt DateTime @default(now())
+
+  @@unique([runId, seq])
+  @@index([runId, seq])
+  @@map("agent_run_events")
 }
 
 model Notification {
@@ -554,4 +680,179 @@ model McpToolCall {
   @@index([userId, createdAt])
   @@index([toolName, createdAt])
   @@map("mcp_tool_calls")
+}
+
+model Invitation {
+  id          String          @id @default(uuid())
+  email       String
+  workspaceId String
+  workspace   Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  role        WorkspaceRole   @default(member)
+  invitedById String
+  invitedBy   User            @relation("InvitedByUser", fields: [invitedById], references: [id])
+  token       String          @unique @default(uuid())
+  status      InvitationStatus @default(pending)
+  expiresAt   DateTime
+  createdAt   DateTime        @default(now())
+
+  @@index([workspaceId])
+  @@index([email])
+  @@unique([email, workspaceId, status])
+  @@map("invitations")
+}
+
+model CommentMention {
+  id        String   @id @default(uuid())
+  commentId String
+  userId    String
+  comment   Comment  @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  user      User     @relation("commentMentions", fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([commentId, userId])
+  @@index([userId])
+  @@map("comment_mentions")
+}
+
+model NotificationPreference {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  eventType String
+  channel   String   @default("in_app")
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, eventType, channel])
+  @@index([userId])
+  @@map("notification_preferences")
+}
+
+model AuditLog {
+  id           String    @id @default(uuid())
+  workspaceId  String
+  workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  actorId      String
+  actor        User      @relation(fields: [actorId], references: [id], onDelete: Cascade)
+  action       String
+  resourceType String
+  resourceId   String
+  metadata     Json?
+  ipAddress    String?
+  createdAt    DateTime  @default(now())
+
+  @@index([workspaceId, createdAt])
+  @@map("audit_logs")
+}
+
+model Session {
+  id           String    @id @default(uuid())
+  userId       String
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash    String    @unique
+  refreshTokenHash String? @unique
+  familyId     String?
+  expiresAt    DateTime?
+  deviceInfo   String?
+  ipAddress    String?
+  lastActiveAt DateTime  @default(now())
+  createdAt    DateTime  @default(now())
+  revokedAt    DateTime?
+
+  @@index([userId, revokedAt])
+  @@map("sessions")
+}
+
+model Identity {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider  String
+  issuer    String
+  subject   String
+  email     String?
+  createdAt DateTime @default(now())
+
+  @@unique([issuer, subject])
+  @@index([userId])
+  @@map("identities")
+}
+
+model TwoFactorChallenge {
+  id         String    @id @default(uuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash  String    @unique
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([userId, expiresAt])
+  @@map("two_factor_challenges")
+}
+
+model EmailChangeRequest {
+  id         String    @id @default(uuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  newEmail   String
+  tokenHash  String    @unique
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([userId])
+  @@map("email_change_requests")
+}
+
+model SseTicket {
+  id         String    @id @default(uuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash  String    @unique
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([userId, expiresAt])
+  @@map("sse_tickets")
+}
+
+model IdempotencyKey {
+  id        String   @id @default(uuid())
+  userId    String
+  routeKey  String
+  key       String
+  status    Int
+  body      Json
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@unique([userId, routeKey, key])
+  @@index([expiresAt])
+  @@map("idempotency_keys")
+}
+
+// Transactional outbox for multi-replica SSE (Phase 1.3). `id` is the
+// monotonic Last-Event-ID. Rows are written in the same transaction as the
+// domain mutation when callers have a tx; otherwise persist-and-deliver
+// inserts after the write. Relayed via Redis PUBLISH (or in-process when
+// REDIS_URL is unset). Not an audit log — prune after 24–48 h.
+model DomainEvent {
+  id           BigInt    @id @default(autoincrement())
+  type         String
+  occurredAt   DateTime  @default(now()) @map("occurred_at")
+  actorId      String?   @map("actor_id")
+  workspaceId  String?   @map("workspace_id")
+  payload      Json
+  userIds      String[]  @default([]) @map("user_ids")
+  teamIds      String[]  @default([]) @map("team_ids")
+  workspaceIds String[]  @default([]) @map("workspace_ids")
+  publishedAt  DateTime? @map("published_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  @@index([publishedAt, id])
+  @@index([workspaceId, id])
+  @@map("domain_events")
 }

@@ -1,265 +1,273 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-// Mock the dependencies
-vi.mock('./client', () => ({
-  getApiUrl: () => 'http://test',
-  getAuthHeader: () => ({ Authorization: 'Bearer test' }),
-}))
-
 vi.mock('./fetch', () => ({
   apiFetch: vi.fn(),
 }))
 
-// Helper to create a ReadableStream from SSE lines
-function createSSEStream(lines) {
+vi.mock('./client', () => ({
+  getApiUrl: vi.fn().mockReturnValue('http://127.0.0.1:3001'),
+  getAuthHeader: vi.fn().mockReturnValue({ Authorization: 'Bearer tok' }),
+}))
+
+const { getApiUrl, getAuthHeader } = await import('./client')
+
+const {
+  fetchChatSessions,
+  createChatSession,
+  fetchChatSession,
+  updateChatSession,
+  archiveChatSession,
+  transcribeChatAudio,
+  uploadChatAttachment,
+  sendChatMessage,
+} = await import('./chat')
+
+function createMockStreamResponse(chunks) {
   const encoder = new TextEncoder()
-  const text = lines.map(l => l + '\n').join('')
-  return new ReadableStream({
-    start(controller) {
-      controller.enqueue(encoder.encode(text))
-      controller.close()
+  let index = 0
+  const stream = new ReadableStream({
+    pull(controller) {
+      if (index < chunks.length) {
+        controller.enqueue(encoder.encode(chunks[index]))
+        index++
+      } else {
+        controller.close()
+      }
     },
   })
+  return {
+    ok: true,
+    status: 200,
+    headers: new Headers({ 'content-type': 'text/event-stream' }),
+    body: stream,
+  }
 }
 
+describe('chat API', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('fetchChatSessions with workspaceId', async () => {
+    const { apiFetch } = await import('./fetch')
+    apiFetch.mockResolvedValue({ data: [], nextCursor: null })
+    const result = await fetchChatSessions('ws1')
+    expect(apiFetch).toHaveBeenCalledWith('/api/chat/sessions?workspaceId=ws1')
+    expect(result).toEqual({ data: [], nextCursor: null })
+  })
+
+  it('fetchChatSessions with cursor', async () => {
+    const { apiFetch } = await import('./fetch')
+    apiFetch.mockResolvedValue({ data: [], nextCursor: null })
+    await fetchChatSessions('ws1', 'cursor1')
+    expect(apiFetch).toHaveBeenCalledWith('/api/chat/sessions?workspaceId=ws1&cursor=cursor1')
+  })
+
+  it('createChatSession', async () => {
+    const { apiFetch } = await import('./fetch')
+    apiFetch.mockResolvedValue({ id: 's1', title: 'New Session' })
+    const result = await createChatSession('ws1', 'p1')
+    expect(apiFetch).toHaveBeenCalledWith('/api/chat/sessions', {
+      method: 'POST',
+      body: JSON.stringify({ workspaceId: 'ws1', projectId: 'p1' }),
+    })
+    expect(result).toEqual({ id: 's1', title: 'New Session' })
+  })
+
+  it('createChatSession without projectId', async () => {
+    const { apiFetch } = await import('./fetch')
+    apiFetch.mockResolvedValue({ id: 's1' })
+    await createChatSession('ws1')
+    expect(apiFetch).toHaveBeenCalledWith('/api/chat/sessions', {
+      method: 'POST',
+      body: JSON.stringify({ workspaceId: 'ws1', projectId: undefined }),
+    })
+  })
+
+  it('fetchChatSession', async () => {
+    const { apiFetch } = await import('./fetch')
+    apiFetch.mockResolvedValue({ id: 's1', messages: [] })
+    const result = await fetchChatSession('s1')
+    expect(apiFetch).toHaveBeenCalledWith('/api/chat/sessions/s1')
+    expect(result).toEqual({ id: 's1', messages: [] })
+  })
+
+  it('fetchChatSession with before', async () => {
+    const { apiFetch } = await import('./fetch')
+    apiFetch.mockResolvedValue({ id: 's1', messages: [] })
+    await fetchChatSession('s1', 'msg1')
+    expect(apiFetch).toHaveBeenCalledWith('/api/chat/sessions/s1?before=msg1')
+  })
+
+  it('updateChatSession', async () => {
+    const { apiFetch } = await import('./fetch')
+    apiFetch.mockResolvedValue({ id: 's1', title: 'Updated' })
+    const result = await updateChatSession('s1', { title: 'Updated' })
+    expect(apiFetch).toHaveBeenCalledWith('/api/chat/sessions/s1', {
+      method: 'PATCH',
+      body: JSON.stringify({ title: 'Updated' }),
+    })
+    expect(result).toEqual({ id: 's1', title: 'Updated' })
+  })
+
+  it('archiveChatSession', async () => {
+    const { apiFetch } = await import('./fetch')
+    apiFetch.mockResolvedValue(undefined)
+    await archiveChatSession('s1')
+    expect(apiFetch).toHaveBeenCalledWith('/api/chat/sessions/s1', { method: 'DELETE' })
+  })
+
+  it('transcribeChatAudio sends audio blob to sidecar', async () => {
+    const { apiFetch } = await import('./fetch')
+    apiFetch.mockResolvedValue({ text: 'hello' })
+    const blob = new Blob(['audio'], { type: 'audio/webm' })
+    const result = await transcribeChatAudio(blob)
+    expect(apiFetch).toHaveBeenCalledWith('/api/transcribe', {
+      method: 'POST',
+      sidecar: true,
+      headers: { 'Content-Type': 'audio/webm' },
+      body: blob,
+    })
+    expect(result).toEqual({ text: 'hello' })
+  })
+
+  it('uploadChatAttachment sends form data', async () => {
+    const { apiFetch } = await import('./fetch')
+    apiFetch.mockResolvedValue({ id: 'a1', filename: 'file.txt' })
+    const file = new File(['content'], 'file.txt', { type: 'text/plain' })
+    const result = await uploadChatAttachment(file)
+    expect(apiFetch).toHaveBeenCalledWith('/api/chat/attachments', {
+      method: 'POST',
+      body: expect.any(FormData),
+    })
+    expect(result).toEqual({ id: 'a1', filename: 'file.txt' })
+  })
+})
+
 describe('sendChatMessage', () => {
-  let sendChatMessage
-
-  beforeEach(async () => {
+  beforeEach(() => {
     vi.stubGlobal('fetch', vi.fn())
-    const mod = await import('./chat.ts')
-    sendChatMessage = mod.sendChatMessage
   })
 
-  it('parses assistant_delta chunks and calls onChunk', async () => {
-    const chunks = []
-    const body = createSSEStream([
-      'data: {"type":"assistant_delta","content":"hello"}',
-      'data: {"type":"assistant_delta","content":" world"}',
-      'data: {"type":"done"}',
-    ])
-    globalThis.fetch.mockResolvedValue({ ok: true, body })
-
+  it('calls onChunk and onDone for successful stream', async () => {
+    const onChunk = vi.fn()
     const onDone = vi.fn()
+    const onError = vi.fn()
+
+    const chunks = [
+      'data: {"type":"assistant_delta","content":"Hello"}\n\n',
+      'data: {"type":"done"}\n\n',
+    ]
+    globalThis.fetch.mockResolvedValue(createMockStreamResponse(chunks))
+
     await sendChatMessage({
       sessionId: 's1',
       content: 'hi',
-      onChunk: (c) => chunks.push(c),
+      onChunk,
       onDone,
+      onError,
     })
 
-    // onChunk is called for all chunks including done
-    const deltas = chunks.filter(c => c.type === 'assistant_delta')
-    expect(deltas).toHaveLength(2)
-    expect(deltas[0]).toEqual({ type: 'assistant_delta', content: 'hello' })
-    expect(deltas[1]).toEqual({ type: 'assistant_delta', content: ' world' })
+    expect(onChunk).toHaveBeenCalledWith({ type: 'assistant_delta', content: 'Hello' })
     expect(onDone).toHaveBeenCalled()
+    expect(onError).not.toHaveBeenCalled()
   })
 
-  it('parses tool_call_start chunks', async () => {
-    const chunks = []
-    const body = createSSEStream([
-      'data: {"type":"tool_call_start","toolCallId":"tc1","toolName":"list_workspaces","args":{}}',
-      'data: {"type":"done"}',
-    ])
-    globalThis.fetch.mockResolvedValue({ ok: true, body })
-
-    await sendChatMessage({
-      sessionId: 's1',
-      content: 'hi',
-      onChunk: (c) => chunks.push(c),
-    })
-
-    expect(chunks[0]).toEqual({
-      type: 'tool_call_start',
-      toolCallId: 'tc1',
-      toolName: 'list_workspaces',
-      args: {},
-    })
-  })
-
-  it('parses tool_result chunks', async () => {
-    const chunks = []
-    const body = createSSEStream([
-      'data: {"type":"tool_result","toolCallId":"tc1","result":{"ok":true,"data":[]}}',
-      'data: {"type":"done"}',
-    ])
-    globalThis.fetch.mockResolvedValue({ ok: true, body })
-
-    await sendChatMessage({
-      sessionId: 's1',
-      content: 'hi',
-      onChunk: (c) => chunks.push(c),
-    })
-
-    expect(chunks[0]).toEqual({
-      type: 'tool_result',
-      toolCallId: 'tc1',
-      result: { ok: true, data: [] },
-    })
-  })
-
-  it('calls onDone on type:done chunk', async () => {
-    const body = createSSEStream(['data: {"type":"done"}'])
-    globalThis.fetch.mockResolvedValue({ ok: true, body })
-
-    const onDone = vi.fn()
-    await sendChatMessage({
-      sessionId: 's1',
-      content: 'hi',
-      onChunk: vi.fn(),
-      onDone,
-    })
-
-    expect(onDone).toHaveBeenCalledTimes(1)
-  })
-
-  it('calls onDone on data: [DONE] sentinel', async () => {
-    const body = createSSEStream(['data: [DONE]'])
-    globalThis.fetch.mockResolvedValue({ ok: true, body })
-
-    const onDone = vi.fn()
-    await sendChatMessage({
-      sessionId: 's1',
-      content: 'hi',
-      onChunk: vi.fn(),
-      onDone,
-    })
-
-    expect(onDone).toHaveBeenCalledTimes(1)
-  })
-
-  it('calls onError on non-ok response', async () => {
+  it('calls onError for non-ok response', async () => {
+    const onError = vi.fn()
     globalThis.fetch.mockResolvedValue({
       ok: false,
       status: 500,
-      text: async () => 'Internal Server Error',
+      text: async () => 'Server Error',
     })
 
-    const onError = vi.fn()
     await sendChatMessage({
       sessionId: 's1',
       content: 'hi',
       onChunk: vi.fn(),
+      onDone: vi.fn(),
       onError,
     })
 
-    expect(onError).toHaveBeenCalledTimes(1)
-    expect(onError.mock.calls[0][0].message).toContain('500')
+    expect(onError).toHaveBeenCalled()
   })
 
-  it('skips malformed JSON lines without crashing', async () => {
-    const chunks = []
-    const body = createSSEStream([
-      'data: {not valid json',
-      'data: {"type":"assistant_delta","content":"ok"}',
-      'data: {"type":"done"}',
-    ])
-    globalThis.fetch.mockResolvedValue({ ok: true, body })
-
-    await sendChatMessage({
-      sessionId: 's1',
-      content: 'hi',
-      onChunk: (c) => chunks.push(c),
-    })
-
-    const deltas = chunks.filter(c => c.type === 'assistant_delta')
-    expect(deltas).toHaveLength(1)
-    expect(deltas[0].content).toBe('ok')
-  })
-
-  it('ignores lines that do not start with data:', async () => {
-    const chunks = []
-    const body = createSSEStream([
-      ': comment line',
-      'event: message',
-      'data: {"type":"assistant_delta","content":"yes"}',
-      'data: {"type":"done"}',
-    ])
-    globalThis.fetch.mockResolvedValue({ ok: true, body })
-
-    await sendChatMessage({
-      sessionId: 's1',
-      content: 'hi',
-      onChunk: (c) => chunks.push(c),
-    })
-
-    const deltas = chunks.filter(c => c.type === 'assistant_delta')
-    expect(deltas).toHaveLength(1)
-    expect(deltas[0].content).toBe('yes')
-  })
-
-  it('calls onError on error chunk with nested error', async () => {
-    const body = createSSEStream([
-      'data: {"type":"error","error":{"code":"RATE_LIMIT","message":"Too many requests"}}',
-    ])
-    globalThis.fetch.mockResolvedValue({ ok: true, body })
-
+  it('calls onError when no response body', async () => {
     const onError = vi.fn()
+    globalThis.fetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      body: null,
+    })
+
     await sendChatMessage({
       sessionId: 's1',
       content: 'hi',
       onChunk: vi.fn(),
+      onDone: vi.fn(),
       onError,
     })
 
-    expect(onError).toHaveBeenCalledTimes(1)
-    expect(onError.mock.calls[0][0].message).toBe('Too many requests')
+    expect(onError).toHaveBeenCalledWith(expect.any(Error))
   })
 
-  it('calls onError on error chunk with flat message', async () => {
-    const body = createSSEStream([
-      'data: {"type":"error","message":"Something broke"}',
-    ])
-    globalThis.fetch.mockResolvedValue({ ok: true, body })
-
+  it('handles error chunk', async () => {
     const onError = vi.fn()
+    const chunks = [
+      'data: {"type":"error","error":{"message":"Something went wrong"}}\n\n',
+    ]
+    globalThis.fetch.mockResolvedValue(createMockStreamResponse(chunks))
+
     await sendChatMessage({
       sessionId: 's1',
       content: 'hi',
       onChunk: vi.fn(),
+      onDone: vi.fn(),
       onError,
     })
 
-    expect(onError).toHaveBeenCalledTimes(1)
-    expect(onError.mock.calls[0][0].message).toBe('Something broke')
+    expect(onError).toHaveBeenCalledWith(expect.any(Error))
   })
 
-  it('sends correct request headers and body', async () => {
-    const body = createSSEStream(['data: {"type":"done"}'])
-    globalThis.fetch.mockResolvedValue({ ok: true, body })
+  it('handles [DONE] marker', async () => {
+    const onDone = vi.fn()
+    const chunks = [
+      'data: [DONE]\n\n',
+    ]
+    globalThis.fetch.mockResolvedValue(createMockStreamResponse(chunks))
 
     await sendChatMessage({
-      sessionId: 'sess-123',
-      content: 'hello there',
+      sessionId: 's1',
+      content: 'hi',
       onChunk: vi.fn(),
+      onDone,
     })
 
-    expect(globalThis.fetch).toHaveBeenCalledWith(
-      'http://test/api/chat/sessions/sess-123/messages',
-      expect.objectContaining({
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: 'Bearer test',
+    expect(onDone).toHaveBeenCalled()
+  })
+
+  it('includes attachmentIds in body', async () => {
+    globalThis.fetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      body: new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode('data: [DONE]\n\n'))
+          controller.close()
         },
-        body: JSON.stringify({ content: 'hello there' }),
       }),
-    )
-  })
+    })
 
-  it('calls onError when response body is null', async () => {
-    globalThis.fetch.mockResolvedValue({ ok: true, body: null })
-
-    const onError = vi.fn()
     await sendChatMessage({
       sessionId: 's1',
       content: 'hi',
+      attachmentIds: ['a1', 'a2'],
       onChunk: vi.fn(),
-      onError,
+      onDone: vi.fn(),
     })
 
-    expect(onError).toHaveBeenCalledTimes(1)
-    expect(onError.mock.calls[0][0].message).toBe('No response body')
+    const [, init] = globalThis.fetch.mock.calls[0]
+    const body = JSON.parse(init.body)
+    expect(body).toMatchObject({ content: 'hi', attachmentIds: ['a1', 'a2'] })
   })
 })

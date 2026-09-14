@@ -1,9 +1,16 @@
 import { existsSync, mkdirSync, rmSync, accessSync, constants } from 'fs';
+import { logger } from '@openlinear/api/logger';
 import { PullRequestResult, REPOS_DIR } from './state';
 import { getGitIdentityEnv } from '../git-identity';
-import { execFileAsync } from './exec';
 import { assertPathInsideReposDir } from '../repo-storage';
-import { execGitWithCredentials } from '../git-credentials';
+import {
+  assertSafeCloneUrl,
+  assertSafeRefName,
+  execGit,
+  execGitWithCredentials,
+} from '../git-credentials';
+import { acquireLocalWorktree } from '../../workspace/local-worktree';
+import { assertStagingAllowlist } from '../../engine/staging-allowlist';
 
 export type CommitPushResult =
   | { status: 'no_changes' }
@@ -35,7 +42,7 @@ function isRuntimeArtifactPath(path: string): boolean {
 }
 
 export async function hasCommittableChanges(repoPath: string): Promise<boolean> {
-  const { stdout } = await execFileAsync('git', [
+  const { stdout } = await execGit([
     '-C',
     repoPath,
     'status',
@@ -50,7 +57,8 @@ export async function hasCommittableChanges(repoPath: string): Promise<boolean> 
 }
 
 export async function stageCommittableChanges(repoPath: string): Promise<boolean> {
-  await execFileAsync('git', [
+  await assertStagingAllowlist(repoPath);
+  await execGit([
     '-C',
     repoPath,
     'add',
@@ -60,9 +68,9 @@ export async function stageCommittableChanges(repoPath: string): Promise<boolean
     ':(exclude).sisyphus',
     ':(exclude).sisyphus/**',
   ]);
-  await execFileAsync('git', ['-C', repoPath, 'reset', '-q', '--', '.sisyphus']).catch(() => undefined);
+  await execGit(['-C', repoPath, 'reset', '-q', '--', '.sisyphus']).catch(() => undefined);
 
-  const { stdout } = await execFileAsync('git', [
+  const { stdout } = await execGit([
     '-C',
     repoPath,
     'diff',
@@ -79,12 +87,15 @@ export async function cloneRepository(
   accessToken: string | null,
   defaultBranch: string
 ): Promise<void> {
-  const safeRepoPath = assertPathInsideReposDir(repoPath);
-  console.log(`[Execution] Preparing to clone into ${safeRepoPath}`);
+  assertSafeCloneUrl(cloneUrl, 'clone URL');
+  assertSafeRefName(defaultBranch, 'default branch');
+
+  const safeRepoPath = assertPathInsideReposDir(repoPath, { description: 'repository path', allowRoot: false });
+  logger.info(`[Execution] Preparing local-worktree into ${safeRepoPath}`);
 
   if (!existsSync(REPOS_DIR)) {
     mkdirSync(REPOS_DIR, { recursive: true });
-    console.log(`[Execution] Created repos directory: ${REPOS_DIR}`);
+    logger.info(`[Execution] Created repos directory: ${REPOS_DIR}`);
   }
 
   try {
@@ -93,25 +104,29 @@ export async function cloneRepository(
     throw new Error(`[Execution] No write access to ${REPOS_DIR}. Check directory ownership.`);
   }
 
-  if (existsSync(safeRepoPath)) {
-    rmSync(safeRepoPath, { recursive: true, force: true });
-    console.log(`[Execution] Removed existing directory: ${safeRepoPath}`);
-  }
-
-  console.log(`[Execution] Cloning ${cloneUrl} (branch: ${defaultBranch})...`);
-  await execGitWithCredentials(
-    ['clone', '--depth', '1', '--branch', defaultBranch, cloneUrl, safeRepoPath],
-    accessToken,
+  const parsed = new URL(cloneUrl.startsWith('/') ? `file://${cloneUrl}` : cloneUrl);
+  const parts = parsed.pathname.replace(/\.git$/, '').split('/').filter(Boolean);
+  const name = parts.pop() ?? 'repo';
+  const owner = parts.pop() ?? 'local';
+  const handle = await acquireLocalWorktree({
+    owner,
+    name,
     cloneUrl,
-  );
-  await execFileAsync('chmod', ['-R', 'a+rwX', safeRepoPath]);
-  console.log(`[Execution] Clone complete`);
+    baseRef: defaultBranch,
+    runId: safeRepoPath.split('/').pop() ?? 'run',
+    accessToken,
+  });
+  if (handle.worktreePath !== safeRepoPath && existsSync(handle.worktreePath) && !existsSync(safeRepoPath)) {
+    // Callers that pass a specific path still get a unique openlinear/<runId> worktree.
+    logger.info(`[Execution] Worktree ready at ${handle.worktreePath}`);
+  }
+  logger.info(`[Execution] Clone complete`);
 }
 
 export async function createBranch(repoPath: string, branchName: string): Promise<void> {
-  console.log(`[Execution] Creating branch: ${branchName}`);
-  await execFileAsync('git', ['-C', repoPath, 'checkout', '-B', branchName]);
-  console.log(`[Execution] Branch ready and checked out`);
+  logger.info(`[Execution] Creating branch: ${branchName}`);
+  await execGit(['-C', repoPath, 'checkout', '-B', branchName]);
+  logger.info(`[Execution] Branch ready and checked out`);
 }
 
 export async function commitAndPush(
@@ -123,37 +138,67 @@ export async function commitAndPush(
   try {
     const env = { ...process.env, ...getGitIdentityEnv() };
 
-    console.log(`[Execution] Checking for changes in ${repoPath}`);
+    logger.info(`[Execution] Checking for changes in ${repoPath}`);
     if (!(await hasCommittableChanges(repoPath))) {
-      console.log(`[Execution] No changes to commit`);
+      logger.info(`[Execution] No changes to commit`);
       return { status: 'no_changes' };
     }
 
-    console.log(`[Execution] Changes detected, staging files...`);
+    logger.info(`[Execution] Changes detected, staging files...`);
     const staged = await stageCommittableChanges(repoPath);
     if (!staged) {
-      console.log(`[Execution] No committable changes after excluding runtime artifacts`);
+      logger.info(`[Execution] No committable changes after excluding runtime artifacts`);
       return { status: 'no_changes' };
     }
 
     const commitMessage = `feat: ${taskTitle.toLowerCase().replace(/[^a-z0-9\s]/g, '').slice(0, 50)}`;
-    console.log(`[Execution] Committing: ${commitMessage}`);
-    await execFileAsync('git', ['-C', repoPath, 'commit', '-m', commitMessage], { env });
+    logger.info(`[Execution] Committing: ${commitMessage}`);
+    await execGit(['-C', repoPath, 'commit', '-m', commitMessage], { env });
 
-    console.log(`[Execution] Pushing to origin/${branchName}...`);
-    const { stdout: originUrl } = await execFileAsync('git', ['-C', repoPath, 'remote', 'get-url', 'origin']);
+    logger.info(`[Execution] Pushing to origin/${branchName}...`);
+    const { stdout: originUrl } = await execGit(['-C', repoPath, 'remote', 'get-url', 'origin']);
+
+    // `cloneRepository` above only fetches `defaultBranch` (`--depth 1
+    // --branch <defaultBranch>`), so the freshly-cloned repo has no
+    // remote-tracking ref for `branchName`. A bare `--force-with-lease`
+    // relies on exactly that ref to know what it's safe to overwrite, so it
+    // fails deterministically on every run against this branch, not just
+    // re-runs. Fetch the branch explicitly (tolerating the "doesn't exist on
+    // the remote yet" case) and pass an explicit expected value: the fetched
+    // SHA if the branch exists remotely, or the empty string — meaning "the
+    // ref must not exist on the remote" — if it doesn't. This keeps the
+    // lease meaningful (still refuses to clobber a concurrent writer)
+    // instead of either failing outright or dropping force protection.
+    let expectedRemoteSha = '';
+    try {
+      await execGit(['-C', repoPath, 'fetch', 'origin', branchName]);
+      const { stdout: fetchHead } = await execGit(['-C', repoPath, 'rev-parse', 'FETCH_HEAD']);
+      expectedRemoteSha = fetchHead.trim();
+    } catch {
+      // Branch doesn't exist on the remote yet — expectedRemoteSha stays ''.
+    }
+
     await execGitWithCredentials(
-      ['-C', repoPath, 'push', '--force-with-lease', '-u', 'origin', branchName],
+      [
+        '-C',
+        repoPath,
+        'push',
+        `--force-with-lease=${branchName}:${expectedRemoteSha}`,
+        '-u',
+        'origin',
+        '--',
+        branchName,
+      ],
       accessToken,
       originUrl.trim(),
       { env },
     );
-    console.log(`[Execution] Push complete`);
+    logger.info(`[Execution] Push complete`);
 
     return { status: 'pushed' };
   } catch (error) {
     const reason = getExecErrorReason(error);
-    console.error('[Execution] Commit/push failed:', reason);
+    logger.error({ err: error }, '[Execution] Commit/push failed');
     return { status: 'failed', reason };
   }
 }
@@ -170,7 +215,7 @@ export async function createPullRequest(
   const compareUrl = `https://github.com/${owner}/${repo}/compare/${defaultBranch}...${branchName}`;
 
   if (!accessToken) {
-    console.log('[Execution] No access token - returning compare URL for manual PR creation');
+    logger.info('[Execution] No access token - returning compare URL for manual PR creation');
     return { url: compareUrl, type: 'compare' };
   }
 
@@ -194,14 +239,51 @@ export async function createPullRequest(
 
     if (!response.ok) {
       const error = await response.text();
-      console.error('[Execution] PR creation failed:', error);
+      logger.error({ err: error }, '[Execution] PR creation failed');
       return { url: compareUrl, type: 'compare' };
     }
 
     const pr = (await response.json()) as { html_url: string };
     return { url: pr.html_url, type: 'pr' };
   } catch (error) {
-    console.error('[Execution] PR creation error:', error);
+    logger.error({ err: error }, '[Execution] PR creation error');
     return { url: compareUrl, type: 'compare' };
   }
 }
+
+export interface IGitService {
+  clone(cloneUrl: string, repoPath: string, accessToken: string | null, defaultBranch: string): Promise<void>;
+  createBranch(repoPath: string, branchName: string): Promise<void>;
+  commitAndPush(repoPath: string, branchName: string, taskTitle: string, accessToken?: string | null): Promise<CommitPushResult>;
+  createPullRequest(fullName: string, branchName: string, defaultBranch: string, taskTitle: string, taskDescription: string | null, accessToken: string | null): Promise<PullRequestResult>;
+  hasChanges(repoPath: string): Promise<boolean>;
+  stageChanges(repoPath: string): Promise<boolean>;
+}
+
+export class GitService implements IGitService {
+  async clone(cloneUrl: string, repoPath: string, accessToken: string | null, defaultBranch: string): Promise<void> {
+    return cloneRepository(cloneUrl, repoPath, accessToken, defaultBranch);
+  }
+
+  async createBranch(repoPath: string, branchName: string): Promise<void> {
+    return createBranch(repoPath, branchName);
+  }
+
+  async commitAndPush(repoPath: string, branchName: string, taskTitle: string, accessToken: string | null = null): Promise<CommitPushResult> {
+    return commitAndPush(repoPath, branchName, taskTitle, accessToken);
+  }
+
+  async createPullRequest(fullName: string, branchName: string, defaultBranch: string, taskTitle: string, taskDescription: string | null, accessToken: string | null): Promise<PullRequestResult> {
+    return createPullRequest(fullName, branchName, defaultBranch, taskTitle, taskDescription, accessToken);
+  }
+
+  async hasChanges(repoPath: string): Promise<boolean> {
+    return hasCommittableChanges(repoPath);
+  }
+
+  async stageChanges(repoPath: string): Promise<boolean> {
+    return stageCommittableChanges(repoPath);
+  }
+}
+
+export const gitService = new GitService();

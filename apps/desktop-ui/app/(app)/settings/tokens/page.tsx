@@ -11,7 +11,7 @@ export default function SettingsTokensPage() {
         <h1 className="text-lg font-semibold truncate">Personal Access Tokens</h1>
         <div className="flex-1 h-full" data-tauri-drag-region />
       </header>
-      <main className="flex-1 overflow-y-auto p-6 sm:p-8">
+      <main className="flex-1 min-h-0 overflow-y-auto p-6 sm:p-8">
         <div className="max-w-2xl pb-8">
           <PersonalAccessTokensSection />
         </div>

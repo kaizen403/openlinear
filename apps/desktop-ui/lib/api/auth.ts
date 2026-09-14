@@ -4,6 +4,7 @@ import {
   getSidecarApiUrl,
   resolveKnownSidecarApiUrl,
 } from './client';
+import { getToken, setToken } from './token-store';
 import type { User } from './types';
 
 const TOKEN_VERIFY_TIMEOUT_MS = 15_000;
@@ -11,25 +12,17 @@ const TOKEN_VERIFY_MIN_RETRY_MS = 300;
 const TOKEN_VERIFY_MAX_RETRY_MS = 1_250;
 
 function isDesktopRuntime(): boolean {
-  return typeof window !== 'undefined' && (('__TAURI_INTERNALS__' in window) || ('electronAPI' in window && window.electronAPI?.isElectron === true));
+  return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 }
 
 function removeTokenIfCurrent(token: string): void {
-  try {
-    if (localStorage.getItem('token') === token) {
-      localStorage.removeItem('token');
-    }
-  } catch {}
+  if (getToken() === token) {
+    setToken(null);
+  }
 }
 
 function restoreToken(previousToken: string | null): void {
-  try {
-    if (previousToken) {
-      localStorage.setItem('token', previousToken);
-    } else {
-      localStorage.removeItem('token');
-    }
-  } catch {}
+  setToken(previousToken);
 }
 
 function sleep(ms: number): Promise<void> {
@@ -50,7 +43,7 @@ async function getAuthApiUrl(): Promise<string> {
 
 export async function fetchCurrentUser(): Promise<User | null> {
   if (typeof window === 'undefined') return null;
-  const token = localStorage.getItem('token');
+  const token = getToken();
   if (!token) return null;
 
   try {
@@ -104,8 +97,8 @@ export async function verifyCallbackToken(token: string): Promise<User> {
     throw new NetworkError('Cannot verify callback token outside the browser');
   }
 
-  const previousToken = localStorage.getItem('token');
-  localStorage.setItem('token', token);
+  const previousToken = getToken();
+  setToken(token);
 
   const deadline = Date.now() + TOKEN_VERIFY_TIMEOUT_MS;
   let retryDelayMs = TOKEN_VERIFY_MIN_RETRY_MS;
@@ -136,6 +129,15 @@ export function getLoginUrl(): string {
   return `${getApiUrl()}/api/auth/github`;
 }
 
+/**
+ * GitHub OAuth apps that leaked in this repository have been removed.
+ * `/api/auth/github` returns 503 until replacement apps exist.
+ */
+export const GITHUB_OAUTH_AVAILABLE = false;
+
+export const GITHUB_OAUTH_UNAVAILABLE_MESSAGE =
+  'GitHub sign-in is disabled until a replacement OAuth app is created.';
+
 async function waitForDesktopAuthRoute(apiUrl: string): Promise<void> {
   const deadline = Date.now() + 2_500;
   while (Date.now() < deadline) {
@@ -161,16 +163,11 @@ async function getDesktopLoginUrl(): Promise<string> {
 }
 
 export async function startLogin(): Promise<boolean> {
+  if (!GITHUB_OAUTH_AVAILABLE) {
+    return false;
+  }
   if (isDesktopRuntime()) {
     const url = await getDesktopLoginUrl();
-    if (typeof window !== 'undefined' && 'electronAPI' in window && window.electronAPI?.isElectron) {
-      try {
-        await window.electronAPI.openExternal(url);
-        return true;
-      } catch (err) {
-        console.warn('[Auth] Failed to open desktop GitHub login via Electron:', err);
-      }
-    }
     void import('@tauri-apps/plugin-shell')
       .then(({ open }) => open(url))
       .catch((err) => {
@@ -196,6 +193,6 @@ export async function updateEmail(email: string): Promise<User> {
 }
 
 export function logout(): void {
-  localStorage.removeItem('token');
+  setToken(null);
   window.location.href = '/';
 }

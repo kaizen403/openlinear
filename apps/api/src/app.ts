@@ -26,18 +26,28 @@ import notificationsRouter from './routes/notifications';
 import activityLogRouter from './routes/activity-log';
 import agentRunsRouter from './routes/agent-runs';
 import usageRouter from './routes/usage';
+import modelsRouter from './routes/models';
 import dashboardRouter from './routes/dashboard';
 import mcpUsageRouter from './routes/mcp-usage';
 import chatRouter from './routes/chat';
-import jwt from 'jsonwebtoken';
-import { clients, SSEClient } from './sse';
+import chatAttachmentsRouter from './routes/chat-attachments';
+import uploadsRouter from './routes/uploads';
+import eventsRouter from './routes/events';
+import usersRouter from './routes/users';
+import invitationsRouter from './routes/invitations';
+import membersRouter from './routes/members';
+import ssoRouter from './routes/sso';
+import auditRouter from './routes/audit';
+import sessionsRouter from './routes/sessions';
+import totpRouter from './routes/totp';
+import { clients } from './sse';
 import { logger } from './logger';
 import { isOwnershipError } from './services/ownership';
 import { isValidationError, isHttpError } from './errors';
 import { buildErrorEnvelope } from './lib/http';
 import { Prisma, prisma } from '@openlinear/db';
-import { getUserTeamIds } from './services/team-scope';
-import { requireAuth } from './middleware/auth';
+import { requireAuth, requireInteractiveSession } from './middleware/auth';
+import { secretsAreConfigured } from './lib/secrets';
 
 function addLoopbackAliases(allowed: Set<string>, origin: string) {
   allowed.add(origin);
@@ -112,6 +122,8 @@ function isGithubOAuthPath(path: string): boolean {
 export function createApp(): Application {
   const app: Application = express();
 
+  app.set('trust proxy', 1);
+
   // Security headers — CSP disabled because Tauri owns CSP in the desktop UI
   app.use(
     helmet({
@@ -184,11 +196,14 @@ export function createApp(): Application {
   app.use(express.json({ limit: '256kb' }));
 
   app.use('/api/auth', authRouter);
+  app.use('/api/auth/2fa', totpRouter);
+  // Credential management must not be reachable with a long-lived API key.
+  app.use('/api/sessions', requireInteractiveSession, sessionsRouter);
   app.use('/api/repos', reposRouter);
   app.use('/api/labels', labelRoutes);
   app.use('/api/tasks', tasksRouter);
   app.use('/api/settings', settingsRouter);
-  app.use('/api/pats', requireAuth, patsRouter);
+  app.use('/api/pats', requireInteractiveSession, patsRouter);
   app.use('/api/teams', teamsRouter);
   app.use('/api/projects', projectsRouter);
   app.use('/api/workspaces', workspacesRouter);
@@ -199,9 +214,43 @@ export function createApp(): Application {
   app.use('/api/search', searchRouter);
   app.use('/api/agent-runs', agentRunsRouter);
   app.use('/api/usage', usageRouter);
+  app.use('/api/models', modelsRouter);
   app.use('/api/dashboard', dashboardRouter);
   app.use('/api/mcp', mcpUsageRouter);
-  app.use('/api/chat', chatRouter);
+   app.use('/api/chat/attachments', chatAttachmentsRouter);
+   app.use('/api/chat', chatRouter);
+  // Attachments are served through an authenticated, ownership-checked route
+  // that forces a download. `express.static` served them to anyone, with a
+  // content type inferred from an attacker-chosen extension.
+  app.use('/uploads', uploadsRouter);
+  app.use('/api/events', eventsRouter);
+  app.use('/api/users', usersRouter);
+  app.use('/api/invitations', requireAuth, invitationsRouter);
+app.use('/api/members', requireAuth, membersRouter);
+  app.use('/api', ssoRouter);
+  app.use('/api/workspaces', auditRouter);
+
+  // Liveness must not touch the database: a Postgres blip should not cause the
+  // orchestrator to kill otherwise-healthy replicas.
+  app.get('/livez', (_req: Request, res: Response) => {
+    res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  });
+
+  app.get('/readyz', async (req: Request, res: Response) => {
+    try {
+      await prisma.$queryRaw`SELECT 1`;
+      res.json({
+        status: 'ok',
+        timestamp: new Date().toISOString(),
+        clients: clients.size,
+        database: 'ok',
+        secrets: secretsAreConfigured() ? 'ok' : 'misconfigured',
+      });
+    } catch (err) {
+      req.log?.warn({ err }, '[Health] readiness check failed');
+      res.status(503).json({ status: 'degraded', database: 'unavailable' });
+    }
+  });
 
   app.get('/health', async (req: Request, res: Response) => {
     try {
@@ -221,100 +270,6 @@ export function createApp(): Application {
         database: 'error',
       });
     }
-  });
-
-  app.get('/api/events', async (req: Request, res: Response) => {
-    const tokenRaw = req.query.token;
-    const token = typeof tokenRaw === 'string' ? tokenRaw : '';
-    if (!token) {
-      res.status(401).json(buildErrorEnvelope('SSE_TOKEN_REQUIRED', 'SSE token is required'));
-      return;
-    }
-
-    const secret =
-      process.env.JWT_SECRET ||
-      (process.env.NODE_ENV === 'production'
-        ? null
-        : 'openlinear-dev-secret-change-in-production');
-    if (!secret) {
-      res.status(500).json(buildErrorEnvelope('SERVER_MISCONFIGURED', 'Server is misconfigured'));
-      return;
-    }
-
-    let userId: string;
-    try {
-      const claims = jwt.verify(token, secret) as { userId?: string };
-      if (!claims?.userId) {
-        res.status(401).json(buildErrorEnvelope('INVALID_TOKEN', 'Invalid token'));
-        return;
-      }
-      userId = claims.userId;
-    } catch {
-      res.status(401).json(buildErrorEnvelope('INVALID_TOKEN', 'Invalid token'));
-      return;
-    }
-
-    let teamIds: string[] = [];
-    let workspaceIds: string[] = [];
-    try {
-      teamIds = await getUserTeamIds(userId);
-      const workspaces = await prisma.workspaceMember.findMany({
-        where: { userId },
-        select: { workspaceId: true },
-      });
-      workspaceIds = workspaces.map((membership) => membership.workspaceId);
-    } catch (err) {
-      req.log?.warn({ err, userId }, '[SSE] failed to load team memberships');
-    }
-
-    const clientId = randomUUID();
-
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('Connection', 'keep-alive');
-    res.setHeader('X-Accel-Buffering', 'no');
-    res.flushHeaders();
-
-    const client: SSEClient = { id: clientId, res, userId, teamIds, workspaceIds };
-    clients.set(clientId, client);
-
-    req.log?.info(
-      { clientId, userId, teamCount: teamIds.length, total: clients.size },
-      '[SSE] client connected',
-    );
-
-    try {
-      res.write(`data: ${JSON.stringify({ type: 'connected', clientId })}\n\n`);
-    } catch (err) {
-      req.log?.warn({ err, clientId }, '[SSE] initial write failed');
-    }
-
-    const heartbeatInterval = setInterval(() => {
-      if (res.writableEnded) return;
-      try {
-        res.write(`: heartbeat\n\n`);
-      } catch (err) {
-        req.log?.debug({ err, clientId }, '[SSE] heartbeat write failed');
-        cleanup();
-      }
-    }, 30000);
-
-    let cleaned = false;
-    function cleanup() {
-      if (cleaned) return;
-      cleaned = true;
-      clearInterval(heartbeatInterval);
-      clients.delete(clientId);
-      req.log?.info(
-        { clientId, userId, total: clients.size },
-        '[SSE] client disconnected',
-      );
-    }
-
-    req.on('close', cleanup);
-    req.on('error', cleanup);
-    res.on('close', cleanup);
-    res.on('error', cleanup);
   });
 
   app.use(buildErrorHandler());

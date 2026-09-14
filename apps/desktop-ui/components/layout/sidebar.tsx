@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect } from "react"
 import Link from "next/link"
 import { usePathname, useSearchParams, useRouter } from "next/navigation"
 import { useTheme } from "next-themes"
@@ -18,9 +18,10 @@ import { useWorkspace } from "@/hooks/use-workspace"
 import { cn } from "@/lib/utils"
 import { BRAND_COLORS } from "@/lib/design-tokens"
 import { apiFetch } from "@/lib/api"
-import { getApiUrl, getAuthToken } from "@/lib/api/client"
+import { useSSESubscription } from "@/providers/sse-provider"
 
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import {
@@ -162,7 +163,7 @@ function ProjectSection({ project, pathname, searchParams, isActive, onSelect }:
                     )}
                 >
                     <Hexagon className="w-3.5 h-3.5 flex-shrink-0" />
-                    <span className="truncate">{project.name}</span>
+                    <span className="truncate text-sm font-medium">{project.name}</span>
                 </button>
             </div>
 
@@ -214,27 +215,21 @@ export function Sidebar({ open, onClose, width }: SidebarProps) {
     const [isTauri, setIsTauri] = useState(false)
     const [unreadCount, setUnreadCount] = useState<number>(0)
     const [isFullscreen, setIsFullscreen] = useState(false)
-    const [eventSourceToken, setEventSourceToken] = useState<string | null>(null)
 
     useEffect(() => {
-        const desktop = typeof window !== 'undefined' && (('__TAURI_INTERNALS__' in window) || ('electronAPI' in window && window.electronAPI?.isElectron === true))
-        setIsTauri(desktop)
-        if (!desktop) return
+        const isTauriDesktop = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
+        setIsTauri(isTauriDesktop)
+        if (!isTauriDesktop) return
 
         let unlisten: (() => void) | undefined
 
         const setup = async () => {
-            if (typeof window !== 'undefined' && 'electronAPI' in window && window.electronAPI?.isElectron) {
-                const fs = await window.electronAPI.invoke("window-is-fullscreen") as boolean | undefined
-                setIsFullscreen(fs ?? false)
-            } else {
-                const { getCurrentWindow } = await import('@tauri-apps/api/window')
-                const win = getCurrentWindow()
+            const { getCurrentWindow } = await import('@tauri-apps/api/window')
+            const win = getCurrentWindow()
+            setIsFullscreen(await win.isFullscreen())
+            unlisten = await win.onResized(async () => {
                 setIsFullscreen(await win.isFullscreen())
-                unlisten = await win.onResized(async () => {
-                    setIsFullscreen(await win.isFullscreen())
-                })
-            }
+            })
         }
         setup()
         return () => { unlisten?.() }
@@ -248,59 +243,23 @@ export function Sidebar({ open, onClose, width }: SidebarProps) {
         return () => { cancelled = true }
     }, [pathname])
 
-    useEffect(() => {
-        if (typeof window === 'undefined') return
-        setEventSourceToken(isAuthenticated ? getAuthToken() : null)
-    }, [isAuthenticated, user])
-
-    useEffect(() => {
-        if (typeof window === 'undefined') return
-        const handleStorage = (event: StorageEvent) => {
-            if (event.key === 'token') {
-                setEventSourceToken(isAuthenticated ? getAuthToken() : null)
-            }
-        }
-        window.addEventListener('storage', handleStorage)
-        return () => window.removeEventListener('storage', handleStorage)
-    }, [isAuthenticated])
-
-    useEffect(() => {
-        if (typeof window === 'undefined') return
-        if (!eventSourceToken) return
-        const url = new URL(`${getApiUrl()}/api/events`)
-        url.searchParams.set('token', eventSourceToken)
-        const es = new EventSource(url.toString())
-        const onCreated = () => setUnreadCount((c) => c + 1)
-        es.addEventListener('notification:created', onCreated)
-        return () => {
-            es.removeEventListener('notification:created', onCreated)
-            es.close()
-        }
-    }, [eventSourceToken])
+    // Consume the app's single shared SSE connection (see SSEProvider) rather
+    // than opening a second EventSource just for this badge.
+    useSSESubscription((eventType) => {
+        if (eventType === 'notification:created') setUnreadCount((c) => c + 1)
+    })
 
     const handleClose = async () => {
-        if (typeof window !== 'undefined' && 'electronAPI' in window && window.electronAPI?.isElectron) {
-            await window.electronAPI.invoke("window-close")
-            return
-        }
         const { getCurrentWindow } = await import('@tauri-apps/api/window')
         await getCurrentWindow().close()
     }
 
     const handleMinimize = async () => {
-        if (typeof window !== 'undefined' && 'electronAPI' in window && window.electronAPI?.isElectron) {
-            await window.electronAPI.invoke("window-minimize")
-            return
-        }
         const { getCurrentWindow } = await import('@tauri-apps/api/window')
         getCurrentWindow().minimize()
     }
 
     const handleMaximize = async () => {
-        if (typeof window !== 'undefined' && 'electronAPI' in window && window.electronAPI?.isElectron) {
-            await window.electronAPI.invoke("window-maximize")
-            return
-        }
         const { getCurrentWindow } = await import('@tauri-apps/api/window')
         const isMac = navigator.platform.toUpperCase().includes('MAC')
         if (isMac) {

@@ -1,10 +1,17 @@
 import { prisma } from '@openlinear/db';
+import { logger } from '@openlinear/api/logger';
 
 import type { OpencodeClient } from '@opencode-ai/sdk';
 import { appendTextDelta, appendReasoningDelta, flushDeltaBuffer, markThinking } from '../delta-buffer';
+import {
+  isBackgroundTaskCancellation,
+  isBackgroundTaskCompletion,
+  isBackgroundTaskFailure,
+} from '../../utils/background-task';
 
 import { commitAndPush, createPullRequest, hasCommittableChanges } from './git';
 import { finalizeAgentRun, recordMessageUsage } from './agent-run';
+import { processEvent, type EventProcessorState } from './event-stream-processor';
 import {
   activeExecutions,
   broadcastProgress,
@@ -15,12 +22,34 @@ import {
   getTaskTitle,
   findTaskBySessionId,
   estimateProgress,
+  MAX_COMPLETED_TOOL_KEYS,
+  COMPLETED_TOOL_KEY_SOURCE_LIMIT,
 } from './state';
 
-const EVENT_STREAM_IDLE_TIMEOUT_MS = 30_000;
+// T4 (C-07 / R1 P0-3) — liveness vs. progress are two different questions.
+// - Transport watchdog: ANY frame on the stream — including `server.heartbeat`
+//   (which carries no sessionID) and other sessions' traffic — proves the
+//   connection itself is alive. 60s, not 30s: a single bash/test/install call
+//   can legitimately run well past 30s. On expiry we try to re-subscribe once
+//   before failing, since a dropped connection is recoverable if the OpenCode
+//   server itself is still up.
+// - No-progress watchdog: only events that belong to *this* session and
+//   represent real activity reset it. Defaults to 20 minutes, configurable —
+//   a real compaction has been observed taking 145s, and provider
+//   retry/backoff is unbounded, so 30s (the old single timer) misfired on
+//   ordinary work.
+// - Both are suspended while a permission reply is pending (see
+//   event-stream-processor.ts's `permission.updated` handling) so an
+//   unattended ask-then-reply round trip cannot itself trip either watchdog.
+const TRANSPORT_WATCHDOG_MS = 60_000;
+const NO_PROGRESS_WATCHDOG_MS = (() => {
+  const raw = parseInt(process.env.OPENLINEAR_NO_PROGRESS_TIMEOUT_MS || '', 10);
+  return Number.isFinite(raw) && raw > 0 ? raw : 20 * 60 * 1000;
+})();
 const BACKGROUND_TASK_WAIT_TIMEOUT_MS = 10 * 60 * 1000;
 const BACKGROUND_TASK_BUFFER_LIMIT = 4_000;
 const EVENT_STREAM_TIMEOUT_MESSAGE = 'Agent event stream timed out';
+const NO_PROGRESS_TIMEOUT_MESSAGE = 'Agent made no progress within the configured budget';
 const BACKGROUND_TASK_TIMEOUT_MESSAGE = 'Background subtask timed out';
 
 type OpenCodeEvent = { type: string; properties?: Record<string, unknown> };
@@ -36,7 +65,7 @@ type ToolPart = {
   state?: { status?: string; title?: string; output?: string };
 };
 
-function clearEventStreamTimeout(taskId: string): void {
+function clearTransportWatchdog(taskId: string): void {
   const execution = activeExecutions.get(taskId);
   if (execution?.streamTimeoutId) {
     clearTimeout(execution.streamTimeoutId);
@@ -44,12 +73,41 @@ function clearEventStreamTimeout(taskId: string): void {
   }
 }
 
-async function failExecutionFromEventStream(taskId: string, message: string, details?: string): Promise<void> {
+function clearNoProgressWatchdog(taskId: string): void {
+  const execution = activeExecutions.get(taskId);
+  if (execution?.progressTimeoutId) {
+    clearTimeout(execution.progressTimeoutId);
+    execution.progressTimeoutId = null;
+  }
+}
+
+function clearAllWatchdogs(taskId: string): void {
+  clearTransportWatchdog(taskId);
+  clearNoProgressWatchdog(taskId);
+}
+
+/**
+ * T5 — idempotency guard shared by every finalization path (event-driven
+ * completion, stream-failure finalization, and lifecycle.ts's cancelTask).
+ * `session.promptAsync` (used in lifecycle.ts) races the event stream by
+ * design — errors and completion both arrive only as events now — so more
+ * than one code path can independently decide "this run is over." Whichever
+ * gets here first wins; everyone else is a no-op.
+ */
+export function claimFinalize(taskId: string): boolean {
+  const execution = activeExecutions.get(taskId);
+  if (!execution || execution.finalized) return false;
+  execution.finalized = true;
+  return true;
+}
+
+export async function failExecutionFromEventStream(taskId: string, message: string, details?: string): Promise<void> {
   const execution = activeExecutions.get(taskId);
   if (!execution || execution.cancelled) return;
 
   const recoverableStreamFailure =
     message === EVENT_STREAM_TIMEOUT_MESSAGE ||
+    message === NO_PROGRESS_TIMEOUT_MESSAGE ||
     message === BACKGROUND_TASK_TIMEOUT_MESSAGE ||
     message === 'Agent event stream failed' ||
     message === 'Agent event stream ended unexpectedly';
@@ -57,7 +115,8 @@ async function failExecutionFromEventStream(taskId: string, message: string, det
   if (recoverableStreamFailure) {
     try {
       if (await hasCommittableChanges(execution.repoPath)) {
-        clearEventStreamTimeout(taskId);
+        if (!claimFinalize(taskId)) return;
+        clearAllWatchdogs(taskId);
         execution.backgroundTaskRunning = false;
         execution.backgroundTaskFailure = null;
         addLogEntry(
@@ -70,19 +129,21 @@ async function failExecutionFromEventStream(taskId: string, message: string, det
         try {
           await execution.client.session.abort({ path: { id: execution.sessionId } });
         } catch (error) {
-          console.error(`[Execution] Abort before recovered commit failed for task ${taskId.slice(0, 8)}:`, error);
+          logger.error({ err: error, taskId }, `[Execution] Abort before recovered commit failed for task ${taskId.slice(0, 8)}`);
         }
-        await handleSessionComplete(taskId);
+        await handleSessionComplete(taskId, { alreadyClaimed: true });
         return;
       }
     } catch (error) {
-      console.error(`[Execution] Failed to inspect worktree after stream failure for task ${taskId.slice(0, 8)}:`, error);
+      logger.error({ err: error, taskId }, `[Execution] Failed to inspect worktree after stream failure for task ${taskId.slice(0, 8)}`);
     }
   }
 
+  if (!claimFinalize(taskId)) return;
+
   execution.status = 'error';
   execution.cancelled = true;
-  clearEventStreamTimeout(taskId);
+  clearAllWatchdogs(taskId);
 
   const elapsedMs = Date.now() - execution.startedAt.getTime();
   const estimatedProgress = estimateProgress(execution);
@@ -94,7 +155,7 @@ async function failExecutionFromEventStream(taskId: string, message: string, det
   try {
     await execution.client.session.abort({ path: { id: execution.sessionId } });
   } catch (error) {
-    console.error(`[Execution] Abort after event stream failure failed for task ${taskId.slice(0, 8)}:`, error);
+    logger.error({ err: error, taskId }, `[Execution] Abort after event stream failure failed for task ${taskId.slice(0, 8)}`);
   }
 
   await finalizeAgentRun(execution, 'failed', { errorMessage: outcome });
@@ -107,65 +168,93 @@ async function failExecutionFromEventStream(taskId: string, message: string, det
   await cleanupExecution(taskId);
 }
 
-function resetEventStreamTimeout(
-  taskId: string,
-  sessionId: string,
-  timeoutMs = EVENT_STREAM_IDLE_TIMEOUT_MS,
-  timeoutMessage = EVENT_STREAM_TIMEOUT_MESSAGE,
-): void {
-  clearEventStreamTimeout(taskId);
+function resetTransportWatchdog(taskId: string, client: OpencodeClient, sessionId: string): void {
+  clearTransportWatchdog(taskId);
   const execution = activeExecutions.get(taskId);
   if (!execution || execution.sessionId !== sessionId || execution.cancelled) return;
-
-  const waitingForBackgroundTask =
-    execution.backgroundTaskRunning
-    && timeoutMs === EVENT_STREAM_IDLE_TIMEOUT_MS
-    && timeoutMessage === EVENT_STREAM_TIMEOUT_MESSAGE;
-  const effectiveTimeoutMs = waitingForBackgroundTask ? BACKGROUND_TASK_WAIT_TIMEOUT_MS : timeoutMs;
-  const effectiveTimeoutMessage = waitingForBackgroundTask ? BACKGROUND_TASK_TIMEOUT_MESSAGE : timeoutMessage;
+  if (execution.watchdogSuspended) return;
 
   execution.streamTimeoutId = setTimeout(() => {
-    /* v8 ignore start -- the catch callback only runs if timeout failure handling itself rejects. */
-    void failExecutionFromEventStream(taskId, effectiveTimeoutMessage).catch((error: unknown) => {
-      console.error(`[Execution] Failed to handle event stream timeout for task ${taskId.slice(0, 8)}:`, error);
+    void handleTransportTimeout(taskId, client, sessionId).catch((error: unknown) => {
+      logger.error({ err: error, taskId }, `[Execution] Failed to handle transport watchdog expiry for task ${taskId.slice(0, 8)}`);
     });
-    /* v8 ignore stop */
-  }, effectiveTimeoutMs);
+  }, TRANSPORT_WATCHDOG_MS);
   execution.streamTimeoutId.unref();
 }
 
+/**
+ * T4 — the transport watchdog fired: no frame at all (not even a heartbeat)
+ * arrived for a full interval. Try re-subscribing once before treating the
+ * run as dead; a dropped HTTP/SSE connection is recoverable if the OpenCode
+ * server process is still alive.
+ */
+async function handleTransportTimeout(taskId: string, client: OpencodeClient, sessionId: string): Promise<void> {
+  const execution = activeExecutions.get(taskId);
+  if (!execution || execution.cancelled) return;
+
+  logger.warn(`[Execution] transport watchdog expired for task ${taskId.slice(0, 8)}; attempting to re-subscribe`);
+  try {
+    const events = await client.event.subscribe();
+    addLogEntry(taskId, 'info', 'Reconnected to the agent event stream after a silent period');
+    attachEventStream(taskId, client, sessionId, events.stream as unknown as ClosableEventStream);
+  } catch (error) {
+    await failExecutionFromEventStream(
+      taskId,
+      EVENT_STREAM_TIMEOUT_MESSAGE,
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+}
+
+function resetNoProgressWatchdog(
+  taskId: string,
+  sessionId: string,
+  timeoutMs = NO_PROGRESS_WATCHDOG_MS,
+  timeoutMessage = NO_PROGRESS_TIMEOUT_MESSAGE,
+): void {
+  clearNoProgressWatchdog(taskId);
+  const execution = activeExecutions.get(taskId);
+  if (!execution || execution.sessionId !== sessionId || execution.cancelled) return;
+  if (execution.watchdogSuspended) return;
+
+  const waitingForBackgroundTask =
+    execution.backgroundTaskRunning
+    && timeoutMs === NO_PROGRESS_WATCHDOG_MS
+    && timeoutMessage === NO_PROGRESS_TIMEOUT_MESSAGE;
+  const effectiveTimeoutMs = waitingForBackgroundTask ? BACKGROUND_TASK_WAIT_TIMEOUT_MS : timeoutMs;
+  const effectiveTimeoutMessage = waitingForBackgroundTask ? BACKGROUND_TASK_TIMEOUT_MESSAGE : timeoutMessage;
+
+  execution.progressTimeoutId = setTimeout(() => {
+    /* v8 ignore start -- the catch callback only runs if timeout failure handling itself rejects. */
+    void failExecutionFromEventStream(taskId, effectiveTimeoutMessage).catch((error: unknown) => {
+      logger.error({ err: error, taskId }, `[Execution] Failed to handle no-progress watchdog expiry for task ${taskId.slice(0, 8)}`);
+    });
+    /* v8 ignore stop */
+  }, effectiveTimeoutMs);
+  execution.progressTimeoutId.unref();
+}
+
+function suspendWatchdogs(taskId: string): void {
+  const execution = activeExecutions.get(taskId);
+  if (!execution) return;
+  execution.watchdogSuspended = true;
+  clearAllWatchdogs(taskId);
+}
+
+function resumeWatchdogs(taskId: string, client: OpencodeClient, sessionId: string): void {
+  const execution = activeExecutions.get(taskId);
+  if (!execution) return;
+  execution.watchdogSuspended = false;
+  resetTransportWatchdog(taskId, client, sessionId);
+  resetNoProgressWatchdog(taskId, sessionId);
+}
+
 function isTerminalSessionEvent(eventType: string): boolean {
-  return eventType === 'session.idle' || eventType === 'session.completed' || eventType === 'session.error';
+  // T6 — `session.completed` removed: it is not in the installed SDK's
+  // Event union and never fires. `session.idle` is the real signal.
+  return eventType === 'session.idle' || eventType === 'session.error';
 }
 
-function extractBackgroundTaskId(output: string): string | null {
-  return output.match(/(?:task_id|Background Task ID):\s*([A-Za-z0-9_-]+)/i)?.[1] ?? null;
-}
-
-function isBackgroundTaskLaunch(toolName: string, output: string): boolean {
-  if (toolName !== 'task') return false;
-  const lower = output.toLowerCase();
-  return lower.includes('background task started')
-    || lower.includes('background task launched')
-    || (lower.includes('state: running') && lower.includes('task_status'));
-}
-
-function isBackgroundTaskCancellation(toolName: string, output: string): boolean {
-  const lower = `${toolName}\n${output}`.toLowerCase();
-  return toolName === 'background_cancel'
-    || lower.includes('task cancelled successfully')
-    || lower.includes('task canceled successfully')
-    || lower.includes('background task cancelled')
-    || lower.includes('background task canceled');
-}
-
-function isBackgroundTaskCompletion(output: string): boolean {
-  return /Background task completed:/i.test(output) || /\bTask Completed\b/i.test(output);
-}
-
-function isBackgroundTaskFailure(output: string): boolean {
-  return /Background task failed:/i.test(output) || /\bTask Failed\b/i.test(output);
-}
 
 function clearBackgroundTaskWait(
   taskId: string,
@@ -189,16 +278,29 @@ function clearBackgroundTaskWait(
     : 'Background subtask completed; waiting for final agent response';
   addLogEntry(taskId, 'info', message, details);
   broadcastProgress(taskId, 'executing', message);
-  resetEventStreamTimeout(taskId, execution.sessionId);
+  resetNoProgressWatchdog(taskId, execution.sessionId);
 }
 
 function noteToolCompleted(taskId: string, toolName: string, output?: string, part?: ToolPart): void {
   const execution = activeExecutions.get(taskId);
+  /* v8 ignore start -- defensive guard for stale event after cleanup. */
   if (!execution) return;
+  /* v8 ignore stop */
 
-  const keySource = (output || part?.callID || part?.id || `${toolName}:${Date.now()}`).slice(0, 1_000);
+  // T11 (M-03) — prefer the callID when present (a stable, tiny identifier)
+  // over raw tool output, and cap whatever we fall back to. Each key used to
+  // be up to 1KB of tool output held for the run's full lifetime purely to
+  // dedupe a counter.
+  const keySource = (part?.callID || part?.id || output || `${toolName}:${Date.now()}`).slice(0, COMPLETED_TOOL_KEY_SOURCE_LIMIT);
   const key = `${toolName}:${keySource}`;
   if (execution.completedToolKeys.has(key)) return;
+
+  if (execution.completedToolKeys.size >= MAX_COMPLETED_TOOL_KEYS) {
+    // Sets iterate in insertion order — drop the oldest to bound memory
+    // rather than let it grow forever on a long, tool-heavy run.
+    const oldest = execution.completedToolKeys.values().next().value;
+    if (oldest !== undefined) execution.completedToolKeys.delete(oldest);
+  }
 
   execution.completedToolKeys.add(key);
   execution.toolsExecuted++;
@@ -226,8 +328,10 @@ function observeBackgroundTaskText(taskId: string, text: string): void {
   }
 }
 
-async function handleSessionComplete(taskId: string): Promise<void> {
+async function handleSessionComplete(taskId: string, opts: { alreadyClaimed?: boolean } = {}): Promise<void> {
   const execution = activeExecutions.get(taskId)!;
+  if (!opts.alreadyClaimed && !claimFinalize(taskId)) return;
+  clearAllWatchdogs(taskId);
 
   const elapsedMs = Date.now() - execution.startedAt.getTime();
   let prUrl: string | null = null;
@@ -340,7 +444,7 @@ async function handleSessionComplete(taskId: string): Promise<void> {
       outcome,
     });
   } catch (error) {
-    console.error('[Execution] Post-execution error:', error);
+    logger.error({ err: error, taskId }, '[Execution] Post-execution error');
     addLogEntry(taskId, 'error', 'Post-execution failed');
     broadcastProgress(taskId, 'error', 'Post-execution failed');
     const errorMessage = error instanceof Error ? error.message : 'Post-execution failed';
@@ -359,320 +463,251 @@ async function handleSessionComplete(taskId: string): Promise<void> {
   }
 }
 
-// Extract session ID from various OpenCode event structures
-function extractSessionId(event: { type: string; properties?: Record<string, unknown> }): string | undefined {
+// Extract session ID from various OpenCode event structures.
+// Exported so other event-stream consumers (e.g. services/session-manager.ts)
+// reuse this instead of hand-rolling a second, divergent parser (see C-01).
+export function extractSessionId(event: { type: string; properties?: Record<string, unknown> }): string | undefined {
   const props = event.properties || {};
-  
+
   // Direct sessionID on properties
   if (typeof props.sessionID === 'string') return props.sessionID;
-  
+
   // Direct id on properties (for session.* events)
   if (typeof props.id === 'string' && props.id.startsWith('ses_')) return props.id;
-  
+
   // Nested in info object
   const info = props.info as { id?: string; sessionID?: string } | undefined;
   if (info?.sessionID) return info.sessionID;
   if (info?.id && typeof info.id === 'string' && info.id.startsWith('ses_')) return info.id;
-  
+
   // Nested in part object
   const part = props.part as { sessionID?: string } | undefined;
   if (part?.sessionID) return part.sessionID;
-  
+
   // Nested in session object
   const session = props.session as { id?: string } | undefined;
   if (session?.id) return session.id;
-  
+
   return undefined;
 }
 
-function extractCleanError(rawError: unknown): { message: string; isAuthError: boolean; isRateLimit: boolean } {
-  if (typeof rawError === 'string') {
-    const lower = rawError.toLowerCase();
-    return {
-      message: rawError,
-      isAuthError: lower.includes('api key') || lower.includes('unauthorized') || lower.includes('authentication'),
-      isRateLimit: lower.includes('rate limit') || lower.includes('429') || lower.includes('quota'),
-    };
-  }
-
-  if (rawError && typeof rawError === 'object') {
-    const err = rawError as Record<string, unknown>;
-
-    // Shape: { name: "APIError", data: { message: "...", statusCode: 401, ... } }
-    if (err.data && typeof err.data === 'object') {
-      const data = err.data as Record<string, unknown>;
-      const msg = typeof data.message === 'string' ? data.message : undefined;
-      const statusCode = typeof data.statusCode === 'number' ? data.statusCode : undefined;
-      if (msg) {
-        return {
-          message: msg,
-          isAuthError: statusCode === 401 || statusCode === 403 || msg.toLowerCase().includes('api key'),
-          isRateLimit: statusCode === 429 || msg.toLowerCase().includes('rate limit') || msg.toLowerCase().includes('quota'),
-        };
-      }
-    }
-
-    // Shape: { message: "..." }
-    if (typeof err.message === 'string') {
-      const lower = err.message.toLowerCase();
-      return {
-        message: err.message,
-        isAuthError: lower.includes('api key') || lower.includes('unauthorized'),
-        isRateLimit: lower.includes('rate limit') || lower.includes('429'),
-      };
-    }
-
-    // Shape: { error: { message: "..." } }
-    if (err.error && typeof err.error === 'object') {
-      const inner = err.error as Record<string, unknown>;
-      if (typeof inner.message === 'string') {
-        return {
-          message: inner.message,
-          isAuthError: inner.message.toLowerCase().includes('api key'),
-          isRateLimit: inner.message.toLowerCase().includes('rate limit'),
-        };
-      }
-    }
-  }
-
-  return {
-    message: rawError ? JSON.stringify(rawError).slice(0, 200) : 'Unknown error',
-    isAuthError: false,
-    isRateLimit: false,
-  };
-}
+// extractCleanError moved to event-stream-processor.ts
 
 async function handleOpenCodeEvent(event: { type: string; properties?: Record<string, unknown> }): Promise<void> {
   if (event.type === 'server.heartbeat') return;
-  
+
   const sessionId = extractSessionId(event);
   const taskId = findTaskBySessionId(String(sessionId));
+  if (!taskId) return;
 
-  switch (event.type) {
-    case 'session.idle':
-    case 'session.completed':
-      if (taskId) {
-        const execution = activeExecutions.get(taskId);
-        if (!execution?.promptSent || execution.cancelled) {
-          console.log(`[Execution] Ignoring ${event.type} for task ${taskId.slice(0, 8)} (${!execution?.promptSent ? 'prompt not yet sent' : 'cancelled'})`);
-          break;
-        }
+  const execution = activeExecutions.get(taskId);
+  if (!execution) return;
+
+  const state: EventProcessorState = {
+    taskId,
+    sessionId: execution.sessionId,
+    promptSent: execution.promptSent,
+    cancelled: execution.cancelled,
+    status: execution.status,
+    backgroundTaskRunning: execution.backgroundTaskRunning,
+    backgroundTaskFailure: execution.backgroundTaskFailure,
+    backgroundTaskIds: execution.backgroundTaskIds,
+    backgroundTaskResultBuffer: execution.backgroundTaskResultBuffer,
+    completedToolKeys: execution.completedToolKeys,
+    toolsExecuted: execution.toolsExecuted,
+    filesChanged: execution.filesChanged,
+  };
+
+  const actions = processEvent(event, state);
+
+  for (const action of actions) {
+    switch (action.type) {
+      case 'ignore':
+        return;
+      case 'log':
+        addLogEntry(taskId, action.level, action.message, action.details);
+        break;
+      case 'broadcastProgress':
+        broadcastProgress(taskId, action.status, action.message, action.data);
+        break;
+      case 'flushDeltaBuffer':
         flushDeltaBuffer(taskId);
-        if (execution.backgroundTaskFailure) {
-          await failExecutionFromEventStream(taskId, 'Background subtask failed', execution.backgroundTaskFailure);
-          break;
-        }
-        if (execution.backgroundTaskRunning) {
-          addLogEntry(taskId, 'info', 'Agent is waiting on a background subtask');
-          broadcastProgress(taskId, 'executing', 'Waiting for background subtask to finish...');
-          resetEventStreamTimeout(
-            taskId,
-            execution.sessionId,
-            BACKGROUND_TASK_WAIT_TIMEOUT_MS,
-            BACKGROUND_TASK_TIMEOUT_MESSAGE,
-          );
-          break;
-        }
-        addLogEntry(taskId, 'success', 'Agent completed work');
-        await handleSessionComplete(taskId);
-      }
-      break;
-
-    case 'session.error':
-      if (taskId) {
-        const execution = activeExecutions.get(taskId);
-        if (execution?.status === 'committing' || execution?.status === 'creating_pr' || execution?.status === 'done') {
-          break;
-        }
-        const rawError = event.properties?.error;
-        const { message: errorDetail, isAuthError, isRateLimit } = extractCleanError(rawError);
-        const headline = isAuthError
-          ? 'Invalid API key — update it in Settings → AI Providers'
-          : isRateLimit
-            ? 'Rate limit exceeded — try again later'
-            : 'Execution failed';
-        addLogEntry(taskId, 'error', headline, errorDetail);
-        broadcastProgress(taskId, 'error', headline);
-    if (execution) {
-      await finalizeAgentRun(execution, 'failed', { errorMessage: errorDetail });
-    }
-    const elapsedMs = execution ? Date.now() - execution.startedAt.getTime() : 0;
-    await updateTaskStatus(taskId, 'cancelled', null, {
-      executionElapsedMs: elapsedMs,
-      executionPausedAt: new Date(),
-    });
-    await persistLogs(taskId);
-    await cleanupExecution(taskId);
-      }
-      break;
-
-    case 'session.status': {
-      if (!taskId) break;
-      const status = event.properties?.status as { type?: string; message?: string };
-      if (status?.type === 'busy') {
-        const execution = activeExecutions.get(taskId);
-        if (execution) execution.promptSent = true;
+        break;
+      case 'appendTextDelta':
+        appendTextDelta(taskId, action.delta);
+        break;
+      case 'appendReasoningDelta':
+        appendReasoningDelta(taskId, action.delta);
+        break;
+      case 'markThinking':
         if (markThinking(taskId)) {
           addLogEntry(taskId, 'agent', 'Agent is thinking...');
         }
-        broadcastProgress(taskId, 'executing', 'Agent is thinking...');
-      } else if (status?.type === 'retry') {
-        addLogEntry(taskId, 'info', `Retrying: ${status.message || 'unknown reason'}`);
-      }
-      break;
-    }
-
-    case 'message.part.updated': {
-      if (!taskId) break;
-      const part = event.properties?.part as ToolPart | undefined;
-      const delta = event.properties?.delta as string;
-
-      if (part?.type === 'text' && delta) {
-        appendTextDelta(taskId, delta);
-        observeBackgroundTaskText(taskId, delta);
-      } else if (part?.type === 'tool') {
-        flushDeltaBuffer(taskId);
-        const toolName = part.tool || 'unknown tool';
-        const state = part.state;
-        if (state?.status === 'running') {
-          addLogEntry(taskId, 'tool', `Running: ${state.title || toolName}`);
-          broadcastProgress(taskId, 'executing', `Running: ${state.title || toolName}`);
-        } else if (state?.status === 'completed') {
-          const rawOutput = state.output || '';
-          const output = rawOutput.slice(0, 100);
-          noteToolCompleted(taskId, toolName, rawOutput, part);
-          if (isBackgroundTaskLaunch(toolName, rawOutput)) {
-            const launchExecution = activeExecutions.get(taskId);
-            if (launchExecution) {
-              launchExecution.backgroundTaskRunning = true;
-              launchExecution.backgroundTaskFailure = null;
-              launchExecution.backgroundTaskResultBuffer = rawOutput.slice(-BACKGROUND_TASK_BUFFER_LIMIT);
-              const backgroundTaskId = extractBackgroundTaskId(rawOutput);
-              if (backgroundTaskId && !launchExecution.backgroundTaskIds.includes(backgroundTaskId)) {
-                launchExecution.backgroundTaskIds.push(backgroundTaskId);
-              }
-              resetEventStreamTimeout(
-                taskId,
-                launchExecution.sessionId,
-                BACKGROUND_TASK_WAIT_TIMEOUT_MS,
-                BACKGROUND_TASK_TIMEOUT_MESSAGE,
-              );
-            }
-            addLogEntry(taskId, 'info', 'Background subtask launched; waiting for it to finish', output);
-            broadcastProgress(taskId, 'executing', 'Waiting for background subtask to finish...');
-          } else if (isBackgroundTaskCancellation(toolName, rawOutput)) {
-            clearBackgroundTaskWait(taskId, 'cancelled', rawOutput.slice(-1_000));
-            addLogEntry(taskId, 'success', `Completed: ${toolName}`, output);
-          } else {
-            observeBackgroundTaskText(taskId, rawOutput);
-            addLogEntry(taskId, 'success', `Completed: ${toolName}`, output);
-          }
-        } else if (state?.status === 'error') {
-          addLogEntry(taskId, 'error', `Failed: ${toolName}`, state.output);
+        break;
+      case 'setPromptSent':
+        execution.promptSent = true;
+        break;
+      case 'incrementFilesChanged':
+        execution.filesChanged++;
+        break;
+      case 'noteToolCompleted':
+        noteToolCompleted(taskId, action.toolName, action.output, action.part);
+        break;
+      case 'observeBackgroundTaskText':
+        observeBackgroundTaskText(taskId, action.text);
+        break;
+      case 'launchBackgroundTask': {
+        execution.backgroundTaskRunning = true;
+        execution.backgroundTaskFailure = null;
+        execution.backgroundTaskResultBuffer = action.output;
+        if (action.backgroundTaskId && !execution.backgroundTaskIds.includes(action.backgroundTaskId)) {
+          execution.backgroundTaskIds.push(action.backgroundTaskId);
         }
-      } else if (part?.type === 'reasoning') {
-        if (delta && delta.length > 0) {
-          appendReasoningDelta(taskId, delta);
+        resetNoProgressWatchdog(taskId, execution.sessionId, BACKGROUND_TASK_WAIT_TIMEOUT_MS, BACKGROUND_TASK_TIMEOUT_MESSAGE);
+        break;
+      }
+      case 'clearBackgroundTaskWait':
+        clearBackgroundTaskWait(taskId, action.status, action.details);
+        break;
+      case 'resetEventStreamTimeout':
+        resetNoProgressWatchdog(taskId, execution.sessionId, action.timeoutMs, action.timeoutMessage);
+        break;
+      case 'handleSessionComplete':
+        await handleSessionComplete(taskId);
+        break;
+      case 'failExecution':
+        await failExecutionFromEventStream(taskId, action.message, action.details);
+        break;
+      case 'sessionError': {
+        if (!claimFinalize(taskId)) break;
+        clearAllWatchdogs(taskId);
+        addLogEntry(taskId, 'error', action.headline, action.errorDetail);
+        broadcastProgress(taskId, 'error', action.headline);
+        await finalizeAgentRun(execution, 'failed', { errorMessage: action.errorDetail });
+        const elapsedMs = Date.now() - execution.startedAt.getTime();
+        await updateTaskStatus(taskId, 'cancelled', null, {
+          executionElapsedMs: elapsedMs,
+          executionPausedAt: new Date(),
+        });
+        await persistLogs(taskId);
+        await cleanupExecution(taskId);
+        break;
+      }
+      case 'replyPermission':
+        try {
+          await execution.client.postSessionIdPermissionsPermissionId({
+            path: { id: execution.sessionId, permissionID: action.permissionId },
+            body: { response: action.reply },
+          });
+        } catch (error) {
+          logger.error({ err: error, taskId }, `[Execution] Failed to reply to permission request for task ${taskId.slice(0, 8)}`);
         }
-      }
-      break;
+        break;
+      case 'suspendWatchdog':
+        suspendWatchdogs(taskId);
+        break;
+      case 'resumeWatchdog':
+        resumeWatchdogs(taskId, execution.client, execution.sessionId);
+        break;
+      case 'recordUsage':
+        recordMessageUsage(execution, action.messageId, {
+          cost: action.cost,
+          inputTokens: action.inputTokens,
+          outputTokens: action.outputTokens,
+          reasoningTokens: action.reasoningTokens,
+          cacheReadTokens: action.cacheReadTokens,
+          cacheWriteTokens: action.cacheWriteTokens,
+        });
+        break;
     }
-
-    case 'tool.execute.before': {
-      if (!taskId) break;
-      flushDeltaBuffer(taskId);
-      const tool = event.properties?.tool as string;
-      if (tool) {
-        addLogEntry(taskId, 'tool', `Starting: ${tool}`);
-      }
-      break;
-    }
-
-    case 'tool.execute.after': {
-      if (!taskId) break;
-      const tool = event.properties?.tool as string;
-      const output = event.properties?.output as string;
-      if (tool) {
-        noteToolCompleted(taskId, tool, output);
-        if (isBackgroundTaskCancellation(tool, output || '')) {
-          clearBackgroundTaskWait(taskId, 'cancelled', output?.slice(-1_000));
-        } else {
-          observeBackgroundTaskText(taskId, output || '');
-        }
-        addLogEntry(taskId, 'success', `Finished: ${tool}`, output?.slice(0, 100));
-      }
-      break;
-    }
-
-    case 'file.edited': {
-      if (!taskId) break;
-      const file = event.properties?.file as string;
-      if (file) {
-        const execution = activeExecutions.get(taskId);
-        if (execution) execution.filesChanged++;
-        addLogEntry(taskId, 'success', `Edited file: ${file}`);
-      }
-      break;
-    }
-
-    default:
-      break;
   }
+}
+
+/**
+ * Attaches a live consumer loop to an OpenCode event stream for one task's
+ * session. Used both for the initial subscription and — T4 — to re-attach
+ * after the transport watchdog fires and a re-subscribe succeeds.
+ */
+function attachEventStream(
+  taskId: string,
+  client: OpencodeClient,
+  sessionId: string,
+  stream: ClosableEventStream,
+): void {
+  const execution = activeExecutions.get(taskId);
+  if (!execution) return;
+
+  const myCleanup = async () => {
+    clearAllWatchdogs(taskId);
+    if (typeof stream.return === 'function') {
+      await stream.return();
+    }
+  };
+  execution.eventStreamCleanup = myCleanup;
+  resetTransportWatchdog(taskId, client, sessionId);
+  resetNoProgressWatchdog(taskId, sessionId);
+
+  (async () => {
+    let failureHandled = false;
+    try {
+      for await (const event of stream) {
+        // Liveness: ANY frame proves the transport is alive, whether or not
+        // it belongs to this task's session — heartbeats carry no sessionID
+        // at all, and another session's traffic on the same server-wide
+        // stream still proves the connection itself is up.
+        resetTransportWatchdog(taskId, client, sessionId);
+
+        const eventSessionId = extractSessionId(event);
+        if (eventSessionId !== sessionId) continue;
+
+        if (event.type !== 'server.heartbeat') {
+          const current = activeExecutions.get(taskId);
+          if (current && !current.watchdogSuspended) {
+            resetNoProgressWatchdog(taskId, sessionId);
+          }
+        }
+
+        if (isTerminalSessionEvent(event.type)) {
+          clearNoProgressWatchdog(taskId);
+        }
+
+        await handleOpenCodeEvent(event);
+        if (!activeExecutions.has(taskId)) {
+          break;
+        }
+      }
+    } catch (error) {
+      logger.error({ err: error, taskId }, `[Execution] Event stream error for task ${taskId.slice(0, 8)}`);
+      failureHandled = true;
+      await failExecutionFromEventStream(
+        taskId,
+        'Agent event stream failed',
+        error instanceof Error ? error.message : String(error),
+      );
+    } finally {
+      const current = activeExecutions.get(taskId);
+      // Only the loop instance that is still "current" acts on its own end.
+      // A transport-watchdog re-subscribe replaces `eventStreamCleanup` with
+      // a new closure before this loop's underlying connection is abandoned,
+      // so this stale loop finally erroring out afterward must not re-fail
+      // an execution that already recovered onto the new stream.
+      if (current && current.eventStreamCleanup === myCleanup) {
+        clearAllWatchdogs(taskId);
+        current.eventStreamCleanup = undefined;
+        if (!current.cancelled && !failureHandled) {
+          await failExecutionFromEventStream(taskId, 'Agent event stream ended unexpectedly');
+        }
+      }
+    }
+  })();
 }
 
 export async function subscribeToSessionEvents(taskId: string, client: OpencodeClient, sessionId: string): Promise<void> {
   try {
     const events = await client.event.subscribe();
-    const stream = events.stream as unknown as ClosableEventStream;
-    const execution = activeExecutions.get(taskId);
-    if (execution) {
-      execution.eventStreamCleanup = async () => {
-        clearEventStreamTimeout(taskId);
-        if (typeof stream.return === 'function') {
-          await stream.return();
-        }
-      };
-      resetEventStreamTimeout(taskId, sessionId);
-    }
-    
-    (async () => {
-      let failureHandled = false;
-      try {
-        for await (const event of stream) {
-          const eventSessionId = extractSessionId(event);
-          if (eventSessionId === sessionId) {
-            if (isTerminalSessionEvent(event.type)) {
-              clearEventStreamTimeout(taskId);
-            } else {
-              resetEventStreamTimeout(taskId, sessionId);
-            }
-            await handleOpenCodeEvent(event);
-            if (!activeExecutions.has(taskId)) {
-              break;
-            }
-          }
-        }
-      } catch (error) {
-        console.error(`[Execution] Event stream error for task ${taskId.slice(0, 8)}:`, error);
-        failureHandled = true;
-        await failExecutionFromEventStream(
-          taskId,
-          'Agent event stream failed',
-          error instanceof Error ? error.message : String(error),
-        );
-      } finally {
-        clearEventStreamTimeout(taskId);
-        const current = activeExecutions.get(taskId);
-        if (current && current.eventStreamCleanup === execution?.eventStreamCleanup) {
-          current.eventStreamCleanup = undefined;
-        }
-        if (current && !current.cancelled && !failureHandled) {
-          await failExecutionFromEventStream(taskId, 'Agent event stream ended unexpectedly');
-        }
-      }
-    })();
+    attachEventStream(taskId, client, sessionId, events.stream as unknown as ClosableEventStream);
   } catch (error) {
-    console.error(`[Execution] Failed to subscribe to events for task ${taskId.slice(0, 8)}:`, error);
+    logger.error({ err: error, taskId }, `[Execution] Failed to subscribe to events for task ${taskId.slice(0, 8)}`);
     addLogEntry(taskId, 'error', 'Failed to subscribe to agent events');
     await failExecutionFromEventStream(
       taskId,

@@ -112,4 +112,46 @@ describe("board task state", () => {
       batchId: null,
     })
   })
+
+  it("preserves execution state when a task is moved to in_progress", () => {
+    const runningTask = {
+      ...task("task-1", "todo"),
+      sessionId: "session-1",
+      executionStartedAt: "2026-05-22T00:00:00.000Z",
+      executionPausedAt: null,
+      executionElapsedMs: 12_000,
+      executionProgress: 50,
+      batchId: "batch-1",
+    }
+
+    expect(applyBoardStatusChange(runningTask, "in_progress")).toMatchObject({
+      status: "in_progress",
+      sessionId: "session-1",
+      executionStartedAt: "2026-05-22T00:00:00.000Z",
+      executionElapsedMs: 12_000,
+      executionProgress: 50,
+      batchId: "batch-1",
+    })
+  })
+
+  it("moves a task to a column where it is the only member", () => {
+    const todoOne = task("todo-1", "todo")
+    const doneOne = task("done-1", "done")
+
+    const next = moveBoardTask([todoOne, doneOne], todoOne.id, "done", 0)
+
+    expect(next.map((candidate) => candidate.id)).toEqual(["todo-1", "done-1"])
+    expect(next[0].status).toBe("done")
+  })
+
+  it("returns original list when task id is not found", () => {
+    const todoOne = task("todo-1", "todo")
+    const next = moveBoardTask([todoOne], "nonexistent", "done", 0)
+    expect(next.map((candidate) => candidate.id)).toEqual(["todo-1"])
+  })
+
+  it("handles missing batch tasks gracefully", () => {
+    expect(getLockedBatchTaskIds({ status: "running", tasks: [] })).toEqual(new Set())
+    expect(getLockedBatchTaskIds({ status: "completed", tasks: [{ taskId: "t1" }] })).toEqual(new Set())
+  })
 })

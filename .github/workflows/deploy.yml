@@ -43,7 +43,7 @@ jobs:
         run: pnpm --filter @openlinear/db db:generate
 
       - name: Push schema to test database
-        run: pnpm --filter @openlinear/db db:push
+        run: pnpm --filter @openlinear/db exec prisma migrate deploy
 
       - name: Typecheck
         run: pnpm --filter @openlinear/api typecheck

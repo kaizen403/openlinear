@@ -1,16 +1,31 @@
 #!/bin/bash
 set -e
 
-# Downloads the latest opencode binary for the current platform
-# and places it in the Tauri sidecar binaries directory with
-# the correct target-triple naming convention.
+# Downloads the opencode binary for the current platform and places it in
+# the Tauri sidecar binaries directory with the correct target-triple naming
+# convention.
+#
+# SECURITY (C6a F19): the version is pinned to an exact release tag and every
+# download is verified against a checksum committed to this repo
+# (scripts/opencode.sha256) before it's ever extracted or installed — a
+# compromised/hijacked upstream release, or a tampered local copy, gets
+# rejected instead of silently becoming the agent executable every OpenLinear
+# build ships. There is deliberately no "skip if already downloaded"
+# shortcut any more: every invocation re-verifies, so a binary that was
+# swapped out on disk after a previous run doesn't get trusted.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(dirname "$SCRIPT_DIR")"
 BINARIES_DIR="$ROOT_DIR/apps/desktop/src-tauri/binaries"
+CHECKSUMS_FILE="$SCRIPT_DIR/opencode.sha256"
 
 REPO="opencode-ai/opencode"
-OPENCODE_VERSION="${OPENCODE_VERSION:-latest}"
+# Pinned to the version installed/verified at the time this hardening was
+# added (see scripts/opencode.sha256 for provenance + how to regenerate).
+# Override via the environment only alongside updating opencode.sha256 —
+# checksum verification below fails closed for any asset name it doesn't
+# have a pinned hash for, so an unpinned override can't silently succeed.
+OPENCODE_VERSION="${OPENCODE_VERSION:-v0.0.55}"
 
 OS="$(uname -s)"
 ARCH="$(uname -m)"
@@ -60,12 +75,13 @@ esac
 
 DEST="$BINARIES_DIR/opencode-$TARGET_TRIPLE"
 
-# Skip if already downloaded
-if [ -f "$DEST" ]; then
-  echo "  - opencode binary already exists at $DEST, skipping download"
-  echo "  - Delete it manually to force re-download"
-  exit 0
-fi
+compute_sha256() {
+  if command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$1" | awk '{print $1}'
+  else
+    sha256sum "$1" | awk '{print $1}'
+  fi
+}
 
 if [ "$OPENCODE_VERSION" = "latest" ]; then
   RELEASE_URL="https://api.github.com/repos/$REPO/releases/latest"
@@ -106,15 +122,40 @@ if [ -z "$DOWNLOAD_URL" ]; then
   exit 1
 fi
 
+# Fail closed: refuse to download anything we don't have a pinned checksum
+# for, before spending the time/bandwidth on the download itself.
+EXPECTED_SHA256=""
+if [ -f "$CHECKSUMS_FILE" ]; then
+  EXPECTED_SHA256=$(awk -v name="$ASSET_NAME" '$2 == name { print $1; exit }' "$CHECKSUMS_FILE")
+fi
+if [ -z "$EXPECTED_SHA256" ]; then
+  echo "  ! No pinned checksum found for '$ASSET_NAME' in $CHECKSUMS_FILE"
+  echo "  ! Refusing to install an unverified opencode binary."
+  echo "  ! See the REGENERATE instructions at the top of $CHECKSUMS_FILE."
+  exit 1
+fi
+
 echo "  - Resolved version: $TAG"
 echo "  - Downloading $ASSET_NAME..."
 
 # Download and extract
 TMPDIR=$(mktemp -d)
+trap 'rm -rf "$TMPDIR"' EXIT
 curl -fL "$DOWNLOAD_URL" -o "$TMPDIR/$ASSET_NAME"
 
+echo "  - Verifying checksum..."
+ACTUAL_SHA256=$(compute_sha256 "$TMPDIR/$ASSET_NAME")
+if [ "$ACTUAL_SHA256" != "$EXPECTED_SHA256" ]; then
+  echo "  ! Checksum mismatch for $ASSET_NAME"
+  echo "      expected: $EXPECTED_SHA256"
+  echo "      actual:   $ACTUAL_SHA256"
+  echo "  ! Refusing to install a binary that doesn't match the pinned checksum."
+  exit 1
+fi
+echo "  - Checksum verified ($ACTUAL_SHA256)"
+
 echo "  - Extracting..."
-tar -xzf "$TMPDIR/$ASSET_NAME" -C "$TMPDIR"
+tar --no-same-owner -xzf "$TMPDIR/$ASSET_NAME" -C "$TMPDIR"
 
 # The tarball contains: LICENSE, README.md, opencode
 if [ ! -f "$TMPDIR/opencode" ]; then
@@ -123,13 +164,12 @@ if [ ! -f "$TMPDIR/opencode" ]; then
   exit 1
 fi
 
-# Copy to binaries dir with Tauri target triple naming
+# Copy to binaries dir with Tauri target triple naming. No "skip if exists"
+# check — always re-verify and reinstall so a binary tampered with on disk
+# after a previous run doesn't get silently trusted.
 mkdir -p "$BINARIES_DIR"
 cp "$TMPDIR/opencode" "$DEST"
 chmod +x "$DEST"
-
-# Cleanup
-rm -rf "$TMPDIR"
 
 echo "  - Installed opencode $TAG -> $DEST"
 echo "  - Size: $(du -h "$DEST" | cut -f1)"

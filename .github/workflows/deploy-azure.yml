@@ -51,8 +51,51 @@ jobs:
       - name: Generate Prisma client
         run: pnpm --filter @openlinear/db db:generate
 
-      - name: Push schema to test database
-        run: pnpm --filter @openlinear/db db:push
+      # `db:push` reconciles the schema without producing or validating a
+      # migration, so CI proved nothing about the migrations that actually run
+      # in production. Apply the real migration history instead, then assert the
+      # schema and the migrations have not drifted apart.
+      - name: Apply migrations to test database
+        run: pnpm --filter @openlinear/db exec prisma migrate deploy
+
+      - name: Check for schema/migration drift
+        run: |
+          pnpm --filter @openlinear/db exec prisma migrate diff \
+            --from-migrations ./prisma/migrations \
+            --to-schema-datamodel ./prisma/schema.prisma \
+            --shadow-database-url "$DATABASE_URL" \
+            --exit-code && echo "No drift." || {
+              echo "::error::schema.prisma has changes with no corresponding migration. Run 'prisma migrate dev' and commit the result."
+              exit 1
+            }
+
+      - name: Migration safety review
+        run: |
+          # Destructive DDL and non-concurrent index builds take long locks and
+          # can drop data during a rolling deploy. Require an explicit opt-in
+          # comment so the decision is visible in review.
+          FILES=$(git diff --name-only origin/${{ github.event.repository.default_branch }}...HEAD -- 'packages/db/prisma/migrations/**' || true)
+          if [ -z "$FILES" ]; then
+            echo "No migration changes."
+            exit 0
+          fi
+          FAIL=0
+          for f in $FILES; do
+            [ -f "$f" ] || continue
+            if grep -q 'migration-safety: allow' "$f"; then
+              echo "skip (opt-in): $f"
+              continue
+            fi
+            if grep -iEq '^[[:space:]]*(DROP[[:space:]]+(TABLE|COLUMN)|ALTER[[:space:]]+TABLE[^;]*DROP[[:space:]]+COLUMN|TRUNCATE)' "$f"; then
+              echo "::error file=$f::destructive DDL without '-- migration-safety: allow'"; FAIL=1
+            fi
+            # POSIX ERE has no lookahead: flag any CREATE INDEX line that does
+            # not itself say CONCURRENTLY.
+            if grep -iE '^[[:space:]]*CREATE[[:space:]]+(UNIQUE[[:space:]]+)?INDEX' "$f" | grep -ivq 'CONCURRENTLY'; then
+              echo "::error file=$f::CREATE INDEX without CONCURRENTLY"; FAIL=1
+            fi
+          done
+          exit $FAIL
 
       - name: Typecheck
         run: pnpm --filter @openlinear/api typecheck
@@ -119,7 +162,14 @@ jobs:
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
             --image ${{ env.AZURE_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }} \
             --min-replicas 1 \
-            --max-replicas 3
+            --max-replicas 1
+          # Clamped to a single replica on purpose.
+          #
+          # SSE fan-out, rate-limit counters, the idempotency cache and the
+          # GitHub response caches are all per-process in-memory maps. At three
+          # replicas roughly two thirds of real-time events never reach a given
+          # client and `Idempotency-Key` stops being idempotent. Raise this only
+          # after the transactional outbox + Redis pub/sub land (Phase 1).
 
       - name: Wait for revision to be ready
         run: |

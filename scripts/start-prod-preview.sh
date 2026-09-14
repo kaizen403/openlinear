@@ -19,7 +19,9 @@ API_ORIGIN="http://127.0.0.1:$API_PORT"
 # Acknowledge OpenCode's single-tenant model so the sidecar boots against
 # multi-user databases (e.g. shared dev DB, Neon). See docs/limitations.md;
 # unset this and run one sidecar per user only in true multi-tenant deploys.
-export OPENLINEAR_ALLOW_SHARED_OPENCODE="${OPENLINEAR_ALLOW_SHARED_OPENCODE:-1}"
+# OpenCode is single-tenant. Do not default this to 1; set it explicitly
+# if this machine's database has more than one user.
+# export OPENLINEAR_ALLOW_SHARED_OPENCODE=1
 SHUTDOWN_GRACE_SECONDS="${SHUTDOWN_GRACE_SECONDS:-8}"
 
 PIDS=()

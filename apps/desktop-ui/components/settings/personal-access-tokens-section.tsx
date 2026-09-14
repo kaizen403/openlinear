@@ -77,6 +77,18 @@ export function PersonalAccessTokensSection() {
   const [revokingId, setRevokingId] = useState<string | null>(null)
   const [name, setName] = useState("")
   const [expiresAt, setExpiresAt] = useState("")
+  const [selectedScopes, setSelectedScopes] = useState<string[]>(["read"])
+  const PAT_SCOPE_OPTIONS = [
+    "read",
+    "write",
+    "tasks:read",
+    "tasks:write",
+    "projects:read",
+    "projects:write",
+    "workspaces:read",
+    "labels:write",
+    "admin",
+  ] as const
   const [createdToken, setCreatedToken] = useState<CreatedPersonalAccessToken | null>(null)
   const [copyState, setCopyState] = useState<"idle" | "copied">("idle")
   const [tokenToRevoke, setTokenToRevoke] = useState<PersonalAccessToken | null>(null)
@@ -114,6 +126,7 @@ export function PersonalAccessTokensSection() {
       const token = await createPersonalAccessToken({
         name: trimmedName,
         expiresAt: toIsoDatetimeLocal(expiresAt),
+        scopes: selectedScopes,
       })
       setCreatedToken(token)
       setTokens((current) => [
@@ -216,6 +229,33 @@ export function PersonalAccessTokensSection() {
               onChange={(event) => setExpiresAt(event.target.value)}
               className="bg-linear-bg border-linear-border text-linear-text"
             />
+          </div>
+          <div className="space-y-2">
+            <Label className="text-sm text-linear-text">Scopes</Label>
+            <p className="text-xs text-linear-text-tertiary">Least privilege. `read` is the default.</p>
+            <div className="flex flex-wrap gap-2">
+              {PAT_SCOPE_OPTIONS.map((scope) => {
+                const checked = selectedScopes.includes(scope)
+                return (
+                  <label key={scope} className="flex items-center gap-1.5 text-xs text-linear-text-secondary">
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => {
+                        setSelectedScopes((current) => {
+                          if (checked) {
+                            const next = current.filter((item) => item !== scope)
+                            return next.length > 0 ? next : ["read"]
+                          }
+                          return [...current, scope]
+                        })
+                      }}
+                    />
+                    {scope}
+                  </label>
+                )
+              })}
+            </div>
           </div>
           <Button
             onClick={() => void handleCreate()}

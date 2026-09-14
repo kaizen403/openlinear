@@ -1,10 +1,11 @@
 const REQUIRED_PRODUCTION_ENV = [
   'DATABASE_URL',
   'JWT_SECRET',
-  'GITHUB_CLIENT_ID',
-  'GITHUB_CLIENT_SECRET',
   'TOKEN_ENCRYPTION_KEY',
 ] as const;
+
+// GitHub OAuth client credentials are not required: the leaked apps were
+// removed and `/api/auth/github` stays 503 until replacement apps exist.
 
 export function validateStartupEnv(env: NodeJS.ProcessEnv = process.env): void {
   if (env.OPENLINEAR_TRUST_PROXY_AUTH !== undefined) {

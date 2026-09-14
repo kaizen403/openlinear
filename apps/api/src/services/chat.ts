@@ -1,12 +1,15 @@
 import { prisma, type ChatMessage, type Prisma } from '@openlinear/db';
+import fs from 'node:fs/promises';
+import path from 'node:path';
 import { logger } from '../logger';
 import { broadcastToChatSession } from '../sse';
-import { ChatLLMError, getChatLLMClient, type ChatLLMMessage, type ChatLLMToolCall } from '../lib/chat-llm';
+import { ChatLLMError, getChatLLMClient, type ChatLLMContentPart, type ChatLLMMessage, type ChatLLMToolCall } from '../lib/chat-llm';
 import { buildChatSystemPrompt, CHAT_TITLE_PROMPT } from '../lib/chat-prompts';
 import { assertProjectAccess } from './ownership';
 import { assertWorkspaceRole } from './workspaces';
 import { dispatchTool, getOpenAIFunctionSpecs } from './chat-tools';
 import { isRecord, toJsonInput, type JsonObject, type ToolResult } from './chat-tools/types';
+import { randomUUID } from 'node:crypto';
 
 export type ChatChunk =
   | { type: 'user_message'; messageId: string; sessionId: string }
@@ -21,6 +24,7 @@ export interface RunChatTurnInput {
   sessionId: string;
   userId: string;
   userMessage: string;
+  attachmentIds?: string[];
   abortSignal?: AbortSignal;
 }
 
@@ -158,6 +162,23 @@ async function loadSessionForTurn(sessionId: string, userId: string) {
   return session;
 }
 
+/**
+ * Drop `tool` messages that begin a truncated window.
+ *
+ * The history window is a fixed slice of the newest N rows. When the cut lands
+ * between an assistant message carrying `tool_calls` and its results, the window
+ * starts with orphaned `tool` messages whose `tool_call_id` refers to nothing —
+ * which every provider rejects with a 400. Any session past the window limit was
+ * therefore a coin flip.
+ */
+function repairWindowBoundary(messages: ChatLLMMessage[]): ChatLLMMessage[] {
+  let start = 0;
+  while (start < messages.length && messages[start]?.role === 'tool') {
+    start += 1;
+  }
+  return start === 0 ? messages : messages.slice(start);
+}
+
 async function buildMessages(session: Awaited<ReturnType<typeof loadSessionForTurn>>): Promise<ChatLLMMessage[]> {
   if (!session) return [];
   const rows = await prisma.chatMessage.findMany({
@@ -168,16 +189,24 @@ async function buildMessages(session: Awaited<ReturnType<typeof loadSessionForTu
   const recent = rows.reverse().map(messageToLLM).filter((message): message is ChatLLMMessage => message !== null);
   return [
     { role: 'system', content: buildChatSystemPrompt({ userId: session.userId, workspaceId: session.workspaceId, projectId: session.projectId }) },
-    ...recent,
+    ...repairWindowBoundary(recent),
   ];
 }
 
-function accumulatedToToolCalls(calls: AccumulatedToolCall[], round: number): ChatLLMToolCall[] {
+function accumulatedToToolCalls(
+  calls: AccumulatedToolCall[],
+  round: number,
+  turnId: string,
+): ChatLLMToolCall[] {
   return calls
     .sort((a, b) => a.index - b.index)
     .filter((call) => Boolean(call.name))
     .map((call) => ({
-      id: call.id ?? `tool_${round}_${call.index}`,
+      // Synthesised ids used to be `tool_<round>_<index>`, which restarts at
+      // `tool_0_0` on every turn. The tool-call journal is keyed by
+      // (sessionId, toolCallId), so turn 2 replayed turn 1's cached result and
+      // reported work that never happened. The turn id makes them unique.
+      id: call.id ?? `${turnId}_${round}_${call.index}`,
       type: 'function' as const,
       function: {
         name: call.name ?? 'unknown',
@@ -203,41 +232,54 @@ async function maybeAutoTitle(input: {
   if (userMessageCount !== 1) return;
 
   void (async () => {
-    try {
-      const client = getChatLLMClient();
-      const titleMessages: ChatLLMMessage[] = [
-        { role: 'system', content: CHAT_TITLE_PROMPT },
-        { role: 'user', content: `User message:\n${input.userMessage.slice(0, 2000)}\n\nAssistant answer:\n${input.assistantMessage.slice(0, 2000)}` },
-      ];
+    const maxAttempts = 3;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        const client = getChatLLMClient();
+        const titleMessages: ChatLLMMessage[] = [
+          { role: 'system', content: CHAT_TITLE_PROMPT },
+          { role: 'user', content: `User message:\n${input.userMessage.slice(0, 2000)}\n\nAssistant answer:\n${input.assistantMessage.slice(0, 2000)}` },
+        ];
 
-      let rawTitle = '';
-      if (client.completeChatCompletion) {
-        rawTitle = await client.completeChatCompletion({
-          messages: titleMessages,
-          toolChoice: 'none',
-          maxTokens: 80,
-          json: true,
+        let rawTitle = '';
+        if (client.completeChatCompletion) {
+          rawTitle = await client.completeChatCompletion({
+            messages: titleMessages,
+            toolChoice: 'none',
+            maxTokens: 80,
+            json: true,
+          });
+        } else {
+          for await (const event of client.streamChatCompletion({
+            messages: titleMessages,
+            toolChoice: 'none',
+            maxTokens: 60,
+          })) {
+            if (event.type === 'delta') rawTitle += event.content;
+          }
+        }
+
+        const parsed = parseTitleResponse(rawTitle);
+        const cleaned = parsed.replace(/["""]/g, '').replace(/\s+/g, ' ').trim().slice(0, 60);
+        if (!cleaned) {
+          if (attempt < maxAttempts) {
+            await new Promise(r => setTimeout(r, 1000 * attempt));
+            continue;
+          }
+          return;
+        }
+        const updated = await prisma.chatSession.update({
+          where: { id: input.sessionId },
+          data: { title: cleaned },
         });
-      } else {
-        for await (const event of client.streamChatCompletion({
-          messages: titleMessages,
-          toolChoice: 'none',
-          maxTokens: 60,
-        })) {
-          if (event.type === 'delta') rawTitle += event.content;
+        await broadcastToChatSession(input.sessionId, 'chat:session:updated', updated);
+        return;
+      } catch (err) {
+        logger.warn({ err, sessionId: input.sessionId, attempt }, '[chat] auto-title failed');
+        if (attempt < maxAttempts) {
+          await new Promise(r => setTimeout(r, 1000 * attempt));
         }
       }
-
-      const parsed = parseTitleResponse(rawTitle);
-      const cleaned = parsed.replace(/["“”]/g, '').replace(/\s+/g, ' ').trim().slice(0, 60);
-      if (!cleaned) return;
-      const updated = await prisma.chatSession.update({
-        where: { id: input.sessionId },
-        data: { title: cleaned },
-      });
-      await broadcastToChatSession(input.sessionId, 'chat:session:updated', updated);
-    } catch (err) {
-      logger.warn({ err, sessionId: input.sessionId }, '[chat] auto-title failed');
     }
   })();
 }
@@ -270,7 +312,23 @@ function providerErrorToChunk(error: unknown): ChatChunk {
   return { type: 'error', code: 'CHAT_TURN_FAILED', message: 'Chat turn failed' };
 }
 
+/**
+ * Wrap third-party content so the model can tell data from instructions.
+ *
+ * Attachment text and workspace records are authored by other people. They were
+ * previously spliced into the prompt as plain text, which is indistinguishable
+ * from a user instruction. The closing tag is escaped so content cannot break
+ * out of its own envelope.
+ */
+function untrusted(source: string, kind: string, body: string): string {
+  const safe = body.replace(/<\/?untrusted/gi, '&lt;untrusted');
+  return `<untrusted source="${source}" kind="${kind}">\n${safe}\n</untrusted>`;
+}
+
 export async function* runChatTurn(input: RunChatTurnInput): AsyncIterable<ChatChunk> {
+  // Unique per turn, so synthesised tool-call ids cannot collide with a
+  // previous turn's entries in the (sessionId, toolCallId) journal.
+  const turnId = randomUUID();
   const session = await loadSessionForTurn(input.sessionId, input.userId);
   if (!session) {
     yield { type: 'error', code: 'SESSION_NOT_FOUND', message: 'Chat session not found' };
@@ -285,11 +343,55 @@ export async function* runChatTurn(input: RunChatTurnInput): AsyncIterable<ChatC
       content: input.userMessage,
     },
   });
+
+  if (input.attachmentIds?.length) {
+    await prisma.chatAttachment.updateMany({
+      where: { id: { in: input.attachmentIds }, userId: input.userId, messageId: null },
+      data: { messageId: userRow.id },
+    });
+  }
+
   yield { type: 'user_message', messageId: userRow.id, sessionId: session.id };
 
   const client = getChatLLMClient();
   const tools = getOpenAIFunctionSpecs();
   let messages = await buildMessages(session);
+
+  if (input.attachmentIds?.length) {
+    const attachments = await prisma.chatAttachment.findMany({
+      where: { id: { in: input.attachmentIds }, userId: input.userId },
+    });
+    const contentParts: ChatLLMContentPart[] = [{ type: 'text', text: input.userMessage }];
+    for (const att of attachments) {
+      const filePath = path.resolve(process.cwd(), att.url.replace(/^\//, ''));
+      if (att.mimeType.startsWith('image/')) {
+        try {
+          const data = await fs.readFile(filePath);
+          const b64 = data.toString('base64');
+          contentParts.push({ type: 'image_url', image_url: { url: `data:${att.mimeType};base64,${b64}`, detail: 'auto' } });
+        } catch { /* skip unreadable */ }
+      } else if (att.mimeType === 'application/pdf') {
+        try {
+          const { PDFParse } = await import('pdf-parse');
+          const data = await fs.readFile(filePath);
+          const parser = new PDFParse({ data });
+          const result = await parser.getText();
+          contentParts.push({ type: 'text', text: untrusted(`file:${att.filename}`, 'pdf', result.text.slice(0, 10000)) });
+        } catch { /* skip unreadable */ }
+      } else {
+        try {
+          const text = await fs.readFile(filePath, 'utf-8');
+          contentParts.push({ type: 'text', text: untrusted(`file:${att.filename}`, 'text', text.slice(0, 50000)) });
+        } catch { /* skip unreadable */ }
+      }
+    }
+    if (contentParts.length > 1) {
+      const lastMsg = messages[messages.length - 1];
+      if (lastMsg && lastMsg.role === 'user') {
+        messages[messages.length - 1] = { ...lastMsg, content: contentParts };
+      }
+    }
+  }
 
   for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
     if (input.abortSignal?.aborted) {
@@ -330,7 +432,7 @@ export async function* runChatTurn(input: RunChatTurnInput): AsyncIterable<ChatC
       return;
     }
 
-    const toolCalls = accumulatedToToolCalls(Array.from(toolCallMap.values()), round);
+    const toolCalls = accumulatedToToolCalls(Array.from(toolCallMap.values()), round, turnId);
     if (toolCalls.length === 0) {
       const assistant = await prisma.chatMessage.create({
         data: {
@@ -383,7 +485,14 @@ export async function* runChatTurn(input: RunChatTurnInput): AsyncIterable<ChatC
       });
       messages = [
         ...messages,
-        { role: 'tool', tool_call_id: call.id, content: toolMessage.content ?? JSON.stringify(result) },
+        {
+          role: 'tool',
+          tool_call_id: call.id,
+          // Compact in-flight exactly as the replay path does. Sending the raw
+          // result meant a large `list_issues` was re-sent verbatim on every
+          // subsequent round of the same turn.
+          content: compactToolContent(toolMessage.content ?? JSON.stringify(result)),
+        },
       ];
     }
   }

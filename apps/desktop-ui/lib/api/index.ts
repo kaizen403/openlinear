@@ -28,6 +28,8 @@ export {
   extractCallbackToken,
   fetchCurrentUser,
   getLoginUrl,
+  GITHUB_OAUTH_AVAILABLE,
+  GITHUB_OAUTH_UNAVAILABLE_MESSAGE,
   startLogin,
   logout,
   updateEmail,
@@ -47,9 +49,6 @@ export { fetchMyIssues, fetchProjectIssues, createTask, executeTaskPublic, refre
 
 export { fetchPersonalAccessTokens, createPersonalAccessToken, revokePersonalAccessToken } from './pats';
 export type { PersonalAccessToken, CreatedPersonalAccessToken } from './pats';
-
-export { checkBrainstormAvailability, generateBrainstormQuestions, streamBrainstormTasks, transcribeAudio } from './brainstorm';
-export type { BrainstormTask, BrainstormAvailability } from './brainstorm';
 
 export { fetchChatSessions, createChatSession, fetchChatSession, updateChatSession, archiveChatSession, sendChatMessage } from './chat';
 export type { ChatSession, ChatMessage, ChatChunk, ChatChunkType, ChatMessageRole, ToolCall, SendMessageOptions } from './chat';

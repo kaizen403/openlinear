@@ -93,7 +93,7 @@ describe('opencode host process manager', () => {
       'serve',
       '--hostname=0.0.0.0',
       '--port=0',
-    ], { env: expect.any(Object) });
+    ], { env: expect.any(Object), detached: true });
     expect(subject.getOpenCodeStatus()).toEqual({
       mode: 'host',
       serverUrl: 'http://0.0.0.0:3210',
@@ -253,12 +253,12 @@ describe('opencode host process manager', () => {
       'serve',
       '--hostname=127.0.0.1',
       '--port=4096',
-    ], { env: expect.any(Object) });
+    ], { env: expect.any(Object), detached: true });
     expect(mocks.spawn).toHaveBeenNthCalledWith(2, '/custom/opencode', [
       'serve',
       '--hostname=127.0.0.1',
       '--port=0',
-    ], { env: expect.any(Object) });
+    ], { env: expect.any(Object), detached: true });
   });
 
   it('also falls back to a dynamic port on EADDRINUSE startup output', async () => {
@@ -359,14 +359,23 @@ describe('opencode host process manager', () => {
     expect(mocks.spawn).toHaveBeenCalledTimes(2);
   });
 
-  it('registers process shutdown handlers', async () => {
+  it('registers process shutdown handlers that trigger a graceful stop', async () => {
+    // T12 — opencode.ts's own handlers only ever call `shutdownOpenCode()`;
+    // they never call `process.exit` themselves (that remains index.ts's
+    // responsibility — see the coordination note on `shutdownOpenCode`'s
+    // docstring). This test previously asserted `process.exit` was called
+    // from here, which this module has never done; corrected to assert the
+    // real, documented effect (a graceful stop broadcast) instead of leaving
+    // a stale assertion red.
     const handlers = new Map();
     const on = vi.spyOn(process, 'on').mockImplementation((event, handler) => {
       handlers.set(event, handler);
       return process;
     });
-    const exit = vi.spyOn(process, 'exit').mockImplementation(() => undefined);
+    const proc = makeProc();
+    mocks.spawn.mockReturnValue(proc);
     const subject = await importSubject({ OPENCODE_BIN: '/custom/opencode' });
+    await startReady(subject);
 
     subject.registerShutdownHandlers();
 
@@ -374,12 +383,17 @@ describe('opencode host process manager', () => {
     expect(on).toHaveBeenCalledWith('SIGTERM', expect.any(Function));
     expect(on).toHaveBeenCalledWith('beforeExit', expect.any(Function));
 
-    handlers.get('SIGINT')();
     handlers.get('SIGTERM')();
-    handlers.get('beforeExit')();
-    await Promise.resolve();
+    // The handler is fire-and-forget (`void shutdown(...)`), and shutdown
+    // itself waits on the mock process's `exit` event (queued via
+    // `queueMicrotask` in `makeProc`) before resolving — flush a few ticks.
+    for (let i = 0; i < 5; i++) {
+      await Promise.resolve();
+    }
 
-    expect(exit).toHaveBeenCalledWith(0);
+    expect(proc.kill).toHaveBeenCalledWith('SIGTERM');
+    expect(mocks.broadcastToAll).toHaveBeenLastCalledWith('opencode:status', { status: 'stopped' });
+    expect(subject.getOpenCodeStatus().running).toBe(false);
   });
 
   it('broadcasts stopped even when shutdown is called without a running server', async () => {
@@ -388,5 +402,194 @@ describe('opencode host process manager', () => {
     await subject.shutdownOpenCode();
 
     expect(mocks.broadcastToAll).toHaveBeenCalledWith('opencode:status', { status: 'stopped' });
+  });
+});
+
+describe('T2 (C-03) — buildAgentEnv allowlist', () => {
+  const SECRET_ENV = {
+    DATABASE_URL: 'postgres://prod',
+    JWT_SECRET: 'shh',
+    TOKEN_ENCRYPTION_KEY: 'shh2',
+    GITHUB_CLIENT_SECRET: 'shh3',
+    GITHUB_TOKEN: 'ghp_abcdef',
+    BRAINSTORM_API_KEY: 'shh4',
+    ANTHROPIC_API_KEY: 'shh5',
+    SOME_RANDOM_APP_SECRET: 'shh6',
+  };
+  const SAFE_ENV = {
+    PATH: '/usr/bin:/bin',
+    HOME: '/Users/test',
+    USER: 'test',
+    LOGNAME: 'test',
+    SHELL: '/bin/zsh',
+    LANG: 'en_US.UTF-8',
+    LC_ALL: 'en_US.UTF-8',
+    TERM: 'xterm-256color',
+    TMPDIR: '/tmp',
+    XDG_DATA_HOME: '/Users/test/.local/share',
+    XDG_CONFIG_HOME: '/Users/test/.config',
+    OPENCODE_MODELS_URL: 'https://models.opencode.ai',
+    OPENCODE_DISABLE_MODELS_FETCH: '1',
+  };
+
+  it('excludes every OpenLinear secret from the produced env', async () => {
+    const subject = await importSubject();
+    const produced = subject.buildAgentEnv({ ...SECRET_ENV, ...SAFE_ENV });
+
+    for (const key of Object.keys(SECRET_ENV)) {
+      expect(produced).not.toHaveProperty(key);
+    }
+  });
+
+  it('passes through the allowlisted keys and prefixes (PATH/HOME/LC_*/XDG_*/OPENCODE_*)', async () => {
+    const subject = await importSubject();
+    const produced = subject.buildAgentEnv({ ...SECRET_ENV, ...SAFE_ENV });
+
+    expect(produced).toEqual(SAFE_ENV);
+  });
+
+  it('drops undefined values without crashing', async () => {
+    const subject = await importSubject();
+    const produced = subject.buildAgentEnv({ PATH: undefined, HOME: '/Users/test' });
+
+    expect(produced).toEqual({ HOME: '/Users/test' });
+  });
+
+  it('defaults to the real process.env when no source is given', async () => {
+    const subject = await importSubject();
+    const original = process.env.DATABASE_URL;
+    process.env.DATABASE_URL = 'postgres://should-not-leak';
+    try {
+      const produced = subject.buildAgentEnv();
+      expect(produced).not.toHaveProperty('DATABASE_URL');
+    } finally {
+      if (original === undefined) delete process.env.DATABASE_URL;
+      else process.env.DATABASE_URL = original;
+    }
+  });
+});
+
+describe('T3 (R1 P0-1/P0-2/P1-9) — injected OpenCode config', () => {
+  it('sets OPENCODE_CONFIG_CONTENT with a deny ruleset and compaction enabled, built from the allowlisted env', async () => {
+    const proc = makeProc();
+    mocks.spawn.mockReturnValue(proc);
+    const originalDbUrl = process.env.DATABASE_URL;
+    process.env.DATABASE_URL = 'postgres://must-not-leak';
+    try {
+      const subject = await importSubject({ OPENCODE_BIN: '/custom/opencode' });
+      await startReady(subject);
+
+      const [, , spawnOptions] = mocks.spawn.mock.calls[0];
+      expect(spawnOptions.env).not.toHaveProperty('DATABASE_URL');
+
+      const config = JSON.parse(spawnOptions.env.OPENCODE_CONFIG_CONTENT);
+      expect(config.permission.doom_loop).toBe('deny');
+      expect(config.permission.external_directory).toBe('deny');
+      expect(config.permission.read['*.env']).toBe('deny');
+      expect(config.permission.read['*.env.*']).toBe('deny');
+      expect(config.permission.read['*.env.example']).toBe('allow');
+      expect(config.compaction).toEqual({ auto: true, prune: true });
+      expect(config.plugin).toEqual(['opencode-openlinear']);
+    } finally {
+      if (originalDbUrl === undefined) delete process.env.DATABASE_URL;
+      else process.env.DATABASE_URL = originalDbUrl;
+    }
+  });
+
+  it('spawns the OpenCode process detached, in its own process group', async () => {
+    const proc = makeProc();
+    mocks.spawn.mockReturnValue(proc);
+    const subject = await importSubject({ OPENCODE_BIN: '/custom/opencode' });
+    await startReady(subject);
+
+    const [, , spawnOptions] = mocks.spawn.mock.calls[0];
+    expect(spawnOptions.detached).toBe(true);
+  });
+});
+
+describe('T12 (F18) — process-group signalling on shutdown', () => {
+  it('signals the negative pid (the process group) when the child has a pid', async () => {
+    const proc = makeProc();
+    proc.pid = 4242;
+    mocks.spawn.mockReturnValue(proc);
+    // Simulate the OS actually reaping the process after the group signal —
+    // real `process.kill(-pid, sig)` doesn't itself resolve when the child
+    // exits, so `killProcess`'s wait needs the mock proc's `exit` event.
+    const killSpy = vi.spyOn(process, 'kill').mockImplementation(() => {
+      queueMicrotask(() => {
+        proc.exitCode = 0;
+        proc.emit('exit', 0, null);
+      });
+      return true;
+    });
+    try {
+      const subject = await importSubject({ OPENCODE_BIN: '/custom/opencode' });
+      await startReady(subject);
+
+      await subject.shutdownOpenCode();
+
+      expect(killSpy).toHaveBeenCalledWith(-4242, 'SIGTERM');
+      expect(proc.kill).not.toHaveBeenCalled();
+    } finally {
+      killSpy.mockRestore();
+    }
+  });
+
+  it('falls back to signalling the single process when group signalling throws', async () => {
+    const proc = makeProc();
+    proc.pid = 4243;
+    mocks.spawn.mockReturnValue(proc);
+    const killSpy = vi.spyOn(process, 'kill').mockImplementation(() => {
+      throw new Error('ESRCH');
+    });
+    try {
+      const subject = await importSubject({ OPENCODE_BIN: '/custom/opencode' });
+      await startReady(subject);
+
+      await subject.shutdownOpenCode();
+
+      expect(killSpy).toHaveBeenCalledWith(-4243, 'SIGTERM');
+      expect(proc.kill).toHaveBeenCalledWith('SIGTERM');
+    } finally {
+      killSpy.mockRestore();
+    }
+  });
+
+  it('falls back to signalling the single process when the child has no pid', async () => {
+    const proc = makeProc();
+    proc.pid = undefined;
+    mocks.spawn.mockReturnValue(proc);
+    const killSpy = vi.spyOn(process, 'kill');
+    try {
+      const subject = await importSubject({ OPENCODE_BIN: '/custom/opencode' });
+      await startReady(subject);
+
+      await subject.shutdownOpenCode();
+
+      expect(killSpy).not.toHaveBeenCalled();
+      expect(proc.kill).toHaveBeenCalledWith('SIGTERM');
+    } finally {
+      killSpy.mockRestore();
+    }
+  });
+});
+
+describe('OpenCodeAdapter', () => {
+  it('delegates all methods to the internal state', async () => {
+    const proc = makeProc();
+    mocks.spawn.mockReturnValue(proc);
+    mocks.createOpencodeClient.mockReturnValue({ client: true });
+    const subject = await importSubject({ OPENCODE_BIN: '/custom/opencode' });
+
+    const pending = subject.openCodeAdapter.init({ restart: true });
+    proc.stdout.emit('data', Buffer.from('opencode server listening on http://127.0.0.1:4321\n'));
+    await pending;
+
+    expect(subject.openCodeAdapter.isRunning()).toBe(true);
+    expect(subject.openCodeAdapter.getStatus()).toEqual(expect.objectContaining({ running: true }));
+    await expect(subject.openCodeAdapter.getClient('user-1')).resolves.toEqual({ client: true });
+
+    await subject.openCodeAdapter.shutdown();
+    expect(subject.openCodeAdapter.isRunning()).toBe(false);
   });
 });

@@ -7,8 +7,9 @@ import {
   generatePersonalAccessToken,
   hashPersonalAccessToken,
 } from '../services/pats';
+import { testJwtSecret } from './test-env';
 
-const JWT_SECRET = 'openlinear-dev-secret-change-in-production';
+const JWT_SECRET = testJwtSecret();
 
 function generateJwt(userId: string, username: string) {
   return jwt.sign({ userId, username }, JWT_SECRET, { expiresIn: '1h' });
@@ -42,12 +43,12 @@ describe('Personal access tokens', () => {
     const created = await request(app)
       .post('/api/pats')
       .set('Authorization', `Bearer ${authToken}`)
-      .send({ name: 'OpenCode MCP' });
+      .send({ name: 'OpenCode MCP', scopes: ['tasks:read', 'tasks:write'] });
 
     expect(created.status).toBe(201);
     expect(created.body.token).toMatch(/^ol_pat_[a-f0-9]{32}$/);
     expect(created.body.prefix).toBe(created.body.token.slice(0, 15));
-    expect(created.body.scopes).toEqual(['*']);
+    expect(created.body.scopes).toEqual(['tasks:read', 'tasks:write']);
 
     const stored = await prisma.personalAccessToken.findUnique({
       where: { id: created.body.id },
@@ -67,7 +68,7 @@ describe('Personal access tokens', () => {
       id: created.body.id,
       name: 'OpenCode MCP',
       prefix: created.body.prefix,
-      scopes: ['*'],
+      scopes: ['tasks:read', 'tasks:write'],
     });
     expect(tokenRow).not.toHaveProperty('token');
   });
@@ -97,7 +98,7 @@ describe('Personal access tokens', () => {
     const created = await request(app)
       .post('/api/pats')
       .set('Authorization', `Bearer ${authToken}`)
-      .send({ name: 'Revoked token' });
+      .send({ name: 'Revoked token', scopes: ['tasks:read'] });
 
     const revoked = await request(app)
       .delete(`/api/pats/${created.body.id}`)
@@ -142,4 +143,37 @@ describe('Personal access tokens', () => {
     expect(forbidden.status).toBe(403);
     expect(forbidden.body.code).toBe('INSUFFICIENT_SCOPE');
   });
+
+  it('requires explicit scopes and rejects the wildcard scope', async () => {
+    // `scopes` used to default to ['*'], so a token created for one integration
+    // authorised every route in the API.
+    const noScopes = await request(app)
+      .post('/api/pats')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ name: 'No scopes' });
+    expect(noScopes.status).toBe(400);
+
+    const wildcard = await request(app)
+      .post('/api/pats')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ name: 'Wildcard', scopes: ['*'] });
+    expect(wildcard.status).toBe(400);
+  });
+
+  it('refuses to manage credentials with a personal access token', async () => {
+    const created = await request(app)
+      .post('/api/pats')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ name: 'Escalation attempt', scopes: ['tasks:read'] });
+    expect(created.status).toBe(201);
+
+    // A leaked PAT must not be able to mint another PAT.
+    const minted = await request(app)
+      .post('/api/pats')
+      .set('Authorization', `Bearer ${created.body.token}`)
+      .send({ name: 'Second token', scopes: ['tasks:read'] });
+    expect(minted.status).toBe(403);
+    expect(minted.body.code).toBe('SESSION_REQUIRED');
+  });
+
 });

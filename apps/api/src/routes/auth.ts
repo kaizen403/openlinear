@@ -12,24 +12,43 @@ import {
 import { requireAuth, AuthRequest } from '../middleware/auth';
 import { prisma } from '@openlinear/db';
 import { buildErrorEnvelope } from '../lib/http';
+import { hashToken, revokeSessionByTokenHash } from '../services/sessions';
+import { getJwtSecret } from '../lib/secrets';
+import { issueSession, issueTwoFactorPendingToken, rotateRefreshToken } from '../lib/auth-tokens';
+import { REFRESH_TOKEN_TTL_MS } from '@openlinear/api-core';
+import { toCurrentUser } from '../lib/selects';
 
 const router: Router = Router();
 
 const STATE_TTL_MS = 10 * 60 * 1000;
 const DESKTOP_CALLBACK_SCHEME = 'openlinear://callback';
 
-type OAuthClient = 'web' | 'desktop' | 'dashboard';
-
-function getJwtSecret(): string {
-  const secret = process.env.JWT_SECRET;
-  if (!secret) {
-    if (process.env.NODE_ENV === 'production') {
-      throw new Error('[Auth] JWT_SECRET is required in production');
-    }
-    return 'openlinear-dev-secret-change-in-production';
-  }
-  return secret;
+/**
+ * GitHub OAuth login is off until replacement apps exist. The client IDs that
+ * leaked in this repository (`Ov23liy8…` / `Ov23limW…`) have been removed, so a
+ * live `/github` redirect would send users to a dead authorize URL.
+ *
+ * Set `OPENLINEAR_ENABLE_GITHUB_OAUTH=1` in a non-production environment to
+ * exercise the flow against a new OAuth app. Production always stays off.
+ */
+function githubOAuthEnabled(): boolean {
+  return process.env.OPENLINEAR_ENABLE_GITHUB_OAUTH === '1' && process.env.NODE_ENV !== 'production';
 }
+
+function requireGitHubOAuth(_req: unknown, res: Response, next: () => void): void {
+  if (!githubOAuthEnabled()) {
+    res.status(503).json(
+      buildErrorEnvelope(
+        'GITHUB_OAUTH_DISABLED',
+        'GitHub sign-in is disabled. Use a personal access token, or wait for a replacement OAuth app.',
+      ),
+    );
+    return;
+  }
+  next();
+}
+
+type OAuthClient = 'web' | 'desktop' | 'dashboard';
 
 function getFrontendUrl() {
   return process.env.FRONTEND_URL || 'http://localhost:3000';
@@ -113,135 +132,44 @@ function verifyState(state: string): { client: OAuthClient; nonce: string; issue
 
 function buildWebSuccessRedirect(client: OAuthClient, token: string): string {
   if (client === 'dashboard') {
+    // The dashboard is a separate frontend outside this repo; its callback
+    // contract is unchanged.
     return `${getDashboardUrl()}?token=${encodeURIComponent(token)}`;
   }
-  return `${getFrontendUrl()}?token=${encodeURIComponent(token)}`;
+  // Target the dedicated session-adoption route rather than the app root.
+  //
+  // The web client used to read `?token=` on EVERY route and silently swap the
+  // session, so any link of the form `https://app/anything?token=<attacker-jwt>`
+  // logged the victim into the attacker's account. That app-wide sniffing has
+  // been removed; `/auth/session` is now the only route that adopts a token,
+  // and it verifies the token against the API before doing so.
+  return `${getFrontendUrl()}/auth/session?token=${encodeURIComponent(token)}`;
 }
 
-function buildDesktopCallbackUrl(params: { token?: string; error?: string }): string {
+function setRefreshCookie(res: Response, refreshToken: string): void {
+  res.cookie('ol_refresh', refreshToken, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    path: '/api/auth',
+    maxAge: REFRESH_TOKEN_TTL_MS,
+  });
+}
+
+function buildDesktopCallbackUrl(params: { token?: string; refreshToken?: string; error?: string }): string {
   const query = new URLSearchParams();
   if (params.token) query.set('token', params.token);
+  if (params.refreshToken) query.set('refreshToken', params.refreshToken);
   if (params.error) query.set('error', params.error);
   return `${DESKTOP_CALLBACK_SCHEME}?${query.toString()}`;
 }
 
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
-function escapeScriptString(value: string): string {
-  return JSON.stringify(value).replace(/</g, '\\u003c');
-}
-
-function renderDesktopCallbackHtml(params: { token?: string; error?: string }): string {
-  const callbackUrl = buildDesktopCallbackUrl(params);
-  const hasToken = Boolean(params.token);
-  const safeError = params.error ? escapeHtml(params.error) : '';
-  const safeCallbackUrl = escapeHtml(callbackUrl);
-  const title = hasToken ? 'OpenLinear authenticated' : 'OpenLinear sign-in failed';
-  const statusText = hasToken
-    ? 'Authenticated. Return to OpenLinear to finish signing in.'
-    : `GitHub returned an error${safeError ? `: ${safeError}` : '.'}`;
-
-  return `<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="cache-control" content="no-store">
-  <title>${escapeHtml(title)}</title>
-  <style>
-    :root { color-scheme: dark; font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-    body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #0f0f0f; color: #f5f5f5; }
-    main { width: min(520px, calc(100vw - 32px)); border: 1px solid #2a2a2a; background: #171717; padding: 24px; border-radius: 6px; }
-    .brand { display: flex; align-items: center; gap: 10px; margin-bottom: 20px; color: #f5f5f5; font-weight: 650; letter-spacing: 0; }
-    .brand svg { width: 32px; height: 32px; color: #5e6ad2; flex: none; }
-    h1 { margin: 0 0 8px; font-size: 20px; line-height: 1.25; }
-    p { margin: 0 0 16px; color: #b8b8b8; font-size: 14px; line-height: 1.5; }
-    a, button { appearance: none; border: 1px solid #3a3a3a; background: #5e6ad2; color: white; border-radius: 4px; padding: 10px 14px; font: inherit; font-size: 14px; cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; }
-    button.secondary { background: transparent; color: #f5f5f5; }
-    .copy-status { min-height: 18px; margin: 10px 0 0; color: #8a8f98; font-size: 12px; }
-    textarea { width: 100%; box-sizing: border-box; min-height: 104px; resize: vertical; margin: 8px 0 12px; padding: 10px; border-radius: 4px; border: 1px solid #333; background: #0f0f0f; color: #f5f5f5; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
-    .actions { display: flex; gap: 8px; flex-wrap: wrap; }
-    .fallback { margin-top: 18px; padding-top: 18px; border-top: 1px solid #2a2a2a; }
-  </style>
-</head>
-<body>
-  <main>
-    <div class="brand" aria-label="OpenLinear">
-      <svg viewBox="0 0 64 64" fill="none" aria-hidden="true">
-        <circle cx="32" cy="32" r="22" stroke="currentColor" stroke-width="8" fill="none"></circle>
-        <path d="M22 42 L42 22" stroke="currentColor" stroke-width="8" stroke-linecap="square"></path>
-      </svg>
-      <span>OpenLinear</span>
-    </div>
-    <h1>${escapeHtml(title)}</h1>
-    <p>${statusText}</p>
-    <div class="actions">
-      <a id="open-app" href="${safeCallbackUrl}">Open OpenLinear</a>
-      <button class="secondary" type="button" id="copy-app-link">Copy app link</button>
-    </div>
-    <p id="copy-status" class="copy-status" aria-live="polite"></p>
-    ${hasToken ? `<div class="fallback">
-      <p>If OpenLinear does not open, copy the app link below and paste it into the sign-in screen.</p>
-      <textarea id="app-link" readonly>${safeCallbackUrl}</textarea>
-    </div>` : ''}
-  </main>
-  <script>
-    const callbackUrl = ${escapeScriptString(callbackUrl)};
-    const copyStatus = document.getElementById('copy-status');
-
-    async function copyText(value, label) {
-      if (!value) return;
-      try {
-        await navigator.clipboard.writeText(value);
-        if (copyStatus) copyStatus.textContent = label + ' copied.';
-        return;
-      } catch {}
-
-      const field = document.createElement('textarea');
-      field.value = value;
-      field.setAttribute('readonly', '');
-      field.style.position = 'fixed';
-      field.style.left = '-9999px';
-      document.body.appendChild(field);
-      field.select();
-      try {
-        document.execCommand('copy');
-        if (copyStatus) copyStatus.textContent = label + ' copied.';
-      } catch {
-        if (copyStatus) copyStatus.textContent = 'Copy failed. Select the token below manually.';
-      } finally {
-        field.remove();
-      }
-    }
-
-    document.getElementById('open-app')?.addEventListener('click', () => {
-      if (copyStatus) copyStatus.textContent = 'If OpenLinear did not open, copy the app link below and paste it into the sign-in screen.';
-      window.setTimeout(() => {
-        window.location.href = callbackUrl;
-      }, 0);
-    });
-    document.getElementById('copy-app-link')?.addEventListener('click', () => {
-      void copyText(callbackUrl, 'App link');
-    });
-  </script>
-</body>
-</html>`;
-}
-
-function respondWithSuccess(client: OAuthClient, token: string, res: Response): void {
+function respondWithSuccess(client: OAuthClient, token: string, res: Response, refreshToken?: string): void {
+  if (refreshToken) setRefreshCookie(res, refreshToken);
   if (client === 'desktop') {
     res
-      .status(200)
-      .set('Content-Type', 'text/html; charset=utf-8')
       .set('Cache-Control', 'no-store')
-      .send(renderDesktopCallbackHtml({ token }));
+      .redirect(buildDesktopCallbackUrl({ token, refreshToken }));
     return;
   }
   res.redirect(buildWebSuccessRedirect(client, token));
@@ -251,20 +179,20 @@ function respondWithError(client: OAuthClient, error: string, res: Response): vo
   const encoded = encodeURIComponent(error);
   if (client === 'desktop') {
     res
-      .status(200)
-      .set('Content-Type', 'text/html; charset=utf-8')
       .set('Cache-Control', 'no-store')
-      .send(renderDesktopCallbackHtml({ error }));
+      .redirect(buildDesktopCallbackUrl({ error }));
     return;
   }
   if (client === 'dashboard') {
     res.redirect(`${getDashboardUrl()}?error=${encoded}`);
     return;
   }
-  res.redirect(`${getFrontendUrl()}?error=${encoded}`);
+  // Same route as the success case: it renders the failure and sends the user
+  // back to /login.
+  res.redirect(`${getFrontendUrl()}/auth/session?error=${encoded}`);
 }
 
-router.get('/github', (req: Request, res: Response) => {
+router.get('/github', requireGitHubOAuth, (req: Request, res: Response) => {
   const clientParam = req.query.client;
   const requestedClient: OAuthClient =
     clientParam === 'desktop' ? 'desktop' : clientParam === 'dashboard' ? 'dashboard' : 'web';
@@ -279,7 +207,7 @@ router.get('/github', (req: Request, res: Response) => {
   res.redirect(authUrl);
 });
 
-router.get('/github/callback', async (req: Request, res: Response) => {
+router.get('/github/callback', requireGitHubOAuth, async (req: Request, res: Response) => {
   const { code, error, error_description, state } = req.query;
   const stateStr = typeof state === 'string' ? state : '';
   const verified = verifyState(stateStr);
@@ -309,13 +237,29 @@ router.get('/github/callback', async (req: Request, res: Response) => {
     const githubUser = await getGitHubUser(accessToken);
     const user = await createOrUpdateUser(githubUser, accessToken);
 
-    const token = jwt.sign(
-      { userId: user.id, username: user.username },
-      getJwtSecret(),
-      { expiresIn: '7d' }
+    if (user.totpEnabled) {
+      const tempToken = await issueTwoFactorPendingToken({
+        id: user.id,
+        username: user.username,
+      });
+
+      if (client === 'desktop') {
+        respondWithSuccess(client, `2fa:${tempToken}`, res);
+      } else {
+        const baseUrl = client === 'dashboard' ? getDashboardUrl() : getFrontendUrl();
+        res.redirect(`${baseUrl}?twoFactor=true#tempToken=${encodeURIComponent(tempToken)}`);
+      }
+      return;
+    }
+
+    // Session creation is not optional: `isSessionRevoked` fails closed, so a
+    // token without a session row would be rejected on its very first use.
+    const issued = await issueSession(
+      { id: user.id, username: user.username },
+      req,
     );
 
-    respondWithSuccess(client, token, res);
+    respondWithSuccess(client, issued.accessToken, res, issued.refreshToken);
   } catch (err) {
     console.error('[Auth] OAuth callback error:', err);
     const errorMsg = err instanceof Error ? err.message : 'auth_failed';
@@ -332,51 +276,65 @@ router.get('/me', requireAuth, async (req: AuthRequest, res: Response) => {
       return;
     }
 
-    const { accessToken: _, ...safeUser } = user;
-    res.json({
-      ...safeUser,
-      githubLinked: Boolean(user.accessToken),
-    });
+    res.json(toCurrentUser(user));
   } catch {
     res.status(500).json(buildErrorEnvelope('USER_LOOKUP_FAILED', 'Failed to load current user'));
   }
 });
 
-router.patch('/me', requireAuth, async (req: AuthRequest, res: Response) => {
-  const { email } = req.body;
-
-  if (!email || typeof email !== 'string') {
-    res.status(400).json(buildErrorEnvelope('EMAIL_REQUIRED', 'Email is required'));
+router.post('/refresh', async (req: Request, res: Response) => {
+  const bodyToken =
+    typeof req.body?.refreshToken === 'string' ? req.body.refreshToken : '';
+  const cookieHeader = req.headers.cookie ?? '';
+  const cookieMatch = /(?:^|;\s*)ol_refresh=([^;]+)/.exec(cookieHeader);
+  const cookieToken = cookieMatch?.[1] ? decodeURIComponent(cookieMatch[1]) : '';
+  const refreshToken = bodyToken || cookieToken;
+  if (!refreshToken) {
+    res.status(401).json(buildErrorEnvelope('REFRESH_REQUIRED', 'Refresh token is required'));
     return;
   }
 
-  const trimmed = email.trim().toLowerCase();
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  if (!emailRegex.test(trimmed)) {
-    res.status(400).json(buildErrorEnvelope('INVALID_EMAIL', 'Invalid email format'));
+  const issued = await rotateRefreshToken(refreshToken, req);
+  if (!issued) {
+    res.status(401).json(buildErrorEnvelope('INVALID_REFRESH', 'Refresh token is invalid or expired'));
     return;
   }
 
-  try {
-    const existing = await prisma.user.findUnique({ where: { email: trimmed } });
-    if (existing && existing.id !== req.userId) {
-      res.status(409).json(buildErrorEnvelope('EMAIL_IN_USE', 'Email already in use'));
-      return;
-    }
-
-    const user = await prisma.user.update({
-      where: { id: req.userId },
-      data: { email: trimmed },
-    });
-
-    const { accessToken: _, ...safeUser } = user;
-    res.json(safeUser);
-  } catch {
-    res.status(500).json(buildErrorEnvelope('EMAIL_UPDATE_FAILED', 'Failed to update email'));
-  }
+  setRefreshCookie(res, issued.refreshToken);
+  res.json({ token: issued.accessToken, refreshToken: issued.refreshToken });
 });
 
-router.post('/logout', (_req: Request, res: Response) => {
+router.patch('/me', requireAuth, async (_req: AuthRequest, res: Response) => {
+  // Self-service email changes are disabled pending a verified change flow.
+  //
+  // The address was writable with no proof of control, and `GET /api/invitations/pending`
+  // matches invitations by email and returns the invitation token. Together those
+  // let any user set their address to a colleague's, read that colleague's pending
+  // invitation token, and join another tenant's workspace. Re-enable this only
+  // together with an emailed confirmation link (Phase 1).
+  res.status(501).json(
+    buildErrorEnvelope(
+      'EMAIL_CHANGE_UNAVAILABLE',
+      'Changing your email address is temporarily unavailable. Contact your workspace owner.',
+    ),
+  );
+});
+
+router.post('/logout', requireAuth, async (req: AuthRequest, res: Response) => {
+  // Previously a no-op: the client deleted localStorage while the bearer token
+  // stayed valid for its full 7-day lifetime, surviving "revoke all sessions".
+  const authHeader = req.headers.authorization;
+  const token = authHeader?.startsWith('Bearer ') ? authHeader.substring(7) : null;
+
+  if (token) {
+    try {
+      await revokeSessionByTokenHash(hashToken(token));
+    } catch {
+      res.status(500).json(buildErrorEnvelope('LOGOUT_FAILED', 'Failed to revoke session'));
+      return;
+    }
+  }
+
   res.json({ success: true });
 });
 

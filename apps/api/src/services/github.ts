@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { prisma, decryptToken, encryptToken } from '@openlinear/db';
+import { currentUserSelect } from '../lib/selects';
 
 export function decryptUserAccessToken(stored: string | null | undefined): string | null {
   if (!stored) return null;
@@ -270,7 +271,11 @@ export async function getGitHubBranches(
   return filteredBranches;
 }
 
-export async function addRepositoryByUrl(url: string): Promise<{
+export async function addRepositoryByUrl(
+  userId: string,
+  url: string,
+  options: { activate?: boolean } = {},
+): Promise<{
   id: string;
   name: string;
   fullName: string;
@@ -284,26 +289,50 @@ export async function addRepositoryByUrl(url: string): Promise<{
   }
 
   const repo = await fetchPublicRepo(parsed.owner, parsed.repo);
-  
+
   if (repo.private) {
     throw new Error('Private repositories require authentication');
   }
 
+  const activate = options.activate ?? true;
   const existing = await prisma.repository.findFirst({
-    where: { githubRepoId: repo.id, userId: null },
+    where: { githubRepoId: repo.id, userId },
   });
 
   if (existing) {
+    if (!activate) {
+      return prisma.repository.update({
+        where: { id: existing.id },
+        data: {
+          name: repo.name,
+          fullName: repo.full_name,
+          cloneUrl: repo.clone_url,
+          defaultBranch: repo.default_branch,
+        },
+      });
+    }
+    await prisma.repository.updateMany({
+      where: { userId, NOT: { id: existing.id } },
+      data: { isActive: false },
+    });
     return prisma.repository.update({
       where: { id: existing.id },
-      data: { isActive: true },
+      data: {
+        isActive: true,
+        name: repo.name,
+        fullName: repo.full_name,
+        cloneUrl: repo.clone_url,
+        defaultBranch: repo.default_branch,
+      },
     });
   }
 
-  await prisma.repository.updateMany({
-    where: { userId: null },
-    data: { isActive: false },
-  });
+  if (activate) {
+    await prisma.repository.updateMany({
+      where: { userId },
+      data: { isActive: false },
+    });
+  }
 
   return prisma.repository.create({
     data: {
@@ -312,7 +341,8 @@ export async function addRepositoryByUrl(url: string): Promise<{
       fullName: repo.full_name,
       cloneUrl: repo.clone_url,
       defaultBranch: repo.default_branch,
-      isActive: true,
+      userId,
+      isActive: activate,
     },
   });
 }
@@ -433,10 +463,12 @@ function buildRepoSearchQuery(
   options: GetGitHubReposOptions,
   scope: { type: 'user' | 'org'; login: string },
 ): string {
+  const searchTerm = options.q?.trim() || '';
   const queryParts = [
-    options.q?.trim() || '',
-    'in:name,description',
-    `${scope.type}:${scope.login}`,
+    searchTerm,
+    // in:name,description only valid when paired with actual search keywords
+    searchTerm ? 'in:name,description' : '',
+    scope.login ? `${scope.type}:${scope.login}` : '',
   ];
 
   if (options.filter === 'private') queryParts.push('is:private');
@@ -530,12 +562,16 @@ async function searchGitHubRepos(
     ? []
     : (await getGitHubOrgLogins(accessToken)).slice(0, MAX_ORG_SEARCH_SCOPES);
   const scopes: Array<{ type: 'user' | 'org'; login: string }> = [
-    { type: 'user', login: options.username },
+    ...(options.username ? [{ type: 'user' as const, login: options.username }] : []),
     ...orgLogins.map((login) => ({ type: 'org' as const, login })),
   ];
   const requestedEnd = options.page * options.perPage;
-  const scopeResults = await Promise.all(
+  const scopeResults = await Promise.allSettled(
     scopes.map((scope) => searchGitHubRepoScope(accessToken, options, scope, requestedEnd)),
+  ).then((results) =>
+    results
+      .filter((r): r is PromiseFulfilledResult<{ repos: GitHubRepo[]; totalCount: number }> => r.status === 'fulfilled')
+      .map((r) => r.value),
   );
   const repoMap = new Map<number, GitHubRepo>();
 
@@ -596,6 +632,51 @@ async function listGitHubRepos(
     repos,
     hasMore: data.length === options.perPage,
     totalCount: (options.page - 1) * options.perPage + repos.length + (data.length === options.perPage ? 1 : 0),
+  };
+}
+
+export async function searchPublicGitHubRepos(
+  accessToken: string,
+  options: GetGitHubReposOptions,
+): Promise<GitHubReposResult> {
+  const searchTerm = options.q?.trim();
+  if (!searchTerm) {
+    return { repos: [], hasMore: false, totalCount: 0 };
+  }
+
+  const query = `${searchTerm} in:name`;
+  const params = new URLSearchParams({
+    q: query,
+    page: String(options.page),
+    per_page: String(options.perPage),
+  });
+
+  if (options.sort === 'stars') {
+    params.set('sort', 'stars');
+    params.set('order', 'desc');
+  } else if (options.sort === 'pushed') {
+    params.set('sort', 'updated');
+    params.set('order', 'desc');
+  } else {
+    params.set('sort', 'stars');
+    params.set('order', 'desc');
+  }
+
+  const response = await fetch(`https://api.github.com/search/repositories?${params.toString()}`, {
+    headers: getGitHubHeaders(accessToken),
+  });
+
+  if (!response.ok) {
+    throw new Error(await getGitHubErrorMessage(response, 'Failed to search public repositories'));
+  }
+
+  const data = (await response.json()) as { items: GitHubRepo[]; total_count: number };
+  const repos = sortRepos(applyRepoFilter(data.items, options.filter), options.sort);
+
+  return {
+    repos,
+    hasMore: data.total_count > options.page * options.perPage,
+    totalCount: data.total_count,
   };
 }
 
@@ -666,9 +747,11 @@ export async function createOrUpdateUser(
 }
 
 export async function getUserById(userId: string) {
+  // Explicit allowlist: an `include` here previously leaked `totpSecret` and
+  // `backupCodes` through `GET /api/auth/me`. See `currentUserSelect`.
   return prisma.user.findUnique({
     where: { id: userId },
-    include: { repositories: true },
+    select: { ...currentUserSelect, repositories: true },
   });
 }
 
@@ -713,8 +796,16 @@ export async function setActiveRepository(userId: string, projectId: string) {
     data: { isActive: false },
   });
 
+  const owned = await prisma.repository.findFirst({
+    where: { id: projectId, userId },
+    select: { id: true },
+  });
+  if (!owned) {
+    throw new Error('Repository not found');
+  }
+
   return prisma.repository.update({
-    where: { id: projectId },
+    where: { id: owned.id },
     data: { isActive: true },
   });
 }

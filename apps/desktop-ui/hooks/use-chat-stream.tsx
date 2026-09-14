@@ -110,8 +110,31 @@ export function useChatStream() {
   const [streamingContent, setStreamingContent] = useState('');
   const [activeToolCalls, setActiveToolCalls] = useState<StreamingToolCall[]>([]);
   const abortRef = useRef<AbortController | null>(null);
+  // Mirror the in-flight accumulation so `stop()` — a separate callback with
+  // no access to `send()`'s local closure — can commit whatever streamed in
+  // so far instead of discarding it. `toolCallsInFlightRef` is aliased once
+  // per `send()` call and then mutated in place, so the ref always points at
+  // the live array; `accumulatedContentRef` needs an explicit write on every
+  // reassignment since strings aren't references.
+  const accumulatedContentRef = useRef('');
+  const toolCallsInFlightRef = useRef<StreamingToolCall[]>([]);
+  const finalizedRef = useRef(false);
 
-  const send = useCallback(async (sessionId: string, content: string) => {
+  const finalizeAssistantMessage = useCallback((content: string, toolCalls: StreamingToolCall[], nextStatus: StreamStatus) => {
+    finalizedRef.current = true;
+    const assistantMsg: StreamingMessage = {
+      role: 'assistant',
+      content,
+      toolCalls: [...toolCalls],
+      createdAt: new Date().toISOString(),
+    };
+    setMessages(prev => [...prev, assistantMsg]);
+    setStreamingContent('');
+    setActiveToolCalls([]);
+    setStatus(nextStatus);
+  }, []);
+
+  const send = useCallback(async (sessionId: string, content: string, attachmentIds?: string[]) => {
     const userMsg: StreamingMessage = {
       role: 'user',
       content,
@@ -128,47 +151,31 @@ export function useChatStream() {
 
     let accumulatedContent = '';
     const toolCallsInFlight: StreamingToolCall[] = [];
-    let finalized = false;
+    accumulatedContentRef.current = '';
+    toolCallsInFlightRef.current = toolCallsInFlight;
+    finalizedRef.current = false;
     let failed = false;
 
     const appendAssistantMessage = (content: string, toolCalls: StreamingToolCall[]) => {
-      finalized = true;
-      const assistantMsg: StreamingMessage = {
-        role: 'assistant',
-        content,
-        toolCalls: [...toolCalls],
-        createdAt: new Date().toISOString(),
-      };
-      setMessages(prev => [...prev, assistantMsg]);
-      setStreamingContent('');
-      setActiveToolCalls([]);
-      setStatus('idle');
+      finalizeAssistantMessage(content, toolCalls, 'idle');
     };
 
     const appendErrorMessage = (error: Error) => {
       if (failed) return;
       failed = true;
-      finalized = true;
-      const assistantMsg: StreamingMessage = {
-        role: 'assistant',
-        content: getErrorMessage(error),
-        toolCalls: [...toolCallsInFlight],
-        createdAt: new Date().toISOString(),
-      };
-      setMessages(prev => [...prev, assistantMsg]);
-      setStreamingContent('');
-      setActiveToolCalls([]);
-      setStatus('error');
+      finalizeAssistantMessage(getErrorMessage(error), toolCallsInFlight, 'error');
     };
 
     await sendChatMessage({
       sessionId,
       content,
+      attachmentIds,
       signal: controller.signal,
       onChunk: (chunk: ChatChunk) => {
         switch (chunk.type) {
           case 'assistant_delta':
             accumulatedContent += chunk.content || '';
+            accumulatedContentRef.current = accumulatedContent;
             setStreamingContent(accumulatedContent);
             break;
           case 'tool_call_start': {
@@ -197,11 +204,12 @@ export function useChatStream() {
           }
           case 'assistant_final':
             accumulatedContent = getAssistantFinalContent(chunk, accumulatedContent);
+            accumulatedContentRef.current = accumulatedContent;
             break;
           case 'user_message':
             break;
           case 'done': {
-            if (!finalized) {
+            if (!finalizedRef.current) {
               appendAssistantMessage(accumulatedContent, toolCallsInFlight);
             }
             break;
@@ -215,17 +223,31 @@ export function useChatStream() {
         if (!controller.signal.aborted) appendErrorMessage(error);
       },
       onDone: () => {
-        if (!finalized && !failed && !controller.signal.aborted) {
+        if (!finalizedRef.current && !failed && !controller.signal.aborted) {
           appendAssistantMessage(accumulatedContent, toolCallsInFlight);
         }
       },
     });
-  }, []);
+  }, [finalizeAssistantMessage]);
 
   const stop = useCallback(() => {
     abortRef.current?.abort();
-    setStatus('idle');
-  }, []);
+    // Commit whatever streamed in before the user cancelled instead of
+    // throwing it away — `onError`/`onDone` in `send()` both bail out once
+    // the controller is aborted, so this is the only place that does it.
+    if (!finalizedRef.current) {
+      const content = accumulatedContentRef.current;
+      const toolCalls = toolCallsInFlightRef.current;
+      if (content || toolCalls.length > 0) {
+        finalizeAssistantMessage(content, toolCalls, 'idle');
+      } else {
+        finalizedRef.current = true;
+        setStatus('idle');
+      }
+    } else {
+      setStatus('idle');
+    }
+  }, [finalizeAssistantMessage]);
 
   const reset = useCallback(() => {
     setMessages([]);

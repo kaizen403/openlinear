@@ -34,7 +34,7 @@ export default function QuickstartPage() {
       <p>
         Tokens look like this:
       </p>
-      <CodeBlock language="text">{`ol_pat_25897b3edab3886a9601658071a9dac5`}</CodeBlock>
+      <CodeBlock language="text">{`ol_pat_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx`}</CodeBlock>
 
       <h2>2. Add OpenLinear to your MCP client</h2>
       <p>

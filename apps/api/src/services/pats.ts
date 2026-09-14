@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { prisma } from '@openlinear/db';
+import { hasRequiredScopes } from '@openlinear/api-core';
 
 const TOKEN_PREFIX = 'ol_pat_';
 const TOKEN_RANDOM_BYTES = 16;
@@ -27,16 +28,7 @@ export function getPersonalAccessTokenPrefix(token: string): string {
   return token.slice(0, TOKEN_PREFIX.length + TOKEN_DISPLAY_HEX_CHARS);
 }
 
-export function hasRequiredScopes(scopes: string[], requiredScopes: string[]): boolean {
-  if (requiredScopes.length === 0) return true;
-  if (scopes.includes('*')) return true;
-
-  return requiredScopes.every((scope) => {
-    if (scopes.includes(scope)) return true;
-    const [resource] = scope.split(':');
-    return Boolean(resource && scopes.includes(`${resource}:*`));
-  });
-}
+export { hasRequiredScopes };
 
 export async function validatePersonalAccessToken(
   token: string,

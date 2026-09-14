@@ -25,18 +25,11 @@ export function DatabaseSettings() {
   React.useEffect(() => {
     const loadSettings = async () => {
       try {
-        if (typeof window !== 'undefined' && 'electronAPI' in window && window.electronAPI?.isElectron) {
-          await window.electronAPI.storeLoad("settings.json")
-          const savedUrl = await window.electronAPI.storeGet("settings.json", "database_url") as string | undefined
-          setDatabaseUrl(savedUrl || DEFAULT_DATABASE_URL)
-          setIsTauri(true)
-        } else {
-          const { load } = await import("@tauri-apps/plugin-store")
-          const store = await load("settings.json")
-          const savedUrl = await store.get<string>("database_url")
-          setDatabaseUrl(savedUrl || DEFAULT_DATABASE_URL)
-          setIsTauri(true)
-        }
+        const { load } = await import("@tauri-apps/plugin-store")
+        const store = await load("settings.json")
+        const savedUrl = await store.get<string>("database_url")
+        setDatabaseUrl(savedUrl || DEFAULT_DATABASE_URL)
+        setIsTauri(true)
       } catch {
         setIsTauri(false)
       }
@@ -48,17 +41,11 @@ export function DatabaseSettings() {
     if (!isTauri) return
     setSaving(true)
     try {
-      if (typeof window !== 'undefined' && 'electronAPI' in window && window.electronAPI?.isElectron) {
-        await window.electronAPI.storeSet("settings.json", "database_url", databaseUrl)
-        await window.electronAPI.storeSave("settings.json")
-        setConnectionStatus({ connected: true, error: null })
-      } else {
-        const { load } = await import("@tauri-apps/plugin-store")
-        const store = await load("settings.json")
-        await store.set("database_url", databaseUrl)
-        await store.save()
-        setConnectionStatus({ connected: true, error: null })
-      }
+      const { load } = await import("@tauri-apps/plugin-store")
+      const store = await load("settings.json")
+      await store.set("database_url", databaseUrl)
+      await store.save()
+      setConnectionStatus({ connected: true, error: null })
     } catch (error) {
       setConnectionStatus({ connected: false, error: String(error) })
     } finally {
@@ -70,21 +57,13 @@ export function DatabaseSettings() {
     setTesting(true)
     setConnectionStatus(null)
     try {
-      if (typeof window !== 'undefined' && 'electronAPI' in window && window.electronAPI?.isElectron) {
-        const result = await window.electronAPI.invoke("test_database_connection", { databaseUrl }) as { success: boolean; error?: string }
-        setConnectionStatus({
-          connected: result.success,
-          error: result.error || null,
-        })
-      } else {
-        const result = await invoke<{ success: boolean; error?: string }>("test_database_connection", {
-          databaseUrl,
-        })
-        setConnectionStatus({
-          connected: result.success,
-          error: result.error || null,
-        })
-      }
+      const result = await invoke<{ success: boolean; error?: string }>("test_database_connection", {
+        databaseUrl,
+      })
+      setConnectionStatus({
+        connected: result.success,
+        error: result.error || null,
+      })
     } catch (error) {
       setConnectionStatus({
         connected: false,

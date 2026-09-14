@@ -1,0 +1,11 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "packageRules": [
+    {
+      "description": "Prisma 8 is an RC trap; stay on 7.x until an explicit upgrade.",
+      "matchPackageNames": ["prisma", "@prisma/client", "@prisma/adapter-pg"],
+      "allowedVersions": "<8.0.0"
+    }
+  ]
+}

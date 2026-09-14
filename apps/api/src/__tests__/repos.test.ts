@@ -4,8 +4,9 @@ import jwt from 'jsonwebtoken';
 import { encryptToken, prisma } from '@openlinear/db';
 import { createApp } from '../app';
 import { exchangeCodeForToken, getGitHubBranches, getGitHubRepos } from '../services/github';
+import { testJwtSecret } from './test-env';
 
-const JWT_SECRET = 'openlinear-dev-secret-change-in-production';
+const JWT_SECRET = testJwtSecret();
 
 function generateToken(userId: string, username: string = 'testuser') {
   return jwt.sign({ userId, username }, JWT_SECRET, { expiresIn: '1h' });

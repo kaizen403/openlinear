@@ -1,0 +1,20 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: openlinear-db
+    environment:
+      POSTGRES_USER: openlinear
+      POSTGRES_PASSWORD: openlinear
+      POSTGRES_DB: openlinear
+    ports:
+      - "5432:5432"
+    volumes:
+      - openlinear-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U openlinear"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  openlinear-pgdata:

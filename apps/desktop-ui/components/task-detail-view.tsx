@@ -10,7 +10,7 @@ import { CommentsThread } from "@/components/comments-thread"
 import { cn, openExternal } from "@/lib/utils"
 import { Task, ExecutionProgress, ExecutionLogEntry, formatDuration } from "@/types/task"
 import { STATUS_COLORS, PRIORITY_COLORS } from "@/lib/design-tokens"
-import { useExecutionLogs, useExecutionProgress } from "@/lib/execution-state-store"
+import { useExecutionLogsWithHistory, useExecutionProgress } from "@/lib/execution-state-store"
 
 interface TaskDetailViewProps {
   task: Task | null
@@ -78,7 +78,7 @@ export function TaskDetailView({ task, progress, open, onClose, onDelete, deleti
   const logsContainerRef = useRef<HTMLDivElement>(null)
   const titleInputRef = useRef<HTMLInputElement>(null)
   const descriptionRef = useRef<HTMLTextAreaElement>(null)
-  const logs = useExecutionLogs(task?.id)
+  const { logs, loading: logsLoading } = useExecutionLogsWithHistory(task?.id)
   const liveProgress = useExecutionProgress(task?.id)
   const currentProgress = progress ?? liveProgress
   const detailIsExecuting = !!isExecuting || (
@@ -95,8 +95,8 @@ export function TaskDetailView({ task, progress, open, onClose, onDelete, deleti
   const logVirtualizer = useVirtualizer({
     count: reversedLogs.length,
     getScrollElement: () => logsContainerRef.current,
-    estimateSize: () => 88,
-    overscan: 8,
+    estimateSize: () => 60,
+    overscan: 3,
   })
   const [editingTitle, setEditingTitle] = useState(false)
   const [editingDescription, setEditingDescription] = useState(false)
@@ -106,12 +106,6 @@ export function TaskDetailView({ task, progress, open, onClose, onDelete, deleti
   // Tracks whether a save already fired this edit cycle so blur+Enter don't double-fire onUpdate.
   const titleSavedRef = useRef(false)
   const descriptionSavedRef = useRef(false)
-
-  useEffect(() => {
-    if (logsContainerRef.current && open && logs.length > 0) {
-      logsContainerRef.current.scrollTop = 0
-    }
-  }, [logs, open])
 
   useEffect(() => {
     if (!detailIsExecuting) setCancelling(false)
@@ -192,8 +186,12 @@ export function TaskDetailView({ task, progress, open, onClose, onDelete, deleti
         side="right"
         // Override default narrow width; this is a full task detail panel, not a settings drawer.
         className="w-full sm:max-w-none md:w-[860px] lg:w-[960px] xl:w-[1100px] p-0 bg-linear-bg border-linear-border flex flex-col"
-        // Hide the built-in close button (we render our own X in the header)
-        onOpenAutoFocus={(e) => e.preventDefault()}
+        // Let Radix's default focus-on-open behavior run (don't preventDefault
+        // here): previously focus was left on whatever was focused before the
+        // sheet opened (usually the board behind it), so keydown events never
+        // entered the sheet's DOM subtree and the board's global keyboard
+        // shortcuts (e.g. 'd'/Backspace to delete) fired instead of whatever
+        // the user meant to type inside the sheet.
       >
         <SheetTitle className="sr-only">{task.title}</SheetTitle>
         <SheetDescription className="sr-only">Task detail view for {task.identifier || task.id}</SheetDescription>
@@ -328,7 +326,7 @@ export function TaskDetailView({ task, progress, open, onClose, onDelete, deleti
                     {(task.prUrl || currentProgress?.prUrl) && (
                       <button
                         onClick={() => openExternal((task.prUrl || currentProgress?.prUrl)!)}
-                        className="mt-3 inline-flex items-center gap-2 px-3 py-1.5 rounded-sm text-xs font-medium text-white bg-[#8b5cf6] hover:bg-[#7c3aed] transition-colors"
+                        className="mt-3 inline-flex items-center gap-2 px-3 py-1.5 rounded-sm text-xs font-medium text-white bg-linear-accent hover:bg-linear-accent/90 transition-colors"
                       >
                         <GitMerge className="w-3.5 h-3.5" />
                         View Pull Request
@@ -410,9 +408,18 @@ export function TaskDetailView({ task, progress, open, onClose, onDelete, deleti
                   >
                     {logs.length === 0 ? (
                       <div className="flex flex-col items-center justify-center py-12 text-linear-text-tertiary">
-                        <Clock className="w-8 h-8 mb-2 opacity-50" />
-                        <p className="text-sm">No activity yet</p>
-                        <p className="text-xs mt-1">Execution logs will appear here when a task is run</p>
+                        {logsLoading ? (
+                          <>
+                            <Loader2 className="w-8 h-8 mb-2 animate-spin opacity-50" />
+                            <p className="text-sm">Loading activity...</p>
+                          </>
+                        ) : (
+                          <>
+                            <Clock className="w-8 h-8 mb-2 opacity-50" />
+                            <p className="text-sm">No activity yet</p>
+                            <p className="text-xs mt-1">Execution logs will appear here when a task is run</p>
+                          </>
+                        )}
                       </div>
                     ) : (
                       <div
@@ -427,11 +434,10 @@ export function TaskDetailView({ task, progress, open, onClose, onDelete, deleti
 
                           return (
                             <div
-                              key={`${log.timestamp}-${logs.length - virtualRow.index}`}
+                              key={virtualRow.key}
                               data-index={virtualRow.index}
-                              ref={logVirtualizer.measureElement}
                               className="absolute left-0 top-0 flex w-full gap-3"
-                              style={{ transform: `translateY(${virtualRow.start}px)` }}
+                              style={{ transform: `translateY(${virtualRow.start}px)`, willChange: 'transform' }}
                             >
                               <div className="flex flex-col items-center flex-shrink-0 w-6">
                                 <div className={cn(

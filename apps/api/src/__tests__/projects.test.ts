@@ -3,8 +3,9 @@ import request from 'supertest';
 import jwt from 'jsonwebtoken';
 import { createApp } from '../app';
 import { prisma } from '@openlinear/db';
+import { testJwtSecret } from './test-env';
 
-const JWT_SECRET = 'openlinear-dev-secret-change-in-production';
+const JWT_SECRET = testJwtSecret();
 
 function generateToken(userId: string, username: string = 'testuser') {
   return jwt.sign({ userId, username }, JWT_SECRET, { expiresIn: '1h' });
@@ -101,10 +102,17 @@ describe('Projects API', () => {
       expect(res.status).toBe(201);
       expect(res.body.name).toBe('New Project');
       expect(res.body.status).toBe('planned');
-      expect(res.body.teams).toEqual([]);
+      expect(res.body.teams).toHaveLength(1);
+      expect(res.body.teams[0].name).toBe('New Project Team');
+      expect(res.body.teams[0].key).toBe('NEWP');
       expect(res.body.workspaceId).toEqual(expect.any(String));
       expect(res.body.key).toBe('NEWP');
       expect(res.body).toHaveProperty('id');
+
+      const membership = await prisma.teamMember.findUnique({
+        where: { teamId_userId: { teamId: res.body.teams[0].id, userId: testUserId } },
+      });
+      expect(membership?.role).toBe('owner');
     });
 
     it.skip('creates project with teamIds — obsolete in 1:M team-to-project model', async () => {});

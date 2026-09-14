@@ -2,10 +2,12 @@ import { Router, Response } from 'express';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { AuthRequest, requireAuth } from '@openlinear/api/middleware';
+import { logger } from '@openlinear/api/logger';
 import {
   getOpenCodeStatus,
   getClientForUser,
 } from '../services/opencode';
+import { ensureModelConfigured } from '../services/opencode-model';
 
 const router: Router = Router();
 
@@ -137,7 +139,7 @@ async function readFavoriteModelRefs(): Promise<ModelRef[]> {
     } catch (err) {
       const code = (err as NodeJS.ErrnoException).code;
       if (code === 'ENOENT' || code === 'ENOTDIR') continue;
-      console.warn(`[OpenCode] Failed to read model favorites from ${filePath}:`, err);
+      logger.warn({ err, filePath }, `[OpenCode] Failed to read model favorites from ${filePath}`);
       return [];
     }
   }
@@ -192,8 +194,12 @@ function summarizeProviders(
     .sort(providerSort(currentModel));
 }
 
-router.get('/status', (_req, res: Response) => {
-  res.json(getOpenCodeStatus());
+router.get('/status', requireAuth, (_req: AuthRequest, res: Response) => {
+  // Never leak the OpenCode server's own loopback URL/port here — a page that
+  // discovers it can drive OpenCode's unauthenticated local API directly,
+  // bypassing every check in this router. See C6a F15.
+  const { serverUrl: _serverUrl, ...status } = getOpenCodeStatus();
+  res.json(status);
 });
 
 router.get('/setup-status', requireAuth, async (req: AuthRequest, res: Response) => {
@@ -208,12 +214,27 @@ router.get('/setup-status', requireAuth, async (req: AuthRequest, res: Response)
     const payload = providerList.data as ProviderListPayload;
     const currentConfig = (config.data ?? {}) as ConfigPayload;
     const providers = summarizeProviders(payload, auth.data ?? {}, currentConfig);
-    const ready = providers.some(p => p.authenticated);
+
+    // Auto-detect model when a provider is connected but no model is selected.
+    // This keeps the "ready" signal honest: ready === we can execute right now.
+    const hasProvider = providers.some(p => p.authenticated);
+    let resolvedModel = typeof currentConfig.model === 'string' ? currentConfig.model : null;
+    if (hasProvider && !resolvedModel) {
+      const ensured = await ensureModelConfigured(req.userId!, client).catch(() => null);
+      if (ensured?.model) {
+        resolvedModel = ensured.model;
+      }
+    }
+
+    const hasModel = Boolean(resolvedModel);
+    const ready = hasProvider && hasModel;
 
     res.json({
       providers,
       ready,
-      currentModel: currentConfig.model ?? null,
+      hasProvider,
+      hasModel,
+      currentModel: resolvedModel,
       smallModel: currentConfig.small_model ?? null,
     });
   } catch (err) {
@@ -250,9 +271,7 @@ router.post('/auth/remove', requireAuth, async (req: AuthRequest, res: Response)
     }
 
     const client = await getClientForUser(req.userId!);
-    // TypeScript resolves the wrong Auth type in the generated SDK d.ts,
-    // but the runtime method is correct (DELETE /auth/{providerID}).
-    await (client.auth as any).remove({ path: { providerID: providerId } });
+    await (client.auth as unknown as { remove: (opts: { path: { providerID: string } }) => Promise<void> }).remove({ path: { providerID: providerId } });
 
     res.json({ success: true, providerId });
   } catch (err) {
@@ -470,6 +489,15 @@ router.post('/config/model', requireAuth, async (req: AuthRequest, res: Response
     res.json({ success: true, model });
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : 'Failed to set model' });
+  }
+});
+
+router.get('/runners', requireAuth, async (_req: AuthRequest, res: Response) => {
+  try {
+    const { listRunnerCatalogue } = await import('../catalogue/models-dev');
+    res.json({ runners: await listRunnerCatalogue() });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : 'Failed to list runners' });
   }
 });
 

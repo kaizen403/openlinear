@@ -11,6 +11,7 @@ import {
   logout as apiLogout,
   verifyCallbackToken,
 } from '@/lib/api';
+import { initTokenStore } from '@/lib/api/token-store';
 
 interface AuthContextType {
   user: User | null;
@@ -69,22 +70,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  // Note: this used to also read a `?token=` query param here and adopt it
+  // into storage on ANY route — since this effect runs app-wide (AuthProvider
+  // wraps the whole app), a link like `https://app/anything?token=<jwt>`
+  // would silently swap the victim's session to whoever crafted the link.
+  // `?token=` is now only ever handled by the dedicated `/auth/session`
+  // route (see app/auth/session/page.tsx), which explicitly verifies the
+  // token against the API before adopting it.
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const token = params.get('token');
-    const error = params.get('error');
-
-    if (token) {
-      localStorage.setItem('token', token);
-      window.history.replaceState({}, '', window.location.pathname);
-    }
-
-    if (error) {
-      console.error('Auth error:', error);
-      window.history.replaceState({}, '', window.location.pathname);
-    }
-
     (async () => {
+      await initTokenStore();
       const result = await loadUser();
       if (result.stale) return;
       if (result.user) {
@@ -108,12 +103,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(userData);
         await refreshActiveRepository();
         toast.success('Authenticated. Opening OpenLinear...');
-        if (pathname === '/login') {
+        if (pathname === '/login' || pathname === '/login/') {
           router.replace('/');
         }
       } catch (err) {
         console.warn('[Auth] Failed to verify Tauri callback token:', err);
-        toast.error('Could not finish GitHub sign-in. Paste the callback token from the browser page.');
+        toast.error('Could not finish GitHub sign-in. Try signing in again.');
       } finally {
         if (requestId === authRequestId.current) {
           setIsLoading(false);
@@ -128,23 +123,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (typeof window === 'undefined') return;
     let unlisten: (() => void) | undefined;
     let cancelled = false;
-
-    const setupElectron = async () => {
-      try {
-        const api = window.electronAPI;
-        if (!api) return;
-        const pending = await api.invoke('consume_pending_auth_callback').catch(() => null) as AuthCallbackPayload | null;
-        if (!cancelled && pending) {
-          void handleAuthCallback(pending);
-        }
-        unlisten = api.onAuthCallback((event) => {
-          void handleAuthCallback(event);
-          api.invoke('consume_pending_auth_callback').catch(() => null);
-        });
-      } catch (err) {
-        console.warn('[Auth] Failed to register Electron auth:callback listener:', err);
-      }
-    };
 
     const setupTauri = async () => {
       try {
@@ -168,9 +146,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     };
 
-    if ('electronAPI' in window && window.electronAPI?.isElectron) {
-      void setupElectron();
-    } else if ('__TAURI_INTERNALS__' in window) {
+    if ('__TAURI_INTERNALS__' in window) {
       void setupTauri();
     }
 
@@ -193,8 +169,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(null);
       setActiveRepository(null);
       toast.error('Session expired. Please sign in again.');
-      if (pathname !== '/login' && pathname !== '/') {
-        router.push('/login');
+      if (pathname !== '/login' && pathname !== '/login/' && pathname !== '/') {
+        router.push('/login/');
       }
     };
 

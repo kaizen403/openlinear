@@ -5,6 +5,431 @@
 
 ---
 
+## [2026-09-12] — Phase 2 verification + type/test fixes
+
+**Status:** Done
+**Agent:** Cursor Grok 4.6
+**Branch:** `phase-2/execution-engine-v2`
+
+### What was done
+- Started existing `openlinear-test-pg` on `127.0.0.1:55432` and applied `20260911000000_phase2_agent_run_journal`.
+- Restored missing `express` `Router`/`Response` imports in `apps/api/src/routes/tasks.ts`.
+- Added `name` on `tool.finished` AgentEvent; annotated `createSidecarApp(): Application`.
+- Skip cancel grace `setTimeout` when wait is 0 so fake-timer lifecycle tests can finish.
+- Aligned git staging mocks with allowlist + 3 git calls; unique merge-temp path for unsafe `-x`.
+
+### Verification
+- Typecheck: `@openlinear/api`, `@openlinear/sidecar`, `@openlinear/execution-core`, `@openlinear/api-client` green.
+- API tests: **188 passed**, 2 skipped (`TEST_DATABASE_URL` → `127.0.0.1:55432`).
+- Sidecar: **335 passed**. execution-core: **28 passed**.
+
+### Next steps / blockers
+- Commit Phase 0+1+2 when asked. Do not push unless asked.
+
+---
+
+## [2026-09-11] — Phase 2 Execution Engine v2
+
+**Status:** Done (in-repo). Soak / 300MB latency remain scripts, not PR gates. Claude Code runner and T1 sandbox stay later phases.
+**Agent:** Cursor Grok 4.6
+**Branch:** `phase-2/execution-engine-v2`
+
+### What was done
+- Wave 0: `AgentRun` session/runner/5-field usage, `Task.agent`, `Project.defaultAgent`, `agent_run_events`, `POST /api/agent-runs/progress` with SSE id `run:{runId}:{seq}`, api-client sidecar methods, execution-core `AgentEvent` / `AgentRunner`.
+- Wave 1: `SessionManager` + `RunCoordinator` + `OpenCodeRunner`; batch event-handler removed; `promptAsync` after subscribe; fake-runner 3-task cancel isolation.
+- Wave 2: SQLite `RunJournal` (WAL) + RESUME/SALVAGE/FAIL boot recovery.
+- Wave 3: Sidecar persistence via `OpenLinearClient` / store; refuse `DATABASE_URL` unless `--with-cloud-api` (loopback `*_test` only); stop defaulting `OPENLINEAR_ALLOW_SHARED_OPENCODE=1`.
+- Wave 4: `local-worktree` blobless mirror, per-repo mutex, unique worktrees, git hardening, GC, real-git tests.
+- Wave 5: Budget watchdog, interrupt→abort→kill cancel chain, staging allowlist, cache-split usage columns.
+- Wave 6: `@opencode-ai/sdk` 1.18 + `/v2` adapter, system-prompt contract, deleted unused `codebase-context`; child sessions decoded at the runner (legacy background-task decoder kept for 1.x event tests).
+- Wave 7: Sidecar no longer mounts `createApp()`; execution/batches/opencode/transcribe + local `/api/events`.
+- Wave 8: `CodexRunner`, models.dev catalogue, `Task.agent` / `Project.defaultAgent` selection.
+
+### Files changed
+- `apps/sidecar/src/engine/*`, `apps/sidecar/src/runners/*`, `apps/sidecar/src/journal/*`, `apps/sidecar/src/workspace/local-worktree.ts`, `apps/sidecar/src/app.ts`, `apps/sidecar/src/index.ts`
+- `apps/api/src/routes/agent-runs.ts`, `apps/api/src/routes/models.ts`, `packages/db/prisma/migrations/20260911000000_phase2_agent_run_journal/`
+- `apps/sidecar/scripts/latency-bench.mjs`, `latency-300mb.mjs`, `soak.mjs`
+
+### Issues encountered
+- Existing sidecar Vitest suite still mocks Prisma; `NODE_ENV=test` keeps a Prisma store so those tests do not require a live API.
+- `background-task.ts` string matching remains on the OpenCode 1.x event decoder path so `events.test.mjs` stays green; v2 runners use `session.children`.
+
+### Next steps / blockers
+- Commit Phase 0+1+2 when asked. Nightly: run soak + 300MB latency scripts. Phase 3: T1 sandbox + GitHub App broker.
+
+---
+
+## [2026-09-10] — Phase 1 platform foundations (code complete)
+
+**Status:** Done for in-repo work. Azure/staging exit criteria (3-replica SSE soak, canary, Front Door, Key Vault, Neon previews, off-subscription backups) are not done and were explicitly skipped.
+**Agent:** Cursor Grok 4.6
+**Branch:** `phase-0/stop-the-bleeding`
+
+### What was done
+
+Finished remaining Phase 1 code on top of the earlier 1.1 / 1.3 / 1.7 work.
+
+- Schema + migration `20260910120000_phase1_foundations` (Identity, TwoFactorChallenge, EmailChangeRequest, SseTicket, IdempotencyKey, Task.workspaceId, PAT workspaceId, session refresh, SSO domain verification, attachment scan fields). Destructive DDL marked `-- migration-safety: allow`.
+- Tenancy leftovers: workspace member → view, owner/admin → full; `removeWorkspaceMember` cascades team membership; labels writes need full; repos no longer use `userId: null`; route registry + authorization-matrix tests.
+- Packages: `@openlinear/api-core`, `@openlinear/api-client`, `@openlinear/telemetry`. Sidecar and MCP re-export the client. Task create/bulk forks collapsed.
+- SSE tickets (`POST /api/events/ticket`, `?token=` JWT rejected). pg-boss + hourly job loop. Bulk task status/archive/delete.
+- Auth rebuild: 1h JWT + rotating refresh, opaque 2FA challenge, verified email-change, SSO with PKCE/nonce/signed state + DNS TXT (no bind-by-email), closed PAT scopes, `requireInteractiveSession` so a PAT cannot mint another PAT (`SESSION_REQUIRED` before scope checks).
+- Idempotency now persisted in `idempotency_keys`. Audit catalog wired on PAT create/revoke, SSO configure/delete, workspace member remove.
+- Dockerfile `USER 10001`, local blob abstraction, runbooks, Renovate Prisma `<8`, catalogs, CI `TEST_DATABASE_URL` + migration-safety on `dev.yml`.
+
+### Verification
+
+- `pnpm --filter @openlinear/api typecheck` green.
+- API tests: **186 passed**, 2 skipped (`TEST_DATABASE_URL` → `127.0.0.1:55432`).
+- Sidecar: **331 passed**. desktop-ui unit: **57 passed**. `pnpm lint` green.
+
+### Not in this phase (by design)
+
+- Azure console: Front Door, Key Vault, canary, Neon PR branches, backups in another subscription, raising `--max-replicas` (stays 1 until Redis).
+- Sidecar still talks to Prisma (client switch is the Phase 2 prerequisite; DB URL removal is Phase 2).
+- Feature modules are re-exports, not a full extract of every aggregate.
+- GitHub OAuth stays off. Do not deploy until leaked-credential rotation on prod Azure is finished.
+
+### Files changed (high level)
+
+- `packages/db/prisma/schema.prisma`, `packages/db/prisma/migrations/20260910120000_phase1_foundations/`
+- `apps/api/src/tenancy/`, `events/`, `jobs/`, `storage/`, `registry.ts`, `middleware/auth.ts`, `routes/{auth,sso,totp,users,pats,events,tasks,workspaces}.ts`
+- `packages/{api-core,api-client,telemetry}/`
+- `apps/desktop-ui` (SSE tickets, refresh, PAT scopes)
+- `.github/workflows/dev.yml`, `turbo.json`, `renovate.json`, `docs/runbooks/`
+
+### Next steps / blockers
+
+- Do not start Phase 2 until this is committed and the human finishes prod secret rotation.
+- Staging: Redis + Blob + second replica before any soak or canary.
+- Uncommitted; do not push until asked.
+
+---
+
+## [2026-09-10] — Rotate leaked credentials (runbook)
+
+**Status:** Partial — docs + dev Neon + GitHub OAuth shutdown done; prod Azure still blocked
+**Agent:** Cursor Grok 4.6
+**Branch:** `phase-0/stop-the-bleeding`
+
+### What was done
+- Confirmed the live PAT was still served on `docs.openlinear.tech` and `mcp-docs-one.vercel.app` (Phase 0 scrubbed git, never redeployed docs). Redeployed `apps/mcp-docs` to Vercel production; both hosts now show `ol_pat_` + 32 `x`. Owner reports the leaked PAT is revoked; still confirm `revoked_at` on prod when the DB is reachable.
+- Hashed two `ol_pat_` values from git history. None were present on the **dev** Neon branch (0 active PATs). Production DB was unreachable with the git-history password (already rejected on `ep-wild-feather` and `ep-muddy-butterfly`).
+- Dev Neon (`ep-lively-tooth-…`): password rotated and verified; 3 `User.accessToken` rows decrypted with the leaked `TOKEN_ENCRYPTION_KEY` and re-encrypted under a new key. New `DATABASE_URL` / `JWT_SECRET` / `TOKEN_ENCRYPTION_KEY` written to gitignored `.env.dev` (0600). Blanked leftover `GITHUB_CLIENT_*` there after the OAuth apps were removed.
+- Removed the published JWT placeholder from `.env.example` and `apps/api/.env.example`. Added `packages/db/scripts/reencrypt-tokens.ts` (`db:reencrypt-tokens`) because `db:encrypt-tokens` only handles plaintext.
+- GitHub secret scanning + push protection are enabled on `kaizen403/openlinear`.
+- Scrubbed the stale git-history password out of on-disk `.env.prod` (it was already invalid).
+- Confirmed leaked GitHub OAuth secrets are dead (dev app 404, prod leaked secret 401). `/api/auth/github` now returns `GITHUB_OAUTH_DISABLED`. Production boot no longer requires `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET`. Login UI GitHub buttons are disabled.
+
+### What is blocked (needs you in a browser)
+- **Azure CLI session expired** (`AADSTS50132`). Device login is waiting; Microsoft password page is open for `rishivhavle20@outlook.com`. After login I can pull Container App `DATABASE_URL`, confirm PAT rows in prod, rotate prod JWT / enc key, and clear leftover GitHub secrets from the Container App.
+- `api.openlinear.tech` CNAMEs to `openlinear-api.whitesmoke-ccbab1c5.centralindia.azurecontainerapps.io`, which currently has **no A record**. Prod API DNS looks dead independently of this rotation.
+
+### Files changed
+- `docs/runbooks/rotate-leaked-secrets.md` — status table
+- `.env.example`, `apps/api/.env.example` — no published JWT placeholder; OAuth noted as disabled
+- `apps/api/src/env.ts`, `apps/api/src/routes/auth.ts` — GitHub OAuth optional / 503
+- `apps/desktop-ui` login, user-menu, profile, repo-picker — GitHub sign-in disabled
+- `packages/db/scripts/reencrypt-tokens.ts`, `packages/db/package.json`
+- gitignored `.env.dev` (new secrets), `.env.prod` (password and OAuth leftovers removed)
+
+### Next steps / blockers
+- Finish Azure device login, then rotate prod DB password + JWT + enc key in Container App secrets and confirm every prod PAT is revoked.
+- History purge still a separate, explicit decision (force-push).
+
+---
+
+## [2026-09-10] — Phase 1.1 tenancy, 1.3 outbox/SSE, 1.7 Biome; sidecar event tests
+
+**Status:** In progress (code + tests green locally; Phase 1 not committed)
+**Agent:** Cursor Grok 4.6
+**Branch:** `phase-0/stop-the-bleeding`
+
+### What was done
+
+Step 0: `events.ts` was already in `9e1aef8`. Sidecar `events.test.mjs` was stale against Phase 0 (not a production regression). Updated tests to the real SDK/runtime contract and got **331/331**.
+
+- Terminal event is `session.idle`, not `session.completed` (`events.ts:253-256`, `event-stream-processor.ts:95-118`).
+- Progress broadcasts go through `broadcastToTask` when execution state is cached (`state.ts:265-269`), not `broadcastToTaskById`.
+- Transport watchdog is 60s and re-subscribes before fail (`events.ts:44`, `191-206`); timeout message includes the reconnect error.
+- `sessionToTask.set()` is a Proxy no-op; mapping is registered by `activeExecutions.set()`.
+- `tool.execute.after` is not on the subscribed Event union; background cancel uses `message.part.updated`.
+
+Phase 1.1 — tenancy by construction:
+
+- `apps/api/src/tenancy/` — `resolveTenancyContext`, ALS, `assertCan`/`can`, correlated `scopedTaskWhere` / `scopedProjectWhere` / `scopedTeamWhere` / `scopedActivityWhere`.
+- Auth middleware binds `req.tenancy` after JWT/PAT success (`middleware/auth.ts:120-126`).
+- Deleted dead CASL: `services/ability-builder.ts`, `middleware/permissions.ts`, `@casl/ability`.
+- Search, inbox, dashboard, activity honour project `deny` (workspace+team member still cannot see denied project). Duplicate search route impl removed.
+- Task list/count/archive use `scopedTaskWhere` instead of materialised project-id lists.
+- Tenancy cache invalidated on membership/access mutations; cache off in `NODE_ENV=test`.
+
+Phase 1.3 — events:
+
+- Prisma `DomainEvent` / `domain_events` + migration `20260910000000_domain_events`.
+- `apps/api/src/events/` — outbox, Redis-or-memory bus, SSE hub with `id:` frames, `Last-Event-ID` / `?lastEventId=` replay, relay with `FOR UPDATE SKIP LOCKED`.
+- Existing `broadcastTo*` signatures kept (`sse.ts`). `broadcastToAll` (`opencode:status`) is local-only, not persisted.
+- `apps/api/src/worker.ts` for a dedicated relay. Azure `--max-replicas` stays **1** until Redis is actually in the environment.
+- Desktop-ui SSE reconnect passes `lastEventId`.
+
+Phase 1.7 — lint:
+
+- Root `pnpm lint` is `biome check --error-on-warnings` on the new tenancy/events/worker/test files (was a turbo echo of package no-ops).
+
+### Files changed
+
+- `apps/api/src/tenancy/*` — new authorization surface
+- `apps/api/src/events/*`, `apps/api/src/worker.ts`, `apps/api/src/sse.ts`, `apps/api/src/routes/events.ts`, `apps/api/src/index.ts`
+- `apps/api/src/routes/{search,inbox,dashboard,activity-log}.ts`, `apps/api/src/services/{search,tasks,workspaces,members,teams,projects}.ts`, `apps/api/src/middleware/auth.ts`
+- deleted `apps/api/src/services/ability-builder.ts`, `apps/api/src/middleware/permissions.ts`
+- `packages/db/prisma/schema.prisma`, `packages/db/prisma/migrations/20260910000000_domain_events/migration.sql`
+- `apps/desktop-ui/providers/sse-provider.tsx`
+- `apps/sidecar/src/services/execution/events.test.mjs`
+- `biome.json`, root `package.json`, `apps/api/package.json`, `.env.example` (`REDIS_URL`, `OPENLINEAR_OUTBOX_RELAY`)
+- `apps/api/src/__tests__/tenancy.test.ts`, `apps/api/src/__tests__/events.outbox.test.ts`
+
+### Tests (verified, not assumed)
+
+- `pnpm --filter @openlinear/{api,sidecar,desktop-ui,db} typecheck` clean
+- `pnpm lint` — 13 files, no warnings
+- API: `TEST_DATABASE_URL=postgresql://openlinear:openlinear@127.0.0.1:55432/openlinear_test` — **21 files / 177 passed / 2 skipped**. Host `:5432` is `omegle-postgres`; used dedicated `openlinear-test-pg` on **55432**. Did not defeat the vitest loopback/`*_test` guard.
+- Sidecar: **22 files / 331 passed**
+- desktop-ui: **10 files / 57 passed**
+
+### Issues encountered
+
+- Sidecar suite was **not** 330/330 on this tree at session start (21 failures in `events.test.mjs`). Root cause was stale tests vs Phase 0 T4/T6/T7, not Phase 1.
+- `persistAndDeliver` initially returned the pre-publish row (`publishedAt: null`); returns `{ ...row, publishedAt: row.publishedAt ?? new Date() }` (`outbox.ts:109`).
+
+### Next steps / blockers
+
+- **Blocked on a human:** rotate every credential in `docs/runbooks/rotate-leaked-secrets.md`. Phase 1 is not safe to deploy until that lands.
+- **Blocked on a human:** apply `packages/db/prisma/manual/2026-09-09-phase0-hot-path-indexes.sql` out of band (`docs/runbooks/apply-hot-path-indexes.md`). CI drift-check fails until then, by design.
+- Do not raise Azure `--max-replicas` until Redis is in the environment.
+- Deliberately not in this slice (plan 1.1/1.3 leftovers): `Task.projectId` / `Project.workspaceId` NOT NULL, `Role`/`roleId` schema drop, repository IDOR + `userId: null` namespace, workspace-tier tightening, authorization-matrix route registry, SSE ticket (no `?token=`), pg-boss job set.
+- Do not start Phase 2 — it depends on `packages/api-client` from Phase 1.2.
+- SSO login and email change stay disabled (Phase 1.4).
+- Sidecar test repairs committed and pushed as `3939cc8`. Phase 1.1 / 1.3 / 1.7 remain uncommitted in the working tree.
+
+---
+
+## [2026-09-09] — Phase 0 "stop the bleeding": API/auth security, chat safety, test-DB guard
+
+**Status:** In progress (API stream done; sidecar + frontend streams in flight)
+**Agent:** Claude Opus 5 (lead) + 3 subagents
+**Branch:** `phase-0/stop-the-bleeding` — uncommitted
+
+### What was done (apps/api, packages/db)
+
+Implements Phase 0 of `~/Downloads/Open Linear Revamp Plan/03-phases/PHASE-0-stop-the-bleeding.md`.
+
+- **Test-database guard.** `apps/api/vitest.config.ts` fell back to the ambient `DATABASE_URL` — the repo `.env` points at a live Neon pooler — while the suite runs unscoped `deleteMany({})`. Now refuses any non-loopback host or any database not named `*_test`, before a connection opens. Verified: a production-shaped URL is blocked even with the CI override.
+- **Secrets.** One `lib/secrets.ts`; deleted the hard-coded `openlinear-dev-secret-change-in-production` fallback from all 5 source copies and the `TOKEN_ENCRYPTION_KEY` fallback in `packages/db/src/crypto.ts`. No environment exemption: missing, short (<32 chars) or known-published values throw at startup. `.env`/`.env.dev` currently hold that exact placeholder as `JWT_SECRET` — see the rotation runbook.
+- **2FA bypass.** `decodeToken` ignored `twoFactorPending`, so the 5-minute temp token was a full bearer credential; `/api/events` bypassed the middleware entirely. Both now reject it, and 2FA validation only accepts a token that actually carries the claim.
+- **Credential disclosure.** `getUserById` used `include` with no `select`, so `GET /api/auth/me` returned `totpSecret` and `backupCodes`. Replaced with an explicit `currentUserSelect` allowlist.
+- **Sessions.** `POST /api/auth/logout` was a no-op; it now revokes server-side. `isSessionRevoked` failed open on an unknown token hash and now fails closed (transition flag `OPENLINEAR_ALLOW_SESSIONLESS_JWT=1`). Added revocation caching (30s) and throttled `lastActiveAt` writes to 10 min — previously one SELECT + one UPDATE on every authenticated request.
+- **Token issuance centralised.** Four sites minted JWTs; only one created a `Session` row. All now go through `lib/auth-tokens.ts`.
+- **SSO login disabled** pending rebuild (unsigned state, no nonce/PKCE, unverified `allowedDomains`, bind-by-email => takeover of any account by email). **Self-service email change disabled** — combined with pending-invitation tokens it was a path into another tenant.
+- **Invitations** no longer return the acceptance `token` from either listing.
+- **Orphan tasks** (`teamId` and `projectId` both null) were readable/writable by any authenticated user; now creator-only.
+- **PATs.** Wildcard `['*']` default removed and scopes are required; PATs can no longer mint PATs or touch 2FA/sessions (`denyPersonalAccessTokens`).
+- **Input validation** (`schemas/git.ts`): `clone_url` https + host allowlist (blocks `ext::`-transport RCE via `git clone`), git ref names reject a leading `-` (option injection), `localPath` must be absolute and traversal-free.
+- **Uploads.** `/uploads` was `express.static` with no auth and CSP disabled, and multer kept the caller's extension — uploading `.html` gave same-origin script execution. Now authenticated + ownership-checked, MIME allowlist with magic-byte verification, extension derived from the allowlist, forced `attachment` download.
+- **Chat.** Boundary-safe history window (a window opening on a `tool` message was a provider 400); tool results now compacted in-flight as well as on replay; tool-call ids made unique per turn (`tool_<round>_<index>` collided across turns and replayed cached results); untrusted-content envelopes for attachments plus a system-prompt contract; 5 access-granting tools withheld from the model and refused at dispatch; `archive_issues` now requires explicit ids — omitting them archived every active issue in the project.
+- **Health/CI/infra.** Added `/livez` (no DB) and `/readyz` (DB + secrets). CI `db:push` -> `prisma migrate deploy` + drift check + a migration-safety gate (destructive DDL, non-`CONCURRENTLY` index). Azure `--max-replicas` clamped 3 -> 1 until the outbox lands: SSE fan-out, rate limits and the idempotency cache are per-process. `.gitignore` widened to `.env.*` and `.env.dev`/`.env.prod` untracked (they were committed with live credentials).
+- **Found and fixed a live bug:** `bulkArchiveTasks` used `identifier: { in: [...], mode: 'insensitive' }`. Prisma lowercases the column but not the supplied values, so archiving by a normally-cased identifier (`TEAM1-12`) silently matched nothing and reported success. Probed and confirmed against Postgres before fixing.
+
+### Files changed
+
+`apps/api/src/{lib/secrets.ts,lib/auth-tokens.ts,lib/selects.ts,lib/chat-prompts.ts,middleware/auth.ts,routes/{auth,totp,sso,events,pats,chat-attachments,uploads}.ts,schemas/{git,repos,projects}.ts,services/{sessions,github,ownership,tasks,invitations,chat}.ts,services/chat-tools/{index,domain}.ts,app.ts}`, `apps/api/vitest.config.ts`, `apps/api/src/__tests__/*`, `packages/db/src/crypto.ts`, `packages/db/prisma/manual/2026-09-09-phase0-hot-path-indexes.sql`, `.github/workflows/*.yml`, `.gitignore`, `docs/runbooks/*.md`.
+
+### Tests
+
+19 files / 165 passing. Added `security.phase0.test.ts` (12 regression tests, one per exploitable finding) plus PAT-scope, logout-revocation and archive-scope regressions. Existing tests that encoded the insecure behaviour (wildcard PAT default, "archive everything", unauthenticated logout) were updated to assert the new contract.
+
+### Issues encountered
+
+- **A subagent ran a bare `git stash`** (which implements itself as a hard reset) and its `pop` failed, wiping every uncommitted tracked-file change in the repo — this session's work and the repo owner's own pre-existing changes. Everything was recovered from `stash@{0}` via `git checkout stash@{0} -- .`; the stash is intentionally left in place as a backup. All agents are now barred from destructive git.
+- Attachment `mimeType` is trusted from the client for the allowlist decision; magic bytes are verified for binary formats but text formats have no signature. Acceptable for Phase 0, revisit with object storage in Phase 1.
+
+### Next steps / blockers
+
+- **Blocked on a human:** rotate every credential in `docs/runbooks/rotate-leaked-secrets.md` — the published PATs (one is live on the public MCP docs site), both Neon passwords, GitHub OAuth secrets, `JWT_SECRET`, `TOKEN_ENCRYPTION_KEY`. Code now refuses placeholders but cannot rotate what is already public.
+- Apply `packages/db/prisma/manual/2026-09-09-phase0-hot-path-indexes.sql` out of band (`docs/runbooks/apply-hot-path-indexes.md`), then reconcile Prisma or the CI drift-check will fail.
+- Remaining Phase 0: sidecar (Tauri per-install secret, process-group reaping, OpenCode config injection + watchdogs, supply-chain pinning) and frontend (shortcut guard, token storage, single EventSource, markdown sanitisation, making the 7 dead test files run).
+- SSO and email change are disabled, not fixed — Phase 1 rebuilds them.
+
+---
+
+## [2026-06-04] — Hide onboarding until launch and route to manual project creation
+
+**Status:** Done
+**Agent:** Codex
+
+### What was done
+- Disabled the app-entry onboarding takeover for now. When the user has no projects, or has a project without a team, the home page redirects to `/projects` instead of rendering `OnboardingWizard`.
+- Kept the onboarding wizard code in place for launch work; it is just not mounted from the home page.
+- Made manual API project creation create a default team with the creator as owner when no team is supplied, so manually created projects can immediately accept tasks.
+- Updated project API regression coverage for the default team behavior.
+- Updated the onboarding repo-picker guard script to match the current file layout and the temporary hidden-onboarding behavior.
+
+### Files changed
+- `apps/desktop-ui/app/(app)/page.tsx` — redirects setup-empty users to Projects and removes the onboarding render path.
+- `apps/api/src/services/projects.ts` — creates a default team during full/manual project creation when `teamIds` is omitted.
+- `apps/api/src/__tests__/projects.test.ts` — asserts manual project creation returns a default team and owner membership.
+- `scripts/verify-onboarding-repo-scroll.mjs` — updates source guards for hidden onboarding and current onboarding component file layout.
+
+### Issues encountered
+- `pnpm --filter @openlinear/desktop-ui test` needs a working Chromium binary and sandbox-free browser launch. It passed with `CHROMIUM_BIN="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"` and approved escalation.
+
+### Next steps / blockers
+- Revisit onboarding before launch and decide where to reintroduce it without blocking the normal manual project setup path.
+
+## [2026-06-04] — Make desktop GitHub OAuth callback automatic
+
+**Status:** Done
+**Agent:** Codex
+
+### What was done
+- Replaced the desktop GitHub OAuth copy-token bridge page with a direct redirect to `openlinear://callback?...`, so the desktop deep-link handler receives the auth result automatically after GitHub finishes.
+- Stopped the login page from automatically expanding the manual callback fallback after opening GitHub.
+- Reworded the remaining hidden recovery affordance and callback verification error so the normal flow no longer tells users to copy/paste a browser token.
+- Updated the auth regression test to expect a direct desktop callback redirect instead of the old HTML bridge.
+
+### Files changed
+- `apps/api/src/routes/auth.ts` — desktop OAuth success/error now redirect directly to the app protocol; removed the rendered callback bridge.
+- `apps/api/src/__tests__/auth.test.ts` — updated desktop OAuth callback expectation.
+- `apps/desktop-ui/app/login/page.tsx` — kept callback fallback hidden unless explicitly opened and removed token-copy wording.
+- `apps/desktop-ui/hooks/use-auth.tsx` — changed failed callback verification toast.
+
+### Issues encountered
+- The API suite initially failed inside the sandbox with Supertest `listen EPERM` errors; reran with approved escalation and it passed.
+
+### Next steps / blockers
+- Manually verify the GitHub OAuth flow in the packaged desktop app so the OS/browser protocol handoff is confirmed end to end.
+
+## [2026-06-02] — Fix SSO CSRF, session security, and upload auth (Greptile review)
+
+**Status:** Done
+**Agent:** Sisyphus (OpenCode)
+
+### What was done
+- Implemented all 8 findings from Greptile review c29aea46
+- **P0:** SSO state now HMAC-signed (prevents CSRF), OIDC `expectedState` properly passed instead of `undefined` cast
+- **P1:** SSO login creates Session records (tokens now revocable), revoke-others derives session ID from JWT hash, 2FA tempToken delivered via URL fragment, /uploads requires auth
+- **P2:** TOTP validate endpoint rate-limited (10 req/min/IP)
+
+### Files changed
+- `apps/api/src/routes/sso.ts` — HMAC sign/verify for SSO state, createSession on login
+- `apps/api/src/services/sso.ts` — expectedState parameter to authorizationCodeGrant
+- `apps/api/src/routes/sessions.ts` — derive currentSessionId from JWT hash
+- `apps/api/src/routes/auth.ts` — tempToken via URL fragment
+- `apps/api/src/app.ts` — requireAuth on /uploads static serving
+- `apps/api/src/routes/totp.ts` — express-rate-limit on /validate
+
+---
+
+## [2026-05-31] — Fix critical migration drift + docs accuracy + sidecar logging
+
+**Status:** Done
+**Agent:** Kiro
+
+### What was done
+- **CRITICAL — Migration drift fixed.** The committed Prisma migrations were badly out of sync with `schema.prisma`: a fresh `db:migrate deploy` produced only 21 tables / 8 `users` columns, while `db:push` (and prod, patched out-of-band) had 30+ tables / 12 `users` columns. This broke the documented `db:migrate:deploy` deploy path and the API test suite (14/18 files failed at setup with `column totpEnabled does not exist`).
+  - Generated reconciliation SQL via `prisma migrate diff` (migration-built DB → schema.prisma) and added migration `20260531000000_reconcile_schema_drift`. It adds the 10 missing tables (`task_assignees`, `sso_configs`, `roles`, `chat_attachments`, `mcp_tool_calls`, `invitations`, `comment_mentions`, `notification_preferences`, `audit_logs`, `sessions`), 3 enums (`invitation_statuses`, `permissions`, `task_assignee_roles`), 4 `users` columns (`totpSecret`, `totpEnabled`, `backupCodes`, `displayName`), `settings.taskDeletionMode`, and `roleId` FKs on workspace_members/team_members/project_access — all with indexes + FKs.
+  - Made every statement **idempotent** (`IF NOT EXISTS`, guarded `DO $$ ... EXCEPTION WHEN duplicate_object` blocks) so it is safe against the already-reconciled production DB.
+  - Added the missing `prisma/migrations/migration_lock.toml` (provider = postgresql) — without it, `prisma migrate diff --from-migrations` could not read the migrations dir.
+  - **Verified:** fresh `migrate deploy` (all migrations incl. reconcile) → 31 tables, 12 user columns, and `prisma migrate diff` reports **"No difference detected"** vs schema. API test suite went from **14 failed/4 passed** to **18 passed / 149 tests / exit 0**.
+- **Docs accuracy.** Removed the false "100% test coverage on execution services" claim from `docs/CODEBASE_INDEX.md` (sidecar actually has 0 automated tests). Updated `docs/ARCHITECTURE.md` deployment section (DigitalOcean/PM2 → Azure Container Apps + ACR, current `deploy-azure.yml` pipeline) and auth section (added PAT + TOTP 2FA + SSO alongside GitHub OAuth). Softened the "GitHub OAuth is the only login method" line in `docs/features/api-reference.md`.
+- **Sidecar logging.** Confirmed the `console.*` → pino `logger` migration across all `apps/sidecar/src` services/routes (was already present in the working tree; verified 0 `console.` calls remain in non-test sidecar source, typecheck clean). This closes the last open guardrail from the F1 plan-compliance review (REJECT-4).
+
+### Files changed
+- `packages/db/prisma/migrations/20260531000000_reconcile_schema_drift/migration.sql` — new reconciliation migration (idempotent)
+- `packages/db/prisma/migrations/migration_lock.toml` — new (was missing)
+- `docs/CODEBASE_INDEX.md` — removed false 100% coverage claims (2 spots)
+- `docs/ARCHITECTURE.md` — Azure deployment + CI/CD rewrite; auth section updated (PAT/2FA/SSO)
+- `docs/features/api-reference.md` — auth line corrected
+- `apps/sidecar/src/**` — console→logger (verified; bulk of this was pre-existing working-tree work)
+
+### Verification
+- `prisma migrate deploy` on a fresh DB → 31 tables / 12 user cols; `migrate diff` vs schema → no difference
+- `pnpm --filter @openlinear/api test` → 18 files passed, 149 tests, exit 0 (was 14 failing)
+- `@openlinear/api`, `@openlinear/sidecar`, `@openlinear/db` typecheck → all exit 0
+- `db:generate` → clean
+
+### Issues encountered / notes
+- Prod Neon DB already has all 31 tables + TOTP columns (someone ran `db:push` against it directly), but its `_prisma_migrations` history is the same incomplete set. The new idempotent reconcile migration is safe to mark-applied or run there; recommend `prisma migrate resolve --applied 20260531000000_reconcile_schema_drift` on prod so history matches without re-running DDL.
+- Both CI workflows (`deploy.yml` legacy/disabled, `deploy-azure.yml` active) use `db:push` for their ephemeral test DB, which is why CI didn't catch the drift. Consider switching CI to `migrate deploy` so the migration path is continuously exercised.
+- Pre-existing uncommitted working-tree changes (chat attachments, transcribe Cartesia URL, opencode init-guard, etc.) were left untouched per protocol.
+
+### Next steps / blockers (follow-ups — NOT done this session)
+- **Sidecar/execution-core test coverage: 0 tests.** The execution engine (clones repos, force-pushes branches, creates PRs) and `packages/execution-core` have no automated tests. Highest-value remaining gap. Add Vitest coverage for lifecycle, git, worktree, batch orchestrator/completion, and the pure `event-stream-processor`.
+- **Multi-tenant OpenCode isolation** (`docs/limitations.md`): cloud deployment still shares one OpenCode process/auth store across users, gated only by `OPENLINEAR_ALLOW_SHARED_OPENCODE=1`. Real per-user isolation (per-user `XDG_DATA_HOME` + process pool) still pending.
+- Consider making CI run `prisma migrate deploy` against a fresh DB (in addition to / instead of `db:push`) to prevent future drift.
+
+---
+
+## [2026-05-26] — Fix sidecar startup crash (missing openid-client + otpauth + ALLOW_SHARED_OPENCODE)
+
+**Status:** Done
+**Agent:** Sisyphus (OpenCode)
+
+### What was done
+- Sidecar was crashing at startup with `ERR_MODULE_NOT_FOUND: Cannot find package 'openid-client'`. Root cause: `apps/api/src/services/sso.ts` imports `openid-client` and `apps/api/src/routes/totp.ts` imports `otpauth` — both declared in `apps/api/package.json` but not installed in `node_modules`.
+- Ran `pnpm install` at workspace root to pull the missing packages (`+17` packages installed).
+- Sidecar was also immediately exiting after recovery due to multi-user guard (`OPENLINEAR_ALLOW_SHARED_OPENCODE` not set, 4 users in DB). Added `OPENLINEAR_ALLOW_SHARED_OPENCODE=1` to `.env` for the dev machine.
+- Verified sidecar now starts cleanly: binds port 3001 + 1455, runs recovery, and stays up.
+
+### Files changed
+- `.env` — added `OPENLINEAR_ALLOW_SHARED_OPENCODE=1`
+- `pnpm-lock.yaml` — updated by `pnpm install` (openid-client, otpauth, and transitive deps)
+
+### Issues encountered
+- None after the fix.
+
+### Next steps / blockers
+- None. `pnpm dev-live` / `pnpm start` should now boot the sidecar without crashing.
+
+---
+
+## [2026-05-26] — Model provider onboarding step + execution model-not-configured guard
+
+**Status:** Done
+**Agent:** Sisyphus (OpenCode)
+
+### What was done
+- Added a 4th onboarding step "AI Model" with Back / Finish setup / Skip buttons. Team creation now advances to the new step instead of completing directly. Both Finish and Skip complete onboarding; Skip shows a toast directing the user to Settings.
+- Built `ModelProviderStep` component that shows live provider status fetched from the sidecar, lists connected providers, and links to Settings → AI Providers. Handles sidecar-unavailable gracefully (shows retry + lets user skip).
+- Added `pickAutoDetectedModel()` pure helper and `ensureModelConfigured(userId)` service in the sidecar. Auto-detection priority: anthropic → openai → google → openrouter → first connected. When a provider is authenticated but no model is selected, the function picks and persists the provider's default model automatically.
+- Updated `GET /api/opencode/setup-status` to run auto-detection and return `hasProvider` + `hasModel`. `ready` is now `hasProvider && hasModel` (previously only `hasProvider`), so it correctly reports false when a provider is connected but no model is selected.
+- Added pre-flight `ensureModelConfigured` check to `POST /api/tasks/:id/execute` and `POST /api/batches`. Returns `400 { code: 'MODEL_NOT_CONFIGURED', details: { hasProvider } }` with a human-readable message instead of silently starting a doomed agent.
+- Added `isModelNotConfiguredApiError()` helper in `lib/api/model-errors.ts` to detect the new error code on the frontend.
+- Updated single-execute path (`use-kanban-board.ts`) and batch-execute path (`use-batch-execution.ts`) to catch `MODEL_NOT_CONFIGURED` — toast the specific message and reopen the provider setup dialog automatically.
+- Provider setup dialog now distinguishes "no provider" vs "provider connected but no model selected" in toasts.
+
+### Files changed
+- `apps/sidecar/src/services/opencode-model.ts` — new file: `pickAutoDetectedModel`, `ensureModelConfigured`
+- `apps/sidecar/src/routes/opencode.ts` — `setup-status` uses auto-detect, exposes `hasProvider`/`hasModel`, stricter `ready`
+- `apps/sidecar/src/routes/execution.ts` — pre-flight model check on single execute
+- `apps/sidecar/src/routes/batches.ts` — pre-flight model check on batch create
+- `apps/desktop-ui/lib/api/opencode.ts` — `SetupStatus` extended with `hasProvider`/`hasModel`
+- `apps/desktop-ui/lib/api/model-errors.ts` — new file: `isModelNotConfiguredApiError`, `readModelNotConfiguredDetails`
+- `apps/desktop-ui/components/board/use-kanban-board.ts` — MODEL_NOT_CONFIGURED handling in single execute + retry path
+- `apps/desktop-ui/hooks/use-batch-execution.ts` — MODEL_NOT_CONFIGURED handling in batch execute; improved provider/model-specific toasts
+- `apps/desktop-ui/components/onboarding/steps/onboarding-utils.ts` — added "AI Model" to STEP_LABELS
+- `apps/desktop-ui/components/onboarding/steps/model-provider-step.tsx` — new file: onboarding step 3 UI
+- `apps/desktop-ui/components/onboarding/onboarding-wizard.tsx` — wired step 3, `handleFinishOnboarding`, `handleSkipOnboarding`, step clamp bumped to 3
+
+### Issues encountered
+- Pre-existing unrelated typecheck failures in `apps/api/` (`totp.ts`, `invitations.ts`, `sso.ts`, `tasks.ts`) for half-built features missing Prisma models and npm packages. Left untouched per protocol.
+
+### Next steps / blockers
+- Manually verify: complete onboarding on a fresh workspace → should land on AI Model step → Finish or Skip both enter the app.
+- Manually verify: try executing a task/batch with no model configured → should get clear toast + provider dialog opens.
+- Consider adding a "model configured" status indicator somewhere on the board (e.g., a subtle warning badge on the Execute buttons when `!status.ready`).
+
+---
+
 ## [2026-05-24] — Add Electron desktop wrapper for Linux (fixing WebKitGTK scroll/font issues)
 
 **Status:** Done
@@ -509,7 +934,7 @@
   1. Verify `OPENLINEAR_API_URL` in `apps/mcp/wrangler.toml` matches the Azure URL
   2. Run `cd apps/mcp && wrangler deploy` to redeploy Worker
   3. Update `.github/workflows/deploy.yml` for Azure (current workflow is SSH + PM2, VPS-style)
-- Smoke test PAT in production DB: `ol_pat_25897b3edab3886a9601658071a9dac5` (userId `8802cd83`, kaizen403)
+- Smoke test PAT in production DB: `ol_pat_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx` (userId `8802cd83`, kaizen403)
 - Test workspace: `workspace-aeb35ae41ef68718e82d59f45ad0c447`
 - Test team: `671dc3cb-c8dc-4922-b355-bc842ed1010b` (kaizen403's Team, key=KT)
 
@@ -693,6 +1118,144 @@ See `.sisyphus/plans/openlinear-issues.md` for full root-cause analysis and file
 
 ### Next steps / blockers
 - Run `pnpm dev-live` on a machine with `ELEVENLABS_API_KEY` set and verify microphone permission, record/stop animation, and transcript insertion in the Tauri shell.
+
+## [2026-05-25] — Stabilize Electron identity for Hyprland window rules
+
+**Status:** Done
+**Agent:** Sisyphus (OpenCode)
+
+### What was done
+- Set a deterministic Linux Electron app identity so Hyprland can reliably match the window: `openlinear` for X11/XWayland class and `openlinear.desktop` through `CHROME_DESKTOP` for Wayland app id.
+- Added Electron package metadata for `productName` and `desktopName`.
+- Updated the Hyprland flickering report with the current `windowrule` no-animation syntax, legacy `windowrulev2` fallback, and verification command.
+
+### Files changed
+- `apps/desktop-electron/src/main.ts` — Linux app name, desktop identity environment, Chromium class switch, and stable window title.
+- `apps/desktop-electron/package.json` — Electron product and desktop identity metadata.
+- `docs/electron-hyprland-flickering-report.md` — updated Hyprland no-animation rule instructions.
+- `ISSUES.md` — recorded this session.
+
+### Issues encountered
+- Electron 35 runtime supports the desktop identity path through `CHROME_DESKTOP`, but its TypeScript `App` type does not expose `app.setDesktopName()`, so the fix uses the environment variable directly instead of an unsafe cast.
+- The compositor-side flicker cannot be fully verified from this environment; final confirmation requires running `pnpm start:electron` on Hyprland with the `no_anim` rule.
+
+### Next steps / blockers
+- Add `windowrule = match:class openlinear, no_anim on` to `~/.config/hypr/hyprland.conf`, reload Hyprland, run `pnpm start:electron`, and verify with `hyprctl clients | grep -A20 -i openlinear`.
+
+### Follow-up
+- The first Hyprland check matched Kitty terminal windows with `openlinear` in their title, not the Electron window, so the compositor rule likely did not match the app.
+- Updated `apps/desktop-electron/package.json` to pass `CHROME_DESKTOP=openlinear.desktop` and `--class=openlinear` before `/usr/bin/electron` starts for both `dev` and `start` scripts.
+- Re-ran `pnpm --filter @openlinear/desktop-electron typecheck`; it passed.
+- Re-test `pnpm start:electron`, then inspect the full Electron client block with `hyprctl clients` instead of grepping only `openlinear` if the result still includes terminal windows.
+
+### Oracle-guided diagnostic follow-up
+- After the user confirmed the Electron window only flickers and cannot be focused, Oracle identified immediate renderer/window destruction as more likely than a compositor animation rule issue.
+- Added Electron lifecycle diagnostics for window show/hide/close, webContents load failures, and renderer/child-process exits.
+- Added `pnpm --filter @openlinear/desktop-electron start:diagnose` with Electron logging and stack dumps enabled.
+
+### Diagnostic run — root cause identified
+- The diagnostic log showed NO renderer crash or Hyprland compositor issue. The window was cleanly exiting after ~14 rapid `/login` reload cycles.
+- Root cause: `trailingSlash: true` in `next.config.js` caused `/login` (no slash pushed by root page's `router.push('/login')`) to redirect to `/login/` via full page navigation. In Electron's sandboxed renderer, this trailing-slash redirect restarted the page load cycle, leading to a redirect loop. Chromium killed the window after ~14 cycles.
+- Fix: Electron now loads `/login/` directly (bypassing root page), root page pushes `/login/` (with slash), auth hook matches both `/login` and `/login/` pathnames.
+- Also fixed static server to resolve query-string asset URLs (`.woff2?v=...`) to the correct filesystem path — was previously serving `index.html` for font requests.
+
+### Files changed for trailing-slash fix
+- `apps/desktop-electron/src/main.ts` — load `/login/` instead of `/` in Electron
+- `apps/desktop-ui/app/(app)/page.tsx` — `router.push('/login/')` with trailing slash
+- `apps/desktop-ui/hooks/use-auth.tsx` — match both `/login` and `/login/` pathnames; push `/login/` on auth expiry
+
+### Hyprland rule
+- With the redirect loop fixed, the Electron window should become a stable client. The Hyprland no-animation rule can then be tested: `windowrule = match:class openlinear, no_anim on`
+- If the window still flickers on creation even after fixing the redirect loop, the Hyprland rule is the remaining fix.
+
+---
+
+## [2026-05-26] — Remove Electron desktop wrapper entirely
+
+**Status:** Done
+**Agent:** Sisyphus (OpenCode)
+
+### What was done
+- Deleted `apps/desktop-electron/` entirely (main, preload, sidecar, dist, package.json, electron-builder config).
+- Deleted `docs/electron-hyprland-flickering-report.md`.
+- Deleted `apps/desktop-ui/types/electron.d.ts`.
+- Stripped all `electronAPI` / `isElectronRuntime` branches from desktop-ui source files — every file now has Tauri-only paths.
+- Removed `build:electron`, `build:electron:linux`, `dev:electron`, `start:electron` scripts from root `package.json`.
+- Removed `build:electron` script from `apps/desktop-ui/package.json`.
+- `pnpm --filter @openlinear/desktop-ui typecheck` passes clean.
+
+### Files changed
+- `apps/desktop-electron/` — deleted
+- `docs/electron-hyprland-flickering-report.md` — deleted
+- `apps/desktop-ui/types/electron.d.ts` — deleted
+- `apps/desktop-ui/lib/api/client.ts` — removed `isElectronRuntime`, electron branches in `readSidecarPort` and `ensureSidecarListener`
+- `apps/desktop-ui/lib/api/auth.ts` — removed electron check in `isDesktopRuntime`, electron branch in `startLogin`
+- `apps/desktop-ui/lib/utils.ts` — removed electron branch in `openExternal`
+- `apps/desktop-ui/hooks/use-auth.tsx` — removed `setupElectron`, electron branch in auth callback setup
+- `apps/desktop-ui/components/layout/sidebar.tsx` — removed electron branches from isTauri detection and all window control handlers
+- `apps/desktop-ui/components/shared/repo-picker-field.tsx` — removed electron branch in `pickLocalFolder`
+- `apps/desktop-ui/components/desktop/database-settings.tsx` — removed electron branches from load/save/test
+- `apps/desktop-ui/components/desktop/opencode-setup-dialog.tsx` — removed electron branches from `checkOpencode` and `detectPlatform`
+- `apps/desktop-ui/app/layout.tsx` — removed `electron` variable from inline runtime-detection script
+- `apps/desktop-ui/package.json` — removed `build:electron` script
+- `package.json` — removed all electron-related scripts
+
+### Issues encountered
+- None. Typecheck clean after all edits.
+
+### Next steps / blockers
+- Tauri remains the only desktop wrapper. No further action needed.
+
+---
+
+## [2026-05-26] — Fix all Tauri/WebKitGTK rendering issues
+
+**Status:** Done
+**Agent:** Sisyphus (OpenCode)
+
+### What was done
+
+Searched session history and codebase to identify every Tauri/WebKitGTK problem. Found and fixed two root causes:
+
+**1. White flash on startup (`tauri.conf.json`)**
+- Added `"backgroundColor": "#0a0a0a"` to the window config so the Tauri webview starts dark, eliminating the white flash before Next.js hydrates.
+
+**2. Scroll broken throughout the app (WebKitGTK `min-height: auto` enforcement)**
+- WebKitGTK strictly enforces the CSS spec: a flex item's default `min-height` is `auto`, so `flex-1 overflow-y-auto` alone cannot produce a scrollable area — the item grows to content height instead of scrolling.
+- Added `min-h-0` to every `flex-1 overflow-*` scroll container and every `flex flex-1 flex-col` skeleton `<main>` that was missing it.
+- Affected: settings, settings/tokens, my-issues, projects/issues, inbox, archived, usage, teams/issues, teams, loading skeleton, home page skeleton, board skeleton, execution-drawer, brainstorm-panel, project-list.
+
+**Already in place (no change needed):**
+- `globals.css` fast render profile: strips all `backdrop-filter`, transitions, shadows, and animations on Linux/Tauri to prevent compositor stalls on WebKitGTK.
+- Static font masters (4 woff2 files) instead of variable fonts — eliminates WebKitGTK variable-font rendering bugs.
+- `height: 100%` on `html`/`body` — already present.
+- `overscroll-behavior: none` — already present.
+
+### Files changed
+- `apps/desktop/src-tauri/tauri.conf.json` — added `backgroundColor: "#0a0a0a"`
+- `apps/desktop-ui/app/(app)/settings/page.tsx` — `min-h-0` on main scroll container
+- `apps/desktop-ui/app/(app)/settings/tokens/page.tsx` — `min-h-0` on main
+- `apps/desktop-ui/app/(app)/my-issues/page.tsx` — `min-h-0` on scroll div
+- `apps/desktop-ui/app/(app)/projects/issues/page.tsx` — `min-h-0` on scroll div
+- `apps/desktop-ui/app/(app)/inbox/page.tsx` — `min-h-0` on scroll div
+- `apps/desktop-ui/app/(app)/archived/page.tsx` — `min-h-0` on scroll div
+- `apps/desktop-ui/app/(app)/usage/page.tsx` — `min-h-0` on scroll div
+- `apps/desktop-ui/app/(app)/teams/issues/page.tsx` — `min-h-0` on scroll div
+- `apps/desktop-ui/app/(app)/teams/page.tsx` — `min-h-0` on scroll div
+- `apps/desktop-ui/app/(app)/loading.tsx` — `min-h-0` on skeleton main
+- `apps/desktop-ui/app/(app)/page.tsx` — `min-h-0` on skeleton main
+- `apps/desktop-ui/app/(app)/projects/board/page.tsx` — `min-h-0` on skeleton main
+- `apps/desktop-ui/components/projects/project-list.tsx` — `min-h-0` on scroll div
+- `apps/desktop-ui/components/execution-drawer.tsx` — `min-h-0` on scroll div
+- `apps/desktop-ui/components/quick-capture/brainstorm-panel.tsx` — `min-h-0` on scroll div
+
+### Issues encountered
+- None. Typecheck clean after all edits.
+
+### Next steps / blockers
+- Rebuild the Tauri app (`pnpm --filter @openlinear/desktop tauri build` or `pnpm dev-live`) and verify scrolling works on all pages on Linux.
+
+---
 
 <!-- 
 AGENTS: Add new entries above this comment. Format:
@@ -1327,3 +1890,78 @@ AGENTS: Add new entries above this comment. Format:
 
 ### Next steps / blockers
 - Manually run the desktop GitHub OAuth flow and confirm the Chrome bridge plus OpenLinear login screen show the success feedback.
+
+## [2026-05-24] — Fix GitHub OAuth 404 and get local dev stack running
+
+**Status:** Done
+**Agent:** Claude Opus (OpenCode / Sisyphus)
+
+### What was done
+- Pulled latest from `origin/dev` (fast-forward, 179 new files including Electron desktop shell, chat tests, .omo plans/evidence)
+- Stashed local changes (`pnpm-lock.yaml`, `scripts/dev-live.sh`), pulled, popped stash — no conflicts
+- Verified `.env` already matches `.env.dev` (correct dev Neon DB, GitHub OAuth app `Ov23liy8A1JNx3VSY0la`, localhost callbacks)
+- Generated Prisma client successfully (`pnpm --filter @openlinear/db db:generate`)
+- Started sidecar on :3001 (healthy, DB connected) and Next.js on :3000 in tmux session `ol-dev`
+- Confirmed `/api/auth/github` returns 302 → `github.com/login/oauth/authorize` with correct `client_id` and `redirect_uri`
+
+### Root cause of original OAuth 404
+The sidecar was likely not running when login was attempted (single-tenant guard `OPENLINEAR_ALLOW_SHARED_OPENCODE` blocks startup without the env var). Using `dev-live.sh` or manually exporting the var fixes it.
+
+### Files changed
+- No file edits — only git pull + stash pop
+
+### Issues encountered
+- `.env` has unquoted `&` in DATABASE_URL which breaks `source .env` in bash; `dev-live.sh` handles this with line-by-line parsing
+
+### Next steps / blockers
+- Test full GitHub OAuth login flow in browser at http://localhost:3000
+- Ensure GitHub OAuth App callback URL includes `http://localhost:3001/api/auth/github/callback`
+
+---
+
+## [2026-05-27] — Full codebase review, index, and CODEBASE_INDEX.md
+
+**Status:** Done
+**Agent:** Sisyphus (OpenCode)
+
+### What was done
+- Ran 4 parallel `kiroExplore` background agents exploring API, Frontend, Sidecar, and MCP/DB layers
+- Read ~40+ key source files directly across all layers
+- Cross-referenced results with direct reads to verify accuracy
+- Created comprehensive `docs/CODEBASE_INDEX.md` (651 lines, 12 sections)
+
+### Files changed
+- `docs/CODEBASE_INDEX.md` — New. Complete index covering: architecture overview, API (28 routes, 5 middleware, 12 services, 34 chat tools, auth, error handling, rate limiting, tests), Sidecar execution engine (17 execution files, 5 batch files, safeguards, execution flow), Frontend (15 pages, 27 component dirs, state management, API client, SSE, keyboard shortcuts), Desktop Tauri (4 Rust files, sidecar manager, deeplink), MCP Server (8 tools, stateless Worker, API integration), Database (25+ models, 13 enums, Prisma patterns, migrations), shared packages, CI/CD, patterns/conventions, production URLs, and key commands
+
+### Issues encountered
+- 3 of 4 background sessions returned no output (likely expired); recovered by reading files directly
+- Background sessions were "idle" but had full results in the final turn — retrieve messages worked on resumption
+
+### Next steps / blockers
+- None. Codebase fully indexed.
+
+---
+
+## [2026-06-04] — Codebase performance review and P95 plan
+
+**Status:** Done
+**Agent:** Codex
+
+### What was done
+- Built a tracked codebase inventory for performance review scope: 989 tracked files and 121,194 tracked text lines across source, config, docs, schemas, scripts, and tests.
+- Reviewed performance-critical API, desktop UI, Prisma schema, SSE, chat, sidecar execution, batch execution, repository storage, and usage/reporting paths.
+- Created a detailed performance review report with cited bottlenecks, P95 target budgets, and validation requirements.
+- Created a phased P95 performance improvement plan covering instrumentation, query/index fixes, API request consolidation, auth/SSE reduction, frontend board performance, sidecar scalability, and production release gates.
+
+### Files changed
+- `docs/reports/performance-codebase-review-2026-06-04.md` — New codebase performance review report.
+- `docs/PERFORMANCE_IMPROVEMENT_PLAN.md` — New phased P95 improvement plan.
+- `ISSUES.md` — Added this work log entry.
+
+### Issues encountered
+- Existing dirty worktree changes were present before this work; they were left untouched.
+- The review is a static/local code-path audit. Production RUM, Lighthouse CI, load-test output, and database `EXPLAIN ANALYZE` evidence should be added before claiming measured P95 compliance.
+
+### Next steps / blockers
+- Implement Phase 0 from `docs/PERFORMANCE_IMPROVEMENT_PLAN.md`: route timing, slow-query logs, web-vitals collection, benchmark scripts, and seeded performance data.
+- Use those baselines to prioritize the index migration, bulk task endpoints, auth write throttling, and board render fixes.

@@ -7,6 +7,7 @@
   "bin": "./dist/index.js",
   "scripts": {
     "dev": "tsx watch src/index.ts",
+    "debug": "NODE_OPTIONS='--inspect=0.0.0.0:9229' tsx watch src/index.ts",
     "dev:once": "tsx src/index.ts",
     "build": "node esbuild.config.js",
     "start": "node dist/index.js",
@@ -15,8 +16,10 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.74.0",
-    "@elevenlabs/elevenlabs-js": "^2.49.1",
-    "@opencode-ai/sdk": "^1.2.5",
+    "@cartesia/cartesia-js": "^3.1.0",
+    "@opencode-ai/sdk": "^1.18.23",
+    "@openai/codex-sdk": "^0.147.0",
+    "@openlinear/api-client": "workspace:*",
     "@openlinear/api": "workspace:*",
     "@openlinear/db": "workspace:*",
     "@openlinear/execution-core": "workspace:*",

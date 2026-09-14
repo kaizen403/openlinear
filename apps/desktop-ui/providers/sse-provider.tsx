@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useRef, useCallback, useState, type ReactNode } from "react"
 import { useAuth } from "@/hooks/use-auth"
-import { getApiUrl, getSidecarApiUrl } from "@/lib/api/client"
+import { getApiUrl, getAuthToken, getSidecarApiUrl } from "@/lib/api/client"
 
 const SSE_MAX_BACKOFF_MS = 30_000
 
@@ -95,6 +95,7 @@ export type SSEEventType =
   | 'workspace:member-added'
   | 'workspace:member-updated'
   | 'workspace:member-removed'
+  | 'notification:created'
 
 type SSEListener = (eventType: SSEEventType, data: SSEEventData) => void
 
@@ -147,6 +148,7 @@ const ALL_EVENT_TYPES: SSEEventType[] = [
   'workspace:member-added',
   'workspace:member-updated',
   'workspace:member-removed',
+  'notification:created',
 ]
 
 interface SSEStream {
@@ -156,19 +158,32 @@ interface SSEStream {
   reconnecting: boolean
 }
 
-function buildEventsUrl(baseUrl: string, token: string | null): string {
-  const url = new URL(`${baseUrl}/api/events`)
-  if (token) url.searchParams.set('token', token)
-  return url.toString()
-}
-
-function readToken(): string | null {
-  if (typeof window === 'undefined') return null
+/**
+ * SECURITY: EventSource cannot set Authorization headers. The stream is
+ * authenticated with a one-minute ticket from POST /api/events/ticket
+ * (session auth). JWTs are never placed in the query string.
+ */
+async function mintSseTicket(baseUrl: string): Promise<string | null> {
+  const token = getAuthToken()
+  if (!token) return null
   try {
-    return window.localStorage.getItem('token')
+    const res = await fetch(`${baseUrl}/api/events/ticket`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    if (!res.ok) return null
+    const body = (await res.json()) as { ticket?: string }
+    return body.ticket ?? null
   } catch {
     return null
   }
+}
+
+function buildEventsUrl(baseUrl: string, ticket: string | null, lastEventId?: string): string {
+  const url = new URL(`${baseUrl}/api/events`)
+  if (ticket) url.searchParams.set('ticket', ticket)
+  if (lastEventId) url.searchParams.set('lastEventId', lastEventId)
+  return url.toString()
 }
 
 export function SSEProvider({ children }: { children: ReactNode }) {
@@ -208,15 +223,18 @@ export function SSEProvider({ children }: { children: ReactNode }) {
     recomputeConnectedCount()
   }, [recomputeConnectedCount])
 
+  const lastEventIdRef = useRef<Map<string, string>>(new Map())
+
   const connectStream = useCallback((baseUrl: string) => {
     if (typeof window === 'undefined') return
     closeStream(baseUrl)
 
-    const token = readToken()
-    const url = buildEventsUrl(baseUrl, token)
-    const source = new EventSource(url)
-    const stream: SSEStream = { source, retries: 0, reconnectTimer: null, reconnecting: false }
-    streamsRef.current.set(baseUrl, stream)
+    void mintSseTicket(baseUrl).then((ticket) => {
+      if (!getAuthToken()) return
+      const url = buildEventsUrl(baseUrl, ticket, lastEventIdRef.current.get(baseUrl))
+      const source = new EventSource(url)
+      const stream: SSEStream = { source, retries: 0, reconnectTimer: null, reconnecting: false }
+      streamsRef.current.set(baseUrl, stream)
 
     source.onopen = () => {
       stream.retries = 0
@@ -225,6 +243,7 @@ export function SSEProvider({ children }: { children: ReactNode }) {
     }
 
     source.onmessage = (event) => {
+      if (event.lastEventId) lastEventIdRef.current.set(baseUrl, event.lastEventId)
       try {
         const data = JSON.parse(event.data) as SSEEventData
         if (data.type === 'connected') {
@@ -237,8 +256,10 @@ export function SSEProvider({ children }: { children: ReactNode }) {
 
     for (const eventType of ALL_EVENT_TYPES) {
       source.addEventListener(eventType, (event) => {
+        const message = event as MessageEvent
+        if (message.lastEventId) lastEventIdRef.current.set(baseUrl, message.lastEventId)
         try {
-          const data = JSON.parse((event as MessageEvent).data)
+          const data = JSON.parse(message.data)
           broadcast(eventType, data)
         } catch (err) {
           console.error(`[SSE Provider] Failed to parse ${eventType}:`, err)
@@ -256,9 +277,12 @@ export function SSEProvider({ children }: { children: ReactNode }) {
       const exp = 1000 * Math.pow(2, Math.min(attempt - 1, 5))
       const jitter = Math.random() * 1000
       const delay = Math.min(SSE_MAX_BACKOFF_MS, exp + jitter)
-      console.log(`[SSE Provider] ${baseUrl} retry ${attempt} in ${Math.round(delay)}ms`)
+      if (process.env.NODE_ENV === 'development') {
+        console.log(`[SSE Provider] ${baseUrl} retry ${attempt} in ${Math.round(delay)}ms`)
+      }
       stream.reconnectTimer = setTimeout(() => connectStream(baseUrl), delay)
     }
+    })
   }, [broadcast, closeStream, recomputeConnectedCount])
 
   useEffect(() => {

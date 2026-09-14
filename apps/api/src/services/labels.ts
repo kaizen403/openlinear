@@ -1,6 +1,6 @@
 import { prisma, type Prisma } from '@openlinear/db';
 import { broadcastToProject } from '../sse';
-import { OwnershipError, assertProjectMember } from './ownership';
+import { OwnershipError, assertProjectMember, assertProjectOwned } from './ownership';
 
 export async function listLabels(input: { projectId: string; userId: string }) {
   await assertProjectMember(input.projectId, input.userId);
@@ -17,7 +17,7 @@ export async function createLabel(input: {
   color: string;
   priority?: number;
 }) {
-  await assertProjectMember(input.projectId, input.userId);
+  await assertProjectOwned(input.projectId, input.userId);
   const label = await prisma.label.create({
     data: {
       projectId: input.projectId,
@@ -44,7 +44,7 @@ export async function updateLabel(input: {
   if (!existing) {
     throw new OwnershipError('label', input.labelId, 'not_found');
   }
-  await assertProjectMember(existing.projectId, input.userId);
+  await assertProjectOwned(existing.projectId, input.userId);
 
   const data: Prisma.LabelUpdateInput = {};
   if (input.name !== undefined) data.name = input.name;

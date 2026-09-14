@@ -1,6 +1,6 @@
 import { prisma, type Prisma } from '@openlinear/db';
-import { getUserTeamIds } from './team-scope';
-import { buildProjectAccessWhere } from './workspaces';
+import { resolveTenancyContext } from '../tenancy/context';
+import { scopedProjectWhere, scopedTaskWhere, scopedTeamWhere } from '../tenancy/scopes';
 
 export async function searchWorkspaceData(input: {
   userId: string;
@@ -12,35 +12,37 @@ export async function searchWorkspaceData(input: {
   const limit = Math.min(Math.max(input.limit ?? 20, 1), 50);
   const types = input.types?.length ? input.types : ['tasks', 'projects', 'teams'];
   const perType = Math.max(1, Math.ceil(limit / types.length));
-  const teamIds = await getUserTeamIds(input.userId);
-  const projectWhere: Prisma.ProjectWhereInput = input.workspaceId
-    ? {
-        workspaceId: input.workspaceId,
-        workspace: { members: { some: { userId: input.userId } } },
-        NOT: { access: { some: { userId: input.userId, permission: 'deny' } } },
-      }
-    : buildProjectAccessWhere(input.userId, teamIds);
+  const ctx = await resolveTenancyContext({
+    userId: input.userId,
+    authSource: 'jwt',
+    scopes: [],
+  });
 
-  const accessibleProjects = await prisma.project.findMany({ where: projectWhere, select: { id: true } });
-  const projectIds = accessibleProjects.map((project) => project.id);
+  const projectWhere: Prisma.ProjectWhereInput = {
+    AND: [
+      scopedProjectWhere(ctx),
+      ...(input.workspaceId ? [{ workspaceId: input.workspaceId }] : []),
+    ],
+  };
+
+  const teamWhere: Prisma.TeamWhereInput = {
+    AND: [
+      scopedTeamWhere(ctx),
+      ...(input.workspaceId ? [{ project: { workspaceId: input.workspaceId } }] : []),
+    ],
+  };
 
   const [tasks, projects, teams] = await Promise.all([
     types.includes('tasks')
       ? prisma.task.findMany({
-          where: {
+          where: scopedTaskWhere(ctx, {
             archived: false,
             OR: [
-              ...(projectIds.length > 0 ? [{ projectId: { in: projectIds } }] : []),
-              ...(teamIds.length > 0 ? [{ projectId: null, teamId: { in: teamIds } }] : []),
+              { title: { contains: input.query, mode: 'insensitive' } },
+              { description: { contains: input.query, mode: 'insensitive' } },
+              { identifier: { contains: input.query, mode: 'insensitive' } },
             ],
-            AND: [{
-              OR: [
-                { title: { contains: input.query, mode: 'insensitive' } },
-                { description: { contains: input.query, mode: 'insensitive' } },
-                { identifier: { contains: input.query, mode: 'insensitive' } },
-              ],
-            }],
-          },
+          }),
           select: { id: true, title: true, identifier: true, status: true, priority: true, projectId: true, teamId: true },
           orderBy: { updatedAt: 'desc' },
           take: perType,
@@ -49,11 +51,15 @@ export async function searchWorkspaceData(input: {
     types.includes('projects')
       ? prisma.project.findMany({
           where: {
-            AND: [projectWhere],
-            OR: [
-              { name: { contains: input.query, mode: 'insensitive' } },
-              { description: { contains: input.query, mode: 'insensitive' } },
-              { key: { contains: input.query, mode: 'insensitive' } },
+            AND: [
+              projectWhere,
+              {
+                OR: [
+                  { name: { contains: input.query, mode: 'insensitive' } },
+                  { description: { contains: input.query, mode: 'insensitive' } },
+                  { key: { contains: input.query, mode: 'insensitive' } },
+                ],
+              },
             ],
           },
           select: { id: true, key: true, name: true, status: true, workspaceId: true },
@@ -64,12 +70,15 @@ export async function searchWorkspaceData(input: {
     types.includes('teams')
       ? prisma.team.findMany({
           where: {
-            members: { some: { userId: input.userId } },
-            ...(input.workspaceId ? { project: { workspaceId: input.workspaceId } } : {}),
-            OR: [
-              { name: { contains: input.query, mode: 'insensitive' } },
-              { key: { contains: input.query, mode: 'insensitive' } },
-              { description: { contains: input.query, mode: 'insensitive' } },
+            AND: [
+              teamWhere,
+              {
+                OR: [
+                  { name: { contains: input.query, mode: 'insensitive' } },
+                  { key: { contains: input.query, mode: 'insensitive' } },
+                  { description: { contains: input.query, mode: 'insensitive' } },
+                ],
+              },
             ],
           },
           select: { id: true, name: true, key: true, projectId: true },

@@ -1,133 +1,136 @@
-import express, { NextFunction, Router, Response } from 'express';
-import { ElevenLabsClient, ElevenLabsError } from '@elevenlabs/elevenlabs-js';
-import { requireAuth, AuthRequest } from '@openlinear/api/middleware';
-import { HttpError } from '@openlinear/api/errors';
+import express, { Router, Response } from 'express';
+import type { Router as IRouter } from 'express';
+import { AuthRequest, requireAuth } from '@openlinear/api/middleware';
+import { logger } from '@openlinear/api/logger';
 
-const router: Router = Router();
+const router: IRouter = Router();
 
-const SUPPORTED_AUDIO_TYPES = [
-  'audio/mp4',
-  'audio/webm',
-  'audio/mpeg',
-  'audio/wav',
-  'audio/ogg',
-  'audio/x-m4a',
-  'audio/aac',
-  'audio/flac',
-  'video/webm',
-];
+const ALLOWED_CONTENT_TYPES = ['audio/webm', 'audio/ogg', 'audio/wav', 'audio/mpeg'];
+const MAX_UPLOAD_SIZE = '10mb';
+const OUTBOUND_TIMEOUT_MS = 30_000;
 
-router.use(express.raw({
-  type: SUPPORTED_AUDIO_TYPES,
-  limit: parseUploadLimit(),
-}));
+// Pinned default. `CARTESIA_STT_URL` may still override it for self-hosted
+// proxies, but only to another https URL on an allowlisted host — otherwise
+// a poisoned environment could redirect the API key and raw audio anywhere
+// (C6a F13).
+const DEFAULT_CARTESIA_STT_URL = 'https://api.cartesia.ai/stt';
+const ALLOWED_CARTESIA_HOSTS = new Set(['api.cartesia.ai']);
 
-function parseUploadLimit(): string {
-  const raw = process.env.ELEVENLABS_STT_MAX_UPLOAD_MB;
-  const parsed = raw ? Number.parseInt(raw, 10) : 25;
-  const megabytes = Number.isFinite(parsed) && parsed > 0 ? Math.min(parsed, 100) : 25;
-  return `${megabytes}mb`;
-}
+function resolveCartesiaSttUrl(): string {
+  const override = process.env.CARTESIA_STT_URL;
+  if (!override) return DEFAULT_CARTESIA_STT_URL;
 
-function parseTimeoutSeconds(): number {
-  const raw = process.env.ELEVENLABS_STT_TIMEOUT_MS;
-  const parsed = raw ? Number.parseInt(raw, 10) : 30_000;
-  return Math.max(1, Math.ceil((Number.isFinite(parsed) ? parsed : 30_000) / 1000));
-}
-
-function parseModelId(): 'scribe_v1' | 'scribe_v2' {
-  return process.env.ELEVENLABS_STT_MODEL_ID === 'scribe_v1' ? 'scribe_v1' : 'scribe_v2';
-}
-
-function extensionForContentType(contentType: string): string {
-  const normalized = contentType.split(';')[0]?.trim().toLowerCase();
-  switch (normalized) {
-    case 'audio/webm':
-    case 'video/webm':
-      return 'webm';
-    case 'audio/mpeg':
-      return 'mp3';
-    case 'audio/wav':
-      return 'wav';
-    case 'audio/ogg':
-      return 'ogg';
-    case 'audio/x-m4a':
-      return 'm4a';
-    case 'audio/aac':
-      return 'aac';
-    case 'audio/flac':
-      return 'flac';
-    case 'audio/mp4':
-    default:
-      return 'mp4';
-  }
-}
-
-function extractTranscriptText(
-  response: Awaited<ReturnType<ElevenLabsClient['speechToText']['convert']>>,
-): string {
-  if ('text' in response && typeof response.text === 'string') {
-    return response.text;
-  }
-  if ('transcripts' in response && Array.isArray(response.transcripts)) {
-    return response.transcripts
-      .map((transcript) => transcript.text)
-      .filter((text) => text.trim().length > 0)
-      .join('\n');
-  }
-  return '';
-}
-
-router.post('/', requireAuth, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
-      throw new HttpError(400, 'AUDIO_REQUIRED', 'No audio data provided');
+    const parsed = new URL(override);
+    if (parsed.protocol === 'https:' && ALLOWED_CARTESIA_HOSTS.has(parsed.hostname)) {
+      return override;
     }
+  } catch {
+    // fall through to the warning + pinned default below
+  }
 
-    const apiKey = process.env.ELEVENLABS_API_KEY ?? process.env.ELEVENLABS_STT_API_KEY;
+  logger.warn(
+    '[transcribe] Ignoring CARTESIA_STT_URL override: must be an https URL on an allowlisted host',
+  );
+  return DEFAULT_CARTESIA_STT_URL;
+}
+
+function baseContentType(contentType: string | undefined): string {
+  return (contentType || '').split(';')[0].trim().toLowerCase();
+}
+
+const MAGIC_BYTE_VALIDATORS: Record<string, (buf: Buffer) => boolean> = {
+  // EBML header used by both WebM and Matroska containers.
+  'audio/webm': (buf) => buf.length >= 4 && buf[0] === 0x1a && buf[1] === 0x45 && buf[2] === 0xdf && buf[3] === 0xa3,
+  'audio/ogg': (buf) => buf.length >= 4 && buf.toString('ascii', 0, 4) === 'OggS',
+  'audio/wav': (buf) =>
+    buf.length >= 12 && buf.toString('ascii', 0, 4) === 'RIFF' && buf.toString('ascii', 8, 12) === 'WAVE',
+  'audio/mpeg': (buf) => {
+    if (buf.length < 3) return false;
+    if (buf.toString('ascii', 0, 3) === 'ID3') return true;
+    // Raw MPEG frame sync: 11 set bits (0xFFE0 mask) at the start of a frame.
+    return buf[0] === 0xff && (buf[1] & 0xe0) === 0xe0;
+  },
+};
+
+function hasValidMagicBytes(contentType: string, buf: Buffer): boolean {
+  const validator = MAGIC_BYTE_VALIDATORS[contentType];
+  return validator ? validator(buf) : false;
+}
+
+router.post(
+  '/',
+  requireAuth,
+  express.raw({ type: ALLOWED_CONTENT_TYPES, limit: MAX_UPLOAD_SIZE }),
+  async (req: AuthRequest, res: Response) => {
+    const apiKey = process.env.CARTESIA_API_KEY;
     if (!apiKey) {
-      throw new HttpError(503, 'ELEVENLABS_NOT_CONFIGURED', 'ElevenLabs speech-to-text is not configured');
-    }
-
-    const contentTypeHeader = req.headers['content-type'];
-    const contentType = Array.isArray(contentTypeHeader)
-      ? contentTypeHeader[0] ?? 'audio/webm'
-      : contentTypeHeader ?? 'audio/webm';
-    const extension = extensionForContentType(contentType);
-
-    const client = new ElevenLabsClient({
-      apiKey,
-      timeoutInSeconds: parseTimeoutSeconds(),
-      maxRetries: 1,
-    });
-
-    const modelId = parseModelId();
-    const transcription = await client.speechToText.convert({
-      modelId,
-      file: {
-        data: req.body,
-        filename: `openlinear-voice.${extension}`,
-        contentType,
-        contentLength: req.body.length,
-      },
-      tagAudioEvents: false,
-      diarize: false,
-      ...(modelId === 'scribe_v2' ? { noVerbatim: true } : {}),
-    });
-
-    res.json({ text: extractTranscriptText(transcription).trim() });
-  } catch (error) {
-    if (error instanceof ElevenLabsError) {
-      const statusCode = error.statusCode ?? 502;
-      next(new HttpError(
-        statusCode >= 400 && statusCode < 500 ? statusCode : 502,
-        'ELEVENLABS_TRANSCRIPTION_FAILED',
-        error.message || 'ElevenLabs transcription failed',
-      ));
+      res.status(503).json({ error: 'Transcription service not configured' });
       return;
     }
-    next(error);
-  }
-});
+
+    const contentType = baseContentType(req.headers['content-type']);
+    if (!ALLOWED_CONTENT_TYPES.includes(contentType)) {
+      res.status(415).json({ error: 'Unsupported audio content type' });
+      return;
+    }
+
+    if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
+      res.status(400).json({ error: 'No audio data received' });
+      return;
+    }
+
+    const audioBuffer: Buffer = req.body;
+
+    if (!hasValidMagicBytes(contentType, audioBuffer)) {
+      logger.warn(
+        { contentType, userId: req.userId },
+        '[transcribe] rejected payload whose bytes do not match its declared content type',
+      );
+      res.status(400).json({ error: 'Audio data does not match its declared content type' });
+      return;
+    }
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), OUTBOUND_TIMEOUT_MS);
+
+    try {
+      const extension = contentType.split('/')[1] || 'bin';
+      const blob = new Blob([audioBuffer], { type: contentType });
+      const form = new FormData();
+      form.append('file', blob, `audio.${extension}`);
+      form.append('model', 'ink-whisper');
+      form.append('language', 'en');
+
+      const response = await fetch(resolveCartesiaSttUrl(), {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Cartesia-Version': '2026-03-01',
+        },
+        body: form,
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        const errBody = await response.text();
+        logger.error({ status: response.status, errBody }, '[transcribe] Cartesia error');
+        res.status(502).json({ error: 'Transcription failed' });
+        return;
+      }
+
+      const data = await response.json() as { text?: string };
+      res.json({ text: data.text?.trim() || '' });
+    } catch (err: unknown) {
+      // Never surface err.message to the caller — it can include upstream
+      // response bodies or internal details. Full detail goes to the
+      // server-side log only (C6a F13/F16).
+      logger.error({ err }, '[transcribe] error');
+      res.status(502).json({ error: 'Transcription failed' });
+    } finally {
+      clearTimeout(timeout);
+    }
+  },
+);
 
 export default router;

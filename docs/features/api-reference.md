@@ -20,8 +20,10 @@ Returns server status and connected SSE client count.
 
 ## Authentication
 
-GitHub OAuth is the only login method. After login, all downstream AI provider keys
-(OpenAI, Anthropic, etc.) are managed by OpenCode itself, not by OpenLinear.
+GitHub OAuth is the primary login method for human users; Personal Access Tokens
+(see below) cover MCP/CLI/API clients, and optional TOTP 2FA can be layered on top.
+After login, all downstream AI provider keys (OpenAI, Anthropic, etc.) are managed
+by OpenCode itself, not by OpenLinear.
 
 ### `GET /api/auth/github`
 Redirects to GitHub OAuth authorization page.

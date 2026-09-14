@@ -38,9 +38,14 @@ pnpm db:seed
 echo "[dev] Starting execution-capable sidecar + Desktop UI..."
 echo "[dev] (sidecar serves CRUD + /api/tasks/:id/execute + /api/batches + /api/opencode)"
 
-# Acknowledge OpenCode's single-tenant model so the sidecar boots against
-# multi-user databases (shared dev DB, Neon). See docs/limitations.md.
-export OPENLINEAR_ALLOW_SHARED_OPENCODE="${OPENLINEAR_ALLOW_SHARED_OPENCODE:-1}"
+# NOTE (C6a F15): this used to default OPENLINEAR_ALLOW_SHARED_OPENCODE=1,
+# silently disabling the sidecar's multi-tenant guard for every dev run
+# against a shared database (Neon, a team DB, etc). That guard exists so a
+# database with more than one user doesn't end up with every user's
+# OpenCode session/auth state sharing one process. If your local DATABASE_URL
+# points at a multi-user database and you've deliberately accepted that
+# tradeoff, set OPENLINEAR_ALLOW_SHARED_OPENCODE=1 yourself before running
+# this script — see docs/limitations.md.
 export NEXT_PUBLIC_API_URL="${NEXT_PUBLIC_API_URL:-http://127.0.0.1:3001}"
 export FRONTEND_URL="${FRONTEND_URL:-http://127.0.0.1:3000}"
 REQUIRED_CORS_ORIGINS="http://127.0.0.1:3000,http://localhost:3000,tauri://localhost,https://tauri.localhost"

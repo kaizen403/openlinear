@@ -19,7 +19,7 @@ const SelectTrigger = React.forwardRef<
   <SelectPrimitive.Trigger
     ref={ref}
     className={cn(
-      "flex h-8 w-full items-center justify-between rounded-sm border border-input bg-transparent px-2.5 py-1.5 text-sm data-[placeholder]:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50",
+      "flex h-8 w-full items-center justify-between rounded-sm border border-input bg-transparent px-2.5 py-1.5 text-sm data-[placeholder]:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
       className
     )}
     {...props}
@@ -118,7 +118,7 @@ const SelectItem = React.forwardRef<
   <SelectPrimitive.Item
     ref={ref}
     className={cn(
-      "relative flex w-full cursor-default select-none items-center rounded-md py-1.5 pl-8 pr-2 text-sm outline-none transition-colors duration-150 ease-out focus:bg-accent focus:text-accent-foreground data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
+      "relative flex w-full cursor-default select-none items-center rounded-md py-1.5 pl-8 pr-2 text-sm outline-none transition-colors duration-150 ease-out focus:bg-accent focus:text-accent-foreground data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
       className
     )}
     {...props}
