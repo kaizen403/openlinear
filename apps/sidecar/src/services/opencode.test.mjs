@@ -573,3 +573,23 @@ describe('T12 (F18) — process-group signalling on shutdown', () => {
     }
   });
 });
+
+describe('OpenCodeAdapter', () => {
+  it('delegates all methods to the internal state', async () => {
+    const proc = makeProc();
+    mocks.spawn.mockReturnValue(proc);
+    mocks.createOpencodeClient.mockReturnValue({ client: true });
+    const subject = await importSubject({ OPENCODE_BIN: '/custom/opencode' });
+
+    const pending = subject.openCodeAdapter.init({ restart: true });
+    proc.stdout.emit('data', Buffer.from('opencode server listening on http://127.0.0.1:4321\n'));
+    await pending;
+
+    expect(subject.openCodeAdapter.isRunning()).toBe(true);
+    expect(subject.openCodeAdapter.getStatus()).toEqual(expect.objectContaining({ running: true }));
+    await expect(subject.openCodeAdapter.getClient('user-1')).resolves.toEqual({ client: true });
+
+    await subject.openCodeAdapter.shutdown();
+    expect(subject.openCodeAdapter.isRunning()).toBe(false);
+  });
+});

@@ -283,7 +283,9 @@ function clearBackgroundTaskWait(
 
 function noteToolCompleted(taskId: string, toolName: string, output?: string, part?: ToolPart): void {
   const execution = activeExecutions.get(taskId);
+  /* v8 ignore start -- defensive guard for stale event after cleanup. */
   if (!execution) return;
+  /* v8 ignore stop */
 
   // T11 (M-03) — prefer the callID when present (a stable, tiny identifier)
   // over raw tool output, and cap whatever we fall back to. Each key used to

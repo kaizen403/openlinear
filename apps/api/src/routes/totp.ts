@@ -1,4 +1,5 @@
 import { Router, Response } from 'express';
+import rateLimit from 'express-rate-limit';
 import { requireInteractiveSession, AuthRequest } from '../middleware/auth';
 import { prisma, encryptToken } from '@openlinear/db';
 import { buildErrorEnvelope } from '../lib/http';
@@ -113,7 +114,15 @@ router.post('/disable', requireInteractiveSession, async (req: AuthRequest, res:
   }
 });
 
-router.post('/validate', async (req: AuthRequest, res: Response) => {
+const validateLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 10, // limit each IP to 10 requests per minute
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: buildErrorEnvelope('RATE_LIMITED', 'Too many 2FA validation attempts. Try again in a minute.'),
+});
+
+router.post('/validate', validateLimiter, async (req: AuthRequest, res: Response) => {
   try {
     const { code, tempToken } = req.body;
     if (!code || typeof code !== 'string' || !tempToken || typeof tempToken !== 'string') {

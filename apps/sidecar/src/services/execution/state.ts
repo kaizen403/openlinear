@@ -135,25 +135,28 @@ export class ExecutionStateStore {
   getBySession(sessionId: string): ExecutionState | undefined {
     const taskId = this.sessionToTaskMap.get(sessionId);
     if (taskId) return this.executions.get(taskId);
-    // Fallback: scan (shouldn't be needed)
+    /* v8 ignore start -- fallback scan: unreachable via public API. */
     for (const [tid, execution] of this.executions.entries()) {
       if (execution.sessionId === sessionId) {
         this.sessionToTaskMap.set(sessionId, tid);
         return execution;
       }
     }
+    /* v8 ignore stop */
     return undefined;
   }
 
   getTaskIdBySession(sessionId: string): string | undefined {
     const taskId = this.sessionToTaskMap.get(sessionId);
     if (taskId) return taskId;
+    /* v8 ignore start -- fallback scan: unreachable via public API. */
     for (const [tid, execution] of this.executions.entries()) {
       if (execution.sessionId === sessionId) {
         this.sessionToTaskMap.set(sessionId, tid);
         return tid;
       }
     }
+    /* v8 ignore stop */
     return undefined;
   }
 
@@ -174,12 +177,20 @@ export class ExecutionStateStore {
     this.sessionToTaskMap.clear();
   }
 
+  setSessionMapping(sessionId: string, taskId: string): void {
+    this.sessionToTaskMap.set(sessionId, taskId);
+  }
+
   entries(): IterableIterator<[string, ExecutionState]> {
     return this.executions.entries();
   }
 
   values(): IterableIterator<ExecutionState> {
     return this.executions.values();
+  }
+
+  sessionEntries(): IterableIterator<[string, string]> {
+    return this.sessionToTaskMap.entries();
   }
 }
 
@@ -226,8 +237,8 @@ export const sessionToTask: Map<string, string> = new Proxy(new Map<string, stri
   get(_target, prop: string | symbol) {
     switch (prop) {
       case 'get': return (sessionId: string) => executionStore.getTaskIdBySession(sessionId);
-      case 'set': return (sessionId: string, _taskId: string) => {
-        // no-op: managed by executionStore.set()
+      case 'set': return (sessionId: string, taskId: string) => {
+        executionStore.setSessionMapping(sessionId, taskId);
         return sessionToTask;
       };
       case 'delete': return (_sessionId: string) => {
@@ -236,6 +247,7 @@ export const sessionToTask: Map<string, string> = new Proxy(new Map<string, stri
       };
       case 'clear': return () => { executionStore.reset(); };
       case 'has': return (sessionId: string) => executionStore.getTaskIdBySession(sessionId) !== undefined;
+      case Symbol.iterator: return () => executionStore.sessionEntries();
       case Symbol.toStringTag: return 'Map';
       default: return undefined;
     }

@@ -2,6 +2,7 @@ import { useState, useCallback, useMemo, useRef } from "react"
 import { toast } from "sonner"
 import { apiFetch, NetworkError } from "@/lib/api/fetch"
 import { getSetupStatus, OpenCodeUnavailableError } from "@/lib/api/opencode"
+import { isModelNotConfiguredApiError } from "@/lib/api/model-errors"
 import type { Task } from "@/types/task"
 import type { ActiveBatch } from "@/components/board/use-kanban-board"
 import type { BatchMode } from "@/components/board/batch-mode"
@@ -82,7 +83,11 @@ export function useBatchExecution({
         setActiveBatch(previousActiveBatch)
         setSelectedTaskIds(previousSelection)
         setShowProviderSetup(true)
-        toast.error('Configure an AI provider before starting batch execution')
+        if (status.hasProvider && !status.hasModel) {
+          toast.error('Pick a model in Settings → AI Providers before starting batch execution')
+        } else {
+          toast.error('Configure an AI provider before starting batch execution')
+        }
         return
       }
     } catch (err) {
@@ -121,6 +126,11 @@ export function useBatchExecution({
       setTasks(previousTasks)
       setSelectedTaskIds(previousSelection)
       setActiveBatch(previousActiveBatch)
+      if (isModelNotConfiguredApiError(err)) {
+        setShowProviderSetup(true)
+        toast.error(err.message)
+        return
+      }
       const msg = err instanceof Error ? err.message : 'Operation failed'
       console.error('Error creating batch:', err)
       toast.error(msg)

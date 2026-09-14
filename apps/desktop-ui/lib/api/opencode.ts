@@ -17,6 +17,8 @@ export interface ProviderInfo {
 export interface SetupStatus {
   providers: ProviderInfo[];
   ready: boolean;
+  hasProvider?: boolean;
+  hasModel?: boolean;
   currentModel?: string | null;
   smallModel?: string | null;
 }
@@ -33,6 +35,17 @@ export class OpenCodeUnavailableError extends Error {
     super(message);
     this.name = 'OpenCodeUnavailableError';
   }
+}
+
+export class ModelNotConfiguredError extends Error {
+  constructor(message: string, public readonly hasProvider: boolean) {
+    super(message);
+    this.name = 'ModelNotConfiguredError';
+  }
+}
+
+export function isModelNotConfiguredError(err: unknown): err is ModelNotConfiguredError {
+  return err instanceof ModelNotConfiguredError;
 }
 
 async function opencodeFetch<T>(path: string, init: ApiFetchInit, fallbackMsg: string): Promise<T> {

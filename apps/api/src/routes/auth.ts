@@ -247,7 +247,7 @@ router.get('/github/callback', requireGitHubOAuth, async (req: Request, res: Res
         respondWithSuccess(client, `2fa:${tempToken}`, res);
       } else {
         const baseUrl = client === 'dashboard' ? getDashboardUrl() : getFrontendUrl();
-        res.redirect(`${baseUrl}?twoFactor=true&tempToken=${encodeURIComponent(tempToken)}`);
+        res.redirect(`${baseUrl}?twoFactor=true#tempToken=${encodeURIComponent(tempToken)}`);
       }
       return;
     }

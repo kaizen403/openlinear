@@ -81,3 +81,10 @@ export async function refreshTaskPr(
     { method: 'POST', sidecar: true },
   );
 }
+
+export async function fetchExecutionLogs(taskId: string): Promise<{ logs: Array<{ timestamp: string; type: 'info' | 'agent' | 'tool' | 'error' | 'success'; message: string; details?: string }> }> {
+  return apiFetch<{ logs: Array<{ timestamp: string; type: 'info' | 'agent' | 'tool' | 'error' | 'success'; message: string; details?: string }> }>(
+    `/api/tasks/${taskId}/logs`,
+    { sidecar: true },
+  );
+}

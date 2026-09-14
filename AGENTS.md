@@ -63,6 +63,9 @@ pnpm --filter @openlinear/sidecar dev      # Sidecar on :3003
 pnpm dev-live                              # Alias for pnpm dev:live — starts API + UI + sidecar
 pnpm start                                 # Production preview with static export
 
+# Debug
+pnpm debug                                 # Full debug mode: type-checks first, inspector on :9229, verbose logs
+
 # Type check (run before marking any work done)
 pnpm --filter @openlinear/api typecheck
 pnpm --filter @openlinear/desktop-ui typecheck

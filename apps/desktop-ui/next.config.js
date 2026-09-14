@@ -2,8 +2,7 @@ const path = require("node:path")
 
 /** @type {import('next').NextConfig} */
 const isTauriBuild = process.env.BUILD_FOR_TAURI === "1"
-const isElectronBuild = process.env.BUILD_FOR_ELECTRON === "1"
-const isDesktopBuild = isTauriBuild || isElectronBuild
+const isDesktopBuild = isTauriBuild
 
 const nextConfig = {
   reactStrictMode: true,

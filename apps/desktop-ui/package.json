@@ -4,11 +4,14 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "debug": "NEXT_DEBUG=1 next dev",
     "build": "next build",
     "build:tauri": "BUILD_FOR_TAURI=1 next build",
     "start": "next start",
     "test": "vitest run && node ../../scripts/verify-desktop-fonts.js && node ../../scripts/verify-onboarding-repo-scroll.mjs",
     "test:unit": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
     "test:repo-scroll": "node ../../scripts/verify-onboarding-repo-scroll.mjs",
     "lint": "tsc --noEmit",
     "typecheck": "tsc --noEmit"
@@ -60,6 +63,7 @@
     "@types/node": "^20.19.32",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
+    "@vitest/coverage-v8": "^4.0.18",
     "autoprefixer": "^10.4.24",
     "jsdom": "^29.1.1",
     "postcss": "^8.5.6",

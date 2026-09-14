@@ -3,25 +3,7 @@ import { logger } from '@openlinear/api/logger';
 import { getClientForUser } from './opencode';
 
 /**
- * T9 (H-23) — restores `ensureModelConfigured`/`pickAutoDetectedModel`, which
- * shipped (ISSUES.md, 2026-05-26 entry: "Model provider onboarding step +
- * execution model-not-configured guard") and were subsequently lost from the
- * tree with no corresponding deletion commit — `git log --follow` on this
- * path stops at the commit that added it (c3b08a5); nothing ever removed it.
- * Restored from that commit, adjusted to use the structured logger (the
- * console.* → logger migration in 38eb4c4 landed after this file existed).
- *
- * Without this, a run with no configured model clones the repo, creates an
- * OpenCode session, sends the prompt, and only then dies on `session.error`
- * (or hangs to the idle/no-progress watchdog) — the user pays a full clone
- * for a doomed run. Call sites: lifecycle.ts's `executeTask` (wired). The
- * equivalent preflight on `POST /api/batches` and the `400
- * { code: 'MODEL_NOT_CONFIGURED' }` HTTP contract on both routes are owned by
- * routes/execution.ts and routes/batches.ts — not touched here (out of this
- * workstream's file ownership); see the Phase 0 report.
- */
-
-/**
+ * T9 (H-23) — restores `ensureModelConfigured`/`pickAutoDetectedModel`.
  * Provider preference order for auto-detection.
  * Anthropic is preferred for code tasks, then OpenAI, then Google, then OpenRouter,
  * then anything else the user has authenticated.

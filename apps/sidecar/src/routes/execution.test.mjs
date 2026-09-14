@@ -68,7 +68,12 @@ vi.mock('../services/batch', () => ({
   getBatchExecutionLogs: mocks.getBatchExecutionLogs,
 }));
 
+vi.mock('../services/opencode-model', () => ({
+  ensureModelConfigured: vi.fn(),
+}));
+
 const { default: executionRouter } = await import('./execution');
+const { ensureModelConfigured } = await import('../services/opencode-model');
 const originalFetch = globalThis.fetch;
 
 function makeApp() {
@@ -129,6 +134,9 @@ describe('execution routes', () => {
     }
     mocks.decryptToken.mockImplementation((value) => value ? `decrypted:${value}` : null);
     globalThis.fetch = mocks.fetch;
+    ensureModelConfigured.mockReset();
+    // Default: pre-flight passes silently so existing tests do not need to change.
+    ensureModelConfigured.mockResolvedValue({ model: 'anthropic/claude-sonnet', hasProvider: true, autoDetected: false });
   });
 
   afterEach(() => {
@@ -191,6 +199,32 @@ describe('execution routes', () => {
       body: { error: 'not yours' },
     });
     expect(mocks.executeTask).not.toHaveBeenCalled();
+  });
+
+  it('skips pre-flight when ensureModelConfigured throws and still proceeds', async () => {
+    ensureModelConfigured.mockRejectedValueOnce(new Error('sidecar unreachable'));
+    mocks.executeTask.mockResolvedValueOnce({ success: true });
+
+    await expect(request(app, 'POST', '/task-1/execute', {
+      headers: AUTH_HEADERS,
+    })).resolves.toEqual({
+      status: 200,
+      body: { message: 'Task execution started' },
+    });
+    expect(mocks.executeTask).toHaveBeenCalled();
+  });
+
+  it('skips pre-flight when ensureModelConfigured returns null', async () => {
+    ensureModelConfigured.mockResolvedValueOnce(null);
+    mocks.executeTask.mockResolvedValueOnce({ success: true });
+
+    await expect(request(app, 'POST', '/task-1/execute', {
+      headers: AUTH_HEADERS,
+    })).resolves.toEqual({
+      status: 200,
+      body: { message: 'Task execution started' },
+    });
+    expect(mocks.executeTask).toHaveBeenCalled();
   });
 
   it('reports running state and cancels only running tasks', async () => {

@@ -217,9 +217,9 @@ export function Sidebar({ open, onClose, width }: SidebarProps) {
     const [isFullscreen, setIsFullscreen] = useState(false)
 
     useEffect(() => {
-        const desktop = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
-        setIsTauri(desktop)
-        if (!desktop) return
+        const isTauriDesktop = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
+        setIsTauri(isTauriDesktop)
+        if (!isTauriDesktop) return
 
         let unlisten: (() => void) | undefined
 

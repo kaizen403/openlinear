@@ -308,6 +308,27 @@ Implements Phase 0 of `~/Downloads/Open Linear Revamp Plan/03-phases/PHASE-0-sto
 ### Next steps / blockers
 - Manually verify the GitHub OAuth flow in the packaged desktop app so the OS/browser protocol handoff is confirmed end to end.
 
+## [2026-06-02] — Fix SSO CSRF, session security, and upload auth (Greptile review)
+
+**Status:** Done
+**Agent:** Sisyphus (OpenCode)
+
+### What was done
+- Implemented all 8 findings from Greptile review c29aea46
+- **P0:** SSO state now HMAC-signed (prevents CSRF), OIDC `expectedState` properly passed instead of `undefined` cast
+- **P1:** SSO login creates Session records (tokens now revocable), revoke-others derives session ID from JWT hash, 2FA tempToken delivered via URL fragment, /uploads requires auth
+- **P2:** TOTP validate endpoint rate-limited (10 req/min/IP)
+
+### Files changed
+- `apps/api/src/routes/sso.ts` — HMAC sign/verify for SSO state, createSession on login
+- `apps/api/src/services/sso.ts` — expectedState parameter to authorizationCodeGrant
+- `apps/api/src/routes/sessions.ts` — derive currentSessionId from JWT hash
+- `apps/api/src/routes/auth.ts` — tempToken via URL fragment
+- `apps/api/src/app.ts` — requireAuth on /uploads static serving
+- `apps/api/src/routes/totp.ts` — express-rate-limit on /validate
+
+---
+
 ## [2026-05-31] — Fix critical migration drift + docs accuracy + sidecar logging
 
 **Status:** Done
