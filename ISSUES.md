@@ -1965,3 +1965,121 @@ The sidecar was likely not running when login was attempted (single-tenant guard
 ### Next steps / blockers
 - Implement Phase 0 from `docs/PERFORMANCE_IMPROVEMENT_PLAN.md`: route timing, slow-query logs, web-vitals collection, benchmark scripts, and seeded performance data.
 - Use those baselines to prioritize the index migration, bulk task endpoints, auth write throttling, and board render fixes.
+
+---
+
+## [2026-10-15] — Clone repository locally
+
+**Status:** Done
+**Agent:** Codex
+
+### What was done
+- Cloned `https://github.com/kaizen403/openlinear.git` into `/Users/sriharsha/Developer/openlinear`.
+- Verified the checkout tracks `origin/dev` and the origin URL matches the requested repository.
+
+### Files changed
+- `ISSUES.md` — recorded the clone session as required by `AGENTS.md`.
+
+### Issues encountered
+- Dependencies are not installed in this fresh checkout; application validation requires setup.
+
+### Next steps / blockers
+- None for the requested clone.
+
+---
+
+## [2026-10-15] — Audit revamp plan implementation status
+
+**Status:** Done (static audit)
+**Agent:** Codex
+
+### What was done
+- Compared all eight phases in the local Desktop revamp plan with the cloned `dev` branch at `157de4e`; `origin/main` has the same tracked content.
+- Confirmed Phase 0 hotfixes and substantial Phase 1–2 code are present; the September 10 desktop handoff predates the subsequent commits.
+- Found Phase 1 gaps: feature modules are re-exports, attachments remain local-disk only, and telemetry has no OTLP exporter implementation. Infrastructure exit criteria remain unverified.
+- Found Phase 2 integration gaps: normal task execution starts OpenCode directly rather than the new runner coordinator; the journal is not attached to this execution path, and batch/route code still queries Prisma directly. No production caller initializes the default sidecar API client.
+- Confirmed sandbox, ai-core, shared UI packages, TanStack Query, and the desktop updater are absent. Phases 3–7 remain largely pending.
+- Confirmed board bulk actions still make per-task requests; latency and soak scripts only print fixture configuration. The P95 plan remains incomplete, and actual email invitation delivery is still deferred.
+
+### Files changed
+- `ISSUES.md` — recorded audit findings; no application code changed.
+
+### Issues encountered
+- Existing work-log completion labels overstate integration and acceptance-test coverage; older plan checkboxes are stale.
+- Dependencies are not installed, so local typechecks cannot validate the applications. No runtime, production, database, or cloud configuration was inspected.
+- Production credential rotation, history purge, manual index application, and multi-replica verification need current evidence; their last recorded statuses are incomplete or blocked.
+
+### Next steps / blockers
+- Complete and verify Phase 1–2 integration and acceptance criteria before treating those phases as finished; then proceed with Phase 3 isolation and the later AI/frontend/cloud/product work.
+
+
+---
+
+## [2026-10-15] — Verify OpenAI execution options and correct pinned Codex adapter
+
+**Status:** Done (research and adapter correction; production integration remains separate)
+**Agent:** Codex
+
+### What was done
+- Inspected the current Codex adapter, shared execution contracts, manifests and lockfile before researching official OpenAI documentation and the pinned `openai/codex` source.
+- Compared local Codex SDK, app-server, Responses with Agents SDK, and the current managed Agents API. Recorded persistence, cancellation, sandbox, approval, compaction/cache, usage/tracing and benchmark requirements in `/tmp/openlinear-openai-research.md` for the coordinated backend plan.
+- Verified installed `@openai/codex-sdk` and its CLI dependency are 0.147.0; a no-inference `--version` check returned `codex-cli 0.147.0`.
+- Replaced handwritten Codex event shapes with SDK types; corrected command/patch/MCP outcomes, per-item message/reasoning deltas, fatal errors, cache-write/read and reasoning usage.
+- Forwarded the configured start model, exposed the live thread ID, implemented signal-backed interrupt/abort, explicit saved-thread continuation, unexpected-EOF failure and iterator cleanup. Removed fabricated live model discovery and made unsupported approval replies explicit.
+- Sidecar typecheck passed. Focused offline Codex fixture suite: 20 tests passed. No paid model calls or deployments.
+
+### Files changed
+- `apps/sidecar/src/runners/codex/index.ts` — pinned SDK contract and lifecycle correction.
+- `apps/sidecar/src/runners/codex/index.test.ts` — SDK-typed fixtures for success/failure, usage, deltas, cancellation and resume.
+- `ISSUES.md` — recorded this research and implementation session.
+
+### Issues encountered
+- SDK JSONL and app-server JSON-RPC are distinct event contracts; the SDK does not provide interactive permission replies or explicit compaction/fork/revert.
+- `ResumeInput` cannot currently carry a new model, credentials or prompt; resume preserves the saved thread model.
+- Current official OpenAI docs announce Evals read-only on October 31 and shutdown on November 30, 2026; new benchmark work should use portable artifacts instead of depending on the retiring Evals platform.
+
+### Next steps / blockers
+- Connect the production coordinator/journal path separately, persist the real thread ID, enforce tenant/runtime credential boundaries, and measure actual cancellation/process-tree behavior and coding benchmark performance before claiming parity or production readiness.
+
+---
+
+## [2026-10-15] — Backend master plan, source audits and first engine repairs
+
+**Status:** In Progress
+**Agent:** Codex (GPT-6.1 subagents for the user-authorized backend audit, research and implementation)
+
+### What was done
+- Reviewed the Desktop revamp plan against actual API, sidecar, execution-core, database, SDK, MCP and desktop process boundaries. Created a backend-only master PRD with 22 work packages, dependency gates, source evidence, product contracts and reproducible evaluation requirements.
+- Researched current official OpenAI/native agent contracts and Terminal-Bench/Harbor/SWE-bench Pro protocols. Kept paid model evaluation and optional cloud services separate; no superiority claim is made.
+- Fixed remote task setup to use the acquired workspace path/branch and a fresh attempt ID; clean up owned failed setup without deleting a user's local checkout. Added real-Git lifecycle composition regressions.
+- Corrected bare-mirror refresh, explicit tag/branch freshness, credential-scoped blob materialization, path/name validation, collision preservation and owned release checks; removed the rejected-finally promise and released completed mutex entries.
+- Fixed run replay resource authorization and full-permission progress ingest; made archive selector validation fail closed across service/chat/REST boundaries.
+- Corrected pinned Codex event/model/cancellation contracts and OpenCode prototype adapter session isolation; these adapters remain separate from normal route integration.
+- Replaced latency metadata placeholders with a real offline Git/worktree/SQLite/coordinator/FakeRunner microbenchmark, raw samples, source hashes, optional failure threshold and temporary fixture cleanup.
+- Independent review caught and resolved stale-tag/branch ambiguity, valid repository-name rejection and plan inconsistencies around verification commits, durability dependencies, native-runtime trust gates, in-flight cancellation and budget guarantees.
+- Full API suite: 213 passed, 2 preexisting skipped. Sidecar: 412 passed. execution-core: 28 passed. API/sidecar/execution-core/MCP typechecks and desktop UI compatibility typecheck passed. git diff --check passed.
+- Measured 30/30 small-fixture trials (warm p95 73.97 ms) and 4/4 300 MiB trials (warm p95 389.72 ms) for the first fake event persisted locally. These are descriptive component baselines, not full HTTP/model/sandbox/task-to-PR measurements or comparative performance proof.
+- Installed frozen dependencies without lifecycle scripts, generated Prisma, and migrated only a disposable loopback PostgreSQL test container. Removed that container after validation. No frontend source, deployment, live database, paid inference, commit or push changes.
+- Saved the master plan, progress ledger, raw benchmark artifacts, frontend work pending and optional cloud services files to Downloads.
+
+### Files changed
+- `tasks/prd-backend-agent-platform.md` — current backend master plan, architecture, W00–W21 work packages, phase gates and evaluation protocol.
+- `docs/plans/backend-product-contracts.md` — task/plan/chat/tool/usage/evidence/memory/schedule API and data contracts.
+- `docs/reports/backend-codebase-context-2026-10-15.md` and `docs/reports/backend-review-2026-10-15/` — source map, six audits/research reports, consolidated validation and raw measured artifacts.
+- `apps/api/src/routes/{events,agent-runs}.ts`, `services/tasks.ts`, `services/chat-tools/domain.ts` — scoped replay/progress and safe archive selection; corresponding new access/selector integration tests.
+- `apps/sidecar/src/services/execution/{git,lifecycle}.ts`, `workspace/local-worktree.ts` — actual acquired-workspace propagation, freshness, ownership and failed-setup handling; real-Git and unit regressions.
+- `apps/sidecar/src/runners/{codex,opencode}/` — corrected SDK mappings and scoped event fixtures.
+- `apps/sidecar/scripts/latency-{bench,300mb}.mjs` and `latency-bench.ts` — executable deterministic component benchmark.
+- `apps/sidecar/src/services/execution/events.test.mjs` — corrected an existing stale-session fixture to actually remove state before releasing its delayed event; production behavior unchanged.
+- `ISSUES.md` — consolidated session record in addition to the focused SDK research entry.
+
+### Issues encountered
+- Initial sidecar suite exposed stale GitService mocks, a malformed orphan-session fixture, and real bare-origin fetch/unhandled-rejection failures; corrected without weakening the intended assertions.
+- Existing work-log phase completion does not prove route integration. API-only sidecar initialization, coordinator effects/recovery, batch limits/publication truth, broad event/PAT scope, durable outbox/idempotency, OS sandbox and credential brokerage remain incomplete.
+- Private HTTPS lazy blob authentication was not exercised against a live service. The final worktree provider still needs trust-aware cache identity, cross-process/active leases, size-aware GC and normal-completion cleanup.
+- Two skipped API tests concern the obsolete many-team project association model. No new test skips were introduced.
+
+### Next steps / blockers
+- Follow W01 for truthful runner selection, batch validation and publication outcomes; W02/W04 for authorization, immutable transactional events and idempotency; W03 for scoped API-only local bootstrap.
+- Prove W05/W06 durable FakeRunner execution jointly, then gate native runner/workspace integration on explicit trust or verified sandbox/credential capabilities. Preserve verified candidate commits and reconcile effects already dispatched during cancellation.
+- Full sandbox corpus, restart/fault recovery, six-hour soak and funded public/private benchmark runs remain pending. The master plan is complete as a planning deliverable; the backend programme is not represented as fully implemented.
