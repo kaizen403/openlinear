@@ -10,6 +10,8 @@ import { getUserTeamIds } from '../services/team-scope';
 import { getJwtSecret } from '../lib/secrets';
 import { hashToken, isSessionRevoked } from '../services/sessions';
 import { requireInteractiveSession, type AuthRequest } from '../middleware/auth';
+import { assertTaskAccess } from '../services/ownership';
+import { HttpError } from '../errors';
 
 const router: Router = Router();
 const TICKET_TTL_MS = 60_000;
@@ -92,6 +94,19 @@ router.get('/', async (req: Request, res: Response) => {
   }
   const { userId } = identity;
 
+  const lastRaw = req.headers['last-event-id'] ?? req.query.lastEventId;
+  const lastRun = typeof lastRaw === 'string' ? parseExecutionSseId(lastRaw) : null;
+  if (lastRun) {
+    const run = await prisma.agentRun.findUnique({
+      where: { id: lastRun.runId },
+      select: { taskId: true },
+    });
+    if (!run) throw new HttpError(404, 'NOT_FOUND', 'Agent run not found');
+    // Check current resource permissions before opening the stream or reading
+    // journal payloads. Knowing a run id must not grant access to its task.
+    await assertTaskAccess(run.taskId, userId, 'view');
+  }
+
   let teamIds: string[] = [];
   let workspaceIds: string[] = [];
   try {
@@ -134,8 +149,6 @@ router.get('/', async (req: Request, res: Response) => {
     req.log?.warn({ err, clientId }, '[SSE] initial write failed');
   }
 
-  const lastRaw = req.headers['last-event-id'] ?? req.query.lastEventId;
-  const lastRun = typeof lastRaw === 'string' ? parseExecutionSseId(lastRaw) : null;
   if (lastRun) {
     try {
       const missed = await prisma.agentRunEvent.findMany({

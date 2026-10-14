@@ -200,7 +200,7 @@ router.post(
       },
     });
     if (!run) throw new HttpError(404, 'NOT_FOUND', 'Agent run not found');
-    await assertTaskAccess(run.taskId, req.userId!, 'view');
+    await assertTaskAccess(run.taskId, req.userId!, 'full');
 
     const userIds = [req.userId!, run.userId, run.task.creatorId].filter((id): id is string => Boolean(id));
     const teamIds = run.task.teamId ? [run.task.teamId] : [];
