@@ -39,6 +39,8 @@ export const MAX_COMPLETED_TOOL_KEYS = 500;
 export const COMPLETED_TOOL_KEY_SOURCE_LIMIT = 200;
 
 export interface ExecutionState {
+  cancelUnconfirmed?: boolean;
+  taskProjectId?: string | null;
   taskId: string;
   projectId: string;
   sessionId: string;
@@ -203,6 +205,7 @@ export const executionStore = new ExecutionStateStore();
  * @deprecated Use executionStore directly.
  * Proxy that delegates Map operations to the ExecutionStateStore singleton.
  */
+export const pendingExecutions = new Set<string>();
 export const activeExecutions: Map<string, ExecutionState> = new Proxy(new Map<string, ExecutionState>(), {
   get(_target, prop: string | symbol) {
     switch (prop) {
@@ -440,8 +443,12 @@ export async function updateTaskStatus(
   }
 ): Promise<void> {
   try {
+    const execution = activeExecutions.get(taskId);
     const task = await prisma.task.update({
-      where: { id: taskId },
+      where: { id: taskId, ...(status === 'done' && execution ? {
+        sessionId: execution.sessionId, status: 'in_progress' as const,
+        ...(execution.taskProjectId !== undefined ? { projectId: execution.taskProjectId, teamId: execution.teamId, creatorId: execution.creatorId } : {}),
+      } : {}) },
       data: { 
         status, 
         sessionId,
@@ -455,9 +462,11 @@ export async function updateTaskStatus(
       labels: task.labels.map((tl: TaskLabelRelation) => tl.label),
     };
     
-    broadcastToTask('task:updated', flatTask);
+    try { broadcastToTask('task:updated', flatTask); }
+    catch (error) { logger.warn({ err: error, taskId }, '[Execution] Task status persisted; notification failed'); }
   } catch (error) {
     logger.error({ err: error, taskId }, `[Execution] Failed to update task ${taskId}`);
+    throw error;
   }
 }
 

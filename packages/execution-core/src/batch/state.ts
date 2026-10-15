@@ -16,11 +16,11 @@ export interface CreateBatchStateInput {
 }
 
 export function createBatchBranchName(batchId: string): string {
-  return `openlinear/batch-${batchId.slice(0, 8)}`;
+  return `openlinear/batch-${batchId}`;
 }
 
-export function createBatchTaskBranchName(taskId: string): string {
-  return `openlinear/${taskId}`;
+export function createBatchTaskBranchName(taskId: string, batchId?: string): string {
+  return batchId ? `openlinear/${batchId}/${taskId}` : `openlinear/${taskId}`;
 }
 
 function lookupTitle(taskId: string, titleByTaskId: TitleLookup | undefined): string {
@@ -34,6 +34,7 @@ export function createBatchTasks(
   mode: BatchMode,
   titleByTaskId?: TitleLookup,
   batchBranch?: string,
+  batchId?: string,
 ): BatchTask[] {
   if (mode === 'combined' && !batchBranch) {
     throw new Error('batchBranch is required for combined batch tasks');
@@ -44,7 +45,7 @@ export function createBatchTasks(
     title: lookupTitle(taskId, titleByTaskId),
     status: 'queued',
     worktreePath: null,
-    branch: mode === 'combined' ? batchBranch! : createBatchTaskBranchName(taskId),
+    branch: mode === 'combined' ? batchBranch! : createBatchTaskBranchName(taskId, batchId),
     sessionId: null,
     error: null,
     startedAt: null,
@@ -60,7 +61,7 @@ export function createBatchState(input: CreateBatchStateInput): BatchState {
     projectId: input.projectId,
     mode: input.mode,
     status: 'pending',
-    tasks: createBatchTasks(input.taskIds, input.mode, input.titleByTaskId, batchBranch),
+    tasks: createBatchTasks(input.taskIds, input.mode, input.titleByTaskId, batchBranch, input.id),
     settings: input.settings,
     mainRepoPath: input.mainRepoPath,
     batchBranch,

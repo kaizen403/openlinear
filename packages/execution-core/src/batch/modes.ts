@@ -19,12 +19,12 @@ export function batchIdFromActivityId(taskId: string): string | null {
   return taskId.startsWith('batch:') ? taskId.slice('batch:'.length) : null;
 }
 
-export function getInitialBatchLaunchIndexes(mode: BatchMode, taskCount: number): number[] {
+export function getInitialBatchLaunchIndexes(mode: BatchMode, taskCount: number, maxConcurrent = taskCount): number[] {
   if (taskCount <= 0) return [];
 
   switch (mode) {
     case 'parallel':
-      return Array.from({ length: taskCount }, (_, index) => index);
+      return Array.from({ length: Math.min(taskCount, Math.max(1, maxConcurrent)) }, (_, index) => index);
     case 'queue':
       return [0];
     case 'combined':

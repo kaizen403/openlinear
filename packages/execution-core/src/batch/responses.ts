@@ -68,10 +68,12 @@ export function toBatchStatusResponse(batch: BatchState): BatchStatusResponse {
       error: task.error,
       startedAt: task.startedAt?.toISOString() ?? null,
       completedAt: task.completedAt?.toISOString() ?? null,
+      ...(task.cancelUnconfirmed ? { cancelUnconfirmed: true } : {}),
     })),
     prUrl: batch.prUrl,
     createdAt: batch.createdAt.toISOString(),
     completedAt: batch.completedAt?.toISOString() ?? null,
     progress: getBatchProgressSummary(batch),
+    ...(batch.publication ? { publication: batch.publication } : {}),
   };
 }

@@ -19,10 +19,10 @@ import {
   getActiveBatches,
   approveNextTask,
 } from '../services/batch';
-import { ensureModelConfigured } from '../services/opencode-model';
+import { HttpError } from '@openlinear/api/errors';
 
 const CreateBatchSchema = z.object({
-  taskIds: z.array(z.string()).min(1).max(20),
+  taskIds: z.array(z.string().trim().min(1).max(200).refine((id) => !id.includes('\0'), 'Task IDs cannot contain NUL')).min(1).max(20).refine((ids) => new Set(ids).size === ids.length, 'Duplicate task IDs are not allowed'),
   mode: z.enum(['parallel', 'queue', 'combined']),
 });
 
@@ -41,21 +41,6 @@ router.post('/', requireAuth, async (req: AuthRequest, res: Response, next: Next
 
     for (const tid of taskIds) {
       await assertTaskOwned(tid, userId);
-    }
-
-    const ensured = await ensureModelConfigured(userId).catch((err: unknown) => {
-      logger.warn({ err }, '[Batch] Model pre-flight check failed');
-      return null;
-    });
-    if (ensured && !ensured.model) {
-      res.status(400).json({
-        error: ensured.hasProvider
-          ? 'No model selected. Pick a model in Settings → AI Providers before running a batch.'
-          : 'No AI provider configured. Connect a provider in Settings → AI Providers before running a batch.',
-        code: 'MODEL_NOT_CONFIGURED',
-        details: { hasProvider: ensured.hasProvider },
-      });
-      return;
     }
 
     let accessToken: string | null = null;
@@ -78,7 +63,7 @@ router.post('/', requireAuth, async (req: AuthRequest, res: Response, next: Next
       accessToken,
     });
 
-    startBatch(batch.id);
+    await startBatch(batch.id);
 
     res.status(201).json(toCreateBatchResponse(batch));
   } catch (error) {
@@ -146,7 +131,7 @@ router.post('/:id/cancel', requireAuth, async (req: AuthRequest, res: Response, 
       return;
     }
     await batchTaskGuard(batch, req.userId!);
-    cancelBatch(id);
+    await cancelBatch(id);
     res.json({ success: true });
   } catch (error) {
     next(error);
@@ -157,8 +142,13 @@ router.post('/:id/tasks/:taskId/cancel', requireAuth, async (req: AuthRequest, r
   try {
     const id = req.params.id as string;
     const taskId = req.params.taskId as string;
-    await assertTaskOwned(taskId, req.userId!);
-    cancelTask(id, taskId);
+    const batch = getBatch(id);
+    if (!batch || !batch.tasks.some((task) => task.taskId === taskId)) {
+      throw new HttpError(404, 'NOT_FOUND', 'Task not found in this batch');
+    }
+    if (batch.mode === 'combined') await batchTaskGuard(batch, req.userId!);
+    else await assertTaskOwned(taskId, req.userId!);
+    await cancelTask(id, taskId);
     res.json({ success: true });
   } catch (error) {
     next(error);
@@ -174,7 +164,7 @@ router.post('/:id/approve', requireAuth, async (req: AuthRequest, res: Response,
       return;
     }
     await batchTaskGuard(batch, req.userId!);
-    approveNextTask(id);
+    await approveNextTask(id);
     const updated = getBatch(id);
     if (!updated) {
       res.status(404).json({ error: 'Batch not found' });

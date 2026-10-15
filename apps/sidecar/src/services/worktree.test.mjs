@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   existsSync: vi.fn(() => false),
   mkdirSync: vi.fn(),
   rmSync: vi.fn(),
+  rmdirSync: vi.fn(),
   execGit: vi.fn(),
   execGitWithCredentials: vi.fn(),
   assertSafeCloneUrl: vi.fn((url) => url),
@@ -17,6 +18,7 @@ vi.mock('fs', () => ({
   existsSync: mocks.existsSync,
   mkdirSync: mocks.mkdirSync,
   rmSync: mocks.rmSync,
+  rmdirSync: mocks.rmdirSync,
 }));
 
 vi.mock('./git-credentials', () => ({
@@ -66,7 +68,7 @@ describe('worktree helpers', () => {
     await expect(ensureMainRepo('project-1', 'https://github.com/acme/repo.git', 'token')).resolves.toBe('/repos/project-1/.main');
     expect(mocks.assertSafeCloneUrl).toHaveBeenCalledWith('https://github.com/acme/repo.git', 'clone URL');
     expect(mocks.execGitWithCredentials).toHaveBeenCalledWith(
-      ['-C', '/repos/project-1/.main', 'fetch', 'origin', '--prune'],
+      ['-C', '/repos/project-1/.main', 'fetch', '--prune', '--no-tags', '--', 'https://github.com/acme/repo.git', '+refs/heads/*:refs/remotes/origin/*'],
       'token',
       'https://github.com/acme/repo.git',
     );
@@ -115,49 +117,20 @@ describe('worktree helpers', () => {
       .rejects.toThrow('fetch failed');
   });
 
-  it('creates task and combined worktrees after clearing stale branches', async () => {
-    mocks.execGit
-      .mockResolvedValueOnce({ stdout: '', stderr: '' })
-      .mockResolvedValueOnce({
-        stdout: 'worktree /repos/project-1/batch-batch-1/task-task-1\nbranch refs/heads/openlinear/task-1\n',
-        stderr: '',
-      })
-      .mockResolvedValueOnce({ stdout: '', stderr: '' })
-      .mockResolvedValueOnce({ stdout: '', stderr: '' })
-      .mockResolvedValueOnce({ stdout: '', stderr: '' });
-
-    await expect(createWorktree('project-1', 'batch-1', 'task-1', 'main')).resolves.toBe(
-      '/repos/project-1/batch-batch-1/task-task-1',
-    );
-    expect(mocks.assertSafeRefName).toHaveBeenCalledWith('main', 'default branch');
-    expect(mocks.execGit).toHaveBeenCalledWith([
-      '-C',
-      '/repos/project-1/.main',
-      'worktree',
-      'add',
-      '/repos/project-1/batch-batch-1/task-task-1',
-      '-b',
-      'openlinear/task-1',
-      '--',
-      'main',
-    ]);
-
-    mocks.execGit.mockClear();
-    mocks.execGit.mockResolvedValue({ stdout: '', stderr: '' });
-    await expect(createBatchWorktree('project-1', 'batch-1', 'openlinear/batch-1', 'main')).resolves.toBe(
-      '/repos/project-1/batch-batch-1/combined',
-    );
-    expect(mocks.execGit).toHaveBeenCalledWith([
-      '-C',
-      '/repos/project-1/.main',
-      'worktree',
-      'add',
-      '/repos/project-1/batch-batch-1/combined',
-      '-b',
-      'openlinear/batch-1',
-      '--',
-      'main',
-    ]);
+  it('creates unique attempt worktrees with credential-scoped blob materialization', async () => {
+    await expect(createWorktree('project-1', 'batch-1', 'task-1', 'main', 'token', 'https://github.com/acme/repo.git'))
+      .resolves.toBe('/repos/project-1/batch-batch-1/task-task-1');
+    expect(mocks.execGitWithCredentials).toHaveBeenCalledWith([
+      '-C', '/repos/project-1/.main', 'worktree', 'add', '/repos/project-1/batch-batch-1/task-task-1',
+      '-b', 'openlinear/batch-1/task-1', '--', 'refs/remotes/origin/main',
+    ], 'token', 'https://github.com/acme/repo.git');
+    expect(mocks.execGit).not.toHaveBeenCalled();
+    await expect(createBatchWorktree('project-1', 'batch-1', 'openlinear/batch-1', 'main'))
+      .resolves.toBe('/repos/project-1/batch-batch-1/combined');
+    expect(mocks.execGitWithCredentials).toHaveBeenCalledWith([
+      '-C', '/repos/project-1/.main', 'worktree', 'add', '/repos/project-1/batch-batch-1/combined',
+      '-b', 'openlinear/batch-1', '--', 'refs/remotes/origin/main',
+    ], null, undefined);
   });
 
   it('rejects an unsafe default branch before creating a worktree', async () => {
@@ -171,67 +144,12 @@ describe('worktree helpers', () => {
     expect(mocks.execGit).not.toHaveBeenCalled();
   });
 
-  it('skips stale worktrees outside repo storage and handles stale cleanup failures', async () => {
-    mocks.assertPathInsideReposDir.mockImplementation((path) => {
-      if (path === '/outside/task') throw new Error('outside');
-      return path;
-    });
-    mocks.existsSync.mockImplementation((path) => {
-      if (path === '/repos/project-1/batch-batch-1') return true;
-      if (path === '/repos/project-1/batch-batch-1/task-task-1') return false;
-      if (path === '/repos/project-1/batch-batch-1/task-stale') return true;
-      return false;
-    });
-    mocks.execGit
-      .mockResolvedValueOnce({ stdout: '', stderr: '' })
-      .mockResolvedValueOnce({
-        stdout: [
-          'worktree /outside/task',
-          'branch refs/heads/openlinear/task-1',
-          '',
-          'worktree /repos/project-1/batch-batch-1/task-other',
-          'branch refs/heads/openlinear/other',
-          '',
-          'worktree /repos/project-1/batch-batch-1/task-stale',
-          'branch refs/heads/openlinear/task-1',
-          '',
-        ].join('\n'),
-        stderr: '',
-      })
-      .mockRejectedValueOnce(new Error('remove stale failed'))
-      .mockResolvedValueOnce({ stdout: '', stderr: '' })
-      .mockResolvedValueOnce({ stdout: '', stderr: '' });
-
-    await expect(createWorktree('project-1', 'batch-1', 'task-1', 'main')).resolves.toBe(
-      '/repos/project-1/batch-batch-1/task-task-1',
-    );
-
-    expect(mocks.rmSync).toHaveBeenCalledWith('/repos/project-1/batch-batch-1/task-stale', {
-      recursive: true,
-      force: true,
-    });
-
-    mocks.rmSync.mockClear();
-    mocks.assertPathInsideReposDir.mockImplementation((path) => path);
-    mocks.existsSync.mockImplementation((path) => {
-      if (path === '/repos/project-1/batch-batch-1/task-stale') return false;
-      return false;
-    });
-    mocks.execGit
-      .mockReset()
-      .mockResolvedValueOnce({ stdout: '', stderr: '' })
-      .mockResolvedValueOnce({
-        stdout: 'worktree /repos/project-1/batch-batch-1/task-stale\nbranch refs/heads/openlinear/task-1\n',
-        stderr: '',
-      })
-      .mockRejectedValueOnce(new Error('remove stale failed'))
-      .mockResolvedValueOnce({ stdout: '', stderr: '' })
-      .mockResolvedValueOnce({ stdout: '', stderr: '' });
-
-    await expect(createWorktree('project-1', 'batch-1', 'task-1', 'main')).resolves.toBe(
-      '/repos/project-1/batch-batch-1/task-task-1',
-    );
-
+  it('refuses an existing attempt without deleting or unregistering it', async () => {
+    mocks.existsSync.mockReturnValue(true);
+    await expect(createWorktree('project-1', 'batch-1', 'task-1', 'main')).rejects.toThrow('already exists');
+    await expect(createBatchWorktree('project-1', 'batch-1', 'openlinear/batch-1', 'main')).rejects.toThrow('already exists');
+    expect(mocks.execGit).not.toHaveBeenCalled();
+    expect(mocks.execGitWithCredentials).not.toHaveBeenCalled();
     expect(mocks.rmSync).not.toHaveBeenCalled();
   });
 
@@ -246,67 +164,13 @@ describe('worktree helpers', () => {
     expect(mocks.mkdirSync).not.toHaveBeenCalled();
   });
 
-  it('removes partially-created task and batch worktrees after creation failures', async () => {
-    mocks.existsSync
-      .mockReturnValueOnce(false)
-      .mockReturnValueOnce(true);
-    mocks.execGit
-      .mockResolvedValueOnce({ stdout: '', stderr: '' })
-      .mockResolvedValueOnce({ stdout: '', stderr: '' })
-      .mockResolvedValueOnce({ stdout: '', stderr: '' })
-      .mockRejectedValueOnce(new Error('add failed'))
-      .mockRejectedValueOnce(new Error('remove failed'));
-
-    await expect(createWorktree('project-1', 'batch-1', 'task-1', 'main')).rejects.toThrow('add failed');
-    expect(mocks.rmSync).toHaveBeenCalledWith('/repos/project-1/batch-batch-1/task-task-1', {
-      recursive: true,
-      force: true,
-    });
-
-    mocks.rmSync.mockClear();
-    mocks.existsSync
-      .mockReset()
-      .mockReturnValueOnce(false)
-      .mockReturnValueOnce(true);
-    mocks.execGit
-      .mockReset()
-      .mockResolvedValueOnce({ stdout: '', stderr: '' })
-      .mockResolvedValueOnce({ stdout: '', stderr: '' })
-      .mockResolvedValueOnce({ stdout: '', stderr: '' })
-      .mockRejectedValueOnce(new Error('batch add failed'))
-      .mockRejectedValueOnce(new Error('batch remove failed'));
-
-    await expect(createBatchWorktree('project-1', 'batch-1', 'openlinear/batch-1', 'main'))
-      .rejects.toThrow('batch add failed');
-    expect(mocks.rmSync).toHaveBeenCalledWith('/repos/project-1/batch-batch-1/combined', {
-      recursive: true,
-      force: true,
-    });
-  });
-
-  it('does not remove failed worktree paths that were never created', async () => {
+  it('retains partial acquisition evidence on Git failure', async () => {
     mocks.existsSync.mockReturnValue(false);
-    mocks.execGit
-      .mockResolvedValueOnce({ stdout: '', stderr: '' })
-      .mockResolvedValueOnce({ stdout: '', stderr: '' })
-      .mockResolvedValueOnce({ stdout: '', stderr: '' })
-      .mockRejectedValueOnce(new Error('add failed'));
-
+    mocks.execGitWithCredentials.mockRejectedValue(new Error('add failed'));
     await expect(createWorktree('project-1', 'batch-1', 'task-1', 'main')).rejects.toThrow('add failed');
-
+    await expect(createBatchWorktree('project-1', 'batch-1', 'openlinear/batch-1', 'main')).rejects.toThrow('add failed');
     expect(mocks.rmSync).not.toHaveBeenCalled();
-
-    mocks.execGit.mockReset();
-    mocks.execGit
-      .mockResolvedValueOnce({ stdout: '', stderr: '' })
-      .mockResolvedValueOnce({ stdout: '', stderr: '' })
-      .mockResolvedValueOnce({ stdout: '', stderr: '' })
-      .mockRejectedValueOnce(new Error('batch add failed'));
-
-    await expect(createBatchWorktree('project-1', 'batch-1', 'openlinear/batch-1', 'main'))
-      .rejects.toThrow('batch add failed');
-
-    expect(mocks.rmSync).not.toHaveBeenCalled();
+    expect(mocks.execGit).not.toHaveBeenCalled();
   });
 
   it('lists, removes, and cleans up worktrees safely', async () => {
@@ -328,7 +192,6 @@ describe('worktree helpers', () => {
       'worktree',
       'remove',
       '/repos/project-1/batch-batch-1/task-task-1',
-      '--force',
     ]);
 
     mocks.execGit.mockClear();
@@ -342,14 +205,14 @@ describe('worktree helpers', () => {
     });
 
     await cleanupBatch('project-1', 'batch-1');
-    expect(mocks.rmSync).toHaveBeenCalledWith('/repos/project-1/batch-batch-1', { recursive: true, force: true });
+    expect(mocks.rmdirSync).toHaveBeenCalledWith('/repos/project-1/batch-batch-1');
   });
 
-  it('logs remove failures and only deletes worktree paths that remain on disk', async () => {
+  it('surfaces remove failures without deleting retained paths', async () => {
     mocks.existsSync.mockReturnValue(false);
     mocks.execGit.mockRejectedValueOnce(new Error('remove failed'));
 
-    await removeWorktree('project-1', '/repos/project-1/batch-batch-1/task-task-1');
+    await expect(removeWorktree('project-1', '/repos/project-1/batch-batch-1/task-task-1')).rejects.toThrow('remove failed');
 
     expect(mocks.rmSync).not.toHaveBeenCalled();
   });
@@ -366,17 +229,14 @@ describe('worktree helpers', () => {
     expect(mocks.rmSync).not.toHaveBeenCalled();
   });
 
-  it('returns an empty worktree list and removes the batch directory when listing fails', async () => {
+  it('surfaces list errors and preserves the batch directory', async () => {
     mocks.existsSync.mockReturnValue(true);
     mocks.execGit.mockRejectedValue(new Error('list failed'));
 
-    await expect(listWorktrees('project-1')).resolves.toEqual([]);
-    await cleanupBatch('project-1', 'batch-1');
-
-    expect(mocks.rmSync).toHaveBeenCalledWith('/repos/project-1/batch-batch-1', {
-      recursive: true,
-      force: true,
-    });
+    await expect(listWorktrees('project-1')).rejects.toThrow('list failed');
+    await expect(cleanupBatch('project-1', 'batch-1')).rejects.toThrow('list failed');
+    expect(mocks.rmSync).not.toHaveBeenCalled();
+    expect(mocks.rmdirSync).not.toHaveBeenCalled();
   });
 
   it('returns an empty worktree list when the main repo is missing', async () => {
@@ -387,7 +247,7 @@ describe('worktree helpers', () => {
     expect(mocks.execGit).not.toHaveBeenCalled();
   });
 
-  it('force-removes the batch directory when cleanup throws after listing', async () => {
+  it('retains the batch directory when cleanup inspection fails', async () => {
     mocks.execGit.mockResolvedValueOnce({ stdout: '', stderr: '' });
     mocks.existsSync.mockImplementation((path) => {
       if (path === '/repos/project-1/batch-batch-1') {
@@ -402,15 +262,13 @@ describe('worktree helpers', () => {
       })
       .mockImplementationOnce(() => true);
 
-    await cleanupBatch('project-1', 'batch-1');
+    await expect(cleanupBatch('project-1', 'batch-1')).rejects.toThrow('stat failed');
 
-    expect(mocks.rmSync).toHaveBeenCalledWith('/repos/project-1/batch-batch-1', {
-      recursive: true,
-      force: true,
-    });
+    expect(mocks.rmSync).not.toHaveBeenCalled();
+    expect(mocks.rmdirSync).not.toHaveBeenCalled();
   });
 
-  it('does not force-remove a batch directory that disappears after cleanup errors', async () => {
+  it('surfaces cleanup inspection errors without recursive deletion', async () => {
     mocks.execGit.mockResolvedValueOnce({ stdout: '', stderr: '' });
     mocks.existsSync
       .mockImplementationOnce(() => true)
@@ -419,7 +277,7 @@ describe('worktree helpers', () => {
       })
       .mockImplementationOnce(() => false);
 
-    await cleanupBatch('project-1', 'batch-1');
+    await expect(cleanupBatch('project-1', 'batch-1')).rejects.toThrow('stat failed');
 
     expect(mocks.rmSync).not.toHaveBeenCalled();
   });
@@ -427,6 +285,7 @@ describe('worktree helpers', () => {
   it('merges branches by updating the target ref and reports conflicts', async () => {
     mocks.execGit
       .mockResolvedValueOnce({ stdout: '', stderr: '' })
+      .mockResolvedValueOnce({ stdout: 'original-sha\n', stderr: '' })
       .mockResolvedValueOnce({ stdout: '', stderr: '' })
       .mockResolvedValueOnce({ stdout: 'merge-sha\n', stderr: '' })
       .mockResolvedValueOnce({ stdout: '', stderr: '' })
@@ -441,6 +300,7 @@ describe('worktree helpers', () => {
       '/repos/project-1/.main',
       'worktree',
       'add',
+      '--detach',
       '/repos/project-1/merge-temp-openlinear-task-1',
       '--',
       'openlinear/batch',
@@ -464,6 +324,7 @@ describe('worktree helpers', () => {
       'update-ref',
       'refs/heads/openlinear/batch',
       'merge-sha',
+      'original-sha',
     ]);
 
     mocks.execGit.mockReset();
@@ -481,76 +342,36 @@ describe('worktree helpers', () => {
     });
 
     await expect(mergeBranch('project-1', '-x', 'openlinear/batch')).resolves.toBe(false);
-    // The `finally` block's best-effort merge-temp cleanup still runs (it
-    // runs on every exit path), but no `worktree add` / `merge` call — the
-    // validation failure must short-circuit before either of those.
-    expect(mocks.execGit).toHaveBeenCalledTimes(1);
-    expect(mocks.execGit).toHaveBeenCalledWith([
-      '-C',
-      '/repos/project-1/.main',
-      'worktree',
-      'remove',
-      '/repos/project-1/merge-temp--x',
-      '--force',
-    ]);
+    expect(mocks.execGit).not.toHaveBeenCalled();
   });
 
-  it('returns false and removes merge temp directories when setup and cleanup fail', async () => {
-    mocks.existsSync
-      .mockReturnValueOnce(false)
-      .mockReturnValueOnce(true);
-    mocks.execGit
-      .mockRejectedValueOnce(new Error('add failed'))
-      .mockRejectedValueOnce(new Error('remove failed'));
-
+  it('retains partial merge acquisition when setup fails', async () => {
+    mocks.existsSync.mockReturnValue(false);
+    mocks.execGit.mockRejectedValueOnce(new Error('add failed'));
     await expect(mergeBranch('project-1', 'openlinear/task-1', 'openlinear/batch')).resolves.toBe(false);
-
-    expect(mocks.rmSync).toHaveBeenCalledWith('/repos/project-1/merge-temp-openlinear-task-1', { recursive: true, force: true });
+    expect(mocks.execGit).toHaveBeenCalledTimes(1);
+    expect(mocks.rmSync).not.toHaveBeenCalled();
   });
 
-  it('clears stale merge temp directories before merging', async () => {
-    mocks.existsSync.mockReturnValueOnce(true).mockReturnValue(false);
-    mocks.execGit
-      .mockRejectedValueOnce(new Error('stale remove failed'))
-      .mockResolvedValueOnce({ stdout: '', stderr: '' })
-      .mockResolvedValueOnce({ stdout: '', stderr: '' })
-      .mockResolvedValueOnce({ stdout: 'merge-sha\n', stderr: '' })
-      .mockResolvedValueOnce({ stdout: '', stderr: '' })
-      .mockResolvedValueOnce({ stdout: '', stderr: '' })
-      .mockResolvedValueOnce({ stdout: '', stderr: '' });
-
-    await expect(mergeBranch('project-1', 'openlinear/task-1', 'openlinear/batch')).resolves.toBe(true);
-
-    expect(mocks.rmSync).toHaveBeenCalledWith('/repos/project-1/merge-temp-openlinear-task-1', { recursive: true, force: true });
+  it('refuses an existing merge directory before changing any Git state', async () => {
+    mocks.existsSync.mockReturnValue(true);
+    await expect(mergeBranch('project-1', 'openlinear/task-1', 'openlinear/batch')).resolves.toBe(false);
+    expect(mocks.execGit).not.toHaveBeenCalled();
+    expect(mocks.rmSync).not.toHaveBeenCalled();
   });
 
-  it('falls back to deleting merge temp after a successful merge cleanup failure', async () => {
-    mocks.existsSync.mockReturnValueOnce(false).mockReturnValueOnce(true).mockReturnValue(false);
-    mocks.execGit
-      .mockResolvedValueOnce({ stdout: '', stderr: '' })
-      .mockResolvedValueOnce({ stdout: '', stderr: '' })
-      .mockResolvedValueOnce({ stdout: 'merge-sha\n', stderr: '' })
-      .mockRejectedValueOnce(new Error('cleanup failed'))
-      .mockResolvedValueOnce({ stdout: '', stderr: '' })
-      .mockResolvedValueOnce({ stdout: '', stderr: '' });
-
-    await expect(mergeBranch('project-1', 'openlinear/task-1', 'openlinear/batch')).resolves.toBe(true);
-
-    expect(mocks.rmSync).toHaveBeenCalledWith('/repos/project-1/merge-temp-openlinear-task-1', { recursive: true, force: true });
-  });
-
-  it('skips deleting merge temp when cleanup failures leave no directory behind', async () => {
+  it('retains merge work and does not advance the target when cleanup fails', async () => {
     mocks.existsSync.mockReturnValue(false);
     mocks.execGit
       .mockResolvedValueOnce({ stdout: '', stderr: '' })
+      .mockResolvedValueOnce({ stdout: 'original-sha', stderr: '' })
       .mockResolvedValueOnce({ stdout: '', stderr: '' })
-      .mockResolvedValueOnce({ stdout: 'merge-sha\n', stderr: '' })
+      .mockResolvedValueOnce({ stdout: 'merge-sha', stderr: '' })
       .mockRejectedValueOnce(new Error('cleanup failed'))
       .mockResolvedValueOnce({ stdout: '', stderr: '' })
       .mockRejectedValueOnce(new Error('final cleanup failed'));
-
-    await expect(mergeBranch('project-1', 'openlinear/task-1', 'openlinear/batch')).resolves.toBe(true);
-
+    await expect(mergeBranch('project-1', 'openlinear/task-1', 'openlinear/batch')).resolves.toBe(false);
+    expect(mocks.execGit.mock.calls.some(([args]) => args.includes('update-ref'))).toBe(false);
     expect(mocks.rmSync).not.toHaveBeenCalled();
   });
 
@@ -564,7 +385,7 @@ describe('worktree helpers', () => {
       'branch',
       '--',
       'openlinear/batch-1',
-      'main',
+      'refs/remotes/origin/main',
     ]);
 
     await pushBranch('project-1', 'openlinear/batch-1', 'https://github.com/acme/repo.git', 'token');
@@ -574,10 +395,10 @@ describe('worktree helpers', () => {
         '-C',
         '/repos/project-1/.main',
         'push',
-        '--force-with-lease',
+        '--force-with-lease=refs/heads/openlinear/batch-1:',
         '--',
         'https://github.com/acme/repo.git',
-        'openlinear/batch-1',
+        'openlinear/batch-1:refs/heads/openlinear/batch-1',
       ],
       'token',
       'https://github.com/acme/repo.git',

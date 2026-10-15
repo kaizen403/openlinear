@@ -1,18 +1,23 @@
 import { logger } from '@openlinear/api/logger';
+import { HttpError, isHttpError } from '@openlinear/api/errors';
+import { assertTaskOwned } from '@openlinear/api/ownership';
 import { parseModelOverride, type ModelOverride } from '@openlinear/execution-core';
 import { getClientForUser } from '../opencode';
 import { ensureModelConfigured } from '../opencode-model';
 import { getOrCreateBuffer } from '../delta-buffer';
 import { getExecutionSettings } from '../execution-settings';
-import { resolveAgentId } from '../../engine/resolve-agent';
-import { cancelRun } from '../../engine/cancel';
+import { requireLegacyRunner } from '../../engine/resolve-agent';
 import { getSidecarStore } from '../../persistence/store';
+import { pendingBatchTasks } from '../batch/shared';
+import { taskHasActiveBatch } from '../batch/admission';
+import { releaseLocalWorktree, type WorkspaceHandle } from '../../workspace/local-worktree';
 
 import { cloneRepository, createBranch } from './git';
 import { subscribeToSessionEvents, failExecutionFromEventStream, claimFinalize } from './events';
 import { createAgentRun, finalizeAgentRun } from './agent-run';
 import {
   activeExecutions,
+  pendingExecutions,
   sessionToTask,
   broadcastProgress,
   addLogEntry,
@@ -28,8 +33,6 @@ import {
 } from './state';
 
 import type { OpencodeClient } from '@opencode-ai/sdk';
-
-const pendingExecutions = new Set<string>();
 
 interface ExecutionInputs {
   taskId: string;
@@ -50,19 +53,15 @@ interface ExecutionInputs {
   };
   branchName: string;
   repoPath: string;
+  workspace?: WorkspaceHandle;
 }
 
 async function gatherExecutionInputs({ taskId, userId }: ExecuteTaskParams): Promise<{ inputs?: ExecutionInputs; error?: string }> {
-  if (activeExecutions.has(taskId) || pendingExecutions.has(taskId)) {
-    return { error: 'Task is already running' };
-  }
-
-  pendingExecutions.add(taskId);
-
+  if (!userId) return { error: 'userId is required for execution' };
   const settings = await getExecutionSettings(userId);
   const parallelLimit = settings.parallelLimit;
 
-  if (activeExecutions.size >= parallelLimit) {
+  if (activeExecutions.size + pendingExecutions.size > parallelLimit) {
     return { error: `Parallel limit reached (${parallelLimit} tasks max)` };
   }
 
@@ -78,11 +77,20 @@ async function gatherExecutionInputs({ taskId, userId }: ExecuteTaskParams): Pro
     }
   }
 
+  const authority = await assertTaskOwned(taskId, userId);
+  if (authority.archived) throw new HttpError(409, 'TASK_ARCHIVED', 'Archived tasks cannot execute');
+  if (authority.status === 'in_progress') throw new HttpError(409, 'TASK_ALREADY_RUNNING', 'Task is already executing');
   const taskWithProject = await store.getTask(taskId);
 
   if (!taskWithProject) {
     return { error: 'Task not found' };
   }
+  if (authority.id !== taskWithProject.id
+    || authority.projectId !== (taskWithProject.projectId ?? taskWithProject.project?.id ?? null)
+    || authority.teamId !== taskWithProject.teamId || authority.creatorId !== taskWithProject.creatorId) {
+    throw new HttpError(409, 'TASK_SELECTION_CHANGED', 'Task access scope changed while execution was checked');
+  }
+  requireLegacyRunner({ taskAgent: taskWithProject.agent, projectDefaultAgent: taskWithProject.project?.defaultAgent });
 
   let useLocalPath: string | null = null;
   let project: { id: string; name: string; fullName: string; cloneUrl: string; defaultBranch: string } | null = null;
@@ -91,8 +99,6 @@ async function gatherExecutionInputs({ taskId, userId }: ExecuteTaskParams): Pro
     useLocalPath = taskWithProject.project.localPath;
   } else if (taskWithProject.project?.repository) {
     project = taskWithProject.project.repository;
-  } else if (userId) {
-    project = await store.getActiveRepository();
   }
 
   if (!project && !useLocalPath) {
@@ -129,8 +135,13 @@ async function setupRepository(inputs: ExecutionInputs): Promise<void> {
   } else {
     const repository = project!;
     broadcastProgress(taskId, 'cloning', 'Cloning repository...');
-    await cloneRepository(repository.cloneUrl, repoPath, accessToken, repository.defaultBranch);
-    await createBranch(repoPath, branchName);
+    const workspace = await cloneRepository(repository.cloneUrl, repoPath, accessToken, repository.defaultBranch);
+    // The provider owns checkout placement. Persist its handle before the
+    // next operation so a failed branch/session setup can release it.
+    inputs.workspace = workspace;
+    inputs.repoPath = workspace.worktreePath;
+    inputs.branchName = workspace.branch;
+    await createBranch(inputs.repoPath, inputs.branchName);
   }
 }
 
@@ -154,6 +165,7 @@ function initializeExecution(
     repoPath,
     branchName,
     userId,
+    taskProjectId: taskRecord.project?.id ?? null,
     accessToken,
     // T7 (H-02) — cached once here; every log line / progress broadcast for
     // this run reuses it instead of a fresh Postgres lookup.
@@ -191,6 +203,11 @@ async function startAgentSession(
 ): Promise<void> {
   const { taskId, useLocalPath, repoPath, branchName, taskRecord } = inputs;
   const { client, sessionId } = executionState;
+  const assertStarting = () => {
+    if (executionState.cancelled || executionState.finalized || activeExecutions.get(taskId) !== executionState) {
+      throw new HttpError(409, 'EXECUTION_STOPPED', 'Execution stopped before the prompt was accepted');
+    }
+  };
 
   activeExecutions.set(taskId, executionState);
   sessionToTask.set(sessionId, taskId);
@@ -211,9 +228,12 @@ async function startAgentSession(
     executionElapsedMs: 0,
     executionProgress: 0,
   });
+  assertStarting();
 
   const store = await getSidecarStore();
+  assertStarting();
   await store.updateTask(taskId, { batchId: null });
+  assertStarting();
 
   let prompt = taskRecord.title;
   if (taskRecord.description) {
@@ -243,6 +263,7 @@ async function startAgentSession(
   // model) can no longer land in the gap and get silently swallowed until a
   // watchdog fires.
   await subscribeToSessionEvents(taskId, client, sessionId);
+  assertStarting();
 
   try {
     // T5 (R1 P1-5) — `session.prompt` blocks until the full assistant turn
@@ -254,6 +275,7 @@ async function startAgentSession(
     // from here on arrives only through the event stream, which is the one
     // path that already carries the double-finalize guard (claimFinalize).
     const promptResult = await client.session.promptAsync({
+      signal: AbortSignal.timeout(30_000),
       path: { id: sessionId },
       body: {
         parts: [{ type: 'text', text: prompt }],
@@ -263,6 +285,22 @@ async function startAgentSession(
 
     if (promptResult.error) {
       throw new Error(extractPromptErrorMessage(promptResult.error));
+    }
+
+    if (executionState.cancelled || activeExecutions.get(taskId) !== executionState) {
+      // A request already dispatched can be accepted after cancellation.
+      // Keep this attempt reserved until the late acceptance is reconciled.
+      executionState.cancelUnconfirmed = true;
+      try {
+        const stopped = await client.session.abort({ path: { id: sessionId }, signal: AbortSignal.timeout(5_000) });
+        if (stopped.error || stopped.data !== true) throw new Error('Provider did not confirm abort');
+        executionState.cancelUnconfirmed = false;
+      } catch {
+        executionState.cancelUnconfirmed = true;
+        activeExecutions.set(taskId, executionState);
+        throw new HttpError(503, 'CANCEL_INCOMPLETE', 'Late prompt acceptance could not be stopped; work retained');
+      }
+      throw new HttpError(409, 'EXECUTION_STOPPED', 'Execution was cancelled during prompt submission');
     }
 
     logger.info(`[Execution] Prompt accepted for session ${sessionId}`);
@@ -279,7 +317,11 @@ async function startAgentSession(
     // Reuses the one finalize path shared with the event stream (idempotency
     // guard included) rather than duplicating finalize/update/persist/cleanup
     // here.
-    await failExecutionFromEventStream(taskId, headline, msg);
+    if (!executionState.cancelled) {
+      await failExecutionFromEventStream(taskId, headline, msg);
+      executionState.finalized = true;
+    }
+    throw err instanceof Error ? err : new Error(msg);
   }
 }
 
@@ -322,39 +364,36 @@ async function getModelOverride(
 }
 
 export async function executeTask({ taskId, userId }: ExecuteTaskParams): Promise<{ success: boolean; error?: string; code?: string }> {
-  const result = await gatherExecutionInputs({ taskId, userId });
-  if (result.error || !result.inputs) {
-    pendingExecutions.delete(taskId);
-    return { success: false, error: result.error };
+  // Reserve before the first await. A duplicate caller never owns or releases
+  // the original attempt's reservation.
+  if (activeExecutions.has(taskId) || pendingExecutions.has(taskId) || pendingBatchTasks.has(taskId) || taskHasActiveBatch(taskId)) {
+    return { success: false, error: 'Task is already running', code: 'TASK_ALREADY_RUNNING' };
   }
-
-  const inputs = result.inputs;
-
-  // T9 (H-23) — restored preflight: fail fast, before the expensive clone,
-  // when no model can be resolved at all. Only runs when the task has no
-  // per-task override — an explicit `Task.model` is trusted as-is.
-  if (!inputs.taskRecord.model) {
-    try {
-      const preflight = await ensureModelConfigured(inputs.userId);
-      if (!preflight.model) {
-        pendingExecutions.delete(taskId);
-        const error = preflight.hasProvider
-          ? 'A provider is connected but no model is selected. Choose a model in Settings → AI Providers.'
-          : 'No AI provider is configured. Connect one in Settings → AI Providers before running tasks.';
-        return { success: false, error, code: 'MODEL_NOT_CONFIGURED' };
-      }
-    } catch (err) {
-      // Best-effort: a transient OpenCode hiccup during the *check* should
-      // not itself block a run that might otherwise succeed.
-      logger.warn({ err, taskId }, '[Execution] Model preflight check failed; continuing without it');
-    }
-  }
-
+  pendingExecutions.add(taskId);
+  let inputs: ExecutionInputs | undefined;
+  let executionState: ExecutionState | undefined;
   try {
-    const clientPromise = getClientForUser(inputs.userId, inputs.repoPath);
+    const result = await gatherExecutionInputs({ taskId, userId });
+    if (result.error || !result.inputs) return { success: false, error: result.error };
+    inputs = result.inputs;
+
+    if (!inputs.taskRecord.model) {
+      try {
+        const preflight = await ensureModelConfigured(inputs.userId);
+        if (!preflight.model) {
+          const error = preflight.hasProvider
+            ? 'A provider is connected but no model is selected. Choose a model in Settings → AI Providers.'
+            : 'No AI provider is configured. Connect one in Settings → AI Providers before running tasks.';
+          return { success: false, error, code: 'MODEL_NOT_CONFIGURED' };
+        }
+      } catch (err) {
+        logger.warn({ err, taskId }, '[Execution] Model preflight check failed; continuing without it');
+      }
+    }
+
     await setupRepository(inputs);
     broadcastProgress(taskId, 'executing', 'Starting OpenCode agent...');
-    const client = await clientPromise;
+    const client = await getClientForUser(inputs.userId, inputs.repoPath);
 
     const sessionResponse = await client.session.create({
       body: { title: inputs.taskRecord.title },
@@ -364,8 +403,7 @@ export async function executeTask({ taskId, userId }: ExecuteTaskParams): Promis
     const sessionId = sessionResponse.data?.id;
     if (!sessionId) {
       logger.error(`[Execution] Failed to create session for task ${taskId.slice(0, 8)}`);
-      pendingExecutions.delete(taskId);
-      return { success: false, error: 'Failed to create OpenCode session' };
+      throw new Error('Failed to create OpenCode session');
     }
 
     logger.info(`[Execution] Session ${sessionId} created for task ${taskId.slice(0, 8)}`);
@@ -376,7 +414,7 @@ export async function executeTask({ taskId, userId }: ExecuteTaskParams): Promis
     const modelInfo = await getModelOverride(inputs.taskRecord, client);
     const modelLabel = modelInfo?.label || 'unknown';
 
-    const runnerId = resolveAgentId({
+    const runnerId = requireLegacyRunner({
       taskAgent: inputs.taskRecord.agent,
       projectDefaultAgent: inputs.taskRecord.project?.defaultAgent,
     });
@@ -387,18 +425,38 @@ export async function executeTask({ taskId, userId }: ExecuteTaskParams): Promis
       model: modelLabel,
     });
 
-    const executionState = initializeExecution(inputs, client, sessionId, agentRunId);
-    pendingExecutions.delete(taskId);
-
+    executionState = initializeExecution(inputs, client, sessionId, agentRunId);
     await startAgentSession(inputs, executionState, modelInfo);
 
     logger.info(`[Execution] Started for task ${taskId} in ${inputs.repoPath}`);
     return { success: true };
   } catch (error) {
-    pendingExecutions.delete(taskId);
+    if (executionState && !executionState.cancelled && !executionState.finalized && activeExecutions.get(taskId) === executionState) {
+      try {
+        await failExecutionFromEventStream(
+          taskId,
+          'Failed to initialize agent execution',
+          error instanceof Error ? error.message : String(error),
+        );
+      } catch (finalizeError) {
+        logger.error({ err: finalizeError, taskId }, '[Execution] Failed to finalize execution setup failure');
+      }
+    }
+    // The finalizer must release active execution state before its checkout
+    // can be reclaimed. Local projects have no owned handle and must never
+    // be removed here.
+    if (inputs?.workspace && (!executionState || activeExecutions.get(taskId) !== executionState)) {
+      try {
+        await releaseLocalWorktree(inputs.workspace);
+      } catch (cleanupError) {
+        logger.error({ err: cleanupError, taskId }, '[Execution] Failed to release worktree after setup failure');
+      }
+    }
     logger.error({ err: error, taskId }, `[Execution] Failed to execute task ${taskId}`);
     broadcastProgress(taskId, 'error', error instanceof Error ? error.message : 'Execution failed');
-    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error', ...(isHttpError(error) ? { code: error.code } : {}) };
+  } finally {
+    pendingExecutions.delete(taskId);
   }
 }
 
@@ -412,11 +470,12 @@ export async function cancelTask(taskId: string): Promise<{ success: boolean; er
   // T5 — share the same finalize claim as the event-driven paths. Without
   // this, a cancel racing a same-tick `session.idle`/`session.error` could
   // both run to completion and finalize the AgentRun/task status twice.
-  if (!claimFinalize(taskId)) {
+  if (!execution.cancelUnconfirmed && !claimFinalize(taskId)) {
     return { success: false, error: 'Task is already finalizing' };
   }
 
   execution.cancelled = true;
+  execution.cancelUnconfirmed = true;
 
   const now = new Date();
   const elapsedMs = now.getTime() - execution.startedAt.getTime();
@@ -428,32 +487,25 @@ export async function cancelTask(taskId: string): Promise<{ success: boolean; er
     estimatedProgress,
   });
 
-  await updateTaskStatus(taskId, 'cancelled', null, {
-    executionPausedAt: now,
-    executionElapsedMs: elapsedMs,
-    executionProgress: estimatedProgress,
-  });
-
+  let persistenceError: unknown;
   try {
-    const session = {
-      externalId: execution.sessionId,
-      events: { async *[Symbol.asyncIterator]() { /* cancelled */ } },
-      interrupt: async () => {
-        const interrupt = (execution.client.session as { interrupt?: (args: unknown) => Promise<unknown> }).interrupt;
-        if (interrupt) await interrupt({ path: { id: execution.sessionId } });
-      },
-      abort: async () => {
-        await execution.client.session.abort({ path: { id: execution.sessionId } });
-      },
-      replyPermission: async () => undefined,
-    };
-    await cancelRun({ session });
+    await updateTaskStatus(taskId, 'cancelled', null, {
+      executionPausedAt: now,
+      executionElapsedMs: elapsedMs,
+      executionProgress: estimatedProgress,
+    });
+  } catch (error) { persistenceError = error; }
+  try {
+    const result = await execution.client.session.abort({ path: { id: execution.sessionId }, signal: AbortSignal.timeout(5_000) });
+    if (result.error || result.data !== true) throw new Error('Provider did not confirm abort');
+    if (persistenceError) throw persistenceError;
+    await finalizeAgentRun(execution, 'cancelled', { errorMessage: 'cancelled by user' });
+    await persistLogs(taskId);
   } catch (error) {
     logger.error({ err: error, taskId }, `[Execution] Abort call failed for task ${taskId}`);
+    return { success: false, error: 'Cancellation could not be confirmed; execution remains reserved' };
   }
-
-  await finalizeAgentRun(execution, 'cancelled', { errorMessage: 'cancelled by user' });
-  await persistLogs(taskId);
+  execution.cancelUnconfirmed = false;
   await cleanupExecution(taskId);
   return { success: true };
 }

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
+  assertTaskOwned: vi.fn(),
   repositoryFindUnique: vi.fn(),
   projectFindUnique: vi.fn(),
   taskFindUnique: vi.fn(),
@@ -36,6 +37,7 @@ vi.mock('@openlinear/api/sse', () => ({
   broadcastToTask: mocks.broadcastToTask,
   broadcastToTaskById: mocks.broadcastToTaskById,
 }));
+vi.mock('@openlinear/api/ownership', () => ({ assertTaskOwned: mocks.assertTaskOwned }));
 
 vi.mock('../delta-buffer', () => ({
   appendTextDelta: mocks.appendTextDelta,
@@ -78,7 +80,7 @@ function makeExecution(overrides = {}) {
     streamTimeoutId: null,
     status: 'executing',
     logs: [],
-    client: { session: { abort: vi.fn().mockResolvedValue({}) } },
+    client: { session: { abort: vi.fn().mockResolvedValue({ data: true }) } },
     startedAt: new Date(Date.now() - 60_000),
     filesChanged: 0,
     toolsExecuted: 0,
@@ -108,6 +110,7 @@ function clientFor(events) {
       subscribe: vi.fn().mockResolvedValue({
         stream: {
           async *[Symbol.asyncIterator]() {
+            yield { type: 'server.connected', properties: {} };
             for (const event of events) {
               yield event;
             }
@@ -117,7 +120,7 @@ function clientFor(events) {
       }),
     },
     session: {
-      abort: vi.fn().mockResolvedValue({}),
+      abort: vi.fn().mockResolvedValue({ data: true }),
     },
   };
 }
@@ -153,6 +156,7 @@ describe('execution event workflow', () => {
     }
     mocks.broadcastToTaskById.mockResolvedValue(undefined);
     mocks.broadcastToTask.mockReturnValue(undefined);
+    mocks.assertTaskOwned.mockResolvedValue({ id: 'task-1', projectId: 'project-1', teamId: 'team-1', creatorId: 'user-1', archived: false, status: 'in_progress' });
     mocks.markThinking.mockReturnValue(true);
     mocks.taskUpdate.mockResolvedValue({ id: 'task-1', labels: [] });
     mocks.executeRaw.mockResolvedValue(1);
@@ -205,7 +209,7 @@ describe('execution event workflow', () => {
       prUrl: 'https://github.com/acme/repo/pull/1',
     });
     expect(mocks.taskUpdate).toHaveBeenCalledWith(expect.objectContaining({
-      where: { id: 'task-1' },
+      where: { id: 'task-1', sessionId: 'ses_1', status: 'in_progress' },
       data: expect.objectContaining({
         status: 'done',
         sessionId: null,
@@ -262,6 +266,7 @@ describe('execution event workflow', () => {
         return Promise.resolve();
       }),
       async *[Symbol.asyncIterator]() {
+        yield { type: 'server.connected', properties: {} };
         yield {
           type: 'message.part.updated',
           properties: {
@@ -284,7 +289,7 @@ describe('execution event workflow', () => {
         subscribe: vi.fn().mockResolvedValue({ stream }),
       },
       session: {
-        abort: vi.fn().mockResolvedValue({}),
+        abort: vi.fn().mockResolvedValue({ data: true }),
       },
     };
     execution.client = client;
@@ -328,27 +333,25 @@ describe('execution event workflow', () => {
     await state.cleanupExecution('task-1');
   });
 
-  it('creates compare-link completions when GitHub PR creation falls back', async () => {
+  it('does not complete a task when publication returns a compare link', async () => {
     mocks.createPullRequest.mockResolvedValueOnce({
-      url: 'https://github.com/acme/repo/compare/main...openlinear/task-1',
-      type: 'compare',
+      url: 'https://github.com/acme/repo/compare/main...openlinear/task-1', type: 'compare',
     });
-
-    await runEvents([
+    const { execution } = await runEvents([
       { type: 'session.idle', properties: { sessionID: 'ses_1' } },
     ], { filesChanged: 2, toolsExecuted: 3 });
-
-    expect(mocks.broadcastToTask).toHaveBeenCalledWith(
-      'execution:progress',
-      expect.objectContaining({ id: 'task-1' }),
-      expect.objectContaining({
-        status: 'done',
-        message: 'Changes pushed successfully',
-        prUrl: 'https://github.com/acme/repo/compare/main...openlinear/task-1',
-        isCompareLink: true,
-      }),
-    );
+    expect(mocks.broadcastToTask.mock.calls.some(([type, _audience, payload]) => type === 'execution:progress' && payload.status === 'done')).toBe(false);
+    expect(mocks.taskUpdate.mock.calls.some(([input]) => input.data.status === 'done')).toBe(false);
+    expect(mocks.finalizeAgentRun).toHaveBeenCalledWith(execution, 'failed', expect.objectContaining({ errorMessage: expect.stringContaining('not confirmed') }));
   });
+
+  it('does not emit done when task completion persistence fails', async () => {
+    mocks.taskUpdate.mockRejectedValueOnce(new Error('terminal DB write failed'));
+    await runEvents([{ type: 'session.idle', properties: { sessionID: 'ses_1' } }]);
+    expect(mocks.broadcastToTask.mock.calls.some(([type, _audience, payload]) => type === 'execution:progress' && payload.status === 'done')).toBe(false);
+    expect(mocks.finalizeAgentRun.mock.calls.some(([_execution, result]) => result === 'succeeded')).toBe(false);
+  });
+
 
   it('fails completed sessions when no committable changes remain', async () => {
     mocks.commitAndPush.mockResolvedValueOnce({ status: 'no_changes' });
@@ -429,7 +432,7 @@ describe('execution event workflow', () => {
     expect(mocks.taskUpdate).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({
         status: 'cancelled',
-        outcome: 'github down',
+        outcome: 'github down. Work retained on openlinear/task-1 at /repo',
       }),
     }));
   });
@@ -440,6 +443,7 @@ describe('execution event workflow', () => {
     });
     const stream = {
       async *[Symbol.asyncIterator]() {
+        yield { type: 'server.connected', properties: {} };
         throw new Error('socket closed');
       },
       return: vi.fn(),
@@ -462,7 +466,7 @@ describe('execution event workflow', () => {
     });
   });
 
-  it('cancels executions when event subscription itself fails', async () => {
+  it('quarantines execution when subscription and provider abort both fail', async () => {
     const execution = makeExecution();
     const client = {
       event: { subscribe: vi.fn().mockRejectedValue(new Error('subscribe failed')) },
@@ -472,12 +476,33 @@ describe('execution event workflow', () => {
     state.activeExecutions.set('task-1', execution);
     state.sessionToTask.set('ses_1', 'task-1');
 
-    await subscribeToSessionEvents('task-1', client, 'ses_1');
+    await expect(subscribeToSessionEvents('task-1', client, 'ses_1')).rejects.toThrow('subscribe failed');
 
     expect(mocks.finalizeAgentRun).toHaveBeenCalledWith(execution, 'failed', {
       errorMessage: 'Failed to subscribe to agent events: subscribe failed',
     });
-    expect(state.activeExecutions.has('task-1')).toBe(false);
+    expect(state.activeExecutions.has('task-1')).toBe(true);
+    expect(execution.cancelUnconfirmed).toBe(true);
+  });
+
+  it.each([{}, { data: false }])('retains a failed execution for an unconfirmed abort response %j', async (response) => {
+    const execution = makeExecution();
+    const client = clientFor([{ type: 'session.error', properties: { sessionID: 'ses_1', error: 'provider failed' } }]);
+    client.session.abort.mockResolvedValueOnce(response);
+    execution.client = client;
+    state.activeExecutions.set('task-1', execution); state.sessionToTask.set('ses_1', 'task-1');
+    await subscribeToSessionEvents('task-1', client, 'ses_1');
+    await waitFor(() => mocks.finalizeAgentRun.mock.calls.length > 0);
+    expect(state.activeExecutions.get('task-1')).toBe(execution);
+    expect(execution.cancelUnconfirmed).toBe(true);
+  });
+
+  it('rechecks task access before committing or publishing a completed turn', async () => {
+    mocks.assertTaskOwned.mockRejectedValueOnce(new Error('access revoked'));
+    await runEvents([{ type: 'session.idle', properties: { sessionID: 'ses_1' } }]);
+    expect(mocks.commitAndPush).not.toHaveBeenCalled();
+    expect(mocks.createPullRequest).not.toHaveBeenCalled();
+    expect(mocks.taskUpdate.mock.calls.some(([input]) => input.data.status === 'done')).toBe(false);
   });
 
   it('tracks background task completion, tool states, reasoning, and retry status', async () => {
@@ -776,6 +801,7 @@ describe('execution event workflow', () => {
     state.activeExecutions.set('task-1', execution);
     const stream = {
       async *[Symbol.asyncIterator]() {
+        yield { type: 'server.connected', properties: {} };
         yield { type: 'session.status', properties: { sessionID: 'ses_1', status: { type: 'busy' } } };
         yield { type: 'message.part.updated', properties: { sessionID: 'ses_1', part: { type: 'text' }, delta: 'ignored' } };
         yield { type: 'tool.execute.before', properties: { sessionID: 'ses_1', tool: 'write' } };
@@ -788,11 +814,11 @@ describe('execution event workflow', () => {
     };
     const client = {
       event: { subscribe: vi.fn().mockResolvedValue({ stream }) },
-      session: { abort: vi.fn().mockResolvedValue({}) },
+      session: { abort: vi.fn().mockResolvedValue({ data: true }) },
     };
 
     await subscribeToSessionEvents('task-1', client, 'ses_1');
-    await waitFor(() => done);
+    expect(done).toBe(false);
 
     expect(mocks.appendTextDelta).not.toHaveBeenCalled();
     expect(mocks.finalizeAgentRun).not.toHaveBeenCalled();
@@ -800,26 +826,41 @@ describe('execution event workflow', () => {
   });
 
   it('handles session mappings that outlive active execution state', async () => {
-    // sessionToTask.set is a Proxy no-op; the mapping is registered by
-    // activeExecutions.set → executionStore.set (state.ts:130-132).
     const execution = makeExecution();
+    let releaseEvent;
+    let streamClosed = false;
+    const eventReady = new Promise((resolve) => { releaseEvent = resolve; });
     const stream = {
       async *[Symbol.asyncIterator]() {
-        yield { type: 'session.status', properties: { sessionID: 'ses_1', status: { type: 'busy' } } };
+        yield { type: 'server.connected', properties: {} };
+        try {
+          await eventReady;
+          yield { type: 'session.status', properties: { sessionID: 'ses_1', status: { type: 'busy' } } };
+        } finally {
+          streamClosed = true;
+        }
       },
     };
     const client = {
       event: { subscribe: vi.fn().mockResolvedValue({ stream }) },
-      session: { abort: vi.fn().mockResolvedValue({}) },
+      session: { abort: vi.fn().mockResolvedValue({ data: true }) },
     };
     execution.client = client;
     state.activeExecutions.set('task-1', execution);
 
     await subscribeToSessionEvents('task-1', client, 'ses_1');
-    await Promise.resolve();
-    await Promise.resolve();
+    await state.cleanupExecution('task-1');
+    // Restore a stale mapping deliberately: normal cleanup removes it, but
+    // the legacy mapping API can recreate it while a buffered frame arrives.
+    state.sessionToTask.set('ses_1', 'task-1');
+    expect(state.sessionToTask.get('ses_1')).toBe('task-1');
+    releaseEvent();
+    await waitFor(() => streamClosed);
 
     expect(mocks.markThinking).not.toHaveBeenCalled();
+    expect(mocks.finalizeAgentRun).not.toHaveBeenCalled();
+    expect(mocks.taskUpdate).not.toHaveBeenCalled();
+    expect(state.activeExecutions.has('task-1')).toBe(false);
   });
 
   it('exercises stale session mappings for completed tool, error, and file events', async () => {
@@ -870,12 +911,13 @@ describe('execution event workflow', () => {
     const execution = makeExecution();
     const stream = {
       async *[Symbol.asyncIterator]() {
+        yield { type: 'server.connected', properties: {} };
         await new Promise(() => undefined);
       },
     };
     const client = {
       event: { subscribe: vi.fn().mockResolvedValue({ stream }) },
-      session: { abort: vi.fn().mockResolvedValue({}) },
+      session: { abort: vi.fn().mockResolvedValue({ data: true }) },
     };
     execution.client = client;
     state.activeExecutions.set('task-1', execution);
@@ -956,13 +998,14 @@ describe('execution event workflow', () => {
     const execution = makeExecution();
     const stream = {
       async *[Symbol.asyncIterator]() {
+        yield { type: 'server.connected', properties: {} };
         throw new Error('socket closed');
       },
       return: vi.fn(),
     };
     const client = {
       event: { subscribe: vi.fn().mockResolvedValue({ stream }) },
-      session: { abort: vi.fn().mockResolvedValue({}) },
+      session: { abort: vi.fn().mockResolvedValue({ data: true }) },
     };
     execution.client = client;
     mocks.hasCommittableChanges.mockRejectedValueOnce(new Error('status failed'));
@@ -982,6 +1025,7 @@ describe('execution event workflow', () => {
     try {
       const hanging = {
         async *[Symbol.asyncIterator]() {
+          yield { type: 'server.connected', properties: {} };
           await new Promise(() => undefined);
         },
         return: vi.fn(),
@@ -993,7 +1037,7 @@ describe('execution event workflow', () => {
             .mockResolvedValueOnce({ stream: hanging })
             .mockRejectedValueOnce(new Error('reconnect failed')),
         },
-        session: { abort: vi.fn().mockResolvedValue({}) },
+        session: { abort: vi.fn().mockResolvedValue({ data: true }) },
       };
       execution.client = client;
       mocks.hasCommittableChanges.mockResolvedValueOnce(false);
@@ -1014,10 +1058,10 @@ describe('execution event workflow', () => {
   it('ignores subscription failures after execution state has already gone away', async () => {
     const client = {
       event: { subscribe: vi.fn().mockRejectedValue(new Error('subscribe failed')) },
-      session: { abort: vi.fn().mockResolvedValue({}) },
+      session: { abort: vi.fn().mockResolvedValue({ data: true }) },
     };
 
-    await subscribeToSessionEvents('task-1', client, 'ses_1');
+    await expect(subscribeToSessionEvents('task-1', client, 'ses_1')).rejects.toThrow('subscribe failed');
 
     expect(mocks.finalizeAgentRun).not.toHaveBeenCalled();
   });
@@ -1026,13 +1070,14 @@ describe('execution event workflow', () => {
     const execution = makeExecution();
     const stream = {
       async *[Symbol.asyncIterator]() {
+        yield { type: 'server.connected', properties: {} };
         throw 'socket closed';
       },
       return: vi.fn(),
     };
     const client = {
       event: { subscribe: vi.fn().mockResolvedValue({ stream }) },
-      session: { abort: vi.fn().mockResolvedValue({}) },
+      session: { abort: vi.fn().mockResolvedValue({ data: true }) },
     };
     execution.client = client;
     mocks.hasCommittableChanges.mockResolvedValueOnce(false);
@@ -1049,13 +1094,13 @@ describe('execution event workflow', () => {
     const second = makeExecution();
     const badClient = {
       event: { subscribe: vi.fn().mockRejectedValue('subscribe failed') },
-      session: { abort: vi.fn().mockResolvedValue({}) },
+      session: { abort: vi.fn().mockResolvedValue({ data: true }) },
     };
     second.client = badClient;
     state.activeExecutions.set('task-1', second);
     state.sessionToTask.set('ses_1', 'task-1');
 
-    await subscribeToSessionEvents('task-1', badClient, 'ses_1');
+    await expect(subscribeToSessionEvents('task-1', badClient, 'ses_1')).rejects.toBe('subscribe failed');
 
     expect(mocks.finalizeAgentRun).toHaveBeenCalledWith(second, 'failed', {
       errorMessage: 'Failed to subscribe to agent events: subscribe failed',

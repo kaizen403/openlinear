@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
     branch: `openlinear/${runId}`,
   })),
   assertStagingAllowlist: vi.fn(async () => undefined),
+  assertStagedAllowlist: vi.fn(),
   existsSync: vi.fn(() => false),
   mkdirSync: vi.fn(),
   rmSync: vi.fn(),
@@ -44,8 +45,10 @@ vi.mock('../repo-storage', () => ({
 vi.mock('../../workspace/local-worktree', () => ({
   acquireLocalWorktree: mocks.acquireLocalWorktree,
 }));
-vi.mock('../../engine/staging-allowlist', () => ({
+vi.mock('../../engine/staging-allowlist', async (importActual) => ({
+  ...(await importActual()),
   assertStagingAllowlist: mocks.assertStagingAllowlist,
+  assertStagedAllowlist: mocks.assertStagedAllowlist,
 }));
 
 const {
@@ -70,6 +73,10 @@ describe('execution git helpers', () => {
     mocks.getGitIdentityEnv.mockReturnValue({ GIT_AUTHOR_NAME: 'OpenLinear' });
     mocks.assertPathInsideReposDir.mockImplementation((path) => path);
     mocks.assertStagingAllowlist.mockResolvedValue(undefined);
+    mocks.assertStagedAllowlist.mockImplementation(async (repoPath) => {
+      const { stdout } = await mocks.execGit(['-C', repoPath, 'diff', '--cached', '--no-renames', '--name-only', '-z']);
+      return stdout.split('\0').filter(Boolean);
+    });
     mocks.acquireLocalWorktree.mockImplementation(async ({ runId }) => ({
       kind: 'local-worktree',
       runId,
@@ -82,22 +89,22 @@ describe('execution git helpers', () => {
   });
 
   it('ignores runtime artifacts when detecting committable changes', async () => {
-    mocks.execGit.mockResolvedValueOnce({ stdout: '?? .sisyphus/state.json\n', stderr: '' });
+    mocks.execGit.mockResolvedValueOnce({ stdout: '?? .sisyphus/state.json\0', stderr: '' });
     await expect(hasCommittableChanges('/repo')).resolves.toBe(false);
 
-    mocks.execGit.mockResolvedValueOnce({ stdout: 'R  old.ts -> src/new.ts\n', stderr: '' });
+    mocks.execGit.mockResolvedValueOnce({ stdout: 'R  src/new.ts\0old.ts\0', stderr: '' });
     await expect(hasCommittableChanges('/repo')).resolves.toBe(true);
 
-    mocks.execGit.mockResolvedValueOnce({ stdout: 'R  old.ts -> \n', stderr: '' });
-    await expect(hasCommittableChanges('/repo')).resolves.toBe(true);
+    mocks.execGit.mockResolvedValueOnce({ stdout: 'R  target.ts\0', stderr: '' });
+    await expect(hasCommittableChanges('/repo')).rejects.toThrow('rename/copy');
 
-    mocks.execGit.mockResolvedValueOnce({ stdout: '?? \n', stderr: '' });
-    await expect(hasCommittableChanges('/repo')).resolves.toBe(true);
+    mocks.execGit.mockResolvedValueOnce({ stdout: '?? \0', stderr: '' });
+    await expect(hasCommittableChanges('/repo')).rejects.toThrow('Invalid Git');
 
-    mocks.execGit.mockResolvedValueOnce({ stdout: ' M .sisyphus\n', stderr: '' });
+    mocks.execGit.mockResolvedValueOnce({ stdout: ' M .sisyphus\0', stderr: '' });
     await expect(hasCommittableChanges('/repo')).resolves.toBe(false);
 
-    mocks.execGit.mockResolvedValueOnce({ stdout: ' M src\\windows.ts\n', stderr: '' });
+    mocks.execGit.mockResolvedValueOnce({ stdout: ' M src\\windows.ts\0', stderr: '' });
     await expect(hasCommittableChanges('/repo')).resolves.toBe(true);
   });
 
@@ -105,7 +112,7 @@ describe('execution git helpers', () => {
     mocks.execGit
       .mockResolvedValueOnce({ stdout: '', stderr: '' })
       .mockResolvedValueOnce({ stdout: '', stderr: '' })
-      .mockResolvedValueOnce({ stdout: 'src/index.ts\n', stderr: '' });
+      .mockResolvedValueOnce({ stdout: 'src/index.ts\0', stderr: '' });
 
     await expect(stageCommittableChanges('/repo')).resolves.toBe(true);
 
@@ -125,7 +132,7 @@ describe('execution git helpers', () => {
     mocks.execGit
       .mockResolvedValueOnce({ stdout: '', stderr: '' })
       .mockRejectedValueOnce(new Error('nothing to reset'))
-      .mockResolvedValueOnce({ stdout: 'src/index.ts\n', stderr: '' });
+      .mockResolvedValueOnce({ stdout: 'src/index.ts\0', stderr: '' });
 
     await expect(stageCommittableChanges('/repo')).resolves.toBe(true);
   });
@@ -134,7 +141,7 @@ describe('execution git helpers', () => {
     mocks.existsSync.mockReturnValueOnce(false);
     mocks.execGitWithCredentials.mockResolvedValue(undefined);
 
-    await cloneRepository('https://github.com/acme/repo.git', '/tmp/openlinear-repos/repo', 'token', 'main');
+    const handle = await cloneRepository('https://github.com/acme/repo.git', '/tmp/openlinear-repos/repo', 'token', 'main');
 
     expect(mocks.assertSafeCloneUrl).toHaveBeenCalledWith('https://github.com/acme/repo.git', 'clone URL');
     expect(mocks.assertSafeRefName).toHaveBeenCalledWith('main', 'default branch');
@@ -143,6 +150,9 @@ describe('execution git helpers', () => {
       baseRef: 'main',
       accessToken: 'token',
     }));
+    expect(handle.worktreePath).toBe(`/tmp/openlinear-repos/worktrees/${handle.runId}`);
+    expect(handle.worktreePath).not.toBe('/tmp/openlinear-repos/repo');
+    expect(handle.runId).toMatch(/^[0-9a-f-]{36}$/);
   });
 
   it('rejects an unsafe clone URL before touching the filesystem', async () => {
@@ -197,10 +207,10 @@ describe('execution git helpers', () => {
 
   it('commits and pushes when staged changes exist, using the fetched remote SHA as the lease', async () => {
     mocks.execGit
-      .mockResolvedValueOnce({ stdout: ' M src/index.ts\n', stderr: '' }) // status
+      .mockResolvedValueOnce({ stdout: ' M src/index.ts\0', stderr: '' }) // status
       .mockResolvedValueOnce({ stdout: '', stderr: '' }) // add
       .mockResolvedValueOnce({ stdout: '', stderr: '' }) // reset
-      .mockResolvedValueOnce({ stdout: 'src/index.ts\n', stderr: '' }) // diff --cached
+      .mockResolvedValueOnce({ stdout: 'src/index.ts\0', stderr: '' }) // diff --cached
       .mockResolvedValueOnce({ stdout: '', stderr: '' }) // commit
       .mockResolvedValueOnce({ stdout: 'https://github.com/acme/repo.git\n', stderr: '' }) // remote get-url
       .mockResolvedValueOnce({ stdout: '', stderr: '' }) // fetch origin <branch>
@@ -235,10 +245,10 @@ describe('execution git helpers', () => {
 
   it('uses an empty expected lease value when the branch does not exist on the remote yet', async () => {
     mocks.execGit
-      .mockResolvedValueOnce({ stdout: ' M src/index.ts\n', stderr: '' }) // status
+      .mockResolvedValueOnce({ stdout: ' M src/index.ts\0', stderr: '' }) // status
       .mockResolvedValueOnce({ stdout: '', stderr: '' }) // add
       .mockResolvedValueOnce({ stdout: '', stderr: '' }) // reset
-      .mockResolvedValueOnce({ stdout: 'src/index.ts\n', stderr: '' }) // diff --cached
+      .mockResolvedValueOnce({ stdout: 'src/index.ts\0', stderr: '' }) // diff --cached
       .mockResolvedValueOnce({ stdout: '', stderr: '' }) // commit
       .mockResolvedValueOnce({ stdout: 'https://github.com/acme/repo.git\n', stderr: '' }) // remote get-url
       .mockRejectedValueOnce(new Error('fatal: couldn\'t find remote ref')); // fetch fails: branch is new
@@ -266,7 +276,7 @@ describe('execution git helpers', () => {
   });
 
   it('returns no_changes before committing when nothing relevant changed', async () => {
-    mocks.execGit.mockResolvedValueOnce({ stdout: '?? .sisyphus/tmp\n', stderr: '' });
+    mocks.execGit.mockResolvedValueOnce({ stdout: '?? .sisyphus/tmp\0', stderr: '' });
 
     await expect(commitAndPush('/repo', 'branch', 'Task')).resolves.toEqual({ status: 'no_changes' });
 
@@ -275,7 +285,7 @@ describe('execution git helpers', () => {
 
   it('returns no_changes when only runtime artifacts remain after staging', async () => {
     mocks.execGit
-      .mockResolvedValueOnce({ stdout: ' M src/index.ts\n', stderr: '' })
+      .mockResolvedValueOnce({ stdout: ' M src/index.ts\0', stderr: '' })
       .mockResolvedValueOnce({ stdout: '', stderr: '' })
       .mockResolvedValueOnce({ stdout: '', stderr: '' })
       .mockResolvedValueOnce({ stdout: '', stderr: '' });
@@ -314,32 +324,17 @@ describe('execution git helpers', () => {
     });
   });
 
-  it('creates pull requests or falls back to compare links', async () => {
-    await expect(createPullRequest('acme/repo', 'feature', 'main', 'Task', null, null)).resolves.toEqual({
-      url: 'https://github.com/acme/repo/compare/main...feature',
-      type: 'compare',
-    });
-
-    mocks.fetch.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({ html_url: 'https://github.com/acme/repo/pull/1' }),
-    });
+  it('returns only confirmed pull requests and propagates publication failures', async () => {
+    await expect(createPullRequest('acme/repo', 'feature', 'main', 'Task', null, null)).rejects.toThrow('authentication');
+    expect(mocks.fetch).not.toHaveBeenCalled();
+    mocks.fetch.mockResolvedValueOnce({ ok: true, json: async () => ({ html_url: 'https://github.com/acme/repo/pull/1' }) });
     await expect(createPullRequest('acme/repo', 'feature', 'main', 'Task', 'Body', 'token')).resolves.toEqual({
-      url: 'https://github.com/acme/repo/pull/1',
-      type: 'pr',
+      url: 'https://github.com/acme/repo/pull/1', type: 'pr',
     });
-
-    mocks.fetch.mockResolvedValueOnce({ ok: false, text: async () => 'nope' });
-    await expect(createPullRequest('acme/repo', 'feature', 'main', 'Task', null, 'token')).resolves.toEqual({
-      url: 'https://github.com/acme/repo/compare/main...feature',
-      type: 'compare',
-    });
-
+    mocks.fetch.mockResolvedValueOnce({ ok: false, status: 403 });
+    await expect(createPullRequest('acme/repo', 'feature', 'main', 'Task', null, 'token')).rejects.toThrow('HTTP 403');
     mocks.fetch.mockRejectedValueOnce(new Error('network down'));
-    await expect(createPullRequest('acme/repo', 'feature', 'main', 'Task', null, 'token')).resolves.toEqual({
-      url: 'https://github.com/acme/repo/compare/main...feature',
-      type: 'compare',
-    });
+    await expect(createPullRequest('acme/repo', 'feature', 'main', 'Task', null, 'token')).rejects.toThrow('network down');
   });
 });
 
@@ -354,22 +349,22 @@ describe('GitService adapter', () => {
   });
 
   it('delegates clone to the underlying function', async () => {
-    mocks.execFileAsync.mockResolvedValue({ stdout: '', stderr: '' });
+    mocks.execGit.mockResolvedValue({ stdout: '', stderr: '' });
     mocks.execGitWithCredentials.mockResolvedValue(undefined);
-    await expect(gitService.clone('https://github.com/acme/repo.git', '/repo', 'token', 'main')).resolves.toBeUndefined();
+    await expect(gitService.clone('https://github.com/acme/repo.git', '/repo', 'token', 'main')).resolves.toMatchObject({ kind: 'local-worktree' });
   });
 
   it('delegates createBranch to the underlying function', async () => {
-    mocks.execFileAsync.mockResolvedValue({ stdout: '', stderr: '' });
+    mocks.execGit.mockResolvedValue({ stdout: '', stderr: '' });
     await expect(gitService.createBranch('/repo', 'feature')).resolves.toBeUndefined();
   });
 
   it('delegates commitAndPush to the underlying function', async () => {
-    mocks.execFileAsync
-      .mockResolvedValueOnce({ stdout: ' M src/index.ts\n', stderr: '' })
+    mocks.execGit
+      .mockResolvedValueOnce({ stdout: ' M src/index.ts\0', stderr: '' })
       .mockResolvedValueOnce({ stdout: '', stderr: '' })
       .mockResolvedValueOnce({ stdout: '', stderr: '' })
-      .mockResolvedValueOnce({ stdout: 'src/index.ts\n', stderr: '' })
+      .mockResolvedValueOnce({ stdout: 'src/index.ts\0', stderr: '' })
       .mockResolvedValueOnce({ stdout: '', stderr: '' })
       .mockResolvedValueOnce({ stdout: 'https://github.com/acme/repo.git\n', stderr: '' });
     mocks.execGitWithCredentials.mockResolvedValue(undefined);
@@ -388,12 +383,12 @@ describe('GitService adapter', () => {
   });
 
   it('delegates hasChanges to the underlying function', async () => {
-    mocks.execFileAsync.mockResolvedValue({ stdout: ' M src/index.ts\n', stderr: '' });
+    mocks.execGit.mockResolvedValue({ stdout: ' M src/index.ts\0', stderr: '' });
     await expect(gitService.hasChanges('/repo')).resolves.toBe(true);
   });
 
   it('delegates stageChanges to the underlying function', async () => {
-    mocks.execFileAsync.mockResolvedValue({ stdout: ' M src/index.ts\n', stderr: '' });
+    mocks.execGit.mockResolvedValue({ stdout: ' M src/index.ts\0', stderr: '' });
     await expect(gitService.stageChanges('/repo')).resolves.toBe(true);
   });
 });

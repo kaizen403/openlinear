@@ -2083,3 +2083,42 @@ The sidecar was likely not running when login was attempted (single-tenant guard
 - Follow W01 for truthful runner selection, batch validation and publication outcomes; W02/W04 for authorization, immutable transactional events and idempotency; W03 for scoped API-only local bootstrap.
 - Prove W05/W06 durable FakeRunner execution jointly, then gate native runner/workspace integration on explicit trust or verified sandbox/credential capabilities. Preserve verified candidate commits and reconcile effects already dispatched during cancellation.
 - Full sandbox corpus, restart/fault recovery, six-hour soak and funded public/private benchmark runs remain pending. The master plan is complete as a planning deliverable; the backend programme is not represented as fully implemented.
+
+---
+
+## [2026-10-15] — Implement and verify the W01 legacy execution slice
+
+**Status:** Done for this implementation slice; backend programme In Progress
+**Agent:** Codex, with two GPT-6.1-sol helpers for scoped tests and review
+
+### What was done
+- Rejected unsupported or invalid legacy runner selections before execution; rejected archived, persisted-running and unlinked single tasks. Removed the global active-repository fallback. Kept synchronous single/batch admission reservations until their owning setup work settles.
+- Authorized every batch member against its fetched resource binding; validated IDs, repository/base consistency and model compatibility. Bound all members in one conditional transaction matching the exact selected status, project, team, creator, runner, model and repository settings. Revalidated queued members before setup and prompt submission.
+- Bounded parallel launch/refill and queue approvals; fenced late setup and prompt acceptance during cancellation. Required the pinned SDK's positive boolean abort receipt, retained uncertain attempts, and made cancellation retries wait for persistence, receipt and provider operations.
+- Required real, repository-matching GitHub PR receipts for single and batch success. Shared one POST/GET reconciliation implementation, including lost response bodies; removed compare-link success fallbacks. Kept batch members in progress until publication and atomic terminal persistence; emitted single-task done only after guarded persistence succeeds.
+- Added private, fsynced, atomic batch receipts outside worktrees, including repository/member/session/artifact bindings and redacted errors. Retained failed, skipped, cancelled and unconfirmed workspaces; preserved locked, dirty, unknown and partial artifacts when Git cleanup fails. Used detached merge workspaces and conditional target-ref advancement.
+- Refreshed batch mirror refs once per admission instead of once per member; materialized private blobs with scoped credentials. Used full attempt IDs for batch/member branches and absent-target publication leases.
+- Replaced line/quote parsing of Git status with literal NUL-delimited parsing and checked the actual index after staging. Covered rename source/destination, odd filenames, nested/deleted script-bearing manifests, symlinks and runtime-artifact exclusions with real Git.
+- Fixed lazy OpenCode SSE readiness for single tasks and batches: a received frame, bounded readiness, explicit abort and no hidden initial reconnect loop. Consolidated session errors through the guarded failure path; rejected immediate prompt failures instead of reporting a successful start.
+- Validation: sidecar 647 passed; PostgreSQL integration 9 passed; API 213 passed with 2 existing skips; execution-core 28 passed. API, sidecar, execution-core, MCP and desktop compatibility typechecks passed; diff checks passed. Total: 897 passing tests, excluding duplicate focused reruns.
+- Reused exactly two helpers; root authored production changes. The user explicitly authorized local commits during implementation. Recorded the plan/audit and first repairs in separate commits; the execution changes and updated validation ledger follow separately.
+
+### Files changed
+- `apps/sidecar/src/services/batch/{admission,orchestrator,completion,shared,publication}.ts` — selection, claims, cancellation, receipts and publication.
+- `apps/sidecar/src/services/github-publication.ts` — shared strict GitHub receipt and reconciliation contract.
+- `apps/sidecar/src/services/execution/{lifecycle,events,git,state}.ts`, `services/session-manager.ts`, `services/worktree.ts`, `engine/{resolve-agent,staging-allowlist}.ts` — truthful single execution, SDK readiness, safe Git and retention.
+- `apps/sidecar/src/routes/{batches,execution}.ts`, `packages/execution-core/src/batch/` — HTTP validation/awaits and additive batch status/artifact contracts.
+- New and updated sidecar tests, `vitest.integration.config.ts`, `vitest.config.ts`, `package.json` — offline SDK/HTTP/real-Git and explicit disposable-PostgreSQL coverage.
+- `docs/reports/backend-review-2026-10-15/w01-implementation.md`, master plan, validation ledger and Downloads files — current status, evidence and deferred frontend/cloud dependencies.
+
+### Issues encountered
+- Review found authorization/read races, a lost status update, pending member cancellation without ownership, false/missing abort acknowledgements, unsafe cleanup fallbacks and swallowed prompt errors; corrected and covered with regressions.
+- Inspecting the installed SDK exposed lazy SSE construction. Final publication review found the single-task compare-link success path and database errors previously swallowed; corrected both single and batch paths.
+- One failed mock assertion printed inherited environment values. Subsequent diagnostics were filtered and raw test diffs were not copied into committed reports or Downloads.
+- The first new timing run overlapped test load and is retained separately as a diagnostic. The isolated 30-trial component run passed with warm p95 92.21 ms and cold p95 488.26 ms; benchmarked source hashes match the earlier component baseline. These timings do not measure the changed legacy HTTP/model/publication path or prove a latency gain.
+
+### Next steps / blockers
+- W02–W04: centralized principal/resource policy, scoped API-only bootstrap, immutable events/outbox and idempotency. Then W05/W06: one durable run service, admission, recovery and external-effect reconciliation.
+- Receipts are inspection evidence, not a crash-recovery service. Reservations, cancellation quarantine, concurrency and cleanup coordination remain process-local; provider acknowledgement does not prove OS descendant termination.
+- Native coordinator routing, OS sandbox/credential separation, independent verification, full task-to-PR latency, soak and funded agent benchmark acceptance remain pending. Legacy failures still use the existing task status projection until the durable run-state migration.
+- No frontend source, deployment, live database, paid inference or remote push changes. Local disposable PostgreSQL is removed after final verification.

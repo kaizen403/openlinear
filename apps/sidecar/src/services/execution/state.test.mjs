@@ -229,10 +229,10 @@ describe('execution state helpers', () => {
     });
   });
 
-  it('logs task status update failures without throwing', async () => {
+  it('propagates task status update failures after logging', async () => {
     mocks.taskUpdate.mockRejectedValue(new Error('db down'));
 
-    await expect(state.updateTaskStatus('task-1', 'cancelled', null)).resolves.toBeUndefined();
+    await expect(state.updateTaskStatus('task-1', 'cancelled', null)).rejects.toThrow('db down');
 
     expect(mocks.loggerError).toHaveBeenCalledWith(
       { err: expect.any(Error), taskId: 'task-1' },

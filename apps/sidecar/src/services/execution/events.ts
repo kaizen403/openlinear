@@ -1,5 +1,6 @@
 import { prisma } from '@openlinear/db';
 import { logger } from '@openlinear/api/logger';
+import { assertTaskOwned } from '@openlinear/api/ownership';
 
 import type { OpencodeClient } from '@opencode-ai/sdk';
 import { appendTextDelta, appendReasoningDelta, flushDeltaBuffer, markThinking } from '../delta-buffer';
@@ -10,6 +11,7 @@ import {
 } from '../../utils/background-task';
 
 import { commitAndPush, createPullRequest, hasCommittableChanges } from './git';
+import { isGithubPullRequestUrl } from '../github-publication';
 import { finalizeAgentRun, recordMessageUsage } from './agent-run';
 import { processEvent, type EventProcessorState } from './event-stream-processor';
 import {
@@ -101,7 +103,7 @@ export function claimFinalize(taskId: string): boolean {
   return true;
 }
 
-export async function failExecutionFromEventStream(taskId: string, message: string, details?: string): Promise<void> {
+export async function failExecutionFromEventStream(taskId: string, message: string, details?: string, runErrorMessage?: string): Promise<void> {
   const execution = activeExecutions.get(taskId);
   if (!execution || execution.cancelled) return;
 
@@ -143,6 +145,7 @@ export async function failExecutionFromEventStream(taskId: string, message: stri
 
   execution.status = 'error';
   execution.cancelled = true;
+  execution.cancelUnconfirmed = true;
   clearAllWatchdogs(taskId);
 
   const elapsedMs = Date.now() - execution.startedAt.getTime();
@@ -153,19 +156,27 @@ export async function failExecutionFromEventStream(taskId: string, message: stri
   broadcastProgress(taskId, 'error', message);
 
   try {
-    await execution.client.session.abort({ path: { id: execution.sessionId } });
+    const response = await execution.client.session.abort({ path: { id: execution.sessionId }, signal: AbortSignal.timeout(5_000) });
+    if (response.error || response.data !== true) throw new Error('Provider did not confirm abort');
+    execution.cancelUnconfirmed = false;
   } catch (error) {
     logger.error({ err: error, taskId }, `[Execution] Abort after event stream failure failed for task ${taskId.slice(0, 8)}`);
   }
 
-  await finalizeAgentRun(execution, 'failed', { errorMessage: outcome });
-  await updateTaskStatus(taskId, 'cancelled', null, {
-    executionElapsedMs: elapsedMs,
-    executionProgress: estimatedProgress,
-    outcome,
-  });
-  await persistLogs(taskId);
-  await cleanupExecution(taskId);
+  try {
+    await finalizeAgentRun(execution, 'failed', { errorMessage: runErrorMessage ?? outcome });
+    await updateTaskStatus(taskId, 'cancelled', null, {
+      executionElapsedMs: elapsedMs,
+      executionPausedAt: new Date(),
+      executionProgress: estimatedProgress,
+      outcome,
+    });
+    await persistLogs(taskId);
+  } catch (error) {
+    execution.cancelUnconfirmed = true;
+    throw error;
+  } finally { execution.accessToken = null; }
+  if (!execution.cancelUnconfirmed) await cleanupExecution(taskId);
 }
 
 function resetTransportWatchdog(taskId: string, client: OpencodeClient, sessionId: string): void {
@@ -194,9 +205,11 @@ async function handleTransportTimeout(taskId: string, client: OpencodeClient, se
 
   logger.warn(`[Execution] transport watchdog expired for task ${taskId.slice(0, 8)}; attempting to re-subscribe`);
   try {
-    const events = await client.event.subscribe();
+    const previousCleanup = execution.eventStreamCleanup;
+    execution.eventStreamCleanup = undefined;
+    await previousCleanup?.();
+    await subscribeToSessionEvents(taskId, client, sessionId, EVENT_STREAM_TIMEOUT_MESSAGE);
     addLogEntry(taskId, 'info', 'Reconnected to the agent event stream after a silent period');
-    attachEventStream(taskId, client, sessionId, events.stream as unknown as ClosableEventStream);
   } catch (error) {
     await failExecutionFromEventStream(
       taskId,
@@ -336,8 +349,14 @@ async function handleSessionComplete(taskId: string, opts: { alreadyClaimed?: bo
   const elapsedMs = Date.now() - execution.startedAt.getTime();
   let prUrl: string | null = null;
   let outcome: string | null = null;
+  let completionPersisted = false;
 
   try {
+    if (!execution.userId) throw new Error('Execution has no authenticated owner');
+    const authority = await assertTaskOwned(taskId, execution.userId);
+    if (authority.archived || (execution.taskProjectId !== undefined && (
+      authority.projectId !== execution.taskProjectId || authority.teamId !== execution.teamId || authority.creatorId !== execution.creatorId
+    ))) throw new Error('Task access scope changed before publication');
     execution.status = 'committing';
     broadcastProgress(taskId, 'committing', 'Committing changes...');
     addLogEntry(taskId, 'info', 'Agent finished, committing changes...');
@@ -386,16 +405,11 @@ async function handleSessionComplete(taskId: string, opts: { alreadyClaimed?: bo
           execution.accessToken
         );
 
+        if (result.type !== 'pr' || !isGithubPullRequestUrl(result.url, repoInfo.fullName)) {
+          throw new Error('Pull request creation was not confirmed; pushed branch retained');
+        }
         prUrl = result.url;
         outcome = `${execution.filesChanged} file${execution.filesChanged !== 1 ? 's' : ''} changed, ${execution.toolsExecuted} tools executed`;
-
-        if (result.type === 'pr') {
-          addLogEntry(taskId, 'success', 'Pull request created', result.url);
-          broadcastProgress(taskId, 'done', 'Pull request created', { prUrl: result.url, isCompareLink: false });
-        } else {
-          addLogEntry(taskId, 'success', 'Changes pushed! Create PR here:', result.url);
-          broadcastProgress(taskId, 'done', 'Changes pushed successfully', { prUrl: result.url, isCompareLink: true });
-        }
       } else {
         execution.status = 'error';
         outcome = 'Changes committed but no repository linked to create PR';
@@ -436,14 +450,21 @@ async function handleSessionComplete(taskId: string, opts: { alreadyClaimed?: bo
       return;
     }
 
-    await finalizeAgentRun(execution, 'succeeded', { prUrl });
     await updateTaskStatus(taskId, 'done', null, {
       executionElapsedMs: elapsedMs,
       executionProgress: 100,
       prUrl,
       outcome,
     });
+    completionPersisted = true;
+    await finalizeAgentRun(execution, 'succeeded', { prUrl });
+    addLogEntry(taskId, 'success', 'Pull request created', prUrl ?? undefined);
+    broadcastProgress(taskId, 'done', 'Pull request created', { prUrl, isCompareLink: false });
   } catch (error) {
+    if (completionPersisted) {
+      logger.warn({ err: error, taskId }, '[Execution] Pull request and task completion persisted; follow-up notification or run update failed');
+      return;
+    }
     logger.error({ err: error, taskId }, '[Execution] Post-execution error');
     addLogEntry(taskId, 'error', 'Post-execution failed');
     broadcastProgress(taskId, 'error', 'Post-execution failed');
@@ -455,7 +476,7 @@ async function handleSessionComplete(taskId: string, opts: { alreadyClaimed?: bo
       executionElapsedMs: elapsedMs,
       executionPausedAt: new Date(),
       executionProgress: 100,
-      outcome: errorMessage,
+      outcome: `${errorMessage}. Work retained on ${execution.branchName} at ${execution.repoPath}${prUrl ? '; pull request ' + prUrl : ''}`,
     });
   } finally {
     await persistLogs(taskId);
@@ -579,18 +600,7 @@ async function handleOpenCodeEvent(event: { type: string; properties?: Record<st
         await failExecutionFromEventStream(taskId, action.message, action.details);
         break;
       case 'sessionError': {
-        if (!claimFinalize(taskId)) break;
-        clearAllWatchdogs(taskId);
-        addLogEntry(taskId, 'error', action.headline, action.errorDetail);
-        broadcastProgress(taskId, 'error', action.headline);
-        await finalizeAgentRun(execution, 'failed', { errorMessage: action.errorDetail });
-        const elapsedMs = Date.now() - execution.startedAt.getTime();
-        await updateTaskStatus(taskId, 'cancelled', null, {
-          executionElapsedMs: elapsedMs,
-          executionPausedAt: new Date(),
-        });
-        await persistLogs(taskId);
-        await cleanupExecution(taskId);
+        await failExecutionFromEventStream(taskId, action.headline, action.errorDetail, action.errorDetail);
         break;
       }
       case 'replyPermission':
@@ -633,11 +643,14 @@ function attachEventStream(
   client: OpencodeClient,
   sessionId: string,
   stream: ClosableEventStream,
+  lifecycle?: { ready: () => void; closed: (error: unknown) => void; abort: () => void },
 ): void {
   const execution = activeExecutions.get(taskId);
   if (!execution) return;
 
   const myCleanup = async () => {
+    lifecycle?.closed(new Error('Event subscription stopped'));
+    lifecycle?.abort();
     clearAllWatchdogs(taskId);
     if (typeof stream.return === 'function') {
       await stream.return();
@@ -651,6 +664,7 @@ function attachEventStream(
     let failureHandled = false;
     try {
       for await (const event of stream) {
+        lifecycle?.ready();
         // Liveness: ANY frame proves the transport is alive, whether or not
         // it belongs to this task's session — heartbeats carry no sessionID
         // at all, and another session's traffic on the same server-wide
@@ -677,6 +691,8 @@ function attachEventStream(
         }
       }
     } catch (error) {
+      lifecycle?.closed(error);
+      if (activeExecutions.get(taskId)?.eventStreamCleanup !== myCleanup) return;
       logger.error({ err: error, taskId }, `[Execution] Event stream error for task ${taskId.slice(0, 8)}`);
       failureHandled = true;
       await failExecutionFromEventStream(
@@ -685,6 +701,8 @@ function attachEventStream(
         error instanceof Error ? error.message : String(error),
       );
     } finally {
+      lifecycle?.closed(new Error('Agent event stream ended unexpectedly'));
+      lifecycle?.abort();
       const current = activeExecutions.get(taskId);
       // Only the loop instance that is still "current" acts on its own end.
       // A transport-watchdog re-subscribe replaces `eventStreamCleanup` with
@@ -699,20 +717,45 @@ function attachEventStream(
         }
       }
     }
-  })();
+  })().catch((error: unknown) => {
+    logger.error({ err: error, taskId }, '[Execution] Failed to persist event stream outcome');
+  });
 }
 
-export async function subscribeToSessionEvents(taskId: string, client: OpencodeClient, sessionId: string): Promise<void> {
+export async function subscribeToSessionEvents(taskId: string, client: OpencodeClient, sessionId: string, failureHeadline = 'Failed to subscribe to agent events'): Promise<void> {
+  const controller = new AbortController();
+  let resolveReady: () => void = () => undefined;
+  let rejectReady: (error: unknown) => void = () => undefined;
+  const ready = new Promise<void>((resolve, reject) => { resolveReady = resolve; rejectReady = reject; });
+  void ready.catch(() => undefined);
+  const timeout = setTimeout(() => {
+    rejectReady(new Error('Event stream readiness timed out'));
+    controller.abort();
+  }, 30_000);
+  timeout.unref();
   try {
-    const events = await client.event.subscribe();
-    attachEventStream(taskId, client, sessionId, events.stream as unknown as ClosableEventStream);
+    const events = await client.event.subscribe({
+      signal: controller.signal, sseMaxRetryAttempts: 1,
+      onSseEvent: () => resolveReady(),
+      onSseError: (error) => { throw error; },
+    });
+    const execution = activeExecutions.get(taskId);
+    if (!execution || execution.cancelled || execution.sessionId !== sessionId) { controller.abort(); return; }
+    attachEventStream(taskId, client, sessionId, events.stream as unknown as ClosableEventStream, {
+      ready: resolveReady, closed: rejectReady, abort: () => controller.abort(),
+    });
+    await ready;
   } catch (error) {
+    controller.abort();
     logger.error({ err: error, taskId }, `[Execution] Failed to subscribe to events for task ${taskId.slice(0, 8)}`);
     addLogEntry(taskId, 'error', 'Failed to subscribe to agent events');
     await failExecutionFromEventStream(
       taskId,
-      'Failed to subscribe to agent events',
+      failureHeadline,
       error instanceof Error ? error.message : String(error),
     );
+    throw error;
+  } finally {
+    clearTimeout(timeout);
   }
 }
