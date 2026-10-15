@@ -2201,3 +2201,30 @@ The sidecar was likely not running when login was attempted (single-tenant guard
 - Continue W02–W04 resource/principal policy, scoped bootstrap and immutable transactional events/idempotency. Then accept durable W05/W06 execution/recovery jointly.
 - Confirmed stop receipts remain logical provider acknowledgements, not OS descendant-termination evidence. Execution markers/ownership remain process-local; immutable run identities and cross-process fences require the durable engine.
 - No frontend source, deployment, paid inference, live PR creation or remote database changes. Remove the disposable test container after the final SQL gate.
+
+---
+
+## [2026-10-15] — Record W01 validation and backend handoff
+
+**Status:** Done for this milestone; backend programme In Progress
+**Agent:** Codex
+
+### What was done
+- Pushed the verified plan/repair/source commits through `7d2d610` to `origin/dev`, without force or tags. GitHub Dev run `38669609917` passed lint/typecheck, tests and builds.
+- Recorded enabled W01 behavior, 928 local passing tests, all five typechecks, current limitations and the next W02–W06 sequence. Preserved W00 measurements as historical evidence rather than rewriting the baseline.
+- Added isolated and concurrent-test-load raw component timing reports. Verified 30/30 measured trials in each, one excluded warmup, fixture cleanup, and all nine source hashes equal to the baseline/current benchmarked files. Isolated warm p95 is 92.21 ms; this harness does not measure the changed legacy task-to-PR path or establish a latency gain.
+- Updated Downloads master plan/progress, frontend backlog, cloud dependency record and raw benchmark copies. Verified 42 local links resolve across seven documentation files and benchmark copies match.
+- Removed the recreated disposable PostgreSQL container after the 26-case integration gate. No frontend implementation, deployment, live PR creation, paid inference or remote database changes.
+
+### Files changed
+- `docs/reports/backend-review-2026-10-15/w01-implementation.md` — implementation and verification ledger.
+- `docs/reports/backend-review-2026-10-15/validation.md`, `tasks/prd-backend-agent-platform.md` — current status linked from historical audit/master plan.
+- `docs/reports/backend-review-2026-10-15/artifacts/w01-latency-*.json` — measured raw component reports.
+- Downloads handoff files — portable local links, updated progress and deferred client/cloud requirements.
+
+### Issues encountered
+- Full source CI is green; the local PostgreSQL integration gate is recorded separately and is not substituted by that workflow.
+
+### Next steps / blockers
+- Start W02 with the confirmed comment/usage/chat/search and event/PAT authorization gaps using existing policy helpers. W03/W04 foundations precede joint durable W05/W06 acceptance.
+- Native routing, OS sandbox/brokers, restart recovery, complete task-to-PR measurements, six-hour soak and comparative public/private benchmark gates remain pending.

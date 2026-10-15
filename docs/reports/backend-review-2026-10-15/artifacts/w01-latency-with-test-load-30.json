@@ -1,0 +1,684 @@
+{
+  "schemaVersion": 1,
+  "name": "openlinear-execution-offline",
+  "generatedAt": "2026-10-14T23:17:52.660Z",
+  "success": true,
+  "scope": "Local git worktree + SQLite journal + RunCoordinator/SessionManager + FakeAgentRunner only",
+  "exclusions": [
+    "model inference",
+    "remote network",
+    "cloud sandbox provisioning",
+    "API/SSE transport",
+    "real edits/tests",
+    "PR publication"
+  ],
+  "interpretation": "Descriptive microbenchmark; does not establish task-to-PR latency or Terminal-Bench superiority.",
+  "percentileMethod": "nearest-rank over successful trials; failures remain explicit and fail the benchmark; small sample tails are descriptive",
+  "cachePolicy": "cold: empty application mirror each trial; warm: reuse mirror after one excluded warmup; OS page cache is not flushed",
+  "phases": {
+    "executionToFirstDeltaMs": "Start of measured iteration through first message.delta persisted in SQLite (includes checkout byte-count validation)",
+    "coordinatorToFirstDeltaMs": "Coordinator start through first message.delta persisted in SQLite",
+    "coordinatorCompleteMs": "Full coordinator event consumption and persisted completion; overlaps first-delta phases",
+    "totalMs": "Journal open, worktree acquisition, fixture validation, coordinator, journal reopen/verification, and worktree release"
+  },
+  "hardware": {
+    "platform": "darwin",
+    "release": "27.0.0",
+    "architecture": "arm64",
+    "cpuModel": "Apple M5 Pro",
+    "logicalCpus": 15,
+    "memoryBytes": 25769803776
+  },
+  "runtime": {
+    "node": "v22.16.0",
+    "sqlite": "3.49.1",
+    "git": "git version 2.49.0"
+  },
+  "sourceSha256": {
+    "./latency-bench.mjs": "8445266be9e3ab02736a19492d0ea9d734b59e7def95e6c65cd938da4019db5e",
+    "./latency-bench.ts": "02992732aff7cb828bef79ebfb4570c23a4beac6bc60ea734b8a8adc6d0c9b69",
+    "../src/workspace/local-worktree.ts": "91258c5e744ec5eede0e183711f8248348fbb4d93b549ab6f91337ebb85ed252",
+    "../src/engine/run-coordinator.ts": "1398f821ec43b3fb7121196c9e293ca0ee7d03cd063625b7fd0eeca6c9089217",
+    "../src/engine/session-manager.ts": "d43d190e54d8d65e95d4897f8e4108375c56d4d8095b0e42f67ab52d4de9cf8f",
+    "../src/journal/sqlite.ts": "a84b334e00a227a44017b8401a934be005f3de13e8ceb9cd18472d43baec2f84",
+    "../src/services/git-credentials.ts": "5bfaf88eede189855a2ba068fb452e64367293861958737b87eab16e48aa3e37",
+    "../src/engine/system-contract.ts": "e82e9c3d0c5090bd0d9532b3311bb048eef82debb9a723eb604e80f307ac4f74",
+    "../../../packages/execution-core/src/fake-runner.ts": "3d2e8b70a8d1c8e15ad3aae8909c730246f60eb3d296ca7ad18f25afb72c2ce6"
+  },
+  "config": {
+    "fixtureBytes": 2000000,
+    "seed": 403,
+    "coldIterations": 5,
+    "warmIterations": 25,
+    "output": "/tmp/openlinear-w01-latency-small-30.json"
+  },
+  "fixture": {
+    "bytes": 2000000,
+    "files": 8,
+    "sha256": "e2c229133e981e8ccf97295ff11e9a4e2b113ba1e095d501456bbf00eeeb5604",
+    "seed": 403,
+    "trackedCommit": "3c92910953f0174147827a49e500c7dd24125eed",
+    "generator": "xorshift32 little-endian words; sequential 256 KiB payload files",
+    "cloneTransport": "local file:// upload-pack with partial-clone filtering enabled"
+  },
+  "setupMs": 202.59708300000003,
+  "successCount": 30,
+  "attemptedCount": 30,
+  "summary": {
+    "cold": {
+      "attempts": 5,
+      "successCount": 5,
+      "errorCount": 0,
+      "phasesMs": {
+        "journalOpenMs": {
+          "samples": 5,
+          "p50": 2.6085829999999532,
+          "p95": 4.20029199999999,
+          "p99": 4.20029199999999
+        },
+        "workspaceAcquireMs": {
+          "samples": 5,
+          "p50": 456.0336669999997,
+          "p95": 654.0265000000002,
+          "p99": 654.0265000000002
+        },
+        "executionToFirstDeltaMs": {
+          "samples": 5,
+          "p50": 459.6815829999998,
+          "p95": 658.39825,
+          "p99": 658.39825
+        },
+        "coordinatorToFirstDeltaMs": {
+          "samples": 5,
+          "p50": 0.6979169999999613,
+          "p95": 6.1030000000000655,
+          "p99": 6.1030000000000655
+        },
+        "coordinatorCompleteMs": {
+          "samples": 5,
+          "p50": 1.6403340000001663,
+          "p95": 14.240167000000042,
+          "p99": 14.240167000000042
+        },
+        "journalVerifyMs": {
+          "samples": 5,
+          "p50": 1.8855000000000928,
+          "p95": 7.5981250000000955,
+          "p99": 7.5981250000000955
+        },
+        "workspaceReleaseMs": {
+          "samples": 5,
+          "p50": 27.326624999999694,
+          "p95": 62.54058300000008,
+          "p99": 62.54058300000008
+        },
+        "totalMs": {
+          "samples": 5,
+          "p50": 490.4893749999999,
+          "p95": 703.822666,
+          "p99": 703.822666
+        }
+      }
+    },
+    "warm": {
+      "attempts": 25,
+      "successCount": 25,
+      "errorCount": 0,
+      "phasesMs": {
+        "journalOpenMs": {
+          "samples": 25,
+          "p50": 1.185457999999926,
+          "p95": 3.237500000000182,
+          "p99": 6.016708000000108
+        },
+        "workspaceAcquireMs": {
+          "samples": 25,
+          "p50": 90.59541600000011,
+          "p95": 179.19908399999986,
+          "p99": 242.44766600000048
+        },
+        "executionToFirstDeltaMs": {
+          "samples": 25,
+          "p50": 92.62229200000002,
+          "p95": 184.13941599999998,
+          "p99": 251.3797500000005
+        },
+        "coordinatorToFirstDeltaMs": {
+          "samples": 25,
+          "p50": 0.7451670000000377,
+          "p95": 1.4871249999996508,
+          "p99": 2.7479590000002645
+        },
+        "coordinatorCompleteMs": {
+          "samples": 25,
+          "p50": 1.480083000000377,
+          "p95": 3.0717500000000655,
+          "p99": 5.5289169999996375
+        },
+        "journalVerifyMs": {
+          "samples": 25,
+          "p50": 1.2894169999999576,
+          "p95": 2.2200419999999212,
+          "p99": 4.190040999999837
+        },
+        "workspaceReleaseMs": {
+          "samples": 25,
+          "p50": 21.909625000000233,
+          "p95": 42.272249999999985,
+          "p99": 42.68870800000059
+        },
+        "totalMs": {
+          "samples": 25,
+          "p50": 117.52199999999993,
+          "p95": 215.7867500000002,
+          "p99": 300.6510830000002
+        }
+      }
+    }
+  },
+  "gate": {
+    "phase": "executionToFirstDeltaMs",
+    "maxWarmP95Ms": null,
+    "passed": null
+  },
+  "samples": [
+    {
+      "mode": "cold",
+      "iteration": 0,
+      "success": true,
+      "phasesMs": {
+        "journalOpenMs": 4.20029199999999,
+        "workspaceAcquireMs": 588.088917,
+        "coordinatorCompleteMs": 14.240167000000042,
+        "executionToFirstDeltaMs": 598.871541,
+        "coordinatorToFirstDeltaMs": 6.1030000000000655,
+        "journalVerifyMs": 7.5981250000000955,
+        "workspaceReleaseMs": 62.54058300000008,
+        "totalMs": 677.2167910000001
+      },
+      "eventCount": 9
+    },
+    {
+      "mode": "cold",
+      "iteration": 1,
+      "success": true,
+      "phasesMs": {
+        "journalOpenMs": 3.3620830000002115,
+        "workspaceAcquireMs": 654.0265000000002,
+        "coordinatorCompleteMs": 1.7006669999998394,
+        "executionToFirstDeltaMs": 658.39825,
+        "coordinatorToFirstDeltaMs": 0.6979169999999613,
+        "journalVerifyMs": 1.8855000000000928,
+        "workspaceReleaseMs": 42.50462500000003,
+        "totalMs": 703.822666
+      },
+      "eventCount": 9
+    },
+    {
+      "mode": "cold",
+      "iteration": 2,
+      "success": true,
+      "phasesMs": {
+        "journalOpenMs": 2.6085829999999532,
+        "workspaceAcquireMs": 456.0336669999997,
+        "coordinatorCompleteMs": 1.6403340000001663,
+        "executionToFirstDeltaMs": 459.6815829999998,
+        "coordinatorToFirstDeltaMs": 0.8676669999999831,
+        "journalVerifyMs": 2.6867919999999685,
+        "workspaceReleaseMs": 27.326624999999694,
+        "totalMs": 490.4893749999999
+      },
+      "eventCount": 9
+    },
+    {
+      "mode": "cold",
+      "iteration": 3,
+      "success": true,
+      "phasesMs": {
+        "journalOpenMs": 1.2669999999998254,
+        "workspaceAcquireMs": 291.4290839999999,
+        "coordinatorCompleteMs": 1.5869589999997515,
+        "executionToFirstDeltaMs": 293.55833399999983,
+        "coordinatorToFirstDeltaMs": 0.6254589999998643,
+        "journalVerifyMs": 1.5375420000000304,
+        "workspaceReleaseMs": 23.95224999999982,
+        "totalMs": 320.032917
+      },
+      "eventCount": 9
+    },
+    {
+      "mode": "cold",
+      "iteration": 4,
+      "success": true,
+      "phasesMs": {
+        "journalOpenMs": 1.2768339999997806,
+        "workspaceAcquireMs": 271.49587500000007,
+        "coordinatorCompleteMs": 1.2735829999996895,
+        "executionToFirstDeltaMs": 273.6502499999997,
+        "coordinatorToFirstDeltaMs": 0.6789999999996326,
+        "journalVerifyMs": 1.0969169999998485,
+        "workspaceReleaseMs": 22.122749999999996,
+        "totalMs": 297.48758299999963
+      },
+      "eventCount": 9
+    },
+    {
+      "mode": "warmup",
+      "iteration": 0,
+      "success": true,
+      "phasesMs": {
+        "journalOpenMs": 1.56708400000025,
+        "workspaceAcquireMs": 317.2019170000003,
+        "coordinatorCompleteMs": 1.6878750000000764,
+        "executionToFirstDeltaMs": 319.703125,
+        "coordinatorToFirstDeltaMs": 0.701665999999932,
+        "journalVerifyMs": 1.2076670000001286,
+        "workspaceReleaseMs": 22.981332999999722,
+        "totalMs": 344.91179200000033
+      },
+      "eventCount": 9
+    },
+    {
+      "mode": "warm",
+      "iteration": 0,
+      "success": true,
+      "phasesMs": {
+        "journalOpenMs": 1.3195839999998498,
+        "workspaceAcquireMs": 92.12812499999973,
+        "coordinatorCompleteMs": 1.625583000000006,
+        "executionToFirstDeltaMs": 94.50745899999993,
+        "coordinatorToFirstDeltaMs": 0.9211669999999685,
+        "journalVerifyMs": 1.4327499999999418,
+        "workspaceReleaseMs": 20.85525000000007,
+        "totalMs": 117.52199999999993
+      },
+      "eventCount": 9
+    },
+    {
+      "mode": "warm",
+      "iteration": 1,
+      "success": true,
+      "phasesMs": {
+        "journalOpenMs": 1.11324999999988,
+        "workspaceAcquireMs": 99.51479199999994,
+        "coordinatorCompleteMs": 1.1129590000000462,
+        "executionToFirstDeltaMs": 101.3816670000001,
+        "coordinatorToFirstDeltaMs": 0.5660840000000462,
+        "journalVerifyMs": 1.4027080000000751,
+        "workspaceReleaseMs": 26.47875000000022,
+        "totalMs": 129.88479199999983
+      },
+      "eventCount": 9
+    },
+    {
+      "mode": "warm",
+      "iteration": 2,
+      "success": true,
+      "phasesMs": {
+        "journalOpenMs": 1.6210419999997612,
+        "workspaceAcquireMs": 100.52508399999988,
+        "coordinatorCompleteMs": 1.9222920000001977,
+        "executionToFirstDeltaMs": 103.20745800000032,
+        "coordinatorToFirstDeltaMs": 0.8102080000003298,
+        "journalVerifyMs": 1.0274999999996908,
+        "workspaceReleaseMs": 21.86495799999966,
+        "totalMs": 127.24633300000005
+      },
+      "eventCount": 9
+    },
+    {
+      "mode": "warm",
+      "iteration": 3,
+      "success": true,
+      "phasesMs": {
+        "journalOpenMs": 1.192833999999948,
+        "workspaceAcquireMs": 102.96937500000013,
+        "coordinatorCompleteMs": 1.3503329999998641,
+        "executionToFirstDeltaMs": 104.92637500000001,
+        "coordinatorToFirstDeltaMs": 0.62887499999988,
+        "journalVerifyMs": 1.4580000000000837,
+        "workspaceReleaseMs": 23.81329199999982,
+        "totalMs": 130.9908330000003
+      },
+      "eventCount": 9
+    },
+    {
+      "mode": "warm",
+      "iteration": 4,
+      "success": true,
+      "phasesMs": {
+        "journalOpenMs": 1.8632910000001175,
+        "workspaceAcquireMs": 118.2422919999999,
+        "coordinatorCompleteMs": 1.6981249999998909,
+        "executionToFirstDeltaMs": 121.19654200000014,
+        "coordinatorToFirstDeltaMs": 0.8684170000001359,
+        "journalVerifyMs": 1.637833000000228,
+        "workspaceReleaseMs": 36.08991700000024,
+        "totalMs": 159.7752919999998
+      },
+      "eventCount": 9
+    },
+    {
+      "mode": "warm",
+      "iteration": 5,
+      "success": true,
+      "phasesMs": {
+        "journalOpenMs": 6.016708000000108,
+        "workspaceAcquireMs": 242.44766600000048,
+        "coordinatorCompleteMs": 5.5289169999996375,
+        "executionToFirstDeltaMs": 251.3797500000005,
+        "coordinatorToFirstDeltaMs": 2.7479590000002645,
+        "journalVerifyMs": 4.190040999999837,
+        "workspaceReleaseMs": 42.272249999999985,
+        "totalMs": 300.6510830000002
+      },
+      "eventCount": 9
+    },
+    {
+      "mode": "warm",
+      "iteration": 6,
+      "success": true,
+      "phasesMs": {
+        "journalOpenMs": 3.237500000000182,
+        "workspaceAcquireMs": 179.19908399999986,
+        "coordinatorCompleteMs": 2.6051669999997102,
+        "executionToFirstDeltaMs": 184.13941599999998,
+        "coordinatorToFirstDeltaMs": 1.4871249999996508,
+        "journalVerifyMs": 1.3728330000003552,
+        "workspaceReleaseMs": 29.08654099999967,
+        "totalMs": 215.7867500000002
+      },
+      "eventCount": 9
+    },
+    {
+      "mode": "warm",
+      "iteration": 7,
+      "success": true,
+      "phasesMs": {
+        "journalOpenMs": 1.9432079999996859,
+        "workspaceAcquireMs": 129.1875829999999,
+        "coordinatorCompleteMs": 3.0717500000000655,
+        "executionToFirstDeltaMs": 132.86995800000022,
+        "coordinatorToFirstDeltaMs": 1.451458000000457,
+        "journalVerifyMs": 2.2200419999999212,
+        "workspaceReleaseMs": 42.68870800000059,
+        "totalMs": 179.55720800000017
+      },
+      "eventCount": 9
+    },
+    {
+      "mode": "warm",
+      "iteration": 8,
+      "success": true,
+      "phasesMs": {
+        "journalOpenMs": 2.8412090000001626,
+        "workspaceAcquireMs": 122.01029199999994,
+        "coordinatorCompleteMs": 1.6340829999999187,
+        "executionToFirstDeltaMs": 125.93662500000028,
+        "coordinatorToFirstDeltaMs": 0.8543330000002243,
+        "journalVerifyMs": 1.5369999999993524,
+        "workspaceReleaseMs": 34.16754200000014,
+        "totalMs": 162.45299999999952
+      },
+      "eventCount": 9
+    },
+    {
+      "mode": "warm",
+      "iteration": 9,
+      "success": true,
+      "phasesMs": {
+        "journalOpenMs": 1.4506669999991573,
+        "workspaceAcquireMs": 104.83916700000009,
+        "coordinatorCompleteMs": 2.821082999999817,
+        "executionToFirstDeltaMs": 107.33308399999987,
+        "coordinatorToFirstDeltaMs": 0.8740419999994629,
+        "journalVerifyMs": 1.2981250000002547,
+        "workspaceReleaseMs": 21.909625000000233,
+        "totalMs": 132.5094170000002
+      },
+      "eventCount": 9
+    },
+    {
+      "mode": "warm",
+      "iteration": 10,
+      "success": true,
+      "phasesMs": {
+        "journalOpenMs": 1.0552499999994325,
+        "workspaceAcquireMs": 88.59691699999985,
+        "coordinatorCompleteMs": 1.2260420000002341,
+        "executionToFirstDeltaMs": 90.48204200000055,
+        "coordinatorToFirstDeltaMs": 0.6453340000007302,
+        "journalVerifyMs": 1.18224999999984,
+        "workspaceReleaseMs": 18.202957999999853,
+        "totalMs": 110.46958300000006
+      },
+      "eventCount": 9
+    },
+    {
+      "mode": "warm",
+      "iteration": 11,
+      "success": true,
+      "phasesMs": {
+        "journalOpenMs": 0.7825000000002547,
+        "workspaceAcquireMs": 71.92225000000053,
+        "coordinatorCompleteMs": 1.2445000000006985,
+        "executionToFirstDeltaMs": 73.49970800000028,
+        "coordinatorToFirstDeltaMs": 0.5857500000001892,
+        "journalVerifyMs": 1.0502919999998994,
+        "workspaceReleaseMs": 18.138875000000553,
+        "totalMs": 93.37908300000072
+      },
+      "eventCount": 9
+    },
+    {
+      "mode": "warm",
+      "iteration": 12,
+      "success": true,
+      "phasesMs": {
+        "journalOpenMs": 1.0157090000002427,
+        "workspaceAcquireMs": 87.4984170000007,
+        "coordinatorCompleteMs": 1.4682499999998981,
+        "executionToFirstDeltaMs": 89.44495800000004,
+        "coordinatorToFirstDeltaMs": 0.7397909999999683,
+        "journalVerifyMs": 1.3473750000002838,
+        "workspaceReleaseMs": 19.31237499999952,
+        "totalMs": 110.85616699999991
+      },
+      "eventCount": 9
+    },
+    {
+      "mode": "warm",
+      "iteration": 13,
+      "success": true,
+      "phasesMs": {
+        "journalOpenMs": 1.0256249999993088,
+        "workspaceAcquireMs": 86.75370900000053,
+        "coordinatorCompleteMs": 1.419499999999971,
+        "executionToFirstDeltaMs": 88.70841699999983,
+        "coordinatorToFirstDeltaMs": 0.7451670000000377,
+        "journalVerifyMs": 0.9830840000004173,
+        "workspaceReleaseMs": 20.938833999999588,
+        "totalMs": 111.32849999999962
+      },
+      "eventCount": 9
+    },
+    {
+      "mode": "warm",
+      "iteration": 14,
+      "success": true,
+      "phasesMs": {
+        "journalOpenMs": 1.1717079999998532,
+        "workspaceAcquireMs": 80.11391699999967,
+        "coordinatorCompleteMs": 1.4643749999995634,
+        "executionToFirstDeltaMs": 82.1788749999996,
+        "coordinatorToFirstDeltaMs": 0.7251669999996011,
+        "journalVerifyMs": 0.9553329999998823,
+        "workspaceReleaseMs": 20.518583000000035,
+        "totalMs": 104.41220799999974
+      },
+      "eventCount": 9
+    },
+    {
+      "mode": "warm",
+      "iteration": 15,
+      "success": true,
+      "phasesMs": {
+        "journalOpenMs": 0.9926249999998618,
+        "workspaceAcquireMs": 85.0654169999998,
+        "coordinatorCompleteMs": 1.2564170000005106,
+        "executionToFirstDeltaMs": 86.78241699999944,
+        "coordinatorToFirstDeltaMs": 0.5974169999999503,
+        "journalVerifyMs": 1.2592079999994894,
+        "workspaceReleaseMs": 19.67029199999979,
+        "totalMs": 108.39087500000005
+      },
+      "eventCount": 9
+    },
+    {
+      "mode": "warm",
+      "iteration": 16,
+      "success": true,
+      "phasesMs": {
+        "journalOpenMs": 0.9610839999995733,
+        "workspaceAcquireMs": 80.49679100000048,
+        "coordinatorCompleteMs": 1.5266249999995125,
+        "executionToFirstDeltaMs": 82.26741700000002,
+        "coordinatorToFirstDeltaMs": 0.6915839999992386,
+        "journalVerifyMs": 1.2894169999999576,
+        "workspaceReleaseMs": 21.321500000000015,
+        "totalMs": 105.76179200000024
+      },
+      "eventCount": 9
+    },
+    {
+      "mode": "warm",
+      "iteration": 17,
+      "success": true,
+      "phasesMs": {
+        "journalOpenMs": 0.8836670000000595,
+        "workspaceAcquireMs": 87.50091599999996,
+        "coordinatorCompleteMs": 1.1063749999993888,
+        "executionToFirstDeltaMs": 89.050792,
+        "coordinatorToFirstDeltaMs": 0.554707999999664,
+        "journalVerifyMs": 1.1875419999996666,
+        "workspaceReleaseMs": 31.759249999999156,
+        "totalMs": 122.57966699999997
+      },
+      "eventCount": 9
+    },
+    {
+      "mode": "warm",
+      "iteration": 18,
+      "success": true,
+      "phasesMs": {
+        "journalOpenMs": 3.1430419999996957,
+        "workspaceAcquireMs": 85.05870899999991,
+        "coordinatorCompleteMs": 1.5584579999995185,
+        "executionToFirstDeltaMs": 89.18562500000007,
+        "coordinatorToFirstDeltaMs": 0.8077499999999418,
+        "journalVerifyMs": 1.219916000000012,
+        "workspaceReleaseMs": 19.19524999999976,
+        "totalMs": 110.3857079999998
+      },
+      "eventCount": 9
+    },
+    {
+      "mode": "warm",
+      "iteration": 19,
+      "success": true,
+      "phasesMs": {
+        "journalOpenMs": 0.9204589999999371,
+        "workspaceAcquireMs": 77.78629199999978,
+        "coordinatorCompleteMs": 1.5351250000003347,
+        "executionToFirstDeltaMs": 79.50595799999974,
+        "coordinatorToFirstDeltaMs": 0.6477079999995112,
+        "journalVerifyMs": 1.158542000000125,
+        "workspaceReleaseMs": 20.108500000000276,
+        "totalMs": 101.68062499999996
+      },
+      "eventCount": 9
+    },
+    {
+      "mode": "warm",
+      "iteration": 20,
+      "success": true,
+      "phasesMs": {
+        "journalOpenMs": 1.0721670000002632,
+        "workspaceAcquireMs": 80.80320800000027,
+        "coordinatorCompleteMs": 1.1655000000000655,
+        "executionToFirstDeltaMs": 82.59987499999988,
+        "coordinatorToFirstDeltaMs": 0.5345839999999953,
+        "journalVerifyMs": 1.075875000000451,
+        "workspaceReleaseMs": 19.783042000000023,
+        "totalMs": 104.12183300000015
+      },
+      "eventCount": 9
+    },
+    {
+      "mode": "warm",
+      "iteration": 21,
+      "success": true,
+      "phasesMs": {
+        "journalOpenMs": 1.1095000000004802,
+        "workspaceAcquireMs": 84.34816599999976,
+        "coordinatorCompleteMs": 1.480083000000377,
+        "executionToFirstDeltaMs": 86.5507090000001,
+        "coordinatorToFirstDeltaMs": 0.8916250000002037,
+        "journalVerifyMs": 1.062750000000051,
+        "workspaceReleaseMs": 23.851000000000568,
+        "totalMs": 112.07416699999976
+      },
+      "eventCount": 9
+    },
+    {
+      "mode": "warm",
+      "iteration": 22,
+      "success": true,
+      "phasesMs": {
+        "journalOpenMs": 1.2514579999997295,
+        "workspaceAcquireMs": 96.54150000000027,
+        "coordinatorCompleteMs": 2.179500000000189,
+        "executionToFirstDeltaMs": 99.20291699999962,
+        "coordinatorToFirstDeltaMs": 1.2118329999993875,
+        "journalVerifyMs": 1.5114169999997102,
+        "workspaceReleaseMs": 29.06854100000055,
+        "totalMs": 130.77729199999976
+      },
+      "eventCount": 9
+    },
+    {
+      "mode": "warm",
+      "iteration": 23,
+      "success": true,
+      "phasesMs": {
+        "journalOpenMs": 1.8510830000004717,
+        "workspaceAcquireMs": 93.32195800000045,
+        "coordinatorCompleteMs": 1.398457999999664,
+        "executionToFirstDeltaMs": 96.09687500000018,
+        "coordinatorToFirstDeltaMs": 0.8040000000000873,
+        "journalVerifyMs": 1.1779590000005555,
+        "workspaceReleaseMs": 23.75370799999928,
+        "totalMs": 121.64495799999986
+      },
+      "eventCount": 9
+    },
+    {
+      "mode": "warm",
+      "iteration": 24,
+      "success": true,
+      "phasesMs": {
+        "journalOpenMs": 1.185457999999926,
+        "workspaceAcquireMs": 90.59541600000011,
+        "coordinatorCompleteMs": 1.2147910000003321,
+        "executionToFirstDeltaMs": 92.62229200000002,
+        "coordinatorToFirstDeltaMs": 0.6629579999998896,
+        "journalVerifyMs": 1.9573749999999563,
+        "workspaceReleaseMs": 21.92504099999951,
+        "totalMs": 117.07733400000052
+      },
+      "eventCount": 9
+    }
+  ],
+  "errors": [],
+  "temporaryFixtureCleaned": true
+}

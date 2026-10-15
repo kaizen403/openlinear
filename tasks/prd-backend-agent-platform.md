@@ -1,6 +1,6 @@
 # OpenLinear backend master plan
 
-Updated: 2026-10-15. Baseline: cloned `dev` at `157de4e`, plus the explicitly listed local first-tranche changes. Status: **programme planned; first repairs implemented and locally validated; major engine integration remains pending**.
+Updated: 2026-10-15. Baseline: cloned `dev` at `157de4e`; initial repairs committed in `42a2a55`, W01 legacy execution slice in `ed4d843`, lost-acknowledgement retention in `7bb8330`, admission counting in `ca680b1` and recovery/terminal/cancellation fences in `7d2d610`. Source batch pushed to `dev`. Status: **W00 repairs and the bounded W01 slice implemented and locally validated; full backend integration and acceptance gates remain pending**.
 
 This is the backend replacement roadmap for the Desktop “Open Linear Revamp Plan.” Keep that folder as historical research. Use this document, the contracts, the source audits, and the validation ledger as the current execution order. A checked box or an existing class does not establish production integration.
 
@@ -207,7 +207,7 @@ The new offline harness exercises real synthetic Git, worktrees, SQLite and Fake
 
 ## 8. Backend work packages and acceptance
 
-Statuses: W00 is the current repair tranche; all other packages are pending unless the validation ledger records a completed slice. “Depends on” means the acceptance gate, not that all design work must wait. Each package is split into reviewable changes with tests before enabling a new production path.
+Statuses: W00 repairs and the bounded W01 legacy slice are locally verified. The [W01 implementation ledger](../docs/reports/backend-review-2026-10-15/w01-implementation.md) records the enabled behavior, 928 passing tests, current limitations and component timing repeat. Durable cancellation/recovery and terminal run-state migration remain W05/W06/W12 work; receipts alone do not satisfy those gates. W02–W21 remain pending unless a later ledger records a verified slice. “Depends on” means the acceptance gate, not that all design work must wait. Each package is split into reviewable changes with tests before enabling a new production path.
 
 | ID | Deliverable and dependencies | Acceptance evidence |
 |---|---|---|
@@ -238,8 +238,8 @@ Additional requirements are not lost in table compression: token/2FA/ticket cons
 
 ### Review and merge units for the next implementation phase
 
-1. W01a: truthful runner selection and batch input validation; add negative black-box cases before executing repository code.
-2. W01b: publication state/artifact retention and consistent cancel outcomes; inject push/PR/merge/DB failures.
+1. W01a, locally verified: truthful legacy runner selection, explicit repository/task bindings and atomic batch input validation, with negative HTTP/service cases before repository execution.
+2. W01b, locally verified slice: shared confirmed PR publication, batch receipts, artifact retention, cancellation ownership and push/PR/merge/DB failure interleavings. Durable restart reconciliation and unified run results remain pending in W05/W06/W11/W12.
 3. W02a: central PrincipalContext with PAT workspace and resource checks, then migrate replay/live audiences and comments/reporting.
 4. W04a: requestHash idempotency reservation + result state in the same transaction; prove concurrent replay and conflict behavior.
 5. W03a: scoped execution snapshot/callback API and authenticated local bootstrap; run sidecar integration without database credentials.
@@ -326,5 +326,4 @@ Required definition of done for each work package:
 - No new frontend or deployment implementation hidden in backend work.
 - Status linked to reproducible validation; open defects remain visible.
 
-The master programme is complete only after the gates pass. The current session completes planning and a bounded first implementation tranche; it does not establish production readiness, sandbox enforcement, full recovery or benchmark superiority.
-
+The master programme is complete only after the gates pass. Current implementation completes the W00 repairs and a bounded W01 legacy slice; it does not establish production readiness, sandbox enforcement, full recovery or benchmark superiority.

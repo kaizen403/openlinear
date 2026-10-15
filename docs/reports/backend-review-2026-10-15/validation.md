@@ -1,5 +1,7 @@
 # Backend review and first-tranche validation — 2026-10-15
 
+Historical W00 baseline. The later [W01 implementation ledger](w01-implementation.md) supersedes current implementation status and records 928 passing tests, source commits pushed to `dev` and the remaining gates. The baseline measurements below retain their original scope and results.
+
 Status: planning and bounded first implementation tranche complete locally. The full backend programme remains pending. See [master plan](../../../tasks/prd-backend-agent-platform.md) for W00–W21 and gate definitions.
 
 ## Scope and environment
@@ -96,4 +98,3 @@ The current provider still needs remote/trust-aware mirror keys, cross-process l
 W01 fixes truthful runner selection, batch validation and publication outcomes. W02/W04 close remaining scope/idempotency/outbox gaps. W03 removes cloud database/signing-key dependence from local execution. W05/W06 then prove one durable FakeRunner execution path before native runner/workspace/sandbox integration. See the master plan for dependencies, exact gates and later product work.
 
 No paid coding-task benchmark, sandbox enforcement corpus, six-hour soak, process-kill recovery proof, production traffic test or live migration was performed. Those remain planned gates, not implicit completed work.
-
