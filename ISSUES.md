@@ -2147,3 +2147,26 @@ The sidecar was likely not running when login was attempted (single-tenant guard
 
 ### Next steps / blockers
 - The marker is process-local, not a durable effect ledger. Continue W02–W04 foundations and W05/W06 run/recovery integration before treating restart behavior or native/sandbox execution as accepted.
+
+---
+
+## [2026-10-15] — Count overlapping admission reservations once
+
+**Status:** Done for this follow-up; backend programme In Progress
+**Agent:** Codex
+
+### What was done
+- Reproduced a concurrency rejection when an active task also retained its setup reservation while waiting for a prompt acknowledgement. Adding active and pending collection sizes counted that attempt twice.
+- Counted the union of task IDs for single-task admission. Kept the reservation until its owning setup settles and continued enforcing the actual concurrency cap.
+- Added a regression with a delayed first prompt response: a second task starts at limit two, a third is rejected, and the original reservation remains owned until acknowledgement.
+- Full sidecar suite: 650 passed; sidecar typecheck and diff checks passed. The unchanged PostgreSQL integration (9), API (213, plus 2 existing skips) and execution-core (28) gates bring the current total to 900 passing tests.
+
+### Files changed
+- `apps/sidecar/src/services/execution/lifecycle.ts` — count unique admitted task IDs.
+- `apps/sidecar/src/services/execution/runner-selection.test.ts` — overlapping active/pending reservation regression.
+
+### Issues encountered
+- Execution becomes active before the SDK acknowledges prompt submission. Admission must treat those two collections as overlapping ownership rather than independent attempts.
+
+### Next steps / blockers
+- Global admission across batches, per-principal fairness and cross-process limits remain W05 work. This corrects the existing single-process legacy limit; it does not introduce durable scheduling.

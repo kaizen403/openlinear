@@ -62,7 +62,9 @@ async function gatherExecutionInputs({ taskId, userId }: ExecuteTaskParams): Pro
   const settings = await getExecutionSettings(userId);
   const parallelLimit = settings.parallelLimit;
 
-  if (activeExecutions.size + pendingExecutions.size > parallelLimit) {
+  // A starting task remains reserved until its prompt acknowledgement settles.
+  const admittedTaskIds = new Set([...activeExecutions.keys(), ...pendingExecutions]);
+  if (admittedTaskIds.size > parallelLimit) {
     return { error: `Parallel limit reached (${parallelLimit} tasks max)` };
   }
 

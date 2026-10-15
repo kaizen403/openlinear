@@ -297,6 +297,38 @@ describe('single-task execution boundary', () => {
     noAgentOrRepositoryEffects();
   });
 
+  it('counts an active task with a pending prompt acknowledgement only once', async () => {
+    mocks.getExecutionSettings.mockResolvedValue({ parallelLimit: 2 });
+    mocks.getTask.mockImplementation(async (taskId: string) => task({ id: taskId }));
+    mocks.assertTaskOwned.mockImplementation(async (taskId: string) => ownership(task({ id: taskId })));
+    mocks.sessionCreate.mockResolvedValueOnce({ data: { id: 'session-a' } })
+      .mockResolvedValueOnce({ data: { id: 'session-b' } });
+    let acknowledgePrompt: () => void = () => { throw new Error('Prompt not dispatched'); };
+    const acknowledgement = new Promise<Record<string, never>>((resolve) => {
+      acknowledgePrompt = () => resolve({});
+    });
+    mocks.promptAsync.mockReturnValueOnce(acknowledgement);
+
+    const first = executeTask({ taskId: 'task-a', userId: 'user-a' });
+    try {
+      await vi.waitFor(() => expect(mocks.promptAsync).toHaveBeenCalledOnce());
+      expect(mocks.activeExecutions.has('task-a')).toBe(true);
+      expect(mocks.pendingExecutions.has('task-a')).toBe(true);
+      await expect(executeTask({ taskId: 'task-b', userId: 'user-a' })).resolves.toEqual({ success: true });
+      await expect(executeTask({ taskId: 'task-c', userId: 'user-a' })).resolves.toMatchObject({
+        success: false, error: 'Parallel limit reached (2 tasks max)',
+      });
+      expect([...mocks.activeExecutions.keys()]).toEqual(['task-a', 'task-b']);
+      expect(mocks.pendingExecutions.has('task-a')).toBe(true);
+      expect(mocks.getTask).toHaveBeenCalledTimes(2);
+    } finally {
+      acknowledgePrompt();
+      await first;
+    }
+    await expect(first).resolves.toEqual({ success: true });
+    expect(mocks.pendingExecutions.size).toBe(0);
+  });
+
   it('rejects a batch preparation reservation without removing it', async () => {
     mocks.pendingBatchTasks.add('task-a');
     await expect(executeTask({ taskId: 'task-a', userId: 'user-a' })).resolves.toMatchObject({ success: false, code: 'TASK_ALREADY_RUNNING' });
