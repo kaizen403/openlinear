@@ -41,6 +41,7 @@ export const COMPLETED_TOOL_KEY_SOURCE_LIMIT = 200;
 export interface ExecutionState {
   cancelUnconfirmed?: boolean;
   taskProjectId?: string | null;
+  promptDispatched?: boolean;
   taskId: string;
   projectId: string;
   sessionId: string;

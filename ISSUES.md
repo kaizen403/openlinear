@@ -2122,3 +2122,28 @@ The sidecar was likely not running when login was attempted (single-tenant guard
 - Receipts are inspection evidence, not a crash-recovery service. Reservations, cancellation quarantine, concurrency and cleanup coordination remain process-local; provider acknowledgement does not prove OS descendant termination.
 - Native coordinator routing, OS sandbox/credential separation, independent verification, full task-to-PR latency, soak and funded agent benchmark acceptance remain pending. Legacy failures still use the existing task status projection until the durable run-state migration.
 - No frontend source, deployment, live database, paid inference or remote push changes. Local disposable PostgreSQL is removed after final verification.
+
+---
+
+## [2026-10-15] — Preserve single-task work after lost prompt acknowledgement
+
+**Status:** Done for this follow-up; backend programme In Progress
+**Agent:** Codex
+
+### What was done
+- Continued from W01 commit `ed4d843` and found a remaining setup-cleanup edge: a prompt could write files, lose its response, finalize, and then have its owned checkout force-removed.
+- Added a real-Git regression that wrote a file before rejecting the acknowledgement. It failed against the previous source, proving the artifact loss.
+- Marked prompt dispatch before the SDK call; retained dispatched checkouts after failure. Included retained branch/path in the failed task outcome while preserving the original AgentRun error.
+- Full sidecar suite: 649 passed; sidecar typecheck and diff checks passed. The earlier API 213 + 2 existing skips, execution-core 28, and PostgreSQL integration 9 gates remain applicable; these paths were unchanged. Current total: 899 passing tests.
+- Updated the W01 ledger, master plan and Downloads progress/frontend/cloud/benchmark files. Removed only the disposable `openlinear-w01-test-pg` container; no cloud, frontend, paid product inference, deployment or remote push changes.
+
+### Files changed
+- `apps/sidecar/src/services/execution/{lifecycle,state,events}.ts` — dispatch marker, retention and inspectable failure outcome.
+- `apps/sidecar/src/services/execution/{lifecycle-worktree.test.ts,events.test.mjs}` — real-Git lost-acknowledgement and retained-path regressions.
+- W01 report, validation/master plan and Downloads files — current commits, counts and remaining gates.
+
+### Issues encountered
+- A dispatched request and an acknowledged request are distinct facts. Cleanup must account for work performed before a transport failure.
+
+### Next steps / blockers
+- The marker is process-local, not a durable effect ledger. Continue W02–W04 foundations and W05/W06 run/recovery integration before treating restart behavior or native/sandbox execution as accepted.

@@ -505,6 +505,13 @@ describe('execution event workflow', () => {
     expect(mocks.taskUpdate.mock.calls.some(([input]) => input.data.status === 'done')).toBe(false);
   });
 
+  it('records the retained branch and path after a dispatched prompt fails', async () => {
+    await runEvents([{ type: 'session.error', properties: { sessionID: 'ses_1', error: 'provider failed' } }], { promptDispatched: true });
+    expect(mocks.taskUpdate).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: 'cancelled', outcome: expect.stringContaining('Work retained on openlinear/task-1 at /repo') }),
+    }));
+  });
+
   it('tracks background task completion, tool states, reasoning, and retry status', async () => {
     const { execution } = await runEvents([
       { type: 'server.heartbeat', properties: { sessionID: 'ses_1' } },

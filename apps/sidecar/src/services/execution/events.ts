@@ -151,6 +151,9 @@ export async function failExecutionFromEventStream(taskId: string, message: stri
   const elapsedMs = Date.now() - execution.startedAt.getTime();
   const estimatedProgress = estimateProgress(execution);
   const outcome = details ? `${message}: ${details}` : message;
+  const taskOutcome = execution.promptDispatched
+    ? `${outcome}. Work retained on ${execution.branchName} at ${execution.repoPath}`
+    : outcome;
 
   addLogEntry(taskId, 'error', message, details);
   broadcastProgress(taskId, 'error', message);
@@ -169,7 +172,7 @@ export async function failExecutionFromEventStream(taskId: string, message: stri
       executionElapsedMs: elapsedMs,
       executionPausedAt: new Date(),
       executionProgress: estimatedProgress,
-      outcome,
+      outcome: taskOutcome,
     });
     await persistLogs(taskId);
   } catch (error) {

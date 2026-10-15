@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   promptAsync: vi.fn(),
   abort: vi.fn(),
   taskUpdate: vi.fn(),
+  failExecution: vi.fn(),
 }));
 
 vi.mock('@openlinear/db', () => ({
@@ -45,7 +46,7 @@ vi.mock('./agent-run', () => ({
 }));
 vi.mock('./events', () => ({
   subscribeToSessionEvents: vi.fn(async () => undefined),
-  failExecutionFromEventStream: vi.fn(async () => undefined),
+  failExecutionFromEventStream: mocks.failExecution,
   claimFinalize: vi.fn(() => true),
 }));
 
@@ -126,6 +127,7 @@ describe('single-task lifecycle with real worktrees', () => {
     mocks.promptAsync.mockResolvedValue({});
     mocks.abort.mockResolvedValue({ data: true });
     mocks.taskUpdate.mockResolvedValue({ id: 'task-12345678', labels: [] });
+    mocks.failExecution.mockResolvedValue(undefined);
   });
 
   afterEach(async () => {
@@ -209,5 +211,24 @@ describe('single-task lifecycle with real worktrees', () => {
     expect(existsSync(join(seed, '.git'))).toBe(true);
     // afterEach removes only owned remote worktrees.
     acquired.splice(0, acquired.length);
+  });
+
+  it('retains modified work after a dispatched prompt loses its acknowledgement', async () => {
+    mocks.promptAsync.mockImplementationOnce(async () => {
+      writeFileSync(join(acquired[0], 'lost-response.txt'), 'work written before acknowledgement was lost\n');
+      throw new TypeError('prompt response lost');
+    });
+    // The provider has stopped and normal failure finalization releases the
+    // active state. That must not make dispatched work disposable setup.
+    mocks.failExecution.mockImplementationOnce(async (id: string) => { await state.cleanupExecution(id); });
+
+    await expect(lifecycle.executeTask({ taskId: 'task-12345678', userId: 'user-test' }))
+      .resolves.toMatchObject({ success: false, error: 'prompt response lost' });
+
+    expect(state.activeExecutions.has('task-12345678')).toBe(false);
+    expect(existsSync(acquired[0])).toBe(true);
+    expect(readFileSync(join(acquired[0], 'lost-response.txt'), 'utf8')).toContain('work written before acknowledgement');
+    const mirror = git(acquired[0], ['rev-parse', '--git-common-dir']);
+    expect(git(root, ['-C', mirror, 'worktree', 'list', '--porcelain'])).toContain(acquired[0]);
   });
 });

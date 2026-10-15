@@ -54,6 +54,7 @@ interface ExecutionInputs {
   branchName: string;
   repoPath: string;
   workspace?: WorkspaceHandle;
+  promptDispatched?: boolean;
 }
 
 async function gatherExecutionInputs({ taskId, userId }: ExecuteTaskParams): Promise<{ inputs?: ExecutionInputs; error?: string }> {
@@ -274,6 +275,8 @@ async function startAgentSession(
     // as OpenCode has accepted the turn; all real completion/error signal
     // from here on arrives only through the event stream, which is the one
     // path that already carries the double-finalize guard (claimFinalize).
+    inputs.promptDispatched = true;
+    executionState.promptDispatched = true;
     const promptResult = await client.session.promptAsync({
       signal: AbortSignal.timeout(30_000),
       path: { id: sessionId },
@@ -443,9 +446,10 @@ export async function executeTask({ taskId, userId }: ExecuteTaskParams): Promis
       }
     }
     // The finalizer must release active execution state before its checkout
-    // can be reclaimed. Local projects have no owned handle and must never
-    // be removed here.
-    if (inputs?.workspace && (!executionState || activeExecutions.get(taskId) !== executionState)) {
+    // can be reclaimed. A dispatched prompt may already have written work
+    // when its acknowledgement is lost, so its checkout is retained. Local
+    // projects have no owned handle and must never be removed here.
+    if (inputs?.workspace && !inputs.promptDispatched && (!executionState || activeExecutions.get(taskId) !== executionState)) {
       try {
         await releaseLocalWorktree(inputs.workspace);
       } catch (cleanupError) {
