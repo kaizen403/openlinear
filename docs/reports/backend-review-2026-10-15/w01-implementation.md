@@ -37,6 +37,7 @@ Compatibility note: legacy batch-member `status: completed` means its local comm
 | MCP / desktop UI compatibility typechecks | Passed; no frontend source changes |
 | Diff checks | Passed |
 | GitHub Dev workflow on `7d2d610` | Passed: lint/typecheck, tests and builds ([run](https://github.com/kaizen403/openlinear/actions/runs/38669609917)) |
+| Documentation push `457e3d2` CI | Build and lint/typecheck passed. Test job failed the unchanged frontend browser-scroll gate: 200 ms maximum frame on attempt one; Chromium DevTools startup timeout on attempt two. Sidecar 661 and execution-core 28 passed in both attempts ([run](https://github.com/kaizen403/openlinear/actions/runs/38669992496)). Deferred to the Downloads frontend backlog. |
 
 Total: **928 passing tests**, excluding duplicate focused reruns. The full sidecar suite, PostgreSQL integration suite and sidecar typecheck were rerun after the final ownership fixes. The API and execution-core suites remain from the main slice; their exercised paths were unchanged by the follow-ups. The existing API skips concern the obsolete many-team project association model; no new skips were introduced. Test counts do not establish end-to-end model quality, isolation or recovery.
 

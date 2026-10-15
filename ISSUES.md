@@ -2228,3 +2228,28 @@ The sidecar was likely not running when login was attempted (single-tenant guard
 ### Next steps / blockers
 - Start W02 with the confirmed comment/usage/chat/search and event/PAT authorization gaps using existing policy helpers. W03/W04 foundations precede joint durable W05/W06 acceptance.
 - Native routing, OS sandbox/brokers, restart recovery, complete task-to-PR measurements, six-hour soak and comparative public/private benchmark gates remain pending.
+
+---
+
+## [2026-10-15] — Record the deferred frontend CI gate
+
+**Status:** Done for backend handoff; frontend CI issue deferred
+**Agent:** Codex
+
+### What was done
+- Pushed documentation commit `457e3d2` to dev. Its build and lint/typecheck jobs passed; the test job failed an unchanged frontend scroll benchmark with a 200 ms maximum frame.
+- Reran the failed test job once. It failed the same unchanged browser harness while waiting for Chromium's DevTools port. Both attempts passed all 661 sidecar and 28 execution-core tests.
+- Recorded both failures in the W01 ledger and Downloads progress/frontend backlog. The earlier full source workflow on `7d2d610` passed; current full-CI acceptance is not reported as green.
+- Confirmed the browser-scroll script, frontend source and workflows have no changes from the original checkout. Kept the user's explicit frontend exclusion; no threshold weakening, frontend fixes or deployment changes.
+
+### Files changed
+- `docs/reports/backend-review-2026-10-15/w01-implementation.md` — source and documentation CI results distinguished.
+- Downloads progress and `frontend work pending.md` — exact failing gate, retry result and later investigation scope.
+
+### Issues encountered
+- Dev run `38669992496`, attempt one: `scripts/verify-onboarding-repo-scroll.mjs:340`, maximum frame 200 ms.
+- Same run, attempt two: `scripts/verify-onboarding-repo-scroll.mjs:194`, Chromium DevTools port startup timeout.
+
+### Next steps / blockers
+- Frontend follow-up should investigate browser-fixture startup and repeated frame distributions on CI before changing thresholds. This is deferred to the requested frontend backlog, not included in backend implementation.
+- W02–W21 backend work and its acceptance gates remain pending as recorded in the master plan. Local backend validation remains 928 passes with two existing API skips and all five typechecks passed.
