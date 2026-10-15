@@ -2170,3 +2170,34 @@ The sidecar was likely not running when login was attempted (single-tenant guard
 
 ### Next steps / blockers
 - Global admission across batches, per-principal fairness and cross-process limits remain W05 work. This corrects the existing single-process legacy limit; it does not introduce durable scheduling.
+
+---
+
+## [2026-10-15] — Fence single-execution recovery and cancellation ownership
+
+**Status:** Done for this follow-up; backend programme In Progress
+**Agent:** Codex, with two high-reasoning GPT-6.1-sol reviewers
+
+### What was done
+- Required a bounded positive provider-stop receipt before committing work recovered from a failed stream. False, missing, rejected and error receipts now retain/quarantine the execution without commit or PR publication.
+- Fenced both done and cancelled task projections to the captured active session, status and resource binding. Passed the captured execution through terminal writes, log persistence and cleanup; a stale completion catch can no longer cancel a replacement session.
+- Guarded persisted logs by the same session/resource binding, or a confirmed terminal status with cleared session. Confirmed terminal markers prevent cancellation retries from rewriting a successful prior task projection.
+- Shared one cancellation operation per execution through provider acknowledgement, persistence and cleanup. Blocked retries during stream-failure finalization and rechecked cleanup ownership after awaited stream closure.
+- Reviewers reproduced 11 offline regressions against the old behavior, including late cancellation and cleanup deleting replacement state. Added 17 actual-PostgreSQL cases for session/project/team/creator fences, positive and denied log writes, retry stability and replacement preservation.
+- Full sidecar suite: 661 passed; PostgreSQL integration: 26 passed; sidecar typecheck and diff checks passed. Unchanged API (213, plus 2 existing skips) and execution-core (28) gates bring the current total to 928 passing tests.
+- User authorized periodic pushes. Checked repository workflows: `dev` pushes run checks/builds; deployment targets `main` or manual dispatch, and releases target tags/manual dispatch. Source pushes use `dev` without force or tags.
+
+### Files changed
+- `apps/sidecar/src/services/execution/{events,lifecycle,state}.ts` — recovery stop fence, captured ownership, guarded logs and cancellation serialization.
+- `apps/sidecar/src/services/execution/{events,lifecycle,state}.test.mjs` — uncertainty, stale terminal callbacks and interleaved cancellation/cleanup regressions.
+- `apps/sidecar/src/services/batch/persistence.integration.test.ts` — real PostgreSQL terminal/log binding and replacement-preservation cases.
+
+### Issues encountered
+- An existing recovery fixture expected successful publication even after a rejected abort; corrected its positive receipt and added separate negative cases.
+- Guarding only the successful done write left its error handler free to cancel a different task session. Terminal failure paths need the same ownership fence as success.
+- The authorization reviewer confirmed remaining W02 deny/revocation gaps in comment mutations, historical usage, chat reads, workspace task search, live/domain replay and workspace-bound PATs. Existing policy helpers should be reused; no W02 source changes are claimed here.
+
+### Next steps / blockers
+- Continue W02–W04 resource/principal policy, scoped bootstrap and immutable transactional events/idempotency. Then accept durable W05/W06 execution/recovery jointly.
+- Confirmed stop receipts remain logical provider acknowledgements, not OS descendant-termination evidence. Execution markers/ownership remain process-local; immutable run identities and cross-process fences require the durable engine.
+- No frontend source, deployment, paid inference, live PR creation or remote database changes. Remove the disposable test container after the final SQL gate.

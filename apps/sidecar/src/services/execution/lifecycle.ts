@@ -230,7 +230,7 @@ async function startAgentSession(
     executionPausedAt: null,
     executionElapsedMs: 0,
     executionProgress: 0,
-  });
+  }, executionState);
   assertStarting();
 
   const store = await getSidecarStore();
@@ -466,11 +466,12 @@ export async function executeTask({ taskId, userId }: ExecuteTaskParams): Promis
   }
 }
 
-export async function cancelTask(taskId: string): Promise<{ success: boolean; error?: string }> {
-  const execution = activeExecutions.get(taskId);
+type CancellationResult = { success: boolean; error?: string };
+const cancellationOperations = new WeakMap<ExecutionState, Promise<CancellationResult>>();
 
-  if (!execution) {
-    return { success: false, error: 'Task is not running' };
+async function cancelExecution(taskId: string, execution: ExecutionState): Promise<CancellationResult> {
+  if (execution.finalizationPending || activeExecutions.get(taskId) !== execution) {
+    return { success: false, error: 'Task is already finalizing' };
   }
 
   // T5 — share the same finalize claim as the event-driven paths. Without
@@ -482,6 +483,7 @@ export async function cancelTask(taskId: string): Promise<{ success: boolean; er
 
   execution.cancelled = true;
   execution.cancelUnconfirmed = true;
+  execution.finalizationPending = true;
 
   const now = new Date();
   const elapsedMs = now.getTime() - execution.startedAt.getTime();
@@ -493,25 +495,43 @@ export async function cancelTask(taskId: string): Promise<{ success: boolean; er
     estimatedProgress,
   });
 
-  let persistenceError: unknown;
   try {
-    await updateTaskStatus(taskId, 'cancelled', null, {
-      executionPausedAt: now,
-      executionElapsedMs: elapsedMs,
-      executionProgress: estimatedProgress,
-    });
-  } catch (error) { persistenceError = error; }
-  try {
-    const result = await execution.client.session.abort({ path: { id: execution.sessionId }, signal: AbortSignal.timeout(5_000) });
-    if (result.error || result.data !== true) throw new Error('Provider did not confirm abort');
-    if (persistenceError) throw persistenceError;
-    await finalizeAgentRun(execution, 'cancelled', { errorMessage: 'cancelled by user' });
-    await persistLogs(taskId);
-  } catch (error) {
-    logger.error({ err: error, taskId }, `[Execution] Abort call failed for task ${taskId}`);
-    return { success: false, error: 'Cancellation could not be confirmed; execution remains reserved' };
+    let persistenceError: unknown;
+    try {
+      await updateTaskStatus(taskId, 'cancelled', null, {
+        executionPausedAt: now,
+        executionElapsedMs: elapsedMs,
+        executionProgress: estimatedProgress,
+      }, execution);
+    } catch (error) { persistenceError = error; }
+    try {
+      const result = await execution.client.session.abort({ path: { id: execution.sessionId }, signal: AbortSignal.timeout(5_000) });
+      if (result.error || result.data !== true) throw new Error('Provider did not confirm abort');
+      if (persistenceError) throw persistenceError;
+      await finalizeAgentRun(execution, 'cancelled', { errorMessage: 'cancelled by user' });
+      await persistLogs(taskId, execution);
+    } catch (error) {
+      logger.error({ err: error, taskId }, `[Execution] Cancellation could not finish for task ${taskId}`);
+      return { success: false, error: 'Cancellation could not be confirmed; execution remains reserved' };
+    }
+    execution.cancelUnconfirmed = false;
+    await cleanupExecution(taskId, execution);
+    return { success: true };
+  } finally {
+    execution.finalizationPending = false;
   }
-  execution.cancelUnconfirmed = false;
-  await cleanupExecution(taskId);
-  return { success: true };
+}
+
+export async function cancelTask(taskId: string): Promise<CancellationResult> {
+  const execution = activeExecutions.get(taskId);
+  if (!execution) return { success: false, error: 'Task is not running' };
+  const existing = cancellationOperations.get(execution);
+  if (existing) return existing;
+
+  const operation = cancelExecution(taskId, execution);
+  cancellationOperations.set(execution, operation);
+  try { return await operation; }
+  finally {
+    if (cancellationOperations.get(execution) === operation) cancellationOperations.delete(execution);
+  }
 }

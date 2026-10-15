@@ -33,6 +33,19 @@ async function task(batchId = randomUUID()) {
   ids.push(row.id);
   return row;
 }
+function executionFixture(taskId: string, overrides: Partial<ExecutionState> = {}): ExecutionState {
+  return {
+    taskId, projectId: 'repo', taskProjectId: null, sessionId: 'ses_old', repoPath: '/fixture', branchName: 'openlinear/fixture',
+    userId: 'user', accessToken: null, teamId: null, creatorId: null,
+    timeoutId: setTimeout(() => undefined, 60_000), streamTimeoutId: null, progressTimeoutId: null,
+    watchdogSuspended: false, finalized: true, status: 'creating_pr', logs: [],
+    client: createOpencodeClient({ baseUrl: 'http://127.0.0.1:1' }), startedAt: new Date(), filesChanged: 1, toolsExecuted: 1,
+    promptSent: true, backgroundTaskRunning: false, backgroundTaskFailure: null, backgroundTaskIds: [],
+    backgroundTaskResultBuffer: '', completedToolKeys: new Set(), cancelled: false, agentRunId: null,
+    cost: { input: 0, output: 0, total: 0 }, tokens: { input: 0, output: 0, reasoning: 0, cacheRead: 0, cacheWrite: 0 }, messageUsage: new Map(),
+    ...overrides,
+  };
+}
 function gate() {
   let resolve!: () => void;
   const promise = new Promise<void>((done) => { resolve = done; });
@@ -64,18 +77,12 @@ async function batchFixture(status: 'todo' | 'in_progress') {
 }
 
 describe('batch guarded writes against PostgreSQL', () => {
-  it.each(['cancelled', 'new-session', 'project-moved'] as const)('rejects single-task done writes after %s replaced the active session', async (replacement) => {
+  it.each([
+    ['done', 'cancelled'], ['done', 'new-session'], ['done', 'project-moved'],
+    ['cancelled', 'cancelled'], ['cancelled', 'new-session'], ['cancelled', 'project-moved'],
+  ] as const)('rejects single-task %s writes after %s replaced the active session', async (status, replacement) => {
     const row = await task();
-    const execution: ExecutionState = {
-      taskId: row.id, projectId: 'repo', taskProjectId: null, sessionId: 'ses_old', repoPath: '/fixture', branchName: 'openlinear/fixture',
-      userId: 'user', accessToken: null, teamId: null, creatorId: null,
-      timeoutId: setTimeout(() => undefined, 60_000), streamTimeoutId: null, progressTimeoutId: null,
-      watchdogSuspended: false, finalized: true, status: 'creating_pr', logs: [],
-      client: createOpencodeClient({ baseUrl: 'http://127.0.0.1:1' }), startedAt: new Date(), filesChanged: 1, toolsExecuted: 1,
-      promptSent: true, backgroundTaskRunning: false, backgroundTaskFailure: null, backgroundTaskIds: [],
-      backgroundTaskResultBuffer: '', completedToolKeys: new Set(), cancelled: false, agentRunId: null,
-      cost: { input: 0, output: 0, total: 0 }, tokens: { input: 0, output: 0, reasoning: 0, cacheRead: 0, cacheWrite: 0 }, messageUsage: new Map(),
-    };
+    const execution = executionFixture(row.id);
     single.activeExecutions.set(row.id, execution);
     let movedProject: string | undefined;
     if (replacement === 'project-moved') {
@@ -85,10 +92,161 @@ describe('batch guarded writes against PostgreSQL', () => {
     await prisma.task.update({ where: { id: row.id }, data: replacement === 'cancelled'
       ? { status: 'cancelled', sessionId: null } : replacement === 'project-moved'
         ? { status: 'in_progress', sessionId: 'ses_old', projectId: movedProject } : { status: 'in_progress', sessionId: 'ses_new' } });
-    await expect(single.updateTaskStatus(row.id, 'done', null, { prUrl: 'https://github.com/acme/repo/pull/1' }))
+    const before = await prisma.task.findUniqueOrThrow({ where: { id: row.id } });
+    await expect(single.updateTaskStatus(row.id, status, null, { prUrl: 'https://github.com/acme/repo/pull/1', outcome: 'stale terminal write' }))
       .rejects.toMatchObject({ code: 'P2025' });
-    expect((await prisma.task.findUniqueOrThrow({ where: { id: row.id } })).prUrl).toBeNull();
+    expect(await prisma.task.findUniqueOrThrow({ where: { id: row.id } })).toEqual(before);
   });
+
+  it.each([
+    ['done', 'team-moved'], ['done', 'creator-changed'],
+    ['cancelled', 'team-moved'], ['cancelled', 'creator-changed'],
+  ] as const)('rejects single-task %s writes after the captured %s binding changed', async (status, replacement) => {
+    const fixture = await batchFixture('in_progress');
+    const row = fixture.tasks[0];
+    const team = await prisma.team.create({ data: { projectId: fixture.project.id, name: 'W01 binding team', key: 'WBT' } });
+    const execution = executionFixture(row.id, {
+      taskProjectId: fixture.project.id, teamId: team.id, creatorId: fixture.user.id,
+      logs: [{ timestamp: new Date().toISOString(), type: 'agent', message: 'bound session logs' }],
+    });
+    single.activeExecutions.set(row.id, execution);
+    await prisma.task.update({ where: { id: row.id }, data: { sessionId: execution.sessionId, teamId: team.id } });
+    await single.persistLogs(row.id, execution);
+    expect((await prisma.task.findUniqueOrThrow({ where: { id: row.id } })).executionLogs).toEqual(execution.logs);
+
+    await prisma.task.update({ where: { id: row.id }, data: {
+      ...(replacement === 'team-moved' ? { teamId: null } : { creatorId: null }),
+      executionLogs: [{ message: 'replacement resource logs' }],
+    } });
+    const before = await prisma.task.findUniqueOrThrow({ where: { id: row.id } });
+    await expect(single.updateTaskStatus(row.id, status, null, { outcome: 'stale resource write' }, execution))
+      .rejects.toMatchObject({ code: 'P2025' });
+    await single.persistLogs(row.id, execution);
+    expect(await prisma.task.findUniqueOrThrow({ where: { id: row.id } })).toEqual(before);
+  });
+
+  it.each(['done', 'cancelled'] as const)('persists captured logs before and after a confirmed %s transition', async (status) => {
+    const row = await task();
+    await prisma.task.update({ where: { id: row.id }, data: { sessionId: 'ses_old' } });
+    const execution = executionFixture(row.id, {
+      logs: [{ timestamp: new Date().toISOString(), type: 'agent', message: 'owned session log' }],
+    });
+    single.activeExecutions.set(row.id, execution);
+    await single.persistLogs(row.id, execution);
+    expect((await prisma.task.findUniqueOrThrow({ where: { id: row.id } })).executionLogs).toEqual(execution.logs);
+
+    await single.updateTaskStatus(row.id, status, null, { outcome: 'confirmed terminal outcome' }, execution);
+    expect(execution.taskStatusPersisted).toBe(status);
+    execution.logs.push({ timestamp: new Date().toISOString(), type: 'info', message: 'owned terminal log' });
+    await single.persistLogs(row.id, execution);
+    expect(await prisma.task.findUniqueOrThrow({ where: { id: row.id } })).toMatchObject({
+      status, sessionId: null, executionLogs: execution.logs,
+    });
+  });
+
+  it.each(['new-session', 'project-moved', 'unconfirmed-terminal'] as const)('does not persist captured logs after %s changed the database binding', async (replacement) => {
+    const row = await task();
+    const execution = executionFixture(row.id, {
+      logs: [{ timestamp: new Date().toISOString(), type: 'agent', message: 'stale session log' }],
+    });
+    single.activeExecutions.set(row.id, execution);
+    let movedProject: string | undefined;
+    if (replacement === 'project-moved') {
+      const project = await prisma.project.create({ data: { name: 'W01 log movement fixture' } });
+      projects.push(project.id); movedProject = project.id;
+    }
+    await prisma.task.update({ where: { id: row.id }, data: {
+      ...(replacement === 'new-session' ? { sessionId: 'ses_new' }
+        : replacement === 'project-moved' ? { sessionId: 'ses_old', projectId: movedProject }
+          : { status: 'cancelled', sessionId: null }),
+      executionLogs: [{ message: 'replacement-owned logs' }],
+    } });
+    const before = await prisma.task.findUniqueOrThrow({ where: { id: row.id } });
+    await single.persistLogs(row.id, execution);
+    expect(await prisma.task.findUniqueOrThrow({ where: { id: row.id } })).toEqual(before);
+  });
+
+  it.each(['new-session', 'project-moved'] as const)('does not persist confirmed terminal logs after %s replaced the resource binding', async (replacement) => {
+    const row = await task();
+    await prisma.task.update({ where: { id: row.id }, data: { sessionId: 'ses_old' } });
+    const execution = executionFixture(row.id, {
+      logs: [{ timestamp: new Date().toISOString(), type: 'agent', message: 'old terminal log' }],
+    });
+    single.activeExecutions.set(row.id, execution);
+    await single.updateTaskStatus(row.id, 'cancelled', null, { outcome: 'old cancellation' }, execution);
+    let movedProject: string | undefined;
+    if (replacement === 'project-moved') {
+      const project = await prisma.project.create({ data: { name: 'W01 terminal log movement fixture' } });
+      projects.push(project.id); movedProject = project.id;
+    }
+    await prisma.task.update({ where: { id: row.id }, data: {
+      ...(replacement === 'new-session' ? { status: 'in_progress', sessionId: 'ses_new' } : { projectId: movedProject }),
+      outcome: 'replacement outcome', executionLogs: [{ message: 'replacement terminal logs' }],
+    } });
+    const before = await prisma.task.findUniqueOrThrow({ where: { id: row.id } });
+    await single.persistLogs(row.id, execution);
+    expect(await prisma.task.findUniqueOrThrow({ where: { id: row.id } })).toEqual(before);
+  });
+
+  it('rejects captured callbacks before a repeated terminal marker can bypass replacement ownership', async () => {
+    const row = await task();
+    const stale = executionFixture(row.id, {
+      taskStatusPersisted: 'cancelled',
+      logs: [{ timestamp: new Date().toISOString(), type: 'agent', message: 'stale captured log' }],
+    });
+    const replacementCleanup = vi.fn();
+    const replacement = executionFixture(row.id, { sessionId: 'ses_new', eventStreamCleanup: replacementCleanup });
+    single.activeExecutions.set(row.id, replacement);
+    await prisma.task.update({ where: { id: row.id }, data: {
+      sessionId: replacement.sessionId, outcome: 'replacement outcome', executionLogs: [{ message: 'replacement logs' }],
+    } });
+    const before = await prisma.task.findUniqueOrThrow({ where: { id: row.id } });
+    try {
+      await expect(single.updateTaskStatus(row.id, 'cancelled', null, { outcome: 'stale cancellation' }, stale))
+        .rejects.toThrow('Execution no longer owns task status');
+      await single.persistLogs(row.id, stale);
+      await single.cleanupExecution(row.id, stale);
+      expect(await prisma.task.findUniqueOrThrow({ where: { id: row.id } })).toEqual(before);
+      expect(single.activeExecutions.get(row.id)).toBe(replacement);
+      expect(replacementCleanup).not.toHaveBeenCalled();
+    } finally { clearTimeout(stale.timeoutId); }
+  });
+
+  it('does not remove a replacement installed while captured cleanup awaits its old stream', async () => {
+    const row = await task();
+    const reached = gate(); const release = gate();
+    const stale = executionFixture(row.id, {
+      eventStreamCleanup: async () => { reached.resolve(); await release.promise; },
+    });
+    single.activeExecutions.set(row.id, stale);
+    const cleanup = single.cleanupExecution(row.id, stale);
+    await reached.promise;
+    const replacementCleanup = vi.fn();
+    const replacement = executionFixture(row.id, { sessionId: 'ses_new', eventStreamCleanup: replacementCleanup });
+    try {
+      single.activeExecutions.set(row.id, replacement);
+      await prisma.task.update({ where: { id: row.id }, data: { sessionId: replacement.sessionId, outcome: 'replacement survives' } });
+    } finally { release.resolve(); }
+    await cleanup;
+    expect(single.activeExecutions.get(row.id)).toBe(replacement);
+    expect(replacementCleanup).not.toHaveBeenCalled();
+    expect(await prisma.task.findUniqueOrThrow({ where: { id: row.id } })).toMatchObject({
+      status: 'in_progress', sessionId: replacement.sessionId, outcome: 'replacement survives',
+    });
+  });
+
+  it('does not rewrite a confirmed cancellation on retry', async () => {
+    const row = await task();
+    await prisma.task.update({ where: { id: row.id }, data: { sessionId: 'ses_old' } });
+    const execution = executionFixture(row.id);
+    single.activeExecutions.set(row.id, execution);
+    await single.updateTaskStatus(row.id, 'cancelled', null, { outcome: 'first confirmed cancellation', executionElapsedMs: 7 }, execution);
+    expect(execution.taskStatusPersisted).toBe('cancelled');
+    const before = await prisma.task.findUniqueOrThrow({ where: { id: row.id } });
+    await single.updateTaskStatus(row.id, 'cancelled', null, { outcome: 'retry must not rewrite', executionElapsedMs: 99 }, execution);
+    expect(await prisma.task.findUniqueOrThrow({ where: { id: row.id } })).toEqual(before);
+  });
+
   it('rolls back all admission bindings if one snapshot status changed during preparation', async () => {
     const fixture = await batchFixture('todo');
     const reached = gate(); const release = gate();

@@ -26,6 +26,7 @@ import {
   estimateProgress,
   MAX_COMPLETED_TOOL_KEYS,
   COMPLETED_TOOL_KEY_SOURCE_LIMIT,
+  type ExecutionState,
 } from './state';
 
 // T4 (C-07 / R1 P0-3) — liveness vs. progress are two different questions.
@@ -105,7 +106,18 @@ export function claimFinalize(taskId: string): boolean {
 
 export async function failExecutionFromEventStream(taskId: string, message: string, details?: string, runErrorMessage?: string): Promise<void> {
   const execution = activeExecutions.get(taskId);
-  if (!execution || execution.cancelled) return;
+  if (!execution || execution.cancelled || !claimFinalize(taskId)) return;
+  execution.finalizationPending = true;
+
+  try {
+    await finalizeStreamFailure(taskId, execution, message, details, runErrorMessage);
+  } finally {
+    execution.finalizationPending = false;
+  }
+}
+
+async function finalizeStreamFailure(taskId: string, execution: ExecutionState, message: string, details?: string, runErrorMessage?: string): Promise<void> {
+  let stopConfirmed: boolean | undefined;
 
   const recoverableStreamFailure =
     message === EVENT_STREAM_TIMEOUT_MESSAGE ||
@@ -117,31 +129,32 @@ export async function failExecutionFromEventStream(taskId: string, message: stri
   if (recoverableStreamFailure) {
     try {
       if (await hasCommittableChanges(execution.repoPath)) {
-        if (!claimFinalize(taskId)) return;
+        if (activeExecutions.get(taskId) !== execution) return;
         clearAllWatchdogs(taskId);
         execution.backgroundTaskRunning = false;
         execution.backgroundTaskFailure = null;
-        addLogEntry(
-          taskId,
-          'info',
-          'Agent event stream stopped after code changes; creating PR from recovered worktree',
-          details,
-        );
-        broadcastProgress(taskId, 'committing', 'Creating PR from recovered worktree...');
         try {
-          await execution.client.session.abort({ path: { id: execution.sessionId } });
+          const response = await execution.client.session.abort({ path: { id: execution.sessionId }, signal: AbortSignal.timeout(5_000) });
+          if (response.error || response.data !== true) throw new Error('Provider did not confirm abort');
+          stopConfirmed = true;
         } catch (error) {
+          stopConfirmed = false;
           logger.error({ err: error, taskId }, `[Execution] Abort before recovered commit failed for task ${taskId.slice(0, 8)}`);
         }
-        await handleSessionComplete(taskId, { alreadyClaimed: true });
-        return;
+        if (stopConfirmed) {
+          if (activeExecutions.get(taskId) !== execution) return;
+          addLogEntry(taskId, 'info', 'Agent stop confirmed after stream failure; creating PR from recovered worktree', details);
+          broadcastProgress(taskId, 'committing', 'Creating PR from recovered worktree...');
+          await handleSessionComplete(taskId, { alreadyClaimed: true, execution });
+          return;
+        }
       }
     } catch (error) {
       logger.error({ err: error, taskId }, `[Execution] Failed to inspect worktree after stream failure for task ${taskId.slice(0, 8)}`);
     }
   }
 
-  if (!claimFinalize(taskId)) return;
+  if (activeExecutions.get(taskId) !== execution) return;
 
   execution.status = 'error';
   execution.cancelled = true;
@@ -158,13 +171,17 @@ export async function failExecutionFromEventStream(taskId: string, message: stri
   addLogEntry(taskId, 'error', message, details);
   broadcastProgress(taskId, 'error', message);
 
-  try {
-    const response = await execution.client.session.abort({ path: { id: execution.sessionId }, signal: AbortSignal.timeout(5_000) });
-    if (response.error || response.data !== true) throw new Error('Provider did not confirm abort');
-    execution.cancelUnconfirmed = false;
-  } catch (error) {
-    logger.error({ err: error, taskId }, `[Execution] Abort after event stream failure failed for task ${taskId.slice(0, 8)}`);
+  if (stopConfirmed === undefined) {
+    try {
+      const response = await execution.client.session.abort({ path: { id: execution.sessionId }, signal: AbortSignal.timeout(5_000) });
+      if (response.error || response.data !== true) throw new Error('Provider did not confirm abort');
+      stopConfirmed = true;
+    } catch (error) {
+      stopConfirmed = false;
+      logger.error({ err: error, taskId }, `[Execution] Abort after event stream failure failed for task ${taskId.slice(0, 8)}`);
+    }
   }
+  execution.cancelUnconfirmed = !stopConfirmed;
 
   try {
     await finalizeAgentRun(execution, 'failed', { errorMessage: runErrorMessage ?? outcome });
@@ -173,13 +190,13 @@ export async function failExecutionFromEventStream(taskId: string, message: stri
       executionPausedAt: new Date(),
       executionProgress: estimatedProgress,
       outcome: taskOutcome,
-    });
-    await persistLogs(taskId);
+    }, execution);
+    await persistLogs(taskId, execution);
   } catch (error) {
     execution.cancelUnconfirmed = true;
     throw error;
   } finally { execution.accessToken = null; }
-  if (!execution.cancelUnconfirmed) await cleanupExecution(taskId);
+  if (!execution.cancelUnconfirmed) await cleanupExecution(taskId, execution);
 }
 
 function resetTransportWatchdog(taskId: string, client: OpencodeClient, sessionId: string): void {
@@ -344,8 +361,9 @@ function observeBackgroundTaskText(taskId: string, text: string): void {
   }
 }
 
-async function handleSessionComplete(taskId: string, opts: { alreadyClaimed?: boolean } = {}): Promise<void> {
-  const execution = activeExecutions.get(taskId)!;
+async function handleSessionComplete(taskId: string, opts: { alreadyClaimed?: boolean; execution?: ExecutionState } = {}): Promise<void> {
+  const execution = opts.execution ?? activeExecutions.get(taskId);
+  if (!execution || activeExecutions.get(taskId) !== execution) return;
   if (!opts.alreadyClaimed && !claimFinalize(taskId)) return;
   clearAllWatchdogs(taskId);
 
@@ -424,7 +442,7 @@ async function handleSessionComplete(taskId: string, opts: { alreadyClaimed?: bo
           executionPausedAt: new Date(),
           executionProgress: 100,
           outcome,
-        });
+        }, execution);
         return;
       }
     } else if (commitResult.status === 'no_changes') {
@@ -437,7 +455,7 @@ async function handleSessionComplete(taskId: string, opts: { alreadyClaimed?: bo
         executionElapsedMs: elapsedMs,
         executionProgress: 100,
         outcome,
-      });
+      }, execution);
       return;
     } else {
       execution.status = 'error';
@@ -449,7 +467,7 @@ async function handleSessionComplete(taskId: string, opts: { alreadyClaimed?: bo
         executionElapsedMs: elapsedMs,
         executionProgress: 100,
         outcome,
-      });
+      }, execution);
       return;
     }
 
@@ -458,7 +476,7 @@ async function handleSessionComplete(taskId: string, opts: { alreadyClaimed?: bo
       executionProgress: 100,
       prUrl,
       outcome,
-    });
+    }, execution);
     completionPersisted = true;
     await finalizeAgentRun(execution, 'succeeded', { prUrl });
     addLogEntry(taskId, 'success', 'Pull request created', prUrl ?? undefined);
@@ -480,10 +498,10 @@ async function handleSessionComplete(taskId: string, opts: { alreadyClaimed?: bo
       executionPausedAt: new Date(),
       executionProgress: 100,
       outcome: `${errorMessage}. Work retained on ${execution.branchName} at ${execution.repoPath}${prUrl ? '; pull request ' + prUrl : ''}`,
-    });
+    }, execution);
   } finally {
-    await persistLogs(taskId);
-    await cleanupExecution(taskId);
+    await persistLogs(taskId, execution);
+    await cleanupExecution(taskId, execution);
   }
 }
 

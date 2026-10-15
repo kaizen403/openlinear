@@ -439,7 +439,7 @@ describe('execution event workflow', () => {
 
   it('recovers committable work when the event stream fails after changes', async () => {
     const execution = makeExecution({
-      client: { session: { abort: vi.fn().mockRejectedValue(new Error('abort failed')) } },
+      client: { session: { abort: vi.fn().mockResolvedValue({ data: true }) } },
     });
     const stream = {
       async *[Symbol.asyncIterator]() {
@@ -464,6 +464,57 @@ describe('execution event workflow', () => {
     expect(mocks.finalizeAgentRun).toHaveBeenCalledWith(execution, 'succeeded', {
       prUrl: 'https://github.com/acme/repo/pull/1',
     });
+  });
+
+  it.each([
+    ['missing', {}],
+    ['false', { data: false }],
+    ['error', { error: { message: 'abort rejected' } }],
+    ['rejected', null],
+  ])('quarantines dirty recovery after an unconfirmed %s abort', async (_label, response) => {
+    const execution = makeExecution({ promptDispatched: true });
+    const abort = execution.client.session.abort;
+    if (response === null) abort.mockRejectedValue(new Error('abort unavailable'));
+    else abort.mockResolvedValue(response);
+    mocks.hasCommittableChanges.mockResolvedValue(true);
+    state.activeExecutions.set('task-1', execution);
+    state.sessionToTask.set('ses_1', 'task-1');
+
+    const { failExecutionFromEventStream } = await import('./events');
+    await failExecutionFromEventStream('task-1', 'Agent event stream failed', 'socket closed');
+
+    expect(mocks.commitAndPush.mock.calls.length).toBe(0);
+    expect(mocks.createPullRequest.mock.calls.length).toBe(0);
+    expect(state.activeExecutions.get('task-1') === execution).toBe(true);
+    expect(execution.cancelled).toBe(true);
+    expect(execution.cancelUnconfirmed).toBe(true);
+    const abortSignal = abort.mock.calls[0]?.[0]?.signal;
+    expect(abortSignal instanceof AbortSignal).toBe(true);
+  });
+
+  it.each(['session replacement', 'project movement'])('preserves a newer task after denied completion from %s', async (change) => {
+    const row = { status: 'in_progress', sessionId: 'ses_1', projectId: 'project-1', teamId: 'team-1', creatorId: 'user-1' };
+    mocks.taskUpdate.mockImplementation(async ({ where, data }) => {
+      for (const field of ['sessionId', 'status', 'projectId', 'teamId', 'creatorId']) {
+        if (field in where && where[field] !== row[field]) throw new Error('Captured execution no longer owns task');
+      }
+      Object.assign(row, data);
+      return { id: 'task-1', ...row, labels: [] };
+    });
+    mocks.commitAndPush.mockImplementation(async () => {
+      if (change === 'session replacement') row.sessionId = 'ses_replacement';
+      else row.projectId = 'project-replacement';
+      return { status: 'pushed' };
+    });
+
+    await runEvents([{ type: 'session.idle', properties: { sessionID: 'ses_1' } }], {
+      taskProjectId: 'project-1', teamId: 'team-1', creatorId: 'user-1',
+    });
+
+    expect(row.status).toBe('in_progress');
+    expect(row.sessionId).toBe(change === 'session replacement' ? 'ses_replacement' : 'ses_1');
+    expect(row.projectId).toBe(change === 'project movement' ? 'project-replacement' : 'project-1');
+    expect(mocks.broadcastToTask.mock.calls.some(([type, task]) => type === 'task:updated' && task.status === 'cancelled')).toBe(false);
   });
 
   it('quarantines execution when subscription and provider abort both fail', async () => {

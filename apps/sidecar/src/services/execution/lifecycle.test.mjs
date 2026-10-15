@@ -248,6 +248,54 @@ describe('execution lifecycle', () => {
     expect(mocks.taskFindUnique).not.toHaveBeenCalled();
   });
 
+  it('shares one cancellation operation while an abort acknowledgement is pending', async () => {
+    let releaseAbort;
+    const acknowledged = new Promise((resolve) => { releaseAbort = resolve; });
+    const execution = makeExecution();
+    execution.client.session.abort.mockReturnValue(acknowledged);
+    state.activeExecutions.set('task-1', execution);
+    state.sessionToTask.set('ses_1', 'task-1');
+
+    const first = lifecycle.cancelTask('task-1');
+    await waitFor(() => execution.client.session.abort.mock.calls.length > 0);
+    const second = lifecycle.cancelTask('task-1');
+    for (let index = 0; index < 10; index += 1) await Promise.resolve();
+    const abortCountBeforeAcknowledgement = execution.client.session.abort.mock.calls.length;
+    releaseAbort({ data: true });
+    const results = await Promise.all([first, second]);
+
+    expect(abortCountBeforeAcknowledgement).toBe(1);
+    expect(results.every((result) => result.success)).toBe(true);
+    expect(mocks.finalizeAgentRun.mock.calls.length).toBe(1);
+    expect(mocks.taskUpdate.mock.calls.length).toBe(1);
+  });
+
+  it('keeps a replacement alive after a late old cancellation retry settles', async () => {
+    let releaseFirstFinalization;
+    let releaseLateAbort;
+    const firstFinalization = new Promise((resolve) => { releaseFirstFinalization = resolve; });
+    const lateAbort = new Promise((resolve) => { releaseLateAbort = resolve; });
+    const execution = makeExecution();
+    execution.client.session.abort.mockResolvedValueOnce({ data: true }).mockReturnValueOnce(lateAbort);
+    mocks.finalizeAgentRun.mockReturnValueOnce(firstFinalization);
+    state.activeExecutions.set('task-1', execution);
+
+    const first = lifecycle.cancelTask('task-1');
+    await waitFor(() => mocks.finalizeAgentRun.mock.calls.length > 0);
+    const retry = lifecycle.cancelTask('task-1');
+    for (let index = 0; index < 10; index += 1) await Promise.resolve();
+    releaseFirstFinalization();
+    await first;
+    const replacement = makeExecution({ sessionId: 'ses_replacement', agentRunId: 'run-replacement' });
+    state.activeExecutions.set('task-1', replacement);
+    releaseLateAbort({ data: true });
+    await retry;
+
+    expect(state.activeExecutions.get('task-1') === replacement).toBe(true);
+    expect(state.findTaskBySessionId('ses_replacement')).toBe('task-1');
+    expect(execution.client.session.abort.mock.calls.length).toBe(1);
+  });
+
   it('returns task not found when the requested task does not exist', async () => {
     mocks.taskFindUnique.mockResolvedValue(null);
 
@@ -747,7 +795,7 @@ describe('execution lifecycle', () => {
       errorMessage: 'cancelled by user',
     });
     expect(mocks.taskUpdate).toHaveBeenCalledWith(expect.objectContaining({
-      where: { id: 'task-1' },
+      where: { id: 'task-1', sessionId: 'ses_1', status: 'in_progress' },
       data: expect.objectContaining({
         status: 'cancelled',
         sessionId: null,

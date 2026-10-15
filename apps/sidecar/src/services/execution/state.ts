@@ -40,6 +40,8 @@ export const COMPLETED_TOOL_KEY_SOURCE_LIMIT = 200;
 
 export interface ExecutionState {
   cancelUnconfirmed?: boolean;
+  finalizationPending?: boolean;
+  taskStatusPersisted?: 'done' | 'cancelled';
   taskProjectId?: string | null;
   promptDispatched?: boolean;
   taskId: string;
@@ -441,12 +443,17 @@ export async function updateTaskStatus(
     executionProgress?: number | null;
     prUrl?: string | null;
     outcome?: string | null;
-  }
+  },
+  expectedExecution?: ExecutionState,
 ): Promise<void> {
   try {
-    const execution = activeExecutions.get(taskId);
+    if (expectedExecution && activeExecutions.get(taskId) !== expectedExecution) {
+      throw new Error('Execution no longer owns task status');
+    }
+    const execution = expectedExecution ?? activeExecutions.get(taskId);
+    if (status !== 'in_progress' && execution?.taskStatusPersisted === status) return;
     const task = await prisma.task.update({
-      where: { id: taskId, ...(status === 'done' && execution ? {
+      where: { id: taskId, ...(status !== 'in_progress' && execution ? {
         sessionId: execution.sessionId, status: 'in_progress' as const,
         ...(execution.taskProjectId !== undefined ? { projectId: execution.taskProjectId, teamId: execution.teamId, creatorId: execution.creatorId } : {}),
       } : {}) },
@@ -457,6 +464,7 @@ export async function updateTaskStatus(
       },
       include: { labels: { include: { label: true } } },
     });
+    if (execution && status !== 'in_progress') execution.taskStatusPersisted = status;
     
     const flatTask = {
       ...task,
@@ -479,20 +487,29 @@ export function estimateProgress(execution: ExecutionState): number {
   return Math.min(Math.round(baseProgress + fileProgress + timeProgress), 95);
 }
 
-export async function persistLogs(taskId: string): Promise<void> {
-  const execution = executionStore.get(taskId);
+export async function persistLogs(taskId: string, expectedExecution?: ExecutionState): Promise<void> {
+  const execution = expectedExecution ?? executionStore.get(taskId);
+  if (expectedExecution && executionStore.get(taskId) !== expectedExecution) return;
   if (!execution || execution.logs.length === 0) return;
   try {
     await prisma.$executeRaw`
       UPDATE tasks SET "executionLogs" = ${JSON.stringify(execution.logs)}::jsonb WHERE id = ${taskId}
+        AND status = ${execution.taskStatusPersisted ?? 'in_progress'}
+        AND "sessionId" IS NOT DISTINCT FROM ${execution.taskStatusPersisted ? null : execution.sessionId}
+        AND (${execution.taskProjectId === undefined} OR (
+          "projectId" IS NOT DISTINCT FROM ${execution.taskProjectId ?? null}
+          AND "teamId" IS NOT DISTINCT FROM ${execution.teamId}
+          AND "creatorId" IS NOT DISTINCT FROM ${execution.creatorId}
+        ))
     `;
   } catch (error) {
     logger.error({ err: error, taskId }, `[Execution] Failed to persist logs for task ${taskId.slice(0, 8)}`);
   }
 }
 
-export async function cleanupExecution(taskId: string): Promise<void> {
-  const execution = executionStore.get(taskId);
+export async function cleanupExecution(taskId: string, expectedExecution?: ExecutionState): Promise<void> {
+  const execution = expectedExecution ?? executionStore.get(taskId);
+  if (expectedExecution && executionStore.get(taskId) !== expectedExecution) return;
   if (execution) {
     flushDeltaBuffer(taskId);
     cleanupDeltaBuffer(taskId);
@@ -515,6 +532,7 @@ export async function cleanupExecution(taskId: string): Promise<void> {
       }
       execution.eventStreamCleanup = undefined;
     }
+    if (executionStore.get(taskId) !== execution) return;
     executionStore.remove(taskId);
     logger.info(`[Execution] Cleaned up task ${taskId.slice(0, 8)}, remaining: ${executionStore.count()}`);
   }
