@@ -229,10 +229,10 @@ describe('execution state helpers', () => {
     });
   });
 
-  it('logs task status update failures without throwing', async () => {
+  it('propagates task status update failures after logging', async () => {
     mocks.taskUpdate.mockRejectedValue(new Error('db down'));
 
-    await expect(state.updateTaskStatus('task-1', 'cancelled', null)).resolves.toBeUndefined();
+    await expect(state.updateTaskStatus('task-1', 'cancelled', null)).rejects.toThrow('db down');
 
     expect(mocks.loggerError).toHaveBeenCalledWith(
       { err: expect.any(Error), taskId: 'task-1' },
@@ -300,6 +300,66 @@ describe('execution state helpers', () => {
     expect(eventStreamCleanup).toHaveBeenCalledTimes(1);
     expect(state.activeExecutions.has('task-1')).toBe(false);
     expect(state.sessionToTask.has('ses_1')).toBe(false);
+  });
+
+  it('does not remove a replacement execution while old stream cleanup settles', async () => {
+    let releaseCleanup;
+    const cleanupPending = new Promise((resolve) => { releaseCleanup = resolve; });
+    const execution = makeExecution({ eventStreamCleanup: vi.fn(() => cleanupPending) });
+    state.activeExecutions.set('task-1', execution);
+    const cleanup = state.cleanupExecution('task-1');
+    const replacement = makeExecution({ sessionId: 'ses_replacement' });
+    state.activeExecutions.set('task-1', replacement);
+    releaseCleanup();
+    await cleanup;
+
+    expect(state.activeExecutions.get('task-1') === replacement).toBe(true);
+    expect(state.findTaskBySessionId('ses_replacement')).toBe('task-1');
+    clearTimeout(replacement.timeoutId);
+    clearTimeout(replacement.streamTimeoutId);
+  });
+
+  it('ignores stale-owner log persistence and cleanup against a replacement', async () => {
+    const old = makeExecution();
+    const replacement = makeExecution({
+      sessionId: 'ses_replacement',
+      logs: [{ timestamp: 'now', type: 'info', message: 'Replacement is running' }],
+    });
+    state.activeExecutions.set('task-1', replacement);
+
+    await state.persistLogs('task-1', old);
+    await state.cleanupExecution('task-1', old);
+
+    expect(mocks.executeRaw.mock.calls.length).toBe(0);
+    expect(mocks.cleanupDeltaBuffer.mock.calls.length).toBe(0);
+    expect(state.activeExecutions.get('task-1') === replacement).toBe(true);
+    for (const execution of [old, replacement]) {
+      clearTimeout(execution.timeoutId);
+      clearTimeout(execution.streamTimeoutId);
+    }
+  });
+
+  it('denies a stale-owner cancellation projection after its session is replaced', async () => {
+    const old = makeExecution({ taskProjectId: 'project-1' });
+    const replacement = makeExecution({ sessionId: 'ses_replacement', taskProjectId: 'project-1' });
+    const row = { status: 'in_progress', sessionId: 'ses_replacement', projectId: 'project-1', teamId: 'team-1', creatorId: 'user-1' };
+    state.activeExecutions.set('task-1', replacement);
+    mocks.taskUpdate.mockImplementation(async ({ where, data }) => {
+      for (const field of ['sessionId', 'status', 'projectId', 'teamId', 'creatorId']) {
+        if (field in where && where[field] !== row[field]) throw new Error('Stale execution');
+      }
+      Object.assign(row, data);
+      return { id: 'task-1', ...row, labels: [] };
+    });
+
+    await expect(state.updateTaskStatus('task-1', 'cancelled', null, undefined, old)).rejects.toThrow();
+
+    expect(row.status).toBe('in_progress');
+    expect(row.sessionId).toBe('ses_replacement');
+    for (const execution of [old, replacement]) {
+      clearTimeout(execution.timeoutId);
+      clearTimeout(execution.streamTimeoutId);
+    }
   });
 
   it('continues cleanup when event stream cleanup throws', async () => {

@@ -1,16 +1,18 @@
-import { existsSync, mkdirSync, rmSync, accessSync, constants } from 'fs';
+import { existsSync, mkdirSync, accessSync, constants } from 'fs';
+import { randomUUID } from 'node:crypto';
 import { logger } from '@openlinear/api/logger';
 import { PullRequestResult, REPOS_DIR } from './state';
 import { getGitIdentityEnv } from '../git-identity';
 import { assertPathInsideReposDir } from '../repo-storage';
+import { publishGithubPullRequest } from '../github-publication';
 import {
   assertSafeCloneUrl,
   assertSafeRefName,
   execGit,
   execGitWithCredentials,
 } from '../git-credentials';
-import { acquireLocalWorktree } from '../../workspace/local-worktree';
-import { assertStagingAllowlist } from '../../engine/staging-allowlist';
+import { acquireLocalWorktree, type WorkspaceHandle } from '../../workspace/local-worktree';
+import { assertStagingAllowlist, assertStagedAllowlist, parseGitStatusPorcelainZ } from '../../engine/staging-allowlist';
 
 export type CommitPushResult =
   | { status: 'no_changes' }
@@ -29,12 +31,6 @@ function getExecErrorReason(error: unknown): string {
   return 'Unknown git error';
 }
 
-function extractPorcelainPath(line: string): string {
-  const raw = line.slice(3).trim();
-  const renameTarget = raw.split(' -> ').pop();
-  return (renameTarget || raw).replace(/\\/g, '/');
-}
-
 function isRuntimeArtifactPath(path: string): boolean {
   return RUNTIME_ARTIFACT_PATHS.some((artifactPath) => (
     path === artifactPath || path.startsWith(`${artifactPath}/`)
@@ -46,14 +42,13 @@ export async function hasCommittableChanges(repoPath: string): Promise<boolean> 
     '-C',
     repoPath,
     'status',
-    '--porcelain',
+    '--porcelain=v1',
+    '-z',
     '--untracked-files=all',
   ]);
 
-  return stdout
-    .split('\n')
-    .filter(Boolean)
-    .some((line) => !isRuntimeArtifactPath(extractPorcelainPath(line)));
+  return parseGitStatusPorcelainZ(stdout).some((entry) =>
+    !isRuntimeArtifactPath(entry.path) || (entry.originalPath !== undefined && !isRuntimeArtifactPath(entry.originalPath)));
 }
 
 export async function stageCommittableChanges(repoPath: string): Promise<boolean> {
@@ -70,15 +65,8 @@ export async function stageCommittableChanges(repoPath: string): Promise<boolean
   ]);
   await execGit(['-C', repoPath, 'reset', '-q', '--', '.sisyphus']).catch(() => undefined);
 
-  const { stdout } = await execGit([
-    '-C',
-    repoPath,
-    'diff',
-    '--cached',
-    '--name-only',
-  ]);
-
-  return stdout.trim().length > 0;
+  const staged = await assertStagedAllowlist(repoPath);
+  return staged.length > 0;
 }
 
 export async function cloneRepository(
@@ -86,7 +74,7 @@ export async function cloneRepository(
   repoPath: string,
   accessToken: string | null,
   defaultBranch: string
-): Promise<void> {
+): Promise<WorkspaceHandle> {
   assertSafeCloneUrl(cloneUrl, 'clone URL');
   assertSafeRefName(defaultBranch, 'default branch');
 
@@ -113,14 +101,11 @@ export async function cloneRepository(
     name,
     cloneUrl,
     baseRef: defaultBranch,
-    runId: safeRepoPath.split('/').pop() ?? 'run',
+    runId: randomUUID(),
     accessToken,
   });
-  if (handle.worktreePath !== safeRepoPath && existsSync(handle.worktreePath) && !existsSync(safeRepoPath)) {
-    // Callers that pass a specific path still get a unique openlinear/<runId> worktree.
-    logger.info(`[Execution] Worktree ready at ${handle.worktreePath}`);
-  }
-  logger.info(`[Execution] Clone complete`);
+  logger.info(`[Execution] Worktree ready at ${handle.worktreePath}`);
+  return handle;
 }
 
 export async function createBranch(repoPath: string, branchName: string): Promise<void> {
@@ -211,48 +196,15 @@ export async function createPullRequest(
   taskDescription: string | null,
   accessToken: string | null
 ): Promise<PullRequestResult> {
-  const [owner, repo] = fullName.split('/');
-  const compareUrl = `https://github.com/${owner}/${repo}/compare/${defaultBranch}...${branchName}`;
-
-  if (!accessToken) {
-    logger.info('[Execution] No access token - returning compare URL for manual PR creation');
-    return { url: compareUrl, type: 'compare' };
-  }
-
-  const body = {
-    title: taskTitle,
-    head: branchName,
-    base: defaultBranch,
+  const url = await publishGithubPullRequest({
+    fullName, branchName, defaultBranch, title: taskTitle, accessToken,
     body: taskDescription || `Automated PR created by OpenLinear\n\n## Task\n${taskTitle}`,
-  };
-
-  try {
-    const response = await fetch(`https://api.github.com/repos/${owner}/${repo}/pulls`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        Accept: 'application/vnd.github.v3+json',
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(body),
-    });
-
-    if (!response.ok) {
-      const error = await response.text();
-      logger.error({ err: error }, '[Execution] PR creation failed');
-      return { url: compareUrl, type: 'compare' };
-    }
-
-    const pr = (await response.json()) as { html_url: string };
-    return { url: pr.html_url, type: 'pr' };
-  } catch (error) {
-    logger.error({ err: error }, '[Execution] PR creation error');
-    return { url: compareUrl, type: 'compare' };
-  }
+  });
+  return { url, type: 'pr' };
 }
 
 export interface IGitService {
-  clone(cloneUrl: string, repoPath: string, accessToken: string | null, defaultBranch: string): Promise<void>;
+  clone(cloneUrl: string, repoPath: string, accessToken: string | null, defaultBranch: string): Promise<WorkspaceHandle>;
   createBranch(repoPath: string, branchName: string): Promise<void>;
   commitAndPush(repoPath: string, branchName: string, taskTitle: string, accessToken?: string | null): Promise<CommitPushResult>;
   createPullRequest(fullName: string, branchName: string, defaultBranch: string, taskTitle: string, taskDescription: string | null, accessToken: string | null): Promise<PullRequestResult>;
@@ -261,7 +213,7 @@ export interface IGitService {
 }
 
 export class GitService implements IGitService {
-  async clone(cloneUrl: string, repoPath: string, accessToken: string | null, defaultBranch: string): Promise<void> {
+  async clone(cloneUrl: string, repoPath: string, accessToken: string | null, defaultBranch: string): Promise<WorkspaceHandle> {
     return cloneRepository(cloneUrl, repoPath, accessToken, defaultBranch);
   }
 

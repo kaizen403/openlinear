@@ -1965,3 +1965,291 @@ The sidecar was likely not running when login was attempted (single-tenant guard
 ### Next steps / blockers
 - Implement Phase 0 from `docs/PERFORMANCE_IMPROVEMENT_PLAN.md`: route timing, slow-query logs, web-vitals collection, benchmark scripts, and seeded performance data.
 - Use those baselines to prioritize the index migration, bulk task endpoints, auth write throttling, and board render fixes.
+
+---
+
+## [2026-10-15] — Clone repository locally
+
+**Status:** Done
+**Agent:** Codex
+
+### What was done
+- Cloned `https://github.com/kaizen403/openlinear.git` into `/Users/sriharsha/Developer/openlinear`.
+- Verified the checkout tracks `origin/dev` and the origin URL matches the requested repository.
+
+### Files changed
+- `ISSUES.md` — recorded the clone session as required by `AGENTS.md`.
+
+### Issues encountered
+- Dependencies are not installed in this fresh checkout; application validation requires setup.
+
+### Next steps / blockers
+- None for the requested clone.
+
+---
+
+## [2026-10-15] — Audit revamp plan implementation status
+
+**Status:** Done (static audit)
+**Agent:** Codex
+
+### What was done
+- Compared all eight phases in the local Desktop revamp plan with the cloned `dev` branch at `157de4e`; `origin/main` has the same tracked content.
+- Confirmed Phase 0 hotfixes and substantial Phase 1–2 code are present; the September 10 desktop handoff predates the subsequent commits.
+- Found Phase 1 gaps: feature modules are re-exports, attachments remain local-disk only, and telemetry has no OTLP exporter implementation. Infrastructure exit criteria remain unverified.
+- Found Phase 2 integration gaps: normal task execution starts OpenCode directly rather than the new runner coordinator; the journal is not attached to this execution path, and batch/route code still queries Prisma directly. No production caller initializes the default sidecar API client.
+- Confirmed sandbox, ai-core, shared UI packages, TanStack Query, and the desktop updater are absent. Phases 3–7 remain largely pending.
+- Confirmed board bulk actions still make per-task requests; latency and soak scripts only print fixture configuration. The P95 plan remains incomplete, and actual email invitation delivery is still deferred.
+
+### Files changed
+- `ISSUES.md` — recorded audit findings; no application code changed.
+
+### Issues encountered
+- Existing work-log completion labels overstate integration and acceptance-test coverage; older plan checkboxes are stale.
+- Dependencies are not installed, so local typechecks cannot validate the applications. No runtime, production, database, or cloud configuration was inspected.
+- Production credential rotation, history purge, manual index application, and multi-replica verification need current evidence; their last recorded statuses are incomplete or blocked.
+
+### Next steps / blockers
+- Complete and verify Phase 1–2 integration and acceptance criteria before treating those phases as finished; then proceed with Phase 3 isolation and the later AI/frontend/cloud/product work.
+
+
+---
+
+## [2026-10-15] — Verify OpenAI execution options and correct pinned Codex adapter
+
+**Status:** Done (research and adapter correction; production integration remains separate)
+**Agent:** Codex
+
+### What was done
+- Inspected the current Codex adapter, shared execution contracts, manifests and lockfile before researching official OpenAI documentation and the pinned `openai/codex` source.
+- Compared local Codex SDK, app-server, Responses with Agents SDK, and the current managed Agents API. Recorded persistence, cancellation, sandbox, approval, compaction/cache, usage/tracing and benchmark requirements in `/tmp/openlinear-openai-research.md` for the coordinated backend plan.
+- Verified installed `@openai/codex-sdk` and its CLI dependency are 0.147.0; a no-inference `--version` check returned `codex-cli 0.147.0`.
+- Replaced handwritten Codex event shapes with SDK types; corrected command/patch/MCP outcomes, per-item message/reasoning deltas, fatal errors, cache-write/read and reasoning usage.
+- Forwarded the configured start model, exposed the live thread ID, implemented signal-backed interrupt/abort, explicit saved-thread continuation, unexpected-EOF failure and iterator cleanup. Removed fabricated live model discovery and made unsupported approval replies explicit.
+- Sidecar typecheck passed. Focused offline Codex fixture suite: 20 tests passed. No paid model calls or deployments.
+
+### Files changed
+- `apps/sidecar/src/runners/codex/index.ts` — pinned SDK contract and lifecycle correction.
+- `apps/sidecar/src/runners/codex/index.test.ts` — SDK-typed fixtures for success/failure, usage, deltas, cancellation and resume.
+- `ISSUES.md` — recorded this research and implementation session.
+
+### Issues encountered
+- SDK JSONL and app-server JSON-RPC are distinct event contracts; the SDK does not provide interactive permission replies or explicit compaction/fork/revert.
+- `ResumeInput` cannot currently carry a new model, credentials or prompt; resume preserves the saved thread model.
+- Current official OpenAI docs announce Evals read-only on October 31 and shutdown on November 30, 2026; new benchmark work should use portable artifacts instead of depending on the retiring Evals platform.
+
+### Next steps / blockers
+- Connect the production coordinator/journal path separately, persist the real thread ID, enforce tenant/runtime credential boundaries, and measure actual cancellation/process-tree behavior and coding benchmark performance before claiming parity or production readiness.
+
+---
+
+## [2026-10-15] — Backend master plan, source audits and first engine repairs
+
+**Status:** In Progress
+**Agent:** Codex (GPT-6.1 subagents for the user-authorized backend audit, research and implementation)
+
+### What was done
+- Reviewed the Desktop revamp plan against actual API, sidecar, execution-core, database, SDK, MCP and desktop process boundaries. Created a backend-only master PRD with 22 work packages, dependency gates, source evidence, product contracts and reproducible evaluation requirements.
+- Researched current official OpenAI/native agent contracts and Terminal-Bench/Harbor/SWE-bench Pro protocols. Kept paid model evaluation and optional cloud services separate; no superiority claim is made.
+- Fixed remote task setup to use the acquired workspace path/branch and a fresh attempt ID; clean up owned failed setup without deleting a user's local checkout. Added real-Git lifecycle composition regressions.
+- Corrected bare-mirror refresh, explicit tag/branch freshness, credential-scoped blob materialization, path/name validation, collision preservation and owned release checks; removed the rejected-finally promise and released completed mutex entries.
+- Fixed run replay resource authorization and full-permission progress ingest; made archive selector validation fail closed across service/chat/REST boundaries.
+- Corrected pinned Codex event/model/cancellation contracts and OpenCode prototype adapter session isolation; these adapters remain separate from normal route integration.
+- Replaced latency metadata placeholders with a real offline Git/worktree/SQLite/coordinator/FakeRunner microbenchmark, raw samples, source hashes, optional failure threshold and temporary fixture cleanup.
+- Independent review caught and resolved stale-tag/branch ambiguity, valid repository-name rejection and plan inconsistencies around verification commits, durability dependencies, native-runtime trust gates, in-flight cancellation and budget guarantees.
+- Full API suite: 213 passed, 2 preexisting skipped. Sidecar: 412 passed. execution-core: 28 passed. API/sidecar/execution-core/MCP typechecks and desktop UI compatibility typecheck passed. git diff --check passed.
+- Measured 30/30 small-fixture trials (warm p95 73.97 ms) and 4/4 300 MiB trials (warm p95 389.72 ms) for the first fake event persisted locally. These are descriptive component baselines, not full HTTP/model/sandbox/task-to-PR measurements or comparative performance proof.
+- Installed frozen dependencies without lifecycle scripts, generated Prisma, and migrated only a disposable loopback PostgreSQL test container. Removed that container after validation. No frontend source, deployment, live database, paid inference, commit or push changes.
+- Saved the master plan, progress ledger, raw benchmark artifacts, frontend work pending and optional cloud services files to Downloads.
+
+### Files changed
+- `tasks/prd-backend-agent-platform.md` — current backend master plan, architecture, W00–W21 work packages, phase gates and evaluation protocol.
+- `docs/plans/backend-product-contracts.md` — task/plan/chat/tool/usage/evidence/memory/schedule API and data contracts.
+- `docs/reports/backend-codebase-context-2026-10-15.md` and `docs/reports/backend-review-2026-10-15/` — source map, six audits/research reports, consolidated validation and raw measured artifacts.
+- `apps/api/src/routes/{events,agent-runs}.ts`, `services/tasks.ts`, `services/chat-tools/domain.ts` — scoped replay/progress and safe archive selection; corresponding new access/selector integration tests.
+- `apps/sidecar/src/services/execution/{git,lifecycle}.ts`, `workspace/local-worktree.ts` — actual acquired-workspace propagation, freshness, ownership and failed-setup handling; real-Git and unit regressions.
+- `apps/sidecar/src/runners/{codex,opencode}/` — corrected SDK mappings and scoped event fixtures.
+- `apps/sidecar/scripts/latency-{bench,300mb}.mjs` and `latency-bench.ts` — executable deterministic component benchmark.
+- `apps/sidecar/src/services/execution/events.test.mjs` — corrected an existing stale-session fixture to actually remove state before releasing its delayed event; production behavior unchanged.
+- `ISSUES.md` — consolidated session record in addition to the focused SDK research entry.
+
+### Issues encountered
+- Initial sidecar suite exposed stale GitService mocks, a malformed orphan-session fixture, and real bare-origin fetch/unhandled-rejection failures; corrected without weakening the intended assertions.
+- Existing work-log phase completion does not prove route integration. API-only sidecar initialization, coordinator effects/recovery, batch limits/publication truth, broad event/PAT scope, durable outbox/idempotency, OS sandbox and credential brokerage remain incomplete.
+- Private HTTPS lazy blob authentication was not exercised against a live service. The final worktree provider still needs trust-aware cache identity, cross-process/active leases, size-aware GC and normal-completion cleanup.
+- Two skipped API tests concern the obsolete many-team project association model. No new test skips were introduced.
+
+### Next steps / blockers
+- Follow W01 for truthful runner selection, batch validation and publication outcomes; W02/W04 for authorization, immutable transactional events and idempotency; W03 for scoped API-only local bootstrap.
+- Prove W05/W06 durable FakeRunner execution jointly, then gate native runner/workspace integration on explicit trust or verified sandbox/credential capabilities. Preserve verified candidate commits and reconcile effects already dispatched during cancellation.
+- Full sandbox corpus, restart/fault recovery, six-hour soak and funded public/private benchmark runs remain pending. The master plan is complete as a planning deliverable; the backend programme is not represented as fully implemented.
+
+---
+
+## [2026-10-15] — Implement and verify the W01 legacy execution slice
+
+**Status:** Done for this implementation slice; backend programme In Progress
+**Agent:** Codex, with two GPT-6.1-sol helpers for scoped tests and review
+
+### What was done
+- Rejected unsupported or invalid legacy runner selections before execution; rejected archived, persisted-running and unlinked single tasks. Removed the global active-repository fallback. Kept synchronous single/batch admission reservations until their owning setup work settles.
+- Authorized every batch member against its fetched resource binding; validated IDs, repository/base consistency and model compatibility. Bound all members in one conditional transaction matching the exact selected status, project, team, creator, runner, model and repository settings. Revalidated queued members before setup and prompt submission.
+- Bounded parallel launch/refill and queue approvals; fenced late setup and prompt acceptance during cancellation. Required the pinned SDK's positive boolean abort receipt, retained uncertain attempts, and made cancellation retries wait for persistence, receipt and provider operations.
+- Required real, repository-matching GitHub PR receipts for single and batch success. Shared one POST/GET reconciliation implementation, including lost response bodies; removed compare-link success fallbacks. Kept batch members in progress until publication and atomic terminal persistence; emitted single-task done only after guarded persistence succeeds.
+- Added private, fsynced, atomic batch receipts outside worktrees, including repository/member/session/artifact bindings and redacted errors. Retained failed, skipped, cancelled and unconfirmed workspaces; preserved locked, dirty, unknown and partial artifacts when Git cleanup fails. Used detached merge workspaces and conditional target-ref advancement.
+- Refreshed batch mirror refs once per admission instead of once per member; materialized private blobs with scoped credentials. Used full attempt IDs for batch/member branches and absent-target publication leases.
+- Replaced line/quote parsing of Git status with literal NUL-delimited parsing and checked the actual index after staging. Covered rename source/destination, odd filenames, nested/deleted script-bearing manifests, symlinks and runtime-artifact exclusions with real Git.
+- Fixed lazy OpenCode SSE readiness for single tasks and batches: a received frame, bounded readiness, explicit abort and no hidden initial reconnect loop. Consolidated session errors through the guarded failure path; rejected immediate prompt failures instead of reporting a successful start.
+- Validation: sidecar 647 passed; PostgreSQL integration 9 passed; API 213 passed with 2 existing skips; execution-core 28 passed. API, sidecar, execution-core, MCP and desktop compatibility typechecks passed; diff checks passed. Total: 897 passing tests, excluding duplicate focused reruns.
+- Reused exactly two helpers; root authored production changes. The user explicitly authorized local commits during implementation. Recorded the plan/audit and first repairs in separate commits; the execution changes and updated validation ledger follow separately.
+
+### Files changed
+- `apps/sidecar/src/services/batch/{admission,orchestrator,completion,shared,publication}.ts` — selection, claims, cancellation, receipts and publication.
+- `apps/sidecar/src/services/github-publication.ts` — shared strict GitHub receipt and reconciliation contract.
+- `apps/sidecar/src/services/execution/{lifecycle,events,git,state}.ts`, `services/session-manager.ts`, `services/worktree.ts`, `engine/{resolve-agent,staging-allowlist}.ts` — truthful single execution, SDK readiness, safe Git and retention.
+- `apps/sidecar/src/routes/{batches,execution}.ts`, `packages/execution-core/src/batch/` — HTTP validation/awaits and additive batch status/artifact contracts.
+- New and updated sidecar tests, `vitest.integration.config.ts`, `vitest.config.ts`, `package.json` — offline SDK/HTTP/real-Git and explicit disposable-PostgreSQL coverage.
+- `docs/reports/backend-review-2026-10-15/w01-implementation.md`, master plan, validation ledger and Downloads files — current status, evidence and deferred frontend/cloud dependencies.
+
+### Issues encountered
+- Review found authorization/read races, a lost status update, pending member cancellation without ownership, false/missing abort acknowledgements, unsafe cleanup fallbacks and swallowed prompt errors; corrected and covered with regressions.
+- Inspecting the installed SDK exposed lazy SSE construction. Final publication review found the single-task compare-link success path and database errors previously swallowed; corrected both single and batch paths.
+- One failed mock assertion printed inherited environment values. Subsequent diagnostics were filtered and raw test diffs were not copied into committed reports or Downloads.
+- The first new timing run overlapped test load and is retained separately as a diagnostic. The isolated 30-trial component run passed with warm p95 92.21 ms and cold p95 488.26 ms; benchmarked source hashes match the earlier component baseline. These timings do not measure the changed legacy HTTP/model/publication path or prove a latency gain.
+
+### Next steps / blockers
+- W02–W04: centralized principal/resource policy, scoped API-only bootstrap, immutable events/outbox and idempotency. Then W05/W06: one durable run service, admission, recovery and external-effect reconciliation.
+- Receipts are inspection evidence, not a crash-recovery service. Reservations, cancellation quarantine, concurrency and cleanup coordination remain process-local; provider acknowledgement does not prove OS descendant termination.
+- Native coordinator routing, OS sandbox/credential separation, independent verification, full task-to-PR latency, soak and funded agent benchmark acceptance remain pending. Legacy failures still use the existing task status projection until the durable run-state migration.
+- No frontend source, deployment, live database, paid inference or remote push changes. Local disposable PostgreSQL is removed after final verification.
+
+---
+
+## [2026-10-15] — Preserve single-task work after lost prompt acknowledgement
+
+**Status:** Done for this follow-up; backend programme In Progress
+**Agent:** Codex
+
+### What was done
+- Continued from W01 commit `ed4d843` and found a remaining setup-cleanup edge: a prompt could write files, lose its response, finalize, and then have its owned checkout force-removed.
+- Added a real-Git regression that wrote a file before rejecting the acknowledgement. It failed against the previous source, proving the artifact loss.
+- Marked prompt dispatch before the SDK call; retained dispatched checkouts after failure. Included retained branch/path in the failed task outcome while preserving the original AgentRun error.
+- Full sidecar suite: 649 passed; sidecar typecheck and diff checks passed. The earlier API 213 + 2 existing skips, execution-core 28, and PostgreSQL integration 9 gates remain applicable; these paths were unchanged. Current total: 899 passing tests.
+- Updated the W01 ledger, master plan and Downloads progress/frontend/cloud/benchmark files. Removed only the disposable `openlinear-w01-test-pg` container; no cloud, frontend, paid product inference, deployment or remote push changes.
+
+### Files changed
+- `apps/sidecar/src/services/execution/{lifecycle,state,events}.ts` — dispatch marker, retention and inspectable failure outcome.
+- `apps/sidecar/src/services/execution/{lifecycle-worktree.test.ts,events.test.mjs}` — real-Git lost-acknowledgement and retained-path regressions.
+- W01 report, validation/master plan and Downloads files — current commits, counts and remaining gates.
+
+### Issues encountered
+- A dispatched request and an acknowledged request are distinct facts. Cleanup must account for work performed before a transport failure.
+
+### Next steps / blockers
+- The marker is process-local, not a durable effect ledger. Continue W02–W04 foundations and W05/W06 run/recovery integration before treating restart behavior or native/sandbox execution as accepted.
+
+---
+
+## [2026-10-15] — Count overlapping admission reservations once
+
+**Status:** Done for this follow-up; backend programme In Progress
+**Agent:** Codex
+
+### What was done
+- Reproduced a concurrency rejection when an active task also retained its setup reservation while waiting for a prompt acknowledgement. Adding active and pending collection sizes counted that attempt twice.
+- Counted the union of task IDs for single-task admission. Kept the reservation until its owning setup settles and continued enforcing the actual concurrency cap.
+- Added a regression with a delayed first prompt response: a second task starts at limit two, a third is rejected, and the original reservation remains owned until acknowledgement.
+- Full sidecar suite: 650 passed; sidecar typecheck and diff checks passed. The unchanged PostgreSQL integration (9), API (213, plus 2 existing skips) and execution-core (28) gates bring the current total to 900 passing tests.
+
+### Files changed
+- `apps/sidecar/src/services/execution/lifecycle.ts` — count unique admitted task IDs.
+- `apps/sidecar/src/services/execution/runner-selection.test.ts` — overlapping active/pending reservation regression.
+
+### Issues encountered
+- Execution becomes active before the SDK acknowledges prompt submission. Admission must treat those two collections as overlapping ownership rather than independent attempts.
+
+### Next steps / blockers
+- Global admission across batches, per-principal fairness and cross-process limits remain W05 work. This corrects the existing single-process legacy limit; it does not introduce durable scheduling.
+
+---
+
+## [2026-10-15] — Fence single-execution recovery and cancellation ownership
+
+**Status:** Done for this follow-up; backend programme In Progress
+**Agent:** Codex, with two high-reasoning GPT-6.1-sol reviewers
+
+### What was done
+- Required a bounded positive provider-stop receipt before committing work recovered from a failed stream. False, missing, rejected and error receipts now retain/quarantine the execution without commit or PR publication.
+- Fenced both done and cancelled task projections to the captured active session, status and resource binding. Passed the captured execution through terminal writes, log persistence and cleanup; a stale completion catch can no longer cancel a replacement session.
+- Guarded persisted logs by the same session/resource binding, or a confirmed terminal status with cleared session. Confirmed terminal markers prevent cancellation retries from rewriting a successful prior task projection.
+- Shared one cancellation operation per execution through provider acknowledgement, persistence and cleanup. Blocked retries during stream-failure finalization and rechecked cleanup ownership after awaited stream closure.
+- Reviewers reproduced 11 offline regressions against the old behavior, including late cancellation and cleanup deleting replacement state. Added 17 actual-PostgreSQL cases for session/project/team/creator fences, positive and denied log writes, retry stability and replacement preservation.
+- Full sidecar suite: 661 passed; PostgreSQL integration: 26 passed; sidecar typecheck and diff checks passed. Unchanged API (213, plus 2 existing skips) and execution-core (28) gates bring the current total to 928 passing tests.
+- User authorized periodic pushes. Checked repository workflows: `dev` pushes run checks/builds; deployment targets `main` or manual dispatch, and releases target tags/manual dispatch. Source pushes use `dev` without force or tags.
+
+### Files changed
+- `apps/sidecar/src/services/execution/{events,lifecycle,state}.ts` — recovery stop fence, captured ownership, guarded logs and cancellation serialization.
+- `apps/sidecar/src/services/execution/{events,lifecycle,state}.test.mjs` — uncertainty, stale terminal callbacks and interleaved cancellation/cleanup regressions.
+- `apps/sidecar/src/services/batch/persistence.integration.test.ts` — real PostgreSQL terminal/log binding and replacement-preservation cases.
+
+### Issues encountered
+- An existing recovery fixture expected successful publication even after a rejected abort; corrected its positive receipt and added separate negative cases.
+- Guarding only the successful done write left its error handler free to cancel a different task session. Terminal failure paths need the same ownership fence as success.
+- The authorization reviewer confirmed remaining W02 deny/revocation gaps in comment mutations, historical usage, chat reads, workspace task search, live/domain replay and workspace-bound PATs. Existing policy helpers should be reused; no W02 source changes are claimed here.
+
+### Next steps / blockers
+- Continue W02–W04 resource/principal policy, scoped bootstrap and immutable transactional events/idempotency. Then accept durable W05/W06 execution/recovery jointly.
+- Confirmed stop receipts remain logical provider acknowledgements, not OS descendant-termination evidence. Execution markers/ownership remain process-local; immutable run identities and cross-process fences require the durable engine.
+- No frontend source, deployment, paid inference, live PR creation or remote database changes. Remove the disposable test container after the final SQL gate.
+
+---
+
+## [2026-10-15] — Record W01 validation and backend handoff
+
+**Status:** Done for this milestone; backend programme In Progress
+**Agent:** Codex
+
+### What was done
+- Pushed the verified plan/repair/source commits through `7d2d610` to `origin/dev`, without force or tags. GitHub Dev run `38669609917` passed lint/typecheck, tests and builds.
+- Recorded enabled W01 behavior, 928 local passing tests, all five typechecks, current limitations and the next W02–W06 sequence. Preserved W00 measurements as historical evidence rather than rewriting the baseline.
+- Added isolated and concurrent-test-load raw component timing reports. Verified 30/30 measured trials in each, one excluded warmup, fixture cleanup, and all nine source hashes equal to the baseline/current benchmarked files. Isolated warm p95 is 92.21 ms; this harness does not measure the changed legacy task-to-PR path or establish a latency gain.
+- Updated Downloads master plan/progress, frontend backlog, cloud dependency record and raw benchmark copies. Verified 42 local links resolve across seven documentation files and benchmark copies match.
+- Removed the recreated disposable PostgreSQL container after the 26-case integration gate. No frontend implementation, deployment, live PR creation, paid inference or remote database changes.
+
+### Files changed
+- `docs/reports/backend-review-2026-10-15/w01-implementation.md` — implementation and verification ledger.
+- `docs/reports/backend-review-2026-10-15/validation.md`, `tasks/prd-backend-agent-platform.md` — current status linked from historical audit/master plan.
+- `docs/reports/backend-review-2026-10-15/artifacts/w01-latency-*.json` — measured raw component reports.
+- Downloads handoff files — portable local links, updated progress and deferred client/cloud requirements.
+
+### Issues encountered
+- Full source CI is green; the local PostgreSQL integration gate is recorded separately and is not substituted by that workflow.
+
+### Next steps / blockers
+- Start W02 with the confirmed comment/usage/chat/search and event/PAT authorization gaps using existing policy helpers. W03/W04 foundations precede joint durable W05/W06 acceptance.
+- Native routing, OS sandbox/brokers, restart recovery, complete task-to-PR measurements, six-hour soak and comparative public/private benchmark gates remain pending.
+
+---
+
+## [2026-10-15] — Record the deferred frontend CI gate
+
+**Status:** Done for backend handoff; frontend CI issue deferred
+**Agent:** Codex
+
+### What was done
+- Pushed documentation commit `457e3d2` to dev. Its build and lint/typecheck jobs passed; the test job failed an unchanged frontend scroll benchmark with a 200 ms maximum frame.
+- Reran the failed test job once. It failed the same unchanged browser harness while waiting for Chromium's DevTools port. Both attempts passed all 661 sidecar and 28 execution-core tests.
+- Recorded both failures in the W01 ledger and Downloads progress/frontend backlog. The earlier full source workflow on `7d2d610` passed; current full-CI acceptance is not reported as green.
+- Confirmed the browser-scroll script, frontend source and workflows have no changes from the original checkout. Kept the user's explicit frontend exclusion; no threshold weakening, frontend fixes or deployment changes.
+
+### Files changed
+- `docs/reports/backend-review-2026-10-15/w01-implementation.md` — source and documentation CI results distinguished.
+- Downloads progress and `frontend work pending.md` — exact failing gate, retry result and later investigation scope.
+
+### Issues encountered
+- Dev run `38669992496`, attempt one: `scripts/verify-onboarding-repo-scroll.mjs:340`, maximum frame 200 ms.
+- Same run, attempt two: `scripts/verify-onboarding-repo-scroll.mjs:194`, Chromium DevTools port startup timeout.
+
+### Next steps / blockers
+- Frontend follow-up should investigate browser-fixture startup and repeated frame distributions on CI before changing thresholds. This is deferred to the requested frontend backlog, not included in backend implementation.
+- W02–W21 backend work and its acceptance gates remain pending as recorded in the master plan. Local backend validation remains 928 passes with two existing API skips and all five typechecks passed.

@@ -1,5 +1,6 @@
 import { type Priority, type ProjectPermission, type ProjectStatus, type Status, type TeamRole, type WorkspaceRole } from '@openlinear/db';
 import { ValidationError } from '../../errors';
+import { bulkArchiveBodySchema } from '../../schemas/tasks';
 import { createLabel, listLabels, updateLabel } from '../labels';
 import { resolveUserByHandle, inviteWorkspaceMember, listWorkspaceMembers, changeWorkspaceMemberRole } from '../members';
 import { setupProjectPlan } from '../project-plan';
@@ -327,8 +328,13 @@ export const CHAT_DOMAIN_TOOLS: ChatTool[] = [
       const projectId = scopedProjectId(ctx, args);
       if (!projectId) return missing('projectId');
 
-      const taskIds = stringArrayArg(args, 'issueIds');
-      const identifiers = stringArrayArg(args, 'issueIdentifiers');
+      const parsed = bulkArchiveBodySchema.safeParse({
+        projectId,
+        taskIds: args.issueIds,
+        identifiers: args.issueIdentifiers,
+      });
+      if (!parsed.success) throw ValidationError.fromZod(parsed.error);
+      const { taskIds, identifiers } = parsed.data;
 
       // Omitting both used to archive EVERY active issue in the project. With
       // malformed tool arguments degrading to `{}`, a single mis-parse — or an

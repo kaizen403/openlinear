@@ -45,7 +45,7 @@ router.post('/:id/execute', requireAuth, async (req: AuthRequest, res: Response,
 
     if (!result.success) {
       logger.info(`[Tasks] Execute failed: ${result.error}`);
-      res.status(400).json({ error: result.error });
+      res.status(400).json({ error: result.error, ...(result.code ? { code: result.code } : {}) });
       return;
     }
 

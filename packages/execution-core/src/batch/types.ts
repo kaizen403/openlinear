@@ -4,6 +4,14 @@ export type BatchStatus = 'pending' | 'running' | 'merging' | 'completed' | 'fai
 
 export type BatchTaskStatus = 'queued' | 'running' | 'completed' | 'failed' | 'skipped' | 'cancelled';
 
+export type BatchPublicationPhase = 'prepared' | 'committed' | 'merging' | 'pushed' | 'pr_created' | 'completed' | 'failed' | 'cancelled';
+export interface BatchPublication {
+  phase: BatchPublicationPhase;
+  branchUrl?: string;
+  error?: string;
+  receiptPath?: string;
+}
+
 export interface BatchTask {
   taskId: string;
   title: string;
@@ -14,6 +22,7 @@ export interface BatchTask {
   error: string | null;
   startedAt: Date | null;
   completedAt: Date | null;
+  cancelUnconfirmed?: boolean;
 }
 
 export interface BatchState {
@@ -30,6 +39,9 @@ export interface BatchState {
   userId: string | null;
   createdAt: Date;
   completedAt: Date | null;
+  repository?: { id: string; name: string; fullName: string; cloneUrl: string; defaultBranch: string };
+  taskProjectIds?: Record<string, string>;
+  publication?: BatchPublication;
 }
 
 export interface BatchSettings {
@@ -112,11 +124,13 @@ export interface BatchStatusResponse {
     error: string | null;
     startedAt: string | null;
     completedAt: string | null;
+    cancelUnconfirmed?: boolean;
   }>;
   prUrl: string | null;
   createdAt: string;
   completedAt: string | null;
   progress: BatchProgressSummary;
+  publication?: BatchPublication;
 }
 
 export type BatchExecutionProgressStatus =

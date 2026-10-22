@@ -5,6 +5,7 @@ import {
   batchActivityId,
   batchIdFromActivityId,
   getCompletedBatchTaskIds,
+  completionKey,
 } from '@openlinear/execution-core';
 import type {
   BatchEventType,
@@ -15,10 +16,36 @@ import { cleanupDeltaBuffer, flushDeltaBuffer } from '../delta-buffer';
 import { broadcastProgress } from '../execution/state';
 
 export const activeBatches = new Map<string, BatchState>();
+export const pendingBatchTasks = new Set<string>();
+export const preparingBatchTasks = new Set<string>();
 export const sessionToBatch = new Map<string, { batchId: string; taskIds: string[] }>();
 export const completingBatchTasks = new Set<string>();
 export const completingCombinedBatches = new Set<string>();
 export const finalizingBatches = new Set<string>();
+export const cancellingBatches = new Set<string>();
+export const cancellationPromises = new Map<string, Promise<void>>();
+export const memberCancellationPromises = new Map<string, Promise<void>>();
+export function batchHasPendingCancellation(batch: BatchState): boolean {
+  return cancellingBatches.has(batch.id)
+    || batch.tasks.some((task) => memberCancellationPromises.has(completionKey(batch.id, task.taskId)));
+}
+export const batchSubscriptions = new Map<string, { close: () => void }>();
+export function closeBatchSubscription(activityId: string): void {
+  batchSubscriptions.get(activityId)?.close();
+  batchSubscriptions.delete(activityId);
+}
+export function batchRunningCount(batch: BatchState): number {
+  return batch.tasks.filter((task) => task.status === 'running'
+    || preparingBatchTasks.has(completionKey(batch.id, task.taskId))
+    || completingBatchTasks.has(completionKey(batch.id, task.taskId))).length;
+}
+export function batchHasInFlightWork(batch: BatchState): boolean {
+  return batch.tasks.some((task) => task.cancelUnconfirmed)
+    || (batch.status === 'cancelled' && Boolean(batch.publication?.error))
+    || batchHasPendingCancellation(batch) || completingCombinedBatches.has(batch.id) || finalizingBatches.has(batch.id)
+    || batch.tasks.some((task) => preparingBatchTasks.has(completionKey(batch.id, task.taskId))
+      || completingBatchTasks.has(completionKey(batch.id, task.taskId)));
+}
 
 export interface BatchLogEntry {
   timestamp: string;
@@ -27,6 +54,7 @@ export interface BatchLogEntry {
   details?: string;
 }
 export const batchTaskLogs = new Map<string, BatchLogEntry[]>();
+export const batchTaskLogOwners = new Map<string, string>();
 
 // T11 (H-12) — same ring-buffer bound as services/execution/state.ts's
 // execution logs, applied to the batch task log arrays.
@@ -51,11 +79,23 @@ const TERMINAL_BATCH_STATUSES = new Set(['completed', 'failed', 'cancelled']);
 export function scheduleBatchCleanup(batchId: string): void {
   const batch = activeBatches.get(batchId);
   if (!batch || !TERMINAL_BATCH_STATUSES.has(batch.status)) return;
+  batch.accessToken = null;
   if (scheduledBatchCleanups.has(batchId)) return;
   scheduledBatchCleanups.add(batchId);
 
   const timer = setTimeout(() => {
+    if (batchHasInFlightWork(batch)) {
+      scheduledBatchCleanups.delete(batchId);
+      scheduleBatchCleanup(batchId);
+      return;
+    }
     activeBatches.delete(batchId);
+    for (const activityId of [...batch.tasks.map((task) => task.taskId), batchActivityId(batchId)]) {
+      if (batchTaskLogOwners.get(activityId) === batchId) {
+        batchTaskLogs.delete(activityId);
+        batchTaskLogOwners.delete(activityId);
+      }
+    }
     scheduledBatchCleanups.delete(batchId);
   }, BATCH_RETENTION_MS);
   timer.unref();
@@ -137,11 +177,15 @@ export async function updateTaskInDb(
     executionProgress?: number | null;
     prUrl?: string | null;
     outcome?: string | null;
-  }
+  },
+  expectedBatchId?: string,
 ): Promise<void> {
   try {
     const task = await prisma.task.update({
-      where: { id: taskId },
+      where: { id: taskId, ...(expectedBatchId ? {
+        batchId: expectedBatchId,
+        ...(status === 'cancelled' ? {} : { status: { not: 'cancelled' as const } }),
+      } : {}) },
       data: { status, ...executionData },
       include: { labels: { include: { label: true } } },
     });
@@ -154,22 +198,24 @@ export async function updateTaskInDb(
     broadcastToTask('task:updated', flatTask);
   } catch (err) {
     logger.error({ err, taskId }, `[Batch] Failed to update task ${taskId} in DB`);
+    throw err;
   }
 }
 
-export async function persistBatchTaskLogs(taskId: string): Promise<void> {
+export async function persistBatchTaskLogs(taskId: string, expectedBatchId?: string): Promise<void> {
+  if (expectedBatchId && batchTaskLogOwners.has(taskId) && batchTaskLogOwners.get(taskId) !== expectedBatchId) return;
   const logs = batchTaskLogs.get(taskId) || [];
   if (logs.length === 0) return;
 
   try {
     await prisma.task.update({
-      where: { id: taskId },
+      where: { id: taskId, ...(expectedBatchId ? { batchId: expectedBatchId } : {}) },
       data: { executionLogs: JSON.parse(JSON.stringify(logs)) },
     });
+    if (batchTaskLogs.get(taskId) === logs) batchTaskLogs.delete(taskId);
   } catch (err) {
     logger.error({ err, taskId }, `[Batch] Failed to persist logs for task ${taskId.slice(0, 8)}`);
   }
-  batchTaskLogs.delete(taskId);
 }
 
 export function getBatchExecutionLogs(taskId: string): BatchLogEntry[] {

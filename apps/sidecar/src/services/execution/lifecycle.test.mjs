@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
+  assertTaskOwned: vi.fn(),
   userFindUnique: vi.fn(),
   taskFindUnique: vi.fn(),
   taskUpdate: vi.fn(),
@@ -14,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   flushDeltaBuffer: vi.fn(),
   getExecutionSettings: vi.fn(),
   cloneRepository: vi.fn(),
+  releaseLocalWorktree: vi.fn(),
   createBranch: vi.fn(),
   subscribeToSessionEvents: vi.fn(),
   failExecutionFromEventStream: vi.fn(),
@@ -38,6 +40,8 @@ vi.mock('@openlinear/db', () => ({
   },
 }));
 
+vi.mock('@openlinear/api/ownership', () => ({ assertTaskOwned: mocks.assertTaskOwned }));
+
 vi.mock('@openlinear/api/sse', () => ({
   broadcastToTask: mocks.broadcastToTask,
   broadcastToTaskById: mocks.broadcastToTaskById,
@@ -60,6 +64,7 @@ vi.mock('./git', () => ({
   cloneRepository: mocks.cloneRepository,
   createBranch: mocks.createBranch,
 }));
+vi.mock('../../workspace/local-worktree', () => ({ releaseLocalWorktree: mocks.releaseLocalWorktree }));
 vi.mock('./events', () => ({
   subscribeToSessionEvents: mocks.subscribeToSessionEvents,
   failExecutionFromEventStream: mocks.failExecutionFromEventStream,
@@ -80,7 +85,7 @@ function makeClient(overrides = {}) {
       // T5 — lifecycle.ts now calls `session.promptAsync` (fire-and-forget
       // accept, 204 no body), not the blocking `session.prompt`.
       promptAsync: vi.fn().mockResolvedValue({}),
-      abort: vi.fn().mockResolvedValue({}),
+      abort: vi.fn().mockResolvedValue({ data: true }),
     },
     config: {
       get: vi.fn().mockResolvedValue({ data: { model: 'openai/gpt-5' } }),
@@ -174,6 +179,11 @@ describe('execution lifecycle', () => {
     for (const mock of Object.values(mocks)) {
       if (typeof mock?.mockReset === 'function') mock.mockReset();
     }
+    mocks.assertTaskOwned.mockImplementation(async (id) => {
+      const task = await mocks.taskFindUnique({ where: { id } });
+      return { id, projectId: task?.project?.id ?? null, teamId: task?.teamId ?? null,
+        creatorId: task?.creatorId ?? null, archived: false, status: 'todo' };
+    });
     mocks.broadcastToTaskById.mockResolvedValue(undefined);
     mocks.decryptToken.mockImplementation((value) => value ? `decrypted:${value}` : null);
     mocks.getExecutionSettings.mockResolvedValue({
@@ -185,7 +195,14 @@ describe('execution lifecycle', () => {
     });
     mocks.taskUpdate.mockResolvedValue({ id: 'task-12345678', labels: [] });
     mocks.executeRaw.mockResolvedValue(1);
-    mocks.cloneRepository.mockResolvedValue(undefined);
+    mocks.cloneRepository.mockResolvedValue({
+      kind: 'local-worktree',
+      runId: 'attempt-1',
+      worktreePath: '/owned/worktrees/attempt-1',
+      mirrorPath: '/owned/acme/repo.git',
+      branch: 'openlinear/attempt-1',
+    });
+    mocks.releaseLocalWorktree.mockResolvedValue(undefined);
     mocks.createBranch.mockResolvedValue(undefined);
     mocks.createAgentRun.mockResolvedValue('run-1');
     // Default: a model is already configured, so the T9 preflight never
@@ -211,6 +228,7 @@ describe('execution lifecycle', () => {
     await expect(lifecycle.executeTask({ taskId: 'task-1', userId: 'user-1' })).resolves.toEqual({
       success: false,
       error: 'Task is already running',
+      code: 'TASK_ALREADY_RUNNING',
     });
 
     state.activeExecutions.clear();
@@ -228,6 +246,54 @@ describe('execution lifecycle', () => {
       error: 'Parallel limit reached (1 tasks max)',
     });
     expect(mocks.taskFindUnique).not.toHaveBeenCalled();
+  });
+
+  it('shares one cancellation operation while an abort acknowledgement is pending', async () => {
+    let releaseAbort;
+    const acknowledged = new Promise((resolve) => { releaseAbort = resolve; });
+    const execution = makeExecution();
+    execution.client.session.abort.mockReturnValue(acknowledged);
+    state.activeExecutions.set('task-1', execution);
+    state.sessionToTask.set('ses_1', 'task-1');
+
+    const first = lifecycle.cancelTask('task-1');
+    await waitFor(() => execution.client.session.abort.mock.calls.length > 0);
+    const second = lifecycle.cancelTask('task-1');
+    for (let index = 0; index < 10; index += 1) await Promise.resolve();
+    const abortCountBeforeAcknowledgement = execution.client.session.abort.mock.calls.length;
+    releaseAbort({ data: true });
+    const results = await Promise.all([first, second]);
+
+    expect(abortCountBeforeAcknowledgement).toBe(1);
+    expect(results.every((result) => result.success)).toBe(true);
+    expect(mocks.finalizeAgentRun.mock.calls.length).toBe(1);
+    expect(mocks.taskUpdate.mock.calls.length).toBe(1);
+  });
+
+  it('keeps a replacement alive after a late old cancellation retry settles', async () => {
+    let releaseFirstFinalization;
+    let releaseLateAbort;
+    const firstFinalization = new Promise((resolve) => { releaseFirstFinalization = resolve; });
+    const lateAbort = new Promise((resolve) => { releaseLateAbort = resolve; });
+    const execution = makeExecution();
+    execution.client.session.abort.mockResolvedValueOnce({ data: true }).mockReturnValueOnce(lateAbort);
+    mocks.finalizeAgentRun.mockReturnValueOnce(firstFinalization);
+    state.activeExecutions.set('task-1', execution);
+
+    const first = lifecycle.cancelTask('task-1');
+    await waitFor(() => mocks.finalizeAgentRun.mock.calls.length > 0);
+    const retry = lifecycle.cancelTask('task-1');
+    for (let index = 0; index < 10; index += 1) await Promise.resolve();
+    releaseFirstFinalization();
+    await first;
+    const replacement = makeExecution({ sessionId: 'ses_replacement', agentRunId: 'run-replacement' });
+    state.activeExecutions.set('task-1', replacement);
+    releaseLateAbort({ data: true });
+    await retry;
+
+    expect(state.activeExecutions.get('task-1') === replacement).toBe(true);
+    expect(state.findTaskBySessionId('ses_replacement')).toBe('task-1');
+    expect(execution.client.session.abort.mock.calls.length).toBe(1);
   });
 
   it('returns task not found when the requested task does not exist', async () => {
@@ -255,8 +321,12 @@ describe('execution lifecycle', () => {
       'decrypted:secret',
       'main',
     );
-    expect(mocks.createBranch).toHaveBeenCalledWith('/repos/repo/task-123', 'openlinear/task-123');
-    expect(mocks.getClientForUser).toHaveBeenCalledWith('user-1', '/repos/repo/task-123');
+    expect(mocks.createBranch).toHaveBeenCalledWith('/owned/worktrees/attempt-1', 'openlinear/attempt-1');
+    expect(mocks.getClientForUser).toHaveBeenCalledWith('user-1', '/owned/worktrees/attempt-1');
+    expect(client.session.create).toHaveBeenCalledWith({
+      body: { title: 'Fix execution' },
+      query: { directory: '/owned/worktrees/attempt-1' },
+    });
     expect(mocks.createAgentRun).toHaveBeenCalledWith({
       taskId: 'task-12345678',
       userId: 'user-1',
@@ -267,8 +337,8 @@ describe('execution lifecycle', () => {
       taskId: 'task-12345678',
       projectId: 'repo-1',
       sessionId: 'ses_1',
-      repoPath: '/repos/repo/task-123',
-      branchName: 'openlinear/task-123',
+      repoPath: '/owned/worktrees/attempt-1',
+      branchName: 'openlinear/attempt-1',
       status: 'executing',
       // T7 — routing metadata cached from the task record at execution start.
       teamId: 'team-1',
@@ -278,6 +348,7 @@ describe('execution lifecycle', () => {
     // T5 — subscription is awaited before the prompt goes out.
     expect(mocks.subscribeToSessionEvents).toHaveBeenCalledWith('task-12345678', client, 'ses_1');
     expect(client.session.promptAsync).toHaveBeenCalledWith({
+      signal: expect.any(AbortSignal),
       path: { id: 'ses_1' },
       body: {
         parts: [{
@@ -418,6 +489,7 @@ describe('execution lifecycle', () => {
     });
 
     expect(client.session.promptAsync).toHaveBeenCalledWith({
+      signal: expect.any(AbortSignal),
       path: { id: 'ses_1' },
       body: {
         parts: [{
@@ -496,7 +568,7 @@ describe('execution lifecycle', () => {
 
     await expect(lifecycle.executeTask({ taskId: 'task-12345678' })).resolves.toEqual({
       success: false,
-      error: 'No active project selected',
+      error: 'userId is required for execution',
     });
 
     expect(mocks.repositoryFindFirst).not.toHaveBeenCalled();
@@ -516,6 +588,51 @@ describe('execution lifecycle', () => {
       success: false,
       error: 'branch failed',
     });
+    expect(mocks.releaseLocalWorktree).not.toHaveBeenCalled();
+  });
+
+  it('releases an acquired remote worktree if branch preparation fails', async () => {
+    mocks.taskFindUnique.mockResolvedValue(makeTask());
+    mocks.createBranch.mockRejectedValueOnce(new Error('branch failed'));
+
+    await expect(lifecycle.executeTask({ taskId: 'task-12345678', userId: 'user-1' })).resolves.toEqual({
+      success: false,
+      error: 'branch failed',
+    });
+    expect(mocks.releaseLocalWorktree).toHaveBeenCalledWith(expect.objectContaining({ worktreePath: '/owned/worktrees/attempt-1' }));
+    expect(mocks.getClientForUser).not.toHaveBeenCalled();
+  });
+
+  it('preserves the setup error if releasing the worktree also fails', async () => {
+    mocks.taskFindUnique.mockResolvedValue(makeTask());
+    mocks.getClientForUser.mockRejectedValueOnce(new Error('agent unavailable'));
+    mocks.releaseLocalWorktree.mockRejectedValueOnce(new Error('cleanup failed'));
+
+    await expect(lifecycle.executeTask({ taskId: 'task-12345678', userId: 'user-1' })).resolves.toEqual({
+      success: false,
+      error: 'agent unavailable',
+    });
+    expect(mocks.releaseLocalWorktree).toHaveBeenCalledTimes(1);
+  });
+
+  it('finalizes registered execution state before releasing a failed startup checkout', async () => {
+    mocks.taskFindUnique.mockResolvedValue(makeTask());
+    mocks.getClientForUser.mockResolvedValue(makeClient());
+    mocks.subscribeToSessionEvents.mockRejectedValueOnce(new Error('subscription unavailable'));
+    mocks.failExecutionFromEventStream.mockImplementationOnce(async (taskId) => {
+      expect(mocks.releaseLocalWorktree).not.toHaveBeenCalled();
+      await state.cleanupExecution(taskId);
+    });
+
+    await expect(lifecycle.executeTask({ taskId: 'task-12345678', userId: 'user-1' })).resolves.toEqual({
+      success: false,
+      error: 'subscription unavailable',
+    });
+    expect(mocks.failExecutionFromEventStream).toHaveBeenCalledWith(
+      'task-12345678', 'Failed to initialize agent execution', 'subscription unavailable',
+    );
+    expect(state.activeExecutions.has('task-12345678')).toBe(false);
+    expect(mocks.releaseLocalWorktree).toHaveBeenCalledTimes(1);
   });
 
   it('returns an unknown setup error for non-Error failures', async () => {
@@ -539,7 +656,7 @@ describe('execution lifecycle', () => {
       session: {
         create: vi.fn().mockResolvedValue({ data: {} }),
         promptAsync: vi.fn().mockResolvedValue({}),
-        abort: vi.fn().mockResolvedValue({}),
+        abort: vi.fn().mockResolvedValue({ data: true }),
       },
     });
     mocks.taskFindUnique.mockResolvedValue(makeTask());
@@ -549,6 +666,7 @@ describe('execution lifecycle', () => {
       success: false,
       error: 'Failed to create OpenCode session',
     });
+    expect(mocks.releaseLocalWorktree).toHaveBeenCalledWith(expect.objectContaining({ worktreePath: '/owned/worktrees/attempt-1' }));
   });
 
   it('cancels long-running tasks when their execution timeout fires', async () => {
@@ -573,14 +691,14 @@ describe('execution lifecycle', () => {
       session: {
         create: vi.fn().mockResolvedValue({ data: { id: 'ses_1' } }),
         promptAsync: vi.fn().mockRejectedValue(new Error('network dropped')),
-        abort: vi.fn().mockResolvedValue({}),
+        abort: vi.fn().mockResolvedValue({ data: true }),
       },
     });
     mocks.taskFindUnique.mockResolvedValue(makeTask());
     mocks.getClientForUser.mockResolvedValue(client);
 
     await expect(lifecycle.executeTask({ taskId: 'task-12345678', userId: 'user-1' })).resolves.toEqual({
-      success: true,
+      success: false, error: 'network dropped',
     });
     await waitFor(() => mocks.failExecutionFromEventStream.mock.calls.length > 0);
 
@@ -599,14 +717,14 @@ describe('execution lifecycle', () => {
       session: {
         create: vi.fn().mockResolvedValue({ data: { id: 'ses_1' } }),
         promptAsync: vi.fn().mockRejectedValue(new Error('401 invalid API key')),
-        abort: vi.fn().mockResolvedValue({}),
+        abort: vi.fn().mockResolvedValue({ data: true }),
       },
     });
     mocks.taskFindUnique.mockResolvedValue(makeTask());
     mocks.getClientForUser.mockResolvedValue(authClient);
 
     await expect(lifecycle.executeTask({ taskId: 'task-12345678', userId: 'user-1' })).resolves.toEqual({
-      success: true,
+      success: false, error: '401 invalid API key',
     });
     await waitFor(() => mocks.failExecutionFromEventStream.mock.calls.length > 0);
 
@@ -622,14 +740,14 @@ describe('execution lifecycle', () => {
       session: {
         create: vi.fn().mockResolvedValue({ data: { id: 'ses_1' } }),
         promptAsync: vi.fn().mockRejectedValue({}),
-        abort: vi.fn().mockResolvedValue({}),
+        abort: vi.fn().mockResolvedValue({ data: true }),
       },
     });
     mocks.taskFindUnique.mockResolvedValue(makeTask());
     mocks.getClientForUser.mockResolvedValue(unknownClient);
 
     await expect(lifecycle.executeTask({ taskId: 'task-12345678', userId: 'user-1' })).resolves.toEqual({
-      success: true,
+      success: false, error: '[object Object]',
     });
     await waitFor(() => mocks.failExecutionFromEventStream.mock.calls.length > 0);
 
@@ -645,14 +763,14 @@ describe('execution lifecycle', () => {
       session: {
         create: vi.fn().mockResolvedValue({ data: { id: 'ses_1' } }),
         promptAsync: vi.fn().mockResolvedValue({ error: { message: 'model not found' } }),
-        abort: vi.fn().mockResolvedValue({}),
+        abort: vi.fn().mockResolvedValue({ data: true }),
       },
     });
     mocks.taskFindUnique.mockResolvedValue(makeTask());
     mocks.getClientForUser.mockResolvedValue(client);
 
     await expect(lifecycle.executeTask({ taskId: 'task-12345678', userId: 'user-1' })).resolves.toEqual({
-      success: true,
+      success: false, error: 'model not found',
     });
     await waitFor(() => mocks.failExecutionFromEventStream.mock.calls.length > 0);
 
@@ -672,12 +790,12 @@ describe('execution lifecycle', () => {
     await expect(lifecycle.cancelTask('task-1')).resolves.toEqual({ success: true });
 
     expect(mocks.claimFinalize).toHaveBeenCalledWith('task-1');
-    expect(client.session.abort).toHaveBeenCalledWith({ path: { id: 'ses_1' } });
+    expect(client.session.abort).toHaveBeenCalledWith({ path: { id: 'ses_1' }, signal: expect.any(AbortSignal) });
     expect(mocks.finalizeAgentRun).toHaveBeenCalledWith(execution, 'cancelled', {
       errorMessage: 'cancelled by user',
     });
     expect(mocks.taskUpdate).toHaveBeenCalledWith(expect.objectContaining({
-      where: { id: 'task-1' },
+      where: { id: 'task-1', sessionId: 'ses_1', status: 'in_progress' },
       data: expect.objectContaining({
         status: 'cancelled',
         sessionId: null,
@@ -688,7 +806,7 @@ describe('execution lifecycle', () => {
     expect(state.sessionToTask.has('ses_1')).toBe(false);
   });
 
-  it('still completes cancellation when the OpenCode abort call fails', async () => {
+  it('retains ownership when the OpenCode abort call fails', async () => {
     const client = makeClient({
       session: {
         create: vi.fn().mockResolvedValue({ data: { id: 'ses_1' } }),
@@ -700,12 +818,11 @@ describe('execution lifecycle', () => {
     state.activeExecutions.set('task-1', execution);
     state.sessionToTask.set('ses_1', 'task-1');
 
-    await expect(lifecycle.cancelTask('task-1')).resolves.toEqual({ success: true });
+    await expect(lifecycle.cancelTask('task-1')).resolves.toMatchObject({ success: false });
 
-    expect(mocks.finalizeAgentRun).toHaveBeenCalledWith(execution, 'cancelled', {
-      errorMessage: 'cancelled by user',
-    });
-    expect(state.activeExecutions.has('task-1')).toBe(false);
+    expect(mocks.finalizeAgentRun).not.toHaveBeenCalled();
+    expect(execution.cancelUnconfirmed).toBe(true);
+    expect(state.activeExecutions.has('task-1')).toBe(true);
   });
 
   it('returns a clear error when cancelling a task that is not running', async () => {

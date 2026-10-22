@@ -38,27 +38,64 @@ type LooseClient = OpencodeClient & {
   permission?: { reply?: (args: unknown) => Promise<unknown> };
 };
 
-function eventProps(event: { type?: string; properties?: Record<string, unknown>; data?: Record<string, unknown> }): Record<string, unknown> {
-  return (event.properties ?? event.data ?? {}) as Record<string, unknown>;
+interface OpenCodeEvent {
+  type: string;
+  properties?: Record<string, unknown>;
+  data?: Record<string, unknown>;
 }
 
-function extractSessionId(event: { type?: string; properties?: Record<string, unknown>; data?: Record<string, unknown> }): string | undefined {
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function normalizeEvent(raw: unknown): OpenCodeEvent | null {
+  if (!isRecord(raw)) return null;
+  // /global/event envelopes carry the same SDK event under `payload`.
+  const event = isRecord(raw.payload) ? raw.payload : raw;
+  if (typeof event.type !== 'string') return null;
+  return {
+    type: event.type,
+    properties: isRecord(event.properties) ? event.properties : undefined,
+    data: isRecord(event.data) ? event.data : undefined,
+  };
+}
+
+function eventProps(event: { properties?: Record<string, unknown>; data?: Record<string, unknown> }): Record<string, unknown> {
+  return event.properties ?? event.data ?? {};
+}
+
+function extractSessionId(event: OpenCodeEvent): string | undefined {
   const props = eventProps(event);
-  const direct = props.sessionID ?? props.sessionId ?? props.id;
-  return typeof direct === 'string' ? direct : undefined;
+  // 1.x nests ownership in message info/parts; 1.18 v2 also carries a direct
+  // sessionID in properties or native-event data. Generic ids identify events,
+  // messages or permission requests, and must never authorize a session.
+  const owners: unknown[] = [];
+  for (const key of ['sessionID', 'sessionId']) {
+    if (key in props) owners.push(props[key]);
+  }
+  if (isRecord(props.info)) {
+    if ('sessionID' in props.info) owners.push(props.info.sessionID);
+    if (['session.created', 'session.updated', 'session.deleted'].includes(event.type)) {
+      if ('id' in props.info) owners.push(props.info.id);
+    }
+  }
+  if (isRecord(props.part) && 'sessionID' in props.part) owners.push(props.part.sessionID);
+  const owner = owners[0];
+  if (typeof owner !== 'string' || !owner || owners.some((candidate) => candidate !== owner)) return undefined;
+  return owner;
 }
 
 export function decodeOpenCodeEvent(event: {
   type?: string;
   properties?: Record<string, unknown>;
   data?: Record<string, unknown>;
-}, usageHighWater: { tokens: TokenUsage }): AgentEvent | AgentEvent[] | null {
+}, usageHighWater: { tokens: TokenUsage; partTypes?: Map<string, 'text' | 'reasoning'> }): AgentEvent | AgentEvent[] | null {
   const type = event.type ?? '';
   const props = eventProps(event);
 
-  if (type === 'server.heartbeat') return { t: 'heartbeat' };
+  if (type === 'server.heartbeat' || type === 'server.connected') return { t: 'heartbeat' };
   if (type === 'session.created' || type === 'session.started') {
-    const id = (props.id ?? props.sessionID) as string | undefined;
+    const id = extractSessionId({ ...event, type });
     return { t: 'session.started', externalId: id ?? 'unknown', model: { id: String(props.model ?? 'unknown') } };
   }
   if (type === 'session.idle') return { t: 'turn.finished', turn: 0, reason: 'idle' };
@@ -80,6 +117,9 @@ export function decodeOpenCodeEvent(event: {
   if (type === 'message.part.updated') {
     const part = props.part as { type?: string; text?: string; tool?: string; id?: string; callID?: string; state?: { status?: string; output?: string } } | undefined;
     const delta = typeof props.delta === 'string' ? props.delta : '';
+    if (part?.id && (part.type === 'text' || part.type === 'reasoning')) {
+      (usageHighWater.partTypes ??= new Map()).set(part.id, part.type);
+    }
     if (part?.type === 'text' && delta) return { t: 'message.delta', text: delta };
     if (part?.type === 'reasoning' && delta) return { t: 'reasoning.delta', text: delta };
     if (part?.type === 'compaction') return { t: 'compaction', phase: 'start' };
@@ -92,6 +132,14 @@ export function decodeOpenCodeEvent(event: {
         return { t: 'tool.finished', callId, name: String(part.tool ?? 'tool'), ok: part.state.status === 'completed', summary: part.state.output };
       }
     }
+  }
+  if (type === 'message.part.delta' && props.field === 'text' && typeof props.delta === 'string') {
+    const partType = usageHighWater.partTypes?.get(String(props.partID ?? ''));
+    if (partType === 'text') return { t: 'message.delta', text: props.delta };
+    if (partType === 'reasoning') return { t: 'reasoning.delta', text: props.delta };
+  }
+  if (type === 'message.part.removed') {
+    usageHighWater.partTypes?.delete(String(props.partID ?? ''));
   }
   if (type === 'message.updated') {
     const info = props.info as {
@@ -174,15 +222,17 @@ class OpenCodeSession implements AgentSession {
             yield { t: 'turn.finished', turn: 0, reason: 'interrupted' };
             return;
           }
-          const decoded = decodeOpenCodeEvent(raw as { type?: string; properties?: Record<string, unknown>; data?: Record<string, unknown> }, usageHighWater);
+          const event = normalizeEvent(raw);
+          if (!event) continue;
+          // Connection liveness is explicitly unscoped. Every other event must
+          // prove it belongs to this session before decoding or mutating state.
+          // Unscoped file.edited/errors and child traffic are not run events.
+          const connectionEvent = event.type === 'server.connected' || event.type === 'server.heartbeat';
+          if (!connectionEvent && extractSessionId(event) !== self.externalId) continue;
+          const decoded = decodeOpenCodeEvent(event, usageHighWater);
           if (!decoded) continue;
           const events = Array.isArray(decoded) ? decoded : [decoded];
           for (const item of events) {
-            const sid = extractSessionId(raw as { type?: string; properties?: Record<string, unknown>; data?: Record<string, unknown> });
-            if (sid && sid !== self.externalId) {
-              // Child session traffic: only surface idle/error, not parent completion.
-              if (item.t === 'turn.finished') continue;
-            }
             yield item;
             if (item.t === 'turn.finished' || item.t === 'error') return;
           }

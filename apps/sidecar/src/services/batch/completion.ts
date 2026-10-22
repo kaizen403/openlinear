@@ -1,550 +1,321 @@
 import { prisma } from '@openlinear/db';
 import { logger } from '@openlinear/api/logger';
+import { assertTaskOwned } from '@openlinear/api/ownership';
+import { broadcastToTask } from '@openlinear/api/sse';
 import {
-  batchActivityId,
-  completionKey,
-  formatExecutionMode,
-  getCompletedBatchTaskIds,
-  hasQueuedOrRunningBatchTasks,
-  findNextQueuedBatchTaskIndex,
-  isBatchTaskTerminal,
+  batchActivityId, completionKey, formatExecutionMode, hasQueuedOrRunningBatchTasks,
 } from '@openlinear/execution-core';
-import type { BatchState } from '@openlinear/execution-core';
+import type { BatchState, BatchTask } from '@openlinear/execution-core';
 import { cleanupDeltaBuffer } from '../delta-buffer';
 import { getGitIdentityEnv } from '../git-identity';
-import { execFileAsync } from '../execution/exec';
+import { execGit } from '../git-credentials';
 import { hasCommittableChanges, stageCommittableChanges } from '../execution/git';
 import { cleanupBatch, mergeBranch, createBatchBranch, pushBranch } from '../worktree';
+import { safeBatchError, writeBatchReceipt, publishBatchPullRequest } from './publication';
 import {
-  activeBatches,
-  sessionToBatch,
-  completingBatchTasks,
-  completingCombinedBatches,
-  finalizingBatches,
+  activeBatches, sessionToBatch, completingBatchTasks, completingCombinedBatches, finalizingBatches,
+  broadcastBatchEvent, broadcastBatchProgress, emitBatchLog, scheduleBatchCleanup,
+  updateTaskInDb, persistBatchTaskLogs, closeBatchSubscription,
+  batchRunningCount,
+  preparingBatchTasks,
+  batchHasPendingCancellation,
   batchTaskLogs,
-  broadcastBatchEvent,
-  broadcastBatchProgress,
-  emitBatchLog,
-  scheduleBatchCleanup,
-  updateTaskInDb,
+  batchTaskLogOwners,
+  MAX_BATCH_LOG_ENTRIES,
 } from './shared';
 
-export async function handleTaskComplete(
-  batchId: string,
-  taskId: string,
-  success: boolean,
-  error?: string
-): Promise<void> {
+class BatchCancelled extends Error {}
+function isCancelled(batch: BatchState, task?: BatchTask): boolean {
+  return batch.status === 'cancelled' || task?.status === 'cancelled';
+}
+function assertActive(batch: BatchState, task?: BatchTask): void {
+  if (activeBatches.get(batch.id) !== batch || isCancelled(batch, task)) {
+    throw new BatchCancelled('Batch execution was cancelled');
+  }
+}
+function retainedOutcome(task: BatchTask, reason: string): string {
+  return `${reason}. Work retained on branch ${task.branch}${task.worktreePath ? ' at ' + task.worktreePath : ''}`;
+}
+
+async function failTask(batch: BatchState, task: BatchTask, reason: string, status: 'failed' | 'skipped' = 'failed'): Promise<void> {
+  if (batch.status === 'cancelled' || task.status === 'cancelled') return;
+  if (task.status === 'running' && task.sessionId) {
+    task.cancelUnconfirmed = true;
+    const { stopBatchSessions } = await import('./orchestrator');
+    await stopBatchSessions(batch, [task.taskId]);
+    if (isCancelled(batch, task)) return;
+  }
+  task.status = status;
+  task.error = reason;
+  task.completedAt = new Date();
+  // Never overwrite a concurrently persisted cancellation or a new attempt.
+  const result = await prisma.task.updateMany({
+    where: { id: task.taskId, batchId: batch.id, status: { not: 'cancelled' } },
+    data: { status: 'todo', executionProgress: null,
+      executionElapsedMs: task.startedAt ? Date.now() - task.startedAt.getTime() : 0,
+      outcome: retainedOutcome(task, `Failed: ${reason}`),
+    },
+  });
+  if (result.count !== 1) throw new Error('Task outcome could not be persisted for this batch');
+  assertActive(batch, task);
+  broadcastBatchEvent(status === 'skipped' ? 'batch:task:skipped' : 'batch:task:failed', batch.id, { taskId: task.taskId, error: reason });
+  emitBatchLog(task.taskId, 'error', reason);
+  broadcastBatchProgress([task.taskId], 'error', reason, { branch: task.branch, retained: true });
+}
+
+async function commitWorktree(batch: BatchState, worktreePath: string | null, title: string, task?: BatchTask): Promise<void> {
+  assertActive(batch, task);
+  if (!worktreePath) throw new Error('Execution completed without a worktree');
+  const changed = await hasCommittableChanges(worktreePath);
+  assertActive(batch, task);
+  if (!changed) throw new Error('Agent finished without making code changes');
+  const staged = await stageCommittableChanges(worktreePath);
+  assertActive(batch, task);
+  if (!staged) throw new Error('Agent finished without committable code changes');
+  await execGit(['-C', worktreePath, 'commit', '-m', `feat: ${title.toLowerCase().replace(/[^a-z0-9\s]/g, '').slice(0, 50)}`], {
+    env: { ...process.env, ...getGitIdentityEnv() },
+  });
+  assertActive(batch, task);
+}
+
+async function failBatch(batch: BatchState, error: unknown): Promise<void> {
+  if (batch.status === 'completed' || batch.status === 'cancelled' || error instanceof BatchCancelled) return;
+  const reason = safeBatchError(batch, error);
+  const runningTaskIds = batch.tasks.filter((task) => task.status === 'running').map((task) => task.taskId);
+  for (const task of batch.tasks) {
+    if (runningTaskIds.includes(task.taskId) && task.sessionId) task.cancelUnconfirmed = true;
+  }
+  batch.status = 'failed';
+  batch.completedAt = new Date();
+  if (runningTaskIds.length) {
+    const { stopBatchSessions } = await import('./orchestrator');
+    await stopBatchSessions(batch, runningTaskIds);
+  }
+  for (const task of batch.tasks) {
+    if (task.status === 'completed' || task.status === 'running' || task.status === 'queued') {
+      try { await failTask(batch, task, reason); }
+      catch (persistError) { logger.error({ err: persistError, taskId: task.taskId }, '[Batch] Failure outcome persistence failed; retaining receipt'); }
+    }
+  }
+  try { await writeBatchReceipt(batch, 'failed', reason); }
+  catch (receiptError) { logger.error({ err: receiptError, batchId: batch.id }, '[Batch] Could not persist failure receipt'); }
+  broadcastBatchProgress(batch.mode === 'combined' ? [batchActivityId(batch.id)] : batch.tasks.map((task) => task.taskId),
+    'error', reason, { branch: batch.batchBranch, retained: true, prUrl: batch.prUrl });
+  broadcastBatchEvent('batch:failed', batch.id, { error: reason, retained: true, publication: batch.publication });
+}
+
+export async function handleTaskComplete(batchId: string, taskId: string, success: boolean, error?: string): Promise<void> {
   const batch = activeBatches.get(batchId);
-  if (!batch) return;
-
-  const task = batch.tasks.find(t => t.taskId === taskId);
-  if (!task || isBatchTaskTerminal(task)) return;
-
+  const task = batch?.tasks.find((member) => member.taskId === taskId);
+  if (!batch || !task || batch.status !== 'running' || task.status !== 'running') return;
   const key = completionKey(batchId, taskId);
   if (completingBatchTasks.has(key)) return;
   completingBatchTasks.add(key);
-
-  const elapsedMs = task.startedAt ? Date.now() - task.startedAt.getTime() : 0;
-  task.completedAt = new Date();
-
   try {
-    let completionSucceeded = success;
-    let completionError = error;
-
-    if (completionSucceeded) {
-      broadcastBatchProgress([taskId], 'committing', 'Committing batch changes...');
-      if (task.worktreePath) {
-        try {
-          const env = { ...process.env, ...getGitIdentityEnv() };
-          if (await hasCommittableChanges(task.worktreePath)) {
-            const staged = await stageCommittableChanges(task.worktreePath);
-            if (!staged) {
-              completionSucceeded = false;
-              completionError = 'Agent finished without committable code changes';
-              logger.info(`[Batch] No committable changes for task ${task.taskId.slice(0, 8)}`);
-            } else {
-              const commitMsg = `feat: ${task.title.toLowerCase().replace(/[^a-z0-9\s]/g, '').slice(0, 50)}`;
-              await execFileAsync('git', ['-C', task.worktreePath, 'commit', '-m', commitMsg], { env });
-              logger.info(`[Batch] Committed changes for task ${task.taskId.slice(0, 8)}`);
-            }
-          } else {
-            completionSucceeded = false;
-            completionError = 'Agent finished without making code changes';
-            logger.info(`[Batch] No changes for task ${task.taskId.slice(0, 8)}`);
-          }
-        } catch (commitErr) {
-          completionSucceeded = false;
-          completionError = commitErr instanceof Error ? commitErr.message : 'Failed to commit task changes';
-          logger.error({ err: commitErr, taskId: task.taskId }, `[Batch] Failed to commit for task ${task.taskId.slice(0, 8)}`);
-        }
-      } else {
-        completionSucceeded = false;
-        completionError = 'Task completed without a worktree';
+    if (!success) throw new Error(error || 'Agent execution failed');
+    broadcastBatchProgress([taskId], 'committing', 'Committing batch changes...');
+    await commitWorktree(batch, task.worktreePath, task.title, task);
+    assertActive(batch, task);
+    task.completedAt = new Date();
+    await updateTaskInDb(taskId, 'in_progress', {
+      executionElapsedMs: task.startedAt ? task.completedAt.getTime() - task.startedAt.getTime() : 0,
+      executionProgress: 95, outcome: retainedOutcome(task, 'Local commit ready; publication pending'),
+    }, batchId);
+    assertActive(batch, task);
+    await writeBatchReceipt(batch, 'committed');
+    assertActive(batch, task);
+    task.status = 'completed'; // Publish-ready only after local persistence.
+    emitBatchLog(taskId, 'info', 'Local commit ready; waiting for batch publication');
+    broadcastBatchEvent('batch:progress', batchId, { taskId, phase: 'committed' });
+  } catch (failure) {
+    if (!(failure instanceof BatchCancelled) && !isCancelled(batch, task)) {
+      try { await failTask(batch, task, safeBatchError(batch, failure)); }
+      catch (persistError) { await failBatch(batch, persistError); }
+      if (batch.settings.stopOnFailure && batch.status === 'running') {
+        const { cancelBatch } = await import('./orchestrator');
+        await cancelBatch(batchId);
       }
     }
-
-    if (completionSucceeded) {
-      task.status = 'completed';
-      broadcastBatchEvent('batch:task:completed', batchId, { taskId });
-      emitBatchLog(taskId, 'success', 'Batch task completed');
-
-      await updateTaskInDb(taskId, 'done', {
-        executionElapsedMs: elapsedMs,
-        executionProgress: 100,
-        outcome: 'Completed via batch execution',
-      });
-      broadcastBatchProgress([taskId], 'done', 'Batch task complete; waiting for batch pull request');
-    } else {
-      task.status = 'failed';
-      task.error = completionError || 'Unknown error';
-      broadcastBatchEvent('batch:task:failed', batchId, { taskId, error: task.error });
-      emitBatchLog(taskId, 'error', `Batch task failed: ${task.error}`);
-
-      await updateTaskInDb(taskId, 'todo', {
-        executionElapsedMs: elapsedMs,
-        outcome: `Failed: ${task.error}`,
-      });
-      broadcastBatchProgress([taskId], 'error', task.error);
-    }
-
-    const logs = batchTaskLogs.get(taskId) || [];
-    if (logs.length > 0) {
-      try {
-        await prisma.task.update({
-          where: { id: taskId },
-          data: { executionLogs: JSON.parse(JSON.stringify(logs)) },
-        });
-      } catch (err) {
-        logger.error({ err, taskId }, `[Batch] Failed to persist logs for task ${taskId.slice(0, 8)}`);
-      }
-      batchTaskLogs.delete(taskId);
-    }
-
-    if (task.sessionId) {
-      sessionToBatch.delete(task.sessionId);
-    }
-
-    if (!completionSucceeded && batch.settings.stopOnFailure) {
-      const { cancelBatch } = await import('./orchestrator');
-      await cancelBatch(batchId);
-      return;
-    }
-
-    await advanceQueue(batch);
   } finally {
+    closeBatchSubscription(taskId);
+    if (task.sessionId) sessionToBatch.delete(task.sessionId);
+    await persistBatchTaskLogs(taskId, batchId);
     completingBatchTasks.delete(key);
   }
+  await advanceQueue(batch);
 }
 
-export async function handleCombinedBatchComplete(
-  batchId: string,
-  success: boolean,
-  error?: string
-): Promise<void> {
+export async function handleCombinedBatchComplete(batchId: string, success: boolean, error?: string): Promise<void> {
   const batch = activeBatches.get(batchId);
-  if (!batch || batch.mode !== 'combined') return;
-  if (batch.status === 'completed' || batch.status === 'failed' || batch.status === 'cancelled') return;
-  if (completingCombinedBatches.has(batchId)) return;
+  if (!batch || batch.mode !== 'combined' || batch.status !== 'running' || completingCombinedBatches.has(batchId)) return;
   completingCombinedBatches.add(batchId);
-
-  const completedAt = new Date();
-  const startedAt = batch.tasks.find(task => task.startedAt)?.startedAt ?? completedAt;
-  const elapsedMs = completedAt.getTime() - startedAt.getTime();
-  let completionSucceeded = success;
-  let completionError = error;
-  const sessionId = batch.tasks.find(task => task.sessionId)?.sessionId ?? null;
   const activityId = batchActivityId(batch.id);
-
   try {
-    if (completionSucceeded) {
-      broadcastBatchProgress(
-        [activityId],
-        'committing',
-        'Committing Combined Execution changes...',
-      );
-      const worktreePath = batch.tasks.find(task => task.worktreePath)?.worktreePath;
-      if (!worktreePath) {
-        completionSucceeded = false;
-        completionError = 'Combined batch completed without a worktree';
-      } else {
-        try {
-          const env = { ...process.env, ...getGitIdentityEnv() };
-          if (await hasCommittableChanges(worktreePath)) {
-            const staged = await stageCommittableChanges(worktreePath);
-            if (!staged) {
-              completionSucceeded = false;
-              completionError = 'Agent finished without committable code changes';
-            } else {
-              const commitMsg = `feat: combined batch ${batch.id.slice(0, 8)}`;
-              await execFileAsync('git', ['-C', worktreePath, 'commit', '-m', commitMsg], { env });
-              logger.info(`[Batch] Committed combined changes for batch ${batch.id.slice(0, 8)}`);
-            }
-          } else {
-            completionSucceeded = false;
-            completionError = 'Agent finished without making code changes';
-          }
-        } catch (commitErr) {
-          completionSucceeded = false;
-          completionError = commitErr instanceof Error ? commitErr.message : 'Failed to commit combined batch changes';
-          logger.error({ err: commitErr, batchId: batch.id }, `[Batch] Failed to commit combined batch ${batch.id.slice(0, 8)}`);
-        }
-      }
-    }
-
-    if (completionSucceeded) {
-      emitBatchLog(activityId, 'success', 'Combined Execution completed');
-      for (const task of batch.tasks) {
-        task.status = 'completed';
-        task.completedAt = completedAt;
-        broadcastBatchEvent('batch:task:completed', batchId, { taskId: task.taskId });
-        await updateTaskInDb(task.taskId, 'done', {
-          executionElapsedMs: elapsedMs,
-          executionProgress: 100,
-          outcome: 'Completed via Combined Execution',
-        });
-      }
-
-      if (sessionId) {
-        sessionToBatch.delete(sessionId);
-      }
-
-      await finalizeCombinedBatch(batchId);
-      return;
-    }
-
-    batch.status = 'failed';
-    batch.completedAt = completedAt;
-    const failure = completionError || 'Unknown error';
-    emitBatchLog(activityId, 'error', `Combined Execution failed: ${failure}`);
-    broadcastBatchProgress([activityId], 'error', failure);
-
+    if (!success) throw new Error(error || 'Combined agent execution failed');
+    broadcastBatchProgress([activityId], 'committing', 'Committing combined changes...');
+    await commitWorktree(batch, batch.tasks.find((task) => task.worktreePath)?.worktreePath ?? null, `combined batch ${batch.id}`);
+    assertActive(batch);
     for (const task of batch.tasks) {
-      task.status = 'failed';
-      task.error = failure;
-      task.completedAt = completedAt;
-      broadcastBatchEvent('batch:task:failed', batchId, { taskId: task.taskId, error: failure });
-      await updateTaskInDb(task.taskId, 'todo', {
-        executionElapsedMs: elapsedMs,
-        outcome: `Failed: ${failure}`,
-      });
+      task.completedAt = new Date();
+      await updateTaskInDb(task.taskId, 'in_progress', {
+        executionElapsedMs: task.startedAt ? task.completedAt.getTime() - task.startedAt.getTime() : 0,
+        executionProgress: 95, outcome: retainedOutcome(task, 'Local commit ready; publication pending'),
+      }, batchId);
+      assertActive(batch);
     }
-
-    if (sessionId) {
-      sessionToBatch.delete(sessionId);
-    }
-    broadcastBatchEvent('batch:failed', batchId, { error: failure });
-
-    try {
-      await cleanupBatch(batch.projectId, batchId);
-    } catch (cleanupError) {
-      logger.error({ err: cleanupError, batchId }, `[Batch] Cleanup failed for combined batch ${batchId.slice(0, 8)}`);
-    }
-  } finally {
-    cleanupDeltaBuffer(activityId);
-    batchTaskLogs.delete(activityId);
+    await writeBatchReceipt(batch, 'committed');
+    assertActive(batch);
+    for (const task of batch.tasks) task.status = 'completed';
+    await finalizeBatch(batchId);
+  } catch (failure) { await failBatch(batch, failure); }
+  finally {
+    closeBatchSubscription(activityId);
     for (const task of batch.tasks) {
+      if (task.sessionId) sessionToBatch.delete(task.sessionId);
       cleanupDeltaBuffer(task.taskId);
-      completingBatchTasks.delete(completionKey(batchId, task.taskId));
+    }
+    // Combined logs belong to the same attempt, but persist on each real task.
+    const activityLogs = batchTaskLogs.get(activityId);
+    for (const task of batch.tasks) {
+      if (activityLogs?.length && batchTaskLogOwners.get(task.taskId) === batchId) {
+        batchTaskLogs.set(task.taskId, [...(batchTaskLogs.get(task.taskId) ?? []), ...activityLogs].slice(-MAX_BATCH_LOG_ENTRIES));
+      }
+      await persistBatchTaskLogs(task.taskId, batchId);
     }
     completingCombinedBatches.delete(batchId);
-    // T11 (H-07) — no-op unless `batch.status` is actually terminal (it is on
-    // the failure branch above; the success branch delegates to
-    // `finalizeCombinedBatch`, which schedules its own cleanup).
+    cleanupDeltaBuffer(activityId);
     scheduleBatchCleanup(batchId);
   }
 }
 
 export async function advanceQueue(batch: BatchState): Promise<void> {
-  const hasRemaining = hasQueuedOrRunningBatchTasks(batch);
-  if (!hasRemaining) {
+  if (batch.status !== 'running') return;
+  if (!hasQueuedOrRunningBatchTasks(batch)) {
     await finalizeBatch(batch.id);
     return;
   }
-
-  const nextIndex = findNextQueuedBatchTaskIndex(batch);
-  if (nextIndex === -1) return;
-
-  if (batch.mode === 'parallel') {
-    const { launchTask } = await import('./orchestrator');
-    launchTask(batch, nextIndex);
-  } else if (batch.settings.autoApprove) {
-    const { launchTask } = await import('./orchestrator');
-    launchTask(batch, nextIndex);
+  if (batch.mode === 'combined') return;
+  if (batch.mode === 'queue' && (!batch.settings.autoApprove || batch.tasks.some((task) => task.status === 'running'))) return;
+  const { launchTask } = await import('./orchestrator');
+  for (let index = 0; index < batch.tasks.length; index += 1) {
+    if (batch.tasks[index].status !== 'queued') continue;
+    const limit = batch.mode === 'queue' ? 1 : batch.settings.maxConcurrent;
+    if (batchRunningCount(batch) >= limit) break;
+    launchTask(batch, index); // launchTask synchronously reserves queued -> running.
   }
 }
 
 export async function finalizeBatch(batchId: string): Promise<void> {
   const batch = activeBatches.get(batchId);
-  if (!batch) return;
-
-  if (
-    finalizingBatches.has(batchId)
-    || batch.status === 'merging'
-    || batch.status === 'completed'
-    || batch.status === 'failed'
-    || batch.status === 'cancelled'
-  ) {
-    return;
-  }
-
+  if (!batch || batch.status !== 'running' || finalizingBatches.has(batchId) || hasQueuedOrRunningBatchTasks(batch)
+    || batchHasPendingCancellation(batch)
+    || batch.tasks.some((task) => completingBatchTasks.has(completionKey(batchId, task.taskId))
+      || preparingBatchTasks.has(completionKey(batchId, task.taskId)))) return;
   finalizingBatches.add(batchId);
-
   try {
+    assertActive(batch);
+    let completed = batch.tasks.filter((task) => task.status === 'completed');
+    if (!completed.length) throw new Error('No successfully committed tasks to publish');
+    if (batch.tasks.some((task) => task.cancelUnconfirmed)) throw new Error('Provider stop is unconfirmed; publication is blocked and work is retained');
+    const repository = await prisma.repository.findUnique({ where: { id: batch.projectId } });
+    assertActive(batch);
+    if (!repository) throw new Error('The batch repository no longer exists');
+    if (batch.repository && (repository.cloneUrl !== batch.repository.cloneUrl || repository.defaultBranch !== batch.repository.defaultBranch
+      || repository.fullName !== batch.repository.fullName)) throw new Error('Repository settings changed before publication');
+    if (!batch.userId) throw new Error('The batch has no authenticated owner');
+    await Promise.all(completed.map(async (task) => {
+      const authority = await assertTaskOwned(task.taskId, batch.userId!);
+      const expectedProject = batch.taskProjectIds?.[task.taskId];
+      if (expectedProject !== undefined && authority.projectId !== expectedProject) throw new Error('Task access scope changed before publication');
+    }));
+    assertActive(batch);
     batch.status = 'merging';
+    await writeBatchReceipt(batch, 'merging');
+    assertActive(batch);
     broadcastBatchEvent('batch:merging', batchId);
 
-    const project = await prisma.repository.findUnique({ where: { id: batch.projectId } });
-    const targetBranch = project?.defaultBranch || 'main';
-
-    await createBatchBranch(batch.projectId, batch.batchBranch, targetBranch);
-
-    let hasFatalFailure = false;
-
-    for (const task of batch.tasks) {
-      if (task.status !== 'completed') continue;
-
-      try {
+    if (batch.mode !== 'combined') {
+      await createBatchBranch(batch.projectId, batch.batchBranch, repository.defaultBranch);
+      assertActive(batch);
+      for (const task of completed) {
         const merged = await mergeBranch(batch.projectId, task.branch, batch.batchBranch);
-
+        assertActive(batch, task);
         if (!merged) {
-          if (batch.settings.conflictBehavior === 'fail') {
-            task.status = 'failed';
-            task.error = 'Merge conflict';
-            hasFatalFailure = true;
-            broadcastBatchEvent('batch:task:failed', batchId, { taskId: task.taskId, error: 'Merge conflict' });
-            break;
-          } else {
-            task.status = 'skipped';
-            task.error = 'Merge conflict (skipped)';
-            broadcastBatchEvent('batch:task:skipped', batchId, { taskId: task.taskId });
-          }
-        }
-      } catch (error) {
-        const errorMsg = error instanceof Error ? error.message : 'Merge error';
-        logger.error({ err: error, taskId: task.taskId }, `[Batch] Merge failed for task ${task.taskId.slice(0, 8)}`);
-
-        if (batch.settings.conflictBehavior === 'fail') {
-          task.status = 'failed';
-          task.error = errorMsg;
-          hasFatalFailure = true;
-          broadcastBatchEvent('batch:task:failed', batchId, { taskId: task.taskId, error: errorMsg });
-          break;
-        } else {
-          task.status = 'skipped';
-          task.error = errorMsg;
-          broadcastBatchEvent('batch:task:skipped', batchId, { taskId: task.taskId });
+          await failTask(batch, task, 'Merge conflict', batch.settings.conflictBehavior === 'skip' ? 'skipped' : 'failed');
+          assertActive(batch);
+          if (batch.settings.conflictBehavior === 'fail') throw new Error('Batch merge failed; local commits retained');
         }
       }
     }
+    completed = batch.tasks.filter((task) => task.status === 'completed');
+    if (!completed.length) throw new Error('No successfully merged tasks to publish');
+    if (!batch.accessToken) throw new Error('GitHub authentication is required for batch publication');
+    broadcastBatchProgress(batch.mode === 'combined' ? [batchActivityId(batch.id)] : completed.map((task) => task.taskId),
+      'creating_pr', `Creating ${formatExecutionMode(batch.mode)} pull request...`);
+    assertActive(batch);
+    await pushBranch(batch.projectId, batch.batchBranch, repository.cloneUrl, batch.accessToken);
+    batch.publication = { ...batch.publication, phase: 'pushed',
+      branchUrl: `https://github.com/${repository.fullName}/compare/${encodeURIComponent(repository.defaultBranch)}...${encodeURIComponent(batch.batchBranch)}` };
+    await writeBatchReceipt(batch, 'pushed');
+    assertActive(batch);
+    batch.prUrl = await publishBatchPullRequest(batch, repository, () => assertActive(batch));
+    // Record an accepted external result even if cancellation happened in flight.
+    await writeBatchReceipt(batch, 'pr_created');
+    assertActive(batch);
 
-    if (hasFatalFailure) {
-      batch.status = 'failed';
-      batch.completedAt = new Date();
-      broadcastBatchEvent('batch:failed', batchId);
-    } else {
-      try {
-        const completedTaskIds = getCompletedBatchTaskIds(batch);
-        broadcastBatchProgress(completedTaskIds, 'creating_pr', `Creating ${formatExecutionMode(batch.mode)} pull request...`);
-
-        const proj = await prisma.repository.findUnique({ where: { id: batch.projectId } });
-        if (proj) {
-          await pushBranch(batch.projectId, batch.batchBranch, proj.cloneUrl, batch.accessToken);
-
-          const completedTasks = batch.tasks.filter(t => t.status === 'completed');
-          const taskTitles = completedTasks.map(t => `- ${t.title}`).join('\n');
-          const prTitle = `${formatExecutionMode(batch.mode)}: ${completedTasks.length} issues`;
-          const prBody = `Automated ${formatExecutionMode(batch.mode)} PR by OpenLinear\n\n## Issues\n${taskTitles}`;
-
-          const [owner, repo] = proj.fullName.split('/');
-          const compareUrl = `https://github.com/${owner}/${repo}/compare/${targetBranch}...${batch.batchBranch}`;
-
-          if (batch.accessToken) {
-            try {
-              const response = await fetch(`https://api.github.com/repos/${owner}/${repo}/pulls`, {
-                method: 'POST',
-                headers: {
-                  Authorization: `Bearer ${batch.accessToken}`,
-                  Accept: 'application/vnd.github.v3+json',
-                  'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                  title: prTitle,
-                  head: batch.batchBranch,
-                  base: targetBranch,
-                  body: prBody,
-                }),
-              });
-              if (response.ok) {
-                const pr = await response.json() as { html_url: string };
-                batch.prUrl = pr.html_url;
-              } else {
-                batch.prUrl = compareUrl;
-              }
-            } catch {
-              batch.prUrl = compareUrl;
-            }
-          } else {
-            batch.prUrl = compareUrl;
-          }
-        }
-      } catch (pushError) {
-        logger.error({ err: pushError }, `[Batch] Push/PR creation failed`);
+    const updated = await prisma.$transaction(async (tx) => {
+      assertActive(batch);
+      for (const task of completed) {
+        const result = await tx.task.updateMany({
+          where: { id: task.taskId, batchId: batch.id, status: 'in_progress',
+            ...(batch.taskProjectIds?.[task.taskId] ? { projectId: batch.taskProjectIds[task.taskId] } : {}),
+          },
+          data: { status: 'done', prUrl: batch.prUrl, executionProgress: 100,
+            outcome: `Completed via ${formatExecutionMode(batch.mode)}; pull request ${batch.prUrl}` },
+        });
+        assertActive(batch, task);
+        if (result.count !== 1) throw new Error('Task ownership or execution status changed before completion');
       }
-
-      batch.status = 'completed';
-      batch.completedAt = new Date();
-
-      if (batch.prUrl) {
-        const completedTaskIds = getCompletedBatchTaskIds(batch);
-        for (const taskId of completedTaskIds) {
-          await updateTaskInDb(taskId, 'done', { prUrl: batch.prUrl });
-        }
-        broadcastBatchProgress(completedTaskIds, 'done', `${formatExecutionMode(batch.mode)} pull request ready`, { prUrl: batch.prUrl });
-      } else {
-        const completedTaskIds = getCompletedBatchTaskIds(batch);
-        broadcastBatchProgress(
-          completedTaskIds,
-          'done',
-          `${formatExecutionMode(batch.mode)} completed`,
-        );
-      }
-
-      broadcastBatchEvent('batch:completed', batchId, { prUrl: batch.prUrl });
-    }
-
-    try {
-      await cleanupBatch(batch.projectId, batchId);
-    } catch (error) {
-      logger.error({ err: error, batchId }, `[Batch] Cleanup failed for batch ${batchId.slice(0, 8)}`);
-    }
-  } catch (error) {
-    const errorMsg = error instanceof Error ? error.message : 'Batch finalization failed';
-    logger.error({ err: error, batchId }, `[Batch] Finalization failed for batch ${batchId.slice(0, 8)}`);
-    batch.status = 'failed';
-    batch.completedAt = new Date();
-    broadcastBatchEvent('batch:failed', batchId, { error: errorMsg });
-  } finally {
-    for (const task of batch.tasks) {
-      cleanupDeltaBuffer(task.taskId);
-      completingBatchTasks.delete(completionKey(batchId, task.taskId));
-    }
-    finalizingBatches.delete(batchId);
-    scheduleBatchCleanup(batchId); // T11 (H-07)
-  }
-}
-
-async function finalizeCombinedBatch(batchId: string): Promise<void> {
-  const batch = activeBatches.get(batchId);
-  if (!batch) return;
-
-  if (
-    finalizingBatches.has(batchId)
-    || batch.status === 'merging'
-    || batch.status === 'completed'
-    || batch.status === 'failed'
-    || batch.status === 'cancelled'
-  ) {
-    return;
-  }
-
-  finalizingBatches.add(batchId);
-
-  try {
-    batch.status = 'merging';
-    broadcastBatchEvent('batch:merging', batchId);
-
-    const proj = await prisma.repository.findUnique({ where: { id: batch.projectId } });
-    const targetBranch = proj?.defaultBranch || 'main';
-
-    if (proj) {
-      try {
-        const activityId = batchActivityId(batch.id);
-        broadcastBatchProgress([activityId], 'creating_pr', 'Creating Combined Execution pull request...');
-
-        await pushBranch(batch.projectId, batch.batchBranch, proj.cloneUrl, batch.accessToken);
-
-        const completedTasks = batch.tasks.filter(t => t.status === 'completed');
-        const taskTitles = completedTasks.map(t => `- ${t.title}`).join('\n');
-        const prTitle = `Combined Execution: ${completedTasks.length} issues`;
-        const prBody = `Automated Combined Execution PR by OpenLinear\n\n## Issues\n${taskTitles}`;
-
-        const [owner, repo] = proj.fullName.split('/');
-        const compareUrl = `https://github.com/${owner}/${repo}/compare/${targetBranch}...${batch.batchBranch}`;
-
-        if (batch.accessToken) {
-          try {
-            const response = await fetch(`https://api.github.com/repos/${owner}/${repo}/pulls`, {
-              method: 'POST',
-              headers: {
-                Authorization: `Bearer ${batch.accessToken}`,
-                Accept: 'application/vnd.github.v3+json',
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                title: prTitle,
-                head: batch.batchBranch,
-                base: targetBranch,
-                body: prBody,
-              }),
-            });
-            if (response.ok) {
-              const pr = await response.json() as { html_url: string };
-              batch.prUrl = pr.html_url;
-            } else {
-              batch.prUrl = compareUrl;
-            }
-          } catch {
-            batch.prUrl = compareUrl;
-          }
-        } else {
-          batch.prUrl = compareUrl;
-        }
-      } catch (pushError) {
-        logger.error({ err: pushError }, `[Batch] Combined push/PR creation failed`);
-      }
-    }
-
+      const records = await tx.task.findMany({
+        where: { id: { in: completed.map((task) => task.taskId) }, batchId: batch.id },
+        include: { labels: { include: { label: true } } },
+      });
+      assertActive(batch);
+      return records;
+    });
+    assertActive(batch);
     batch.status = 'completed';
     batch.completedAt = new Date();
-    const activityId = batchActivityId(batch.id);
-
-    if (batch.prUrl) {
-      const completedTaskIds = getCompletedBatchTaskIds(batch);
-      for (const taskId of completedTaskIds) {
-        await updateTaskInDb(taskId, 'done', { prUrl: batch.prUrl });
-      }
-      broadcastBatchProgress([activityId], 'done', 'Combined Execution pull request ready', { prUrl: batch.prUrl });
-    } else {
-      broadcastBatchProgress(
-        [activityId],
-        'done',
-        'Combined Execution completed',
-      );
+    let receiptRecorded = true;
+    try { await writeBatchReceipt(batch, 'completed'); }
+    catch (receiptError) {
+      receiptRecorded = false;
+      logger.warn({ err: receiptError, batchId }, '[Batch] Publication and DB completion confirmed; retaining workspace because receipt update failed');
     }
-
-    broadcastBatchEvent('batch:completed', batchId, { prUrl: batch.prUrl });
-
-    try {
-      await cleanupBatch(batch.projectId, batchId);
-    } catch (error) {
-      logger.error({ err: error, batchId }, `[Batch] Cleanup failed for combined batch ${batchId.slice(0, 8)}`);
+    for (const task of updated) {
+      try { broadcastToTask('task:updated', { ...task, labels: task.labels.map((relation) => relation.label) }); }
+      catch (broadcastError) { logger.warn({ err: broadcastError }, '[Batch] Completed task broadcast failed'); }
     }
-  } catch (error) {
-    const errorMsg = error instanceof Error ? error.message : 'Combined batch finalization failed';
-    logger.error({ err: error, batchId }, `[Batch] Combined finalization failed for batch ${batchId.slice(0, 8)}`);
-    batch.status = 'failed';
-    batch.completedAt = new Date();
-    broadcastBatchProgress([batchActivityId(batch.id)], 'error', errorMsg);
-    broadcastBatchEvent('batch:failed', batchId, { error: errorMsg });
-  } finally {
-    cleanupDeltaBuffer(batchActivityId(batch.id));
-    batchTaskLogs.delete(batchActivityId(batch.id));
+    for (const task of completed) {
+      broadcastBatchEvent('batch:task:completed', batchId, { taskId: task.taskId, prUrl: batch.prUrl });
+      emitBatchLog(task.taskId, 'success', 'Batch pull request ready');
+    }
+    broadcastBatchProgress(batch.mode === 'combined' ? [batchActivityId(batch.id)] : completed.map((task) => task.taskId),
+      'done', 'Batch pull request ready', { prUrl: batch.prUrl });
+    broadcastBatchEvent('batch:completed', batchId, { prUrl: batch.prUrl, publication: batch.publication });
+    // A skipped/failed/cancelled member retains its artifact for inspection.
+    if (receiptRecorded && batch.tasks.every((task) => task.status === 'completed' && !task.cancelUnconfirmed)) {
+      try { await cleanupBatch(batch.projectId, batchId); }
+      catch (cleanupError) { logger.warn({ err: cleanupError, batchId }, '[Batch] Published batch cleanup failed'); }
+    }
+  } catch (failure) { await failBatch(batch, failure); }
+  finally {
     for (const task of batch.tasks) {
       cleanupDeltaBuffer(task.taskId);
-      completingBatchTasks.delete(completionKey(batchId, task.taskId));
+      await persistBatchTaskLogs(task.taskId, batchId);
     }
+    cleanupDeltaBuffer(batchActivityId(batch.id));
     finalizingBatches.delete(batchId);
-    scheduleBatchCleanup(batchId); // T11 (H-07)
+    scheduleBatchCleanup(batchId);
   }
 }

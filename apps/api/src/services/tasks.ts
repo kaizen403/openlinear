@@ -1,6 +1,7 @@
 import { prisma, type Prisma, type Priority, type Status } from '@openlinear/db';
 import { PRISMA_TX_OPTIONS } from '../lib/constants';
 import { ValidationError } from '../errors';
+import { bulkArchiveBodySchema } from '../schemas/tasks';
 import { broadcastToProject, broadcastToTask, broadcastToTeam, broadcastToUser } from '../sse';
 import { createNotification } from '../routes/notifications';
 import { extractMentionedUsernames } from '../schemas/comments';
@@ -517,8 +518,20 @@ export async function bulkArchiveTasks(input: {
 }) {
   await assertProjectAccess(input.projectId, input.userId, 'full');
 
-  const requestedIds = [...new Set((input.taskIds ?? []).map((id) => id.trim()).filter(Boolean))];
-  const requestedIdentifiers = [...new Set((input.identifiers ?? []).map((identifier) => identifier.trim()).filter(Boolean))];
+  const parsed = bulkArchiveBodySchema.safeParse(input);
+  if (!parsed.success) throw ValidationError.fromZod(parsed.error);
+
+  const normalizedIds = (parsed.data.taskIds ?? []).map((id) => id.trim());
+  const normalizedIdentifiers = (parsed.data.identifiers ?? []).map((identifier) => identifier.trim());
+  if (normalizedIds.some((id) => !id) || normalizedIdentifiers.some((identifier) => !identifier)) {
+    throw new ValidationError('Archive selectors must not be blank');
+  }
+  const requestedIds = [...new Set(normalizedIds)];
+  const requestedIdentifiers = [...new Set(normalizedIdentifiers)];
+  if (requestedIds.length === 0 && requestedIdentifiers.length === 0) {
+    throw new ValidationError('Specify which issues to archive via taskIds or identifiers');
+  }
+
   const scopedRequests: Prisma.TaskWhereInput[] = [];
   if (requestedIds.length > 0) scopedRequests.push({ id: { in: requestedIds } });
   // `mode: 'insensitive'` lowercases the COLUMN but not the supplied values, so
@@ -536,7 +549,7 @@ export async function bulkArchiveTasks(input: {
     where: {
       projectId: input.projectId,
       archived: false,
-      ...(scopedRequests.length > 0 ? { OR: scopedRequests } : {}),
+      OR: scopedRequests,
     },
     select: {
       id: true,

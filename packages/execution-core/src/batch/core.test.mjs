@@ -74,7 +74,7 @@ describe('execution-core batch helpers', () => {
   });
 
   it('builds branch names deterministically', () => {
-    expect(createBatchBranchName('12345678-aaaa-bbbb-cccc-123456789abc')).toBe('openlinear/batch-12345678');
+    expect(createBatchBranchName('12345678-aaaa-bbbb-cccc-123456789abc')).toBe('openlinear/batch-12345678-aaaa-bbbb-cccc-123456789abc');
     expect(createBatchTaskBranchName('task-1')).toBe('openlinear/task-1');
   });
 
@@ -127,22 +127,22 @@ describe('execution-core batch helpers', () => {
       prUrl: null,
       completedAt: null,
     });
-    expect(parallel.batchBranch).toBe('openlinear/batch-12345678');
+    expect(parallel.batchBranch).toBe('openlinear/batch-12345678-aaaa-bbbb-cccc-123456789abc');
     expect(parallel.tasks[0]).toMatchObject({
       taskId: 'task-1',
       title: 'First',
       status: 'queued',
-      branch: 'openlinear/task-1',
+      branch: 'openlinear/12345678-aaaa-bbbb-cccc-123456789abc/task-1',
       worktreePath: null,
       sessionId: null,
     });
 
     const combined = batch({ mode: 'combined' });
     expect(combined.tasks.map(task => task.branch)).toEqual([
-      'openlinear/batch-12345678',
-      'openlinear/batch-12345678',
-      'openlinear/batch-12345678',
-      'openlinear/batch-12345678',
+      'openlinear/batch-12345678-aaaa-bbbb-cccc-123456789abc',
+      'openlinear/batch-12345678-aaaa-bbbb-cccc-123456789abc',
+      'openlinear/batch-12345678-aaaa-bbbb-cccc-123456789abc',
+      'openlinear/batch-12345678-aaaa-bbbb-cccc-123456789abc',
     ]);
   });
 
@@ -203,10 +203,10 @@ describe('execution-core batch helpers', () => {
     });
 
     expect(toBatchTaskSummaries(state)).toEqual([
-      { taskId: 'task-1', title: 'First', status: 'completed', branch: 'openlinear/task-1' },
-      { taskId: 'task-2', title: 'Second', status: 'failed', branch: 'openlinear/task-2' },
-      { taskId: 'task-3', title: 'Third', status: 'running', branch: 'openlinear/task-3' },
-      { taskId: 'task-4', title: 'Fourth', status: 'skipped', branch: 'openlinear/task-4' },
+      { taskId: 'task-1', title: 'First', status: 'completed', branch: 'openlinear/12345678-aaaa-bbbb-cccc-123456789abc/task-1' },
+      { taskId: 'task-2', title: 'Second', status: 'failed', branch: 'openlinear/12345678-aaaa-bbbb-cccc-123456789abc/task-2' },
+      { taskId: 'task-3', title: 'Third', status: 'running', branch: 'openlinear/12345678-aaaa-bbbb-cccc-123456789abc/task-3' },
+      { taskId: 'task-4', title: 'Fourth', status: 'skipped', branch: 'openlinear/12345678-aaaa-bbbb-cccc-123456789abc/task-4' },
     ]);
 
     expect(toCreateBatchResponse(state)).toEqual({

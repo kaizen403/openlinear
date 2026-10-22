@@ -1,11 +1,5 @@
 #!/usr/bin/env node
-/**
- * Nightly / local-only. Not a PR gate.
- * Documents the 300MB warm-path budget (~2.7s) from the Phase 2 plan.
- */
-console.log(JSON.stringify({
-  name: 'openlinear-execution-latency-300mb',
-  fixtureBytes: 300 * 1024 * 1024,
-  targetMs: 2700,
-  gate: false,
-}));
+import { runBenchmark } from './latency-bench.mjs';
+
+// Explicit opt-in for a 300 MiB fixture. Thresholds require a calibrated machine baseline.
+runBenchmark(['--fixture-bytes', String(300 * 1024 * 1024), '--cold-iterations', '1', '--warm-iterations', '5']);

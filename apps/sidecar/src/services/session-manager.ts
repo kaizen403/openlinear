@@ -24,6 +24,7 @@ import {
 // - No-progress watchdog: only events that belong to *this* session and
 //   represent real activity reset it. Defaults to 20 minutes, configurable.
 const TRANSPORT_WATCHDOG_MS = 60_000;
+const SUBSCRIPTION_READY_TIMEOUT_MS = 30_000;
 const NO_PROGRESS_WATCHDOG_MS = (() => {
   const raw = parseInt(process.env.OPENLINEAR_NO_PROGRESS_TIMEOUT_MS || '', 10);
   return Number.isFinite(raw) && raw > 0 ? raw : 20 * 60 * 1000;
@@ -42,13 +43,18 @@ export interface SessionEventSubscription {
   onComplete: (success: boolean, error?: string) => Promise<void>;
 }
 
+export interface ManagedSessionSubscription {
+  ready: Promise<void>;
+  close: () => void;
+}
+
 export function subscribeToTaskEvents(
   client: OpencodeClient,
   sessionId: string,
   batchId: string,
   taskId: string,
   onComplete: (success: boolean, error?: string) => Promise<void>,
-): { ready: Promise<void> } {
+): ManagedSessionSubscription {
   return subscribeToSessionEvents({
     client,
     sessionId,
@@ -64,7 +70,8 @@ export function subscribeToSessionEvents({
   batchId,
   taskIds,
   onComplete,
-}: SessionEventSubscription): { ready: Promise<void> } {
+}: SessionEventSubscription): ManagedSessionSubscription {
+  const controller = new AbortController();
   let promptSent = false;
   let finished = false;
   let backgroundTaskRunning = false;
@@ -73,6 +80,7 @@ export function subscribeToSessionEvents({
   let watchdogSuspended = false;
   let transportTimeoutId: NodeJS.Timeout | null = null;
   let progressTimeoutId: NodeJS.Timeout | null = null;
+  let readinessTimeoutId: NodeJS.Timeout | null = null;
   const primaryTaskId = taskIds[0] ?? batchId;
 
   const clearTransportWatchdog = () => {
@@ -91,6 +99,9 @@ export function subscribeToSessionEvents({
   const finish = (reason: string, effectiveTimeoutReason: string) => {
     if (finished) return;
     finished = true;
+    controller.abort();
+    clearReadinessTimeout();
+    rejectReady(new Error(effectiveTimeoutReason));
     clearTransportWatchdog();
     clearProgressWatchdog();
     flushTaskBuffers(taskIds);
@@ -207,15 +218,51 @@ export function subscribeToSessionEvents({
   }
 
   let resolveReady: () => void = () => undefined;
-  const ready = new Promise<void>((resolve) => {
+  let rejectReady: (error: unknown) => void = () => undefined;
+  const ready = new Promise<void>((resolve, reject) => {
     resolveReady = resolve;
+    rejectReady = reject;
   });
+  const clearReadinessTimeout = () => {
+    if (readinessTimeoutId) {
+      clearTimeout(readinessTimeoutId);
+      readinessTimeoutId = null;
+    }
+  };
+  const observeFrame = () => {
+    if (finished) return;
+    clearReadinessTimeout();
+    resolveReady();
+    resetTransportWatchdog();
+  };
+  // The caller awaits readiness after storing its cancellation handle.
+  void ready.catch(() => undefined);
+  const close = () => {
+    finished = true;
+    controller.abort();
+    rejectReady(new Error('Event subscription cancelled'));
+    clearReadinessTimeout();
+    clearTransportWatchdog();
+    clearProgressWatchdog();
+    cleanupTaskBuffers(taskIds);
+  };
+
+  readinessTimeoutId = setTimeout(() => {
+    finish('Event subscription did not become ready', 'Event stream readiness timed out');
+  }, SUBSCRIPTION_READY_TIMEOUT_MS);
+  readinessTimeoutId.unref();
 
   (async () => {
     try {
-      const events = await client.event.subscribe();
-      resolveReady();
-      resetTransportWatchdog();
+      // The pinned SDK returns a lazy generator before it fetches /event.
+      // A received frame proves readiness; constructing the stream does not.
+      const events = await client.event.subscribe({
+        signal: controller.signal,
+        sseMaxRetryAttempts: 1,
+        onSseEvent: observeFrame,
+        onSseError: (error) => { throw error; },
+      });
+      if (finished) return;
       resetProgressWatchdog();
 
       for await (const event of events.stream) {
@@ -223,7 +270,7 @@ export function subscribeToSessionEvents({
 
         // Liveness: ANY frame — including a heartbeat with no sessionID — proves
         // the transport is alive. Do this before the session filter below.
-        resetTransportWatchdog();
+        observeFrame();
 
         const type = event.type as string;
         const props = (event.properties || {}) as Record<string, unknown>;
@@ -381,7 +428,16 @@ export function subscribeToSessionEvents({
           continue;
         }
       }
+      if (!finished) {
+        finished = true;
+        rejectReady(new Error('Event stream closed before completion'));
+        flushTaskBuffers(taskIds);
+        cleanupTaskBuffers(taskIds);
+        await onComplete(false, 'Event stream closed before completion');
+      }
     } catch (error) {
+      rejectReady(error);
+      clearReadinessTimeout();
       cleanupTaskBuffers(taskIds);
       clearTransportWatchdog();
       clearProgressWatchdog();
@@ -391,9 +447,13 @@ export function subscribeToSessionEvents({
         await onComplete(false, 'Event subscription failed');
       }
     } finally {
+      controller.abort();
+      clearReadinessTimeout();
       clearTransportWatchdog();
       clearProgressWatchdog();
     }
-  })();
-  return { ready };
+  })().catch((error: unknown) => {
+    logger.error({ err: error, sessionId }, '[Batch] Failed to persist event subscription outcome');
+  });
+  return { ready, close };
 }

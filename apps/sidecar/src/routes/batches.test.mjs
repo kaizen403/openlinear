@@ -67,7 +67,7 @@ function makeApp() {
   app.use(express.json());
   app.use('/', batchesRouter);
   app.use((err, _req, res, _next) => {
-    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    res.status(err.statusCode ?? 500).json({ error: err instanceof Error ? err.message : String(err), ...(err.code ? { code: err.code } : {}) });
   });
   return app;
 }
@@ -198,6 +198,47 @@ describe('batches routes', () => {
     expect(mocks.createBatch).not.toHaveBeenCalled();
   });
 
+  it.each([['task-1', ' task-1 '], [' '], ['task\0id'], Array.from({ length: 21 }, (_, index) => `task-${index}`)])('rejects invalid IDs %j before resource checks', async (...taskIds) => {
+    await expect(request(app, 'POST', '/', { headers: AUTH_HEADERS, body: { taskIds, mode: 'queue' } })).resolves.toMatchObject({ status: 400 });
+    expect(mocks.assertTaskOwned).not.toHaveBeenCalled();
+    expect(mocks.createBatch).not.toHaveBeenCalled();
+    expect(mocks.startBatch).not.toHaveBeenCalled();
+  });
+
+  it('awaits start rejection instead of acknowledging batch creation', async () => {
+    mocks.createBatch.mockResolvedValueOnce(makeBatch());
+    mocks.startBatch.mockRejectedValueOnce(Object.assign(new Error('already started'), { statusCode: 409, code: 'BATCH_ALREADY_STARTED' }));
+    await expect(request(app, 'POST', '/', { headers: AUTH_HEADERS, body: { taskIds: ['task-1'], mode: 'queue' } }))
+      .resolves.toEqual({ status: 409, body: { error: 'already started', code: 'BATCH_ALREADY_STARTED' } });
+  });
+
+  it('checks every combined member before a member cancellation stops the shared session', async () => {
+    mocks.getBatch.mockReturnValueOnce(makeBatch({ mode: 'combined' }));
+    mocks.assertTaskOwned.mockImplementation(async (id) => { if (id === 'task-2') throw new Error('member denied'); });
+    await expect(request(app, 'POST', '/batch-1/tasks/task-1/cancel', { headers: AUTH_HEADERS })).resolves.toMatchObject({ status: 500 });
+    expect(mocks.assertTaskOwned).toHaveBeenCalledWith('task-2', 'user-1');
+    expect(mocks.cancelTask).not.toHaveBeenCalled();
+  });
+
+  it('rejects cancellation of a task absent from this batch before task authorization', async () => {
+    mocks.getBatch.mockReturnValueOnce(makeBatch());
+    await expect(request(app, 'POST', '/batch-1/tasks/foreign/cancel', { headers: AUTH_HEADERS }))
+      .resolves.toMatchObject({ status: 404, body: { code: 'NOT_FOUND' } });
+    expect(mocks.assertTaskOwned).not.toHaveBeenCalled();
+    expect(mocks.cancelTask).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['/batch-1/cancel', 'cancelBatch'],
+    ['/batch-1/tasks/task-1/cancel', 'cancelTask'],
+    ['/batch-1/approve', 'approveNextTask'],
+  ])('awaits service failure on %s', async (path, method) => {
+    mocks.getBatch.mockReturnValueOnce(makeBatch());
+    mocks[method].mockRejectedValueOnce(Object.assign(new Error('operation incomplete'), { statusCode: 503, code: 'CANCEL_INCOMPLETE' }));
+    await expect(request(app, 'POST', path, { headers: AUTH_HEADERS }))
+      .resolves.toEqual({ status: 503, body: { error: 'operation incomplete', code: 'CANCEL_INCOMPLETE' } });
+  });
+
   it('propagates ownership failures on create as a 500 via next(error)', async () => {
     mocks.assertTaskOwned.mockRejectedValueOnce(new Error('not yours'));
 
@@ -289,6 +330,7 @@ describe('batches routes', () => {
   });
 
   it('cancels a single task within a batch after an ownership check', async () => {
+    mocks.getBatch.mockReturnValueOnce(makeBatch());
     await expect(request(app, 'POST', '/batch-1/tasks/task-1/cancel', { headers: AUTH_HEADERS })).resolves.toEqual({
       status: 200,
       body: { success: true },
