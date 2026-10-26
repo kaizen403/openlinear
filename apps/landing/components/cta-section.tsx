@@ -16,10 +16,12 @@ export function CTASection() {
             </h2>
           </div>
           <a
-            href="https://openlinear.tech"
+            href="https://github.com/kaizen403/openlinear"
             className="btn-primary inline-flex items-center gap-2.5 rounded-full bg-primary px-8 py-3.5 text-[0.875rem] font-medium text-primary-foreground whitespace-nowrap h-fit"
+            target="_blank"
+            rel="noopener noreferrer"
           >
-            Get Started <ArrowRight className="h-3.5 w-3.5" />
+            View on GitHub <ArrowRight className="h-3.5 w-3.5" />
           </a>
         </div>
       </div>

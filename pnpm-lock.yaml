@@ -426,6 +426,9 @@ importers:
       '@radix-ui/react-tooltip':
         specifier: 1.1.6
         version: 1.1.6(@types/react-dom@19.2.3(@types/react@19.2.7))(@types/react@19.2.7)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
+      '@remotion/player':
+        specifier: 4.0.0
+        version: 4.0.0(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
       autoprefixer:
         specifier: ^10.4.20
         version: 10.4.24(postcss@8.5.6)
@@ -471,6 +474,9 @@ importers:
       recharts:
         specifier: 2.15.0
         version: 2.15.0(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
+      remotion:
+        specifier: 4.0.0
+        version: 4.0.0(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
       sonner:
         specifier: ^1.7.1
         version: 1.7.4(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
@@ -2840,6 +2846,12 @@ packages:
 
   '@remotion/media-utils@4.0.421':
     resolution: {integrity: sha512-kL0uR8bnSW27Lg3SozKO+LP1kiFLpM40GKeAWftrzvJXbAUc5XZTEvldRbtw0YUXJvD5SsJvYH8FU0HB27N28A==}
+    peerDependencies:
+      react: '>=16.8.0'
+      react-dom: '>=16.8.0'
+
+  '@remotion/player@4.0.0':
+    resolution: {integrity: sha512-iBaU3fdC09LK47JYXeZDv19dnNLelVXLKBcbcbaQdLEJL49xqdG5jtoYt2CwK7N501e6DAE2sR9jlCgA699+OQ==}
     peerDependencies:
       react: '>=16.8.0'
       react-dom: '>=16.8.0'
@@ -5716,6 +5728,12 @@ packages:
 
   remeda@2.33.4:
     resolution: {integrity: sha512-ygHswjlc/opg2VrtiYvUOPLjxjtdKvjGz1/plDhkG66hjNjFr1xmfrs2ClNFo/E6TyUFiwYNh53bKV26oBoMGQ==}
+
+  remotion@4.0.0:
+    resolution: {integrity: sha512-mejAAdAxANqzwSfgTw2ShLGtcx/2bGgmUHlw5x963/pRFF2PRlHHLklJjW80kMTVbeGuPAdXP42ABQVaK1ENgQ==}
+    peerDependencies:
+      react: '>=16.8.0'
+      react-dom: '>=16.8.0'
 
   remotion@4.0.421:
     resolution: {integrity: sha512-j64KtcwObNYpxskxBPd7zDXVOwSHxH31RIM6Vs/+rUj/NBry/LXc8cNWDwFC4fYaJweOAeM7zXY16kW/9t3X+w==}
@@ -8921,6 +8939,12 @@ snapshots:
       react: 18.3.0
       react-dom: 18.3.0(react@18.3.0)
       remotion: 4.0.421(react-dom@18.3.0(react@18.3.0))(react@18.3.0)
+
+  '@remotion/player@4.0.0(react-dom@19.2.3(react@19.2.3))(react@19.2.3)':
+    dependencies:
+      react: 19.2.3
+      react-dom: 19.2.3(react@19.2.3)
+      remotion: 4.0.0(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
 
   '@remotion/player@4.0.421(react-dom@18.3.0(react@18.3.0))(react@18.3.0)':
     dependencies:
@@ -12222,6 +12246,11 @@ snapshots:
       unified: 11.0.5
 
   remeda@2.33.4: {}
+
+  remotion@4.0.0(react-dom@19.2.3(react@19.2.3))(react@19.2.3):
+    dependencies:
+      react: 19.2.3
+      react-dom: 19.2.3(react@19.2.3)
 
   remotion@4.0.421(react-dom@18.3.0(react@18.3.0))(react@18.3.0):
     dependencies:

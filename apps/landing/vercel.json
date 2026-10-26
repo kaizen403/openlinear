@@ -1,0 +1,26 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "nextjs",
+  "rewrites": [
+    {
+      "source": "/docs/_mintlify/:path*",
+      "destination": "https://openlinear.mintlify.app/_mintlify/:path*"
+    },
+    {
+      "source": "/docs/mintlify-assets/:path*",
+      "destination": "https://openlinear.mintlify.app/mintlify-assets/:path*"
+    },
+    {
+      "source": "/docs/api/request",
+      "destination": "https://openlinear.mintlify.app/_mintlify/api/request"
+    },
+    {
+      "source": "/docs/:path+",
+      "destination": "https://openlinear.mintlify.app/:path+"
+    },
+    {
+      "source": "/docs",
+      "destination": "https://openlinear.mintlify.app/"
+    }
+  ]
+}
