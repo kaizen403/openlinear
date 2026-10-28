@@ -5,17 +5,19 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/openlinear/openlinear"
+    "url": "https://github.com/kaizen403/openlinear"
   },
   "bin": {
     "openlinear": "bin/openlinear.js"
   },
   "files": [
     "bin",
+    "lib",
     "scripts"
   ],
   "scripts": {
-    "postinstall": "node scripts/postinstall.js"
+    "postinstall": "node scripts/postinstall.js",
+    "test": "node --test test/*.test.js"
   },
   "engines": {
     "node": ">=18"
