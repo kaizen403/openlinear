@@ -2,7 +2,7 @@ import { mkdirSync, existsSync, rmSync, statSync, readdirSync, statfsSync, lstat
 import { join, resolve, relative, isAbsolute, dirname } from 'path';
 import { homedir } from 'os';
 import { execGit, execGitWithCredentials, assertSafeCloneUrl, assertSafeRefName } from '../services/git-credentials';
-import { logger } from '@openlinear/api/logger';
+import { logger } from '../lib/logger';
 
 export interface WorkspaceHandle {
   kind: 'local-worktree';
@@ -11,6 +11,8 @@ export interface WorkspaceHandle {
   mirrorPath: string;
   branch: string;
   dissociated?: boolean;
+  /** W11a: the base commit the checkout was created at (before any agent change). */
+  baseCommit?: string;
 }
 
 export interface GcPolicy {
@@ -20,7 +22,8 @@ export interface GcPolicy {
 
 const repoMutexes = new Map<string, Promise<void>>();
 
-function appReposDir(): string {
+/** Root of the sidecar's repository storage (mirrors, `worktrees/`, `verify/`). */
+export function appReposDir(): string {
   if (process.env.REPOS_DIR) return resolve(process.env.REPOS_DIR);
   const root = process.env.OPENLINEAR_APP_DATA ?? (
     process.platform === 'darwin' ? join(homedir(), 'Library', 'Application Support', 'OpenLinear')
@@ -175,8 +178,77 @@ export async function acquireLocalWorktree(input: {
       worktreePath,
       mirrorPath,
       branch,
+      baseCommit,
       ...(input.dissociate ? { dissociated: true } : {}),
     };
+  });
+}
+
+/**
+ * W08a: an isolated checkout for a local-folder project. The run works in
+ * its own clone at `<repos>/worktrees/<runId>` on `openlinear/<runId>`,
+ * started from the folder's current HEAD; the user's working tree, index and
+ * checked-out branch are never touched. A local clone hard-links the
+ * folder's objects (no alternates — the agent sandbox reads only its own
+ * checkout, and `git gc` in the folder can't break the run), copying them
+ * only across filesystems. The clone's `origin` is the folder's own `origin`
+ * (so push / pull request behave as before); without one, the clone has no
+ * remote. Uncommitted changes in the folder are not part of the run
+ * (`sourceDirty` says when there were some).
+ */
+export async function acquireLocalFolderCheckout(input: { localPath: string; runId: string }): Promise<WorkspaceHandle & { sourceDirty: boolean; origin: string | null }> {
+  assertSegment(input.runId, 'run ID');
+  if (!isAbsolute(input.localPath)) throw new Error('[worktree] Local project path must be absolute');
+  const reposRoot = appReposDir();
+  const worktreePath = join(reposRoot, 'worktrees', input.runId);
+  assertOwnedPath(reposRoot, worktreePath);
+  let source: string;
+  try {
+    source = realpathSync(input.localPath);
+  } catch {
+    throw new Error('[worktree] Local project folder does not exist');
+  }
+  const rel = relative(reposRoot, source);
+  if (!rel.startsWith('..') && !isAbsolute(rel)) throw new Error('[worktree] Local project folder lies inside OpenLinear storage');
+  const { stdout: top } = await execGit(['-C', source, 'rev-parse', '--show-toplevel']);
+  if (realpathSync(top.trim()) !== source) throw new Error('[worktree] Local project path must be the repository root');
+  const { stdout: head } = await execGit(['-C', source, 'rev-parse', '--verify', '--end-of-options', 'HEAD^{commit}']);
+  const baseCommit = head.trim();
+  const { stdout: status } = await execGit(['-C', source, 'status', '--porcelain', '--untracked-files=normal'], { maxBuffer: 4 * 1024 * 1024 });
+  let origin: string | null = null;
+  try {
+    origin = (await execGit(['-C', source, 'remote', 'get-url', 'origin'])).stdout.trim() || null;
+  } catch {
+    origin = null;
+  }
+  mkdirSync(join(reposRoot, 'worktrees'), { recursive: true, mode: 0o700 });
+  return withRepoLock(worktreePath, async () => {
+    if (existsSync(worktreePath)) throw new Error('[worktree] Run workspace already exists');
+    // A local clone is the `file` transport, which the hardening disables by
+    // default; this one call reads the user's own folder.
+    await execGit(['-c', 'protocol.file.allow=always', 'clone', '--quiet', '--local', '--no-checkout', '--no-tags', '--', source, worktreePath]);
+    try {
+      const branch = `openlinear/${input.runId}`;
+      await execGit(['-C', worktreePath, 'checkout', '--quiet', '-b', branch, baseCommit]);
+      if (origin) await execGit(['-C', worktreePath, 'remote', 'set-url', 'origin', origin]);
+      else await execGit(['-C', worktreePath, 'remote', 'remove', 'origin']);
+      return {
+        kind: 'local-worktree' as const,
+        runId: input.runId,
+        worktreePath,
+        // A standalone clone: it is its own repository (release removes the directory).
+        mirrorPath: worktreePath,
+        branch,
+        baseCommit,
+        dissociated: true,
+        sourceDirty: status.trim().length > 0,
+        origin,
+      };
+    } catch (err) {
+      assertOwnedPath(reposRoot, worktreePath);
+      rmSync(worktreePath, { recursive: true, force: true });
+      throw err;
+    }
   });
 }
 

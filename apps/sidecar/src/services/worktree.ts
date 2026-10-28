@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, rmdirSync } from 'fs';
-import { logger } from '@openlinear/api/logger';
+import { logger } from '../lib/logger';
 import { getGitIdentityEnv } from './git-identity';
 import { assertPathInsideReposDir, buildReposPath } from './repo-storage';
 import {
@@ -246,7 +246,7 @@ async function mergeBranchUnlocked(
     assertSafeRefName(taskBranch, 'task branch');
     assertSafeRefName(targetBranch, 'target branch');
 
-    const env = { ...process.env, ...getGitIdentityEnv() };
+    const env = getGitIdentityEnv();
     if (existsSync(mergePath)) throw new Error('Merge workspace already exists; retained work will not be replaced');
 
     logger.info(`[Worktree] Creating temp worktree for merge at ${mergePath}`);
