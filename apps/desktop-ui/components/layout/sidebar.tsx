@@ -1,6 +1,10 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { useQuery } from "@tanstack/react-query"
+import { fetchProjectPlans, plansAwaitingReview } from "@/lib/api/plans"
+import { fetchProjectKnowledge } from "@/lib/api/knowledge"
+import { queryKeys } from "@/lib/query/keys"
 import Link from "next/link"
 import { usePathname, useSearchParams, useRouter } from "next/navigation"
 import { useTheme } from "next-themes"
@@ -9,7 +13,8 @@ import {
     PanelLeftClose, LogOut, Archive, Brain, BarChart3,
     ChevronRight, ChevronDown, Hexagon, Plus,
     ChevronsUpDown, Building2, Users, FolderKanban, Columns3,
-    User as UserIcon, Sun, Moon, Monitor
+    User as UserIcon, Sun, Moon, Monitor,
+    ClipboardList, Repeat, BookOpen,
 } from "lucide-react"
 
 import { useAuth } from "@/hooks/use-auth"
@@ -17,8 +22,9 @@ import { useProject } from "@/hooks/use-project"
 import { useWorkspace } from "@/hooks/use-workspace"
 import { cn } from "@/lib/utils"
 import { BRAND_COLORS } from "@/lib/design-tokens"
-import { apiFetch } from "@/lib/api"
-import { useSSESubscription } from "@/providers/sse-provider"
+import { useUnreadNotificationCount } from "@/hooks/use-notifications"
+import { unreadCountQuery } from "@/lib/query/notifications"
+import { useAppQueryClient } from "@/lib/query/use-app-query-client"
 
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 
@@ -122,6 +128,32 @@ function WorkspaceSwitcher() {
     )
 }
 
+/** W17b: how many of the project's plans wait for review (fetched only while the project is expanded). */
+function PlansAwaitingBadge({ projectId }: { projectId: string }) {
+    const client = useAppQueryClient()
+    const plans = useQuery({ queryKey: queryKeys.plans.list(projectId), queryFn: () => fetchProjectPlans(projectId), retry: false, staleTime: 60_000 }, client)
+    const count = plansAwaitingReview(plans.data ?? [])
+    if (count === 0) return null
+    return (
+        <span className="ml-auto rounded-full bg-warning/15 px-1.5 text-[10px] font-semibold text-warning" aria-label={`${count} ${count === 1 ? "plan" : "plans"} to review`}>
+            {count}
+        </span>
+    )
+}
+
+/** W19b: knowledge proposals (from agents) waiting for a person's approval. */
+function KnowledgeProposalsBadge({ projectId }: { projectId: string }) {
+    const client = useAppQueryClient()
+    const knowledge = useQuery({ queryKey: queryKeys.knowledge.list(projectId), queryFn: () => fetchProjectKnowledge(projectId), retry: false, staleTime: 60_000 }, client)
+    const count = (knowledge.data ?? []).filter((entry) => entry.status === "proposed").length
+    if (count === 0) return null
+    return (
+        <span className="ml-auto rounded-full bg-warning/15 px-1.5 text-[10px] font-semibold text-warning" aria-label={`${count} knowledge ${count === 1 ? "proposal" : "proposals"} to review`}>
+            {count}
+        </span>
+    )
+}
+
 function ProjectSection({ project, pathname, searchParams, isActive, onSelect }: {
     project: { id: string; name: string };
     pathname: string;
@@ -137,6 +169,10 @@ function ProjectSection({ project, pathname, searchParams, isActive, onSelect }:
 
     const isBoardActive = pathname === "/projects/board" && searchParams.get("id") === project.id
     const isIssuesActive = pathname === "/projects/issues" && searchParams.get("id") === project.id
+    const isPlansActive = pathname === "/projects/plans" && searchParams.get("id") === project.id
+    const isSchedulesActive = pathname === "/projects/schedules" && searchParams.get("id") === project.id
+    const isKnowledgeActive = pathname === "/projects/knowledge" && searchParams.get("id") === project.id
+    const isInsightsActive = pathname === "/projects/insights" && searchParams.get("id") === project.id
     const isTeamsActive = (pathname === "/teams" || pathname === "/teams/issues" || pathname === "/teams/manage") && searchParams.get("projectId") === project.id
     const isSettingsActive = pathname === "/projects/manage" && searchParams.get("id") === project.id
 
@@ -186,6 +222,40 @@ function ProjectSection({ project, pathname, searchParams, isActive, onSelect }:
                         <span>Issues</span>
                     </Link>
                     <Link
+                        href={`/projects/plans?id=${project.id}&name=${encodeURIComponent(project.name)}`}
+                        onClick={onSelect}
+                        className={subNavItemClass(isPlansActive)}
+                    >
+                        <ClipboardList className="w-3.5 h-3.5 flex-shrink-0" />
+                        <span>Plans</span>
+                        <PlansAwaitingBadge projectId={project.id} />
+                    </Link>
+                    <Link
+                        href={`/projects/schedules?id=${project.id}&name=${encodeURIComponent(project.name)}`}
+                        onClick={onSelect}
+                        className={subNavItemClass(isSchedulesActive)}
+                    >
+                        <Repeat className="w-3.5 h-3.5 flex-shrink-0" />
+                        <span>Recurring</span>
+                    </Link>
+                    <Link
+                        href={`/projects/knowledge?id=${project.id}&name=${encodeURIComponent(project.name)}`}
+                        onClick={onSelect}
+                        className={subNavItemClass(isKnowledgeActive)}
+                    >
+                        <BookOpen className="w-3.5 h-3.5 flex-shrink-0" />
+                        <span>Knowledge</span>
+                        <KnowledgeProposalsBadge projectId={project.id} />
+                    </Link>
+                    <Link
+                        href={`/projects/insights?id=${project.id}&name=${encodeURIComponent(project.name)}`}
+                        onClick={onSelect}
+                        className={subNavItemClass(isInsightsActive)}
+                    >
+                        <BarChart3 className="w-3.5 h-3.5 flex-shrink-0" />
+                        <span>Insights</span>
+                    </Link>
+                    <Link
                         href={`/teams?projectId=${project.id}`}
                         className={subNavItemClass(isTeamsActive)}
                     >
@@ -213,7 +283,6 @@ export function Sidebar({ open, onClose, width }: SidebarProps) {
     const { activeProject, projects, setActiveProject } = useProject()
     const { setTheme } = useTheme()
     const [isTauri, setIsTauri] = useState(false)
-    const [unreadCount, setUnreadCount] = useState<number>(0)
     const [isFullscreen, setIsFullscreen] = useState(false)
 
     useEffect(() => {
@@ -222,32 +291,38 @@ export function Sidebar({ open, onClose, width }: SidebarProps) {
         if (!isTauriDesktop) return
 
         let unlisten: (() => void) | undefined
+        let disposed = false
 
         const setup = async () => {
             const { getCurrentWindow } = await import('@tauri-apps/api/window')
             const win = getCurrentWindow()
             setIsFullscreen(await win.isFullscreen())
-            unlisten = await win.onResized(async () => {
+            const stop = await win.onResized(async () => {
                 setIsFullscreen(await win.isFullscreen())
             })
+            // Unmounted while subscribing: drop the listener right away.
+            if (disposed) stop()
+            else unlisten = stop
         }
-        setup()
-        return () => { unlisten?.() }
+        // The window API can be missing or fail (webview teardown); the
+        // fullscreen flag is cosmetic, so log instead of an unhandled rejection.
+        setup().catch((error: unknown) => console.warn('[Sidebar] window state unavailable:', error))
+        return () => {
+            disposed = true
+            unlisten?.()
+        }
     }, [])
 
+    // Unread badge: the shared notifications count (also the inbox header).
+    // `notification:created` bumps it through the SSE bridge and marking read
+    // lowers it; a route change refreshes it only once it is stale (it used to
+    // refetch on every navigation).
+    const queryClient = useAppQueryClient()
+    const unreadCount = useUnreadNotificationCount(isAuthenticated)
     useEffect(() => {
-        let cancelled = false
-        apiFetch<{ unreadCount: number }>('/api/notifications?pageSize=1')
-            .then((res) => { if (!cancelled) setUnreadCount(res.unreadCount) })
-            .catch(() => { if (!cancelled) setUnreadCount(0) })
-        return () => { cancelled = true }
-    }, [pathname])
-
-    // Consume the app's single shared SSE connection (see SSEProvider) rather
-    // than opening a second EventSource just for this badge.
-    useSSESubscription((eventType) => {
-        if (eventType === 'notification:created') setUnreadCount((c) => c + 1)
-    })
+        if (!isAuthenticated) return
+        void queryClient.prefetchQuery(unreadCountQuery())
+    }, [pathname, isAuthenticated, queryClient])
 
     const handleClose = async () => {
         const { getCurrentWindow } = await import('@tauri-apps/api/window')
@@ -442,7 +517,7 @@ export function Sidebar({ open, onClose, width }: SidebarProps) {
                                     </Avatar>
                                     <span
                                         aria-hidden
-                                        className="absolute bottom-0 right-0 w-2 h-2 rounded-full bg-emerald-500 ring-2 ring-linear-bg-secondary"
+                                        className="absolute bottom-0 right-0 w-2 h-2 rounded-full bg-success ring-2 ring-linear-bg-secondary"
                                     />
                                 </div>
                                 <div className="flex-1 min-w-0">

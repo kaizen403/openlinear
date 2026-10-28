@@ -2,9 +2,17 @@
 
 import { createContext, useContext, useEffect, useRef, useCallback, useState, type ReactNode } from "react"
 import { useAuth } from "@/hooks/use-auth"
-import { getApiUrl, getAuthToken, getSidecarApiUrl } from "@/lib/api/client"
-
-const SSE_MAX_BACKOFF_MS = 30_000
+import { getAuthToken, getCloudApiUrl, resolveApiBaseUrl } from "@/lib/api/client"
+import { apiFetch, refreshAccessToken } from "@/lib/api/fetch"
+import { isDesktopRuntime } from "@/lib/api/runtime"
+import {
+  EventStreamConnection,
+  RecentEventIds,
+  type EventStreamName,
+  type EventStreamRequest,
+  type EventStreamState,
+  type StreamMessage,
+} from "@/lib/api/event-stream"
 
 export interface SSEEventData {
   type?: string
@@ -53,68 +61,43 @@ export interface SSEEventData {
   [key: string]: unknown
 }
 
-export type SSEEventType =
-  | 'connected'
-  | 'task:created'
-  | 'task:updated'
-  | 'task:deleted'
-  | 'tasks:bulk-created'
-  | 'label:created'
-  | 'label:updated'
-  | 'label:deleted'
-  | 'settings:updated'
-  | 'execution:progress'
-  | 'execution:log'
-  | 'batch:created'
-  | 'batch:started'
-  | 'batch:task:started'
-  | 'batch:task:completed'
-  | 'batch:task:failed'
-  | 'batch:task:skipped'
-  | 'batch:task:cancelled'
-  | 'batch:merging'
-  | 'batch:completed'
-  | 'batch:failed'
-  | 'batch:cancelled'
-  | 'team:created'
-  | 'team:updated'
-  | 'team:deleted'
-  | 'team:joined'
-  | 'team:left'
-  | 'team:member-added'
-  | 'team:member-updated'
-  | 'team:member-removed'
-  | 'project:created'
-  | 'project:updated'
-  | 'project:deleted'
-  | 'project:access-changed'
-  | 'workspace:joined'
-  | 'workspace:left'
-  | 'workspace:updated'
-  | 'workspace:deleted'
-  | 'workspace:member-added'
-  | 'workspace:member-updated'
-  | 'workspace:member-removed'
-  | 'notification:created'
-
-type SSEListener = (eventType: SSEEventType, data: SSEEventData) => void
-
-interface SSEContextType {
-  subscribe: (listener: SSEListener) => () => void
-  isConnected: boolean
-  isReconnecting: boolean
-}
-
-const SSEContext = createContext<SSEContextType | null>(null)
-
-const ALL_EVENT_TYPES: SSEEventType[] = [
+const ALL_EVENT_TYPES = [
   'task:created',
   'task:updated',
   'task:deleted',
   'tasks:bulk-created',
+  'tasks:bulk-updated',
+  'tasks:bulk-deleted',
+  'task:label:assigned',
+  'task:label:removed',
+  // W17a: a "blocked by" edge was added or removed.
+  'task:dependencies',
+  // FE-04: a run's approval requests changed (requested / decided / expired).
+  'approval:changed',
+  // W19a: an agent review of a task started or finished.
+  'review:changed',
+  // W17b: plans (project-scoped).
+  'plan:created',
+  'plan:revised',
+  'plan:approved',
+  'plan:archived',
+  // W20: recurring issues (project-scoped; the created issues arrive as task:created).
+  'schedule:created',
+  'schedule:updated',
+  'schedule:deleted',
+  // W19b: project knowledge changed (created / edited / approved / retracted / restored).
+  'knowledge:changed',
+  // FE-14: a webhook endpoint was added, changed or removed.
+  'webhook:created',
+  'webhook:updated',
+  'webhook:deleted',
   'label:created',
   'label:updated',
   'label:deleted',
+  'comment:created',
+  'comment:updated',
+  'comment:deleted',
+  'activity:created',
   'settings:updated',
   'execution:progress',
   'execution:log',
@@ -126,6 +109,10 @@ const ALL_EVENT_TYPES: SSEEventType[] = [
   'batch:task:skipped',
   'batch:task:cancelled',
   'batch:merging',
+  'batch:progress',
+  // Sidecar: events after the client's Last-Event-ID are gone (journal
+  // retention or restart); the client must re-read state (W03a).
+  'replay-gap',
   'batch:completed',
   'batch:failed',
   'batch:cancelled',
@@ -149,155 +136,170 @@ const ALL_EVENT_TYPES: SSEEventType[] = [
   'workspace:member-updated',
   'workspace:member-removed',
   'notification:created',
-]
+  'chat:session:updated',
+] as const
 
-interface SSEStream {
-  source: EventSource
-  retries: number
-  reconnectTimer: ReturnType<typeof setTimeout> | null
-  reconnecting: boolean
+export type SSEEventType = 'connected' | (typeof ALL_EVENT_TYPES)[number]
+
+const KNOWN_EVENT_TYPES: ReadonlySet<string> = new Set(ALL_EVENT_TYPES)
+
+/** Where an event came from: the cloud domain stream or the local sidecar stream. */
+export interface SSEEventMeta {
+  stream: EventStreamName
+  /** The event's SSE id, when the server sent one. */
+  id: string | null
+}
+
+type SSEListener = (eventType: SSEEventType, data: SSEEventData, meta: SSEEventMeta) => void
+
+interface SSEContextType {
+  subscribe: (listener: SSEListener) => () => void
+  isConnected: boolean
+  isReconnecting: boolean
+}
+
+const SSEContext = createContext<SSEContextType | null>(null)
+
+/** Cloud domain events resume from numeric outbox ids only. */
+export function isCloudCursor(id: string): boolean {
+  return /^\d+$/.test(id)
 }
 
 /**
- * SECURITY: EventSource cannot set Authorization headers. The stream is
- * authenticated with a one-minute ticket from POST /api/events/ticket
- * (session auth). JWTs are never placed in the query string.
+ * Cloud domain events: `GET /api/events?ticket=…&lastEventId=…`.
+ *
+ * SECURITY: the stream is authenticated with a one-minute, single-use ticket
+ * from `POST /api/events/ticket` (session auth, minted through `apiFetch` so
+ * an expired access token is refreshed first). JWTs are never put in a URL.
  */
-async function mintSseTicket(baseUrl: string): Promise<string | null> {
-  const token = getAuthToken()
-  if (!token) return null
+export async function prepareCloudStream(cursor: string | null): Promise<EventStreamRequest | null> {
+  if (!getAuthToken()) return null
+  let ticket: string | undefined
   try {
-    const res = await fetch(`${baseUrl}/api/events/ticket`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}` },
-    })
-    if (!res.ok) return null
-    const body = (await res.json()) as { ticket?: string }
-    return body.ticket ?? null
+    ticket = (await apiFetch<{ ticket?: string }>('/api/events/ticket', { method: 'POST' }))?.ticket
   } catch {
     return null
   }
+  if (!ticket) return null
+  const url = new URL(`${getCloudApiUrl()}/api/events`)
+  url.searchParams.set('ticket', ticket)
+  if (cursor) url.searchParams.set('lastEventId', cursor)
+  return { url: url.toString() }
 }
 
-function buildEventsUrl(baseUrl: string, ticket: string | null, lastEventId?: string): string {
-  const url = new URL(`${baseUrl}/api/events`)
-  if (ticket) url.searchParams.set('ticket', ticket)
-  if (lastEventId) url.searchParams.set('lastEventId', lastEventId)
-  return url.toString()
+/**
+ * Local execution events from the sidecar: `GET /api/events` with the cloud
+ * access token as a bearer header (the sidecar validates it) and the last
+ * execution event id as `Last-Event-ID`.
+ */
+export async function prepareLocalStream(cursor: string | null): Promise<EventStreamRequest | null> {
+  const token = getAuthToken()
+  if (!token) return null
+  const base = await resolveApiBaseUrl('sidecar')
+  return {
+    url: `${base}/api/events`,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      ...(cursor ? { 'Last-Event-ID': cursor } : {}),
+    },
+  }
 }
 
-export function SSEProvider({ children }: { children: ReactNode }) {
+/**
+ * Desktop always runs a sidecar. A web build talks to one only when it was
+ * configured with NEXT_PUBLIC_SIDECAR_URL (local development); otherwise a
+ * browser tab would keep probing 127.0.0.1 for a server that is not there.
+ */
+export function shouldOpenLocalStream(): boolean {
+  return isDesktopRuntime() || Boolean(process.env.NEXT_PUBLIC_SIDECAR_URL)
+}
+
+/** Decode one stream message into a typed event, or null to ignore it. */
+export function decodeStreamMessage(message: StreamMessage): { type: SSEEventType; data: SSEEventData } | null {
+  let data: unknown
+  try {
+    data = JSON.parse(message.data)
+  } catch {
+    console.error(`[SSE Provider] Failed to parse ${message.type} from ${message.stream} stream`)
+    return null
+  }
+  if (typeof data !== 'object' || data === null) return null
+  const payload = data as SSEEventData
+  if (message.type === 'connected' || (message.type === 'message' && payload.type === 'connected')) {
+    return { type: 'connected', data: payload }
+  }
+  if (!KNOWN_EVENT_TYPES.has(message.type)) return null
+  return { type: message.type as SSEEventType, data: payload }
+}
+
+export function SSEProvider({
+  children,
+  backoffMs,
+}: {
+  children: ReactNode
+  /** Reconnect delay override (tests); defaults to capped exponential backoff with jitter. */
+  backoffMs?: (attempt: number) => number
+}) {
   const { isAuthenticated } = useAuth()
   const listenersRef = useRef<Set<SSEListener>>(new Set())
-  const streamsRef = useRef<Map<string, SSEStream>>(new Map())
-  const [connectedCount, setConnectedCount] = useState(0)
-  const [reconnectingCount, setReconnectingCount] = useState(0)
+  const [streamStates, setStreamStates] = useState<Partial<Record<EventStreamName, EventStreamState>>>({})
 
-  const broadcast = useCallback((eventType: SSEEventType, data: SSEEventData) => {
+  const broadcast = useCallback((eventType: SSEEventType, data: SSEEventData, meta: SSEEventMeta) => {
     listenersRef.current.forEach((listener) => {
       try {
-        listener(eventType, data)
+        listener(eventType, data, meta)
       } catch (err) {
         console.error("[SSE Provider] Listener error:", err)
       }
     })
   }, [])
 
-  const recomputeConnectedCount = useCallback(() => {
-    let connected = 0
-    let reconnecting = 0
-    streamsRef.current.forEach((s) => {
-      if (s.reconnecting) reconnecting++
-      else if (s.source.readyState === EventSource.OPEN) connected++
-    })
-    setConnectedCount(connected)
-    setReconnectingCount(reconnecting)
-  }, [])
-
-  const closeStream = useCallback((baseUrl: string) => {
-    const stream = streamsRef.current.get(baseUrl)
-    if (!stream) return
-    stream.source.close()
-    if (stream.reconnectTimer) clearTimeout(stream.reconnectTimer)
-    streamsRef.current.delete(baseUrl)
-    recomputeConnectedCount()
-  }, [recomputeConnectedCount])
-
-  const lastEventIdRef = useRef<Map<string, string>>(new Map())
-
-  const connectStream = useCallback((baseUrl: string) => {
-    if (typeof window === 'undefined') return
-    closeStream(baseUrl)
-
-    void mintSseTicket(baseUrl).then((ticket) => {
-      if (!getAuthToken()) return
-      const url = buildEventsUrl(baseUrl, ticket, lastEventIdRef.current.get(baseUrl))
-      const source = new EventSource(url)
-      const stream: SSEStream = { source, retries: 0, reconnectTimer: null, reconnecting: false }
-      streamsRef.current.set(baseUrl, stream)
-
-    source.onopen = () => {
-      stream.retries = 0
-      stream.reconnecting = false
-      recomputeConnectedCount()
-    }
-
-    source.onmessage = (event) => {
-      if (event.lastEventId) lastEventIdRef.current.set(baseUrl, event.lastEventId)
-      try {
-        const data = JSON.parse(event.data) as SSEEventData
-        if (data.type === 'connected') {
-          broadcast('connected', data)
-        }
-      } catch (err) {
-        console.error("[SSE Provider] Failed to parse message:", err)
-      }
-    }
-
-    for (const eventType of ALL_EVENT_TYPES) {
-      source.addEventListener(eventType, (event) => {
-        const message = event as MessageEvent
-        if (message.lastEventId) lastEventIdRef.current.set(baseUrl, message.lastEventId)
-        try {
-          const data = JSON.parse(message.data)
-          broadcast(eventType, data)
-        } catch (err) {
-          console.error(`[SSE Provider] Failed to parse ${eventType}:`, err)
-        }
-      })
-    }
-
-    source.onerror = () => {
-      source.close()
-      stream.reconnecting = true
-      recomputeConnectedCount()
-
-      const attempt = stream.retries + 1
-      stream.retries = attempt
-      const exp = 1000 * Math.pow(2, Math.min(attempt - 1, 5))
-      const jitter = Math.random() * 1000
-      const delay = Math.min(SSE_MAX_BACKOFF_MS, exp + jitter)
-      if (process.env.NODE_ENV === 'development') {
-        console.log(`[SSE Provider] ${baseUrl} retry ${attempt} in ${Math.round(delay)}ms`)
-      }
-      stream.reconnectTimer = setTimeout(() => connectStream(baseUrl), delay)
-    }
-    })
-  }, [broadcast, closeStream, recomputeConnectedCount])
-
   useEffect(() => {
     if (!isAuthenticated) return
 
-    const cloud = getApiUrl()
-    const sidecar = getSidecarApiUrl()
-    const baseUrls = new Set<string>([cloud, sidecar])
-
-    baseUrls.forEach((u) => connectStream(u))
-
-    return () => {
-      baseUrls.forEach((u) => closeStream(u))
+    const recentIds = new RecentEventIds()
+    const onMessage = (message: StreamMessage) => {
+      // A replay after reconnect can resend events; deliver each (stream, id) once.
+      if (message.id && !recentIds.firstSighting(message.stream, message.id)) return
+      const decoded = decodeStreamMessage(message)
+      if (decoded) broadcast(decoded.type, decoded.data, { stream: message.stream, id: message.id })
     }
-  }, [isAuthenticated, connectStream, closeStream])
+    const onStateChange = (stream: EventStreamName) => (state: EventStreamState) => {
+      setStreamStates((prev) => (prev[stream] === state ? prev : { ...prev, [stream]: state }))
+      if (process.env.NODE_ENV === 'development' && state === 'reconnecting') {
+        console.log(`[SSE Provider] ${stream} stream reconnecting`)
+      }
+    }
+
+    const connections = [
+      new EventStreamConnection({
+        name: 'cloud',
+        prepare: prepareCloudStream,
+        isCursor: isCloudCursor,
+        onMessage,
+        onStateChange: onStateChange('cloud'),
+        backoffMs,
+      }),
+    ]
+    if (shouldOpenLocalStream()) {
+      connections.push(
+        new EventStreamConnection({
+          name: 'local',
+          prepare: prepareLocalStream,
+          onUnauthorized: refreshAccessToken,
+          onMessage,
+          onStateChange: onStateChange('local'),
+          backoffMs,
+        }),
+      )
+    }
+
+    connections.forEach((connection) => connection.start())
+    return () => {
+      connections.forEach((connection) => connection.stop())
+      setStreamStates({})
+    }
+  }, [isAuthenticated, broadcast, backoffMs])
 
   const subscribe = useCallback((listener: SSEListener) => {
     listenersRef.current.add(listener)
@@ -305,6 +307,10 @@ export function SSEProvider({ children }: { children: ReactNode }) {
       listenersRef.current.delete(listener)
     }
   }, [])
+
+  const states = Object.values(streamStates)
+  const connectedCount = states.filter((state) => state === 'open').length
+  const reconnectingCount = states.filter((state) => state === 'reconnecting').length
 
   return (
     <SSEContext.Provider
@@ -320,7 +326,7 @@ export function SSEProvider({ children }: { children: ReactNode }) {
 }
 
 export function useSSESubscription(
-  onEvent: (eventType: SSEEventType, data: SSEEventData) => void
+  onEvent: (eventType: SSEEventType, data: SSEEventData, meta: SSEEventMeta) => void
 ) {
   const context = useContext(SSEContext)
   if (!context) {
@@ -334,7 +340,7 @@ export function useSSESubscription(
   }, [onEvent])
 
   useEffect(() => {
-    return subscribe((eventType, data) => onEventRef.current(eventType, data))
+    return subscribe((eventType, data, meta) => onEventRef.current(eventType, data, meta))
   }, [subscribe])
 }
 
