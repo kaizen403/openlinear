@@ -1,67 +1,120 @@
 import { Router, Request, Response } from 'express';
 import { randomBytes } from 'node:crypto';
-import jwt from 'jsonwebtoken';
 import { prisma } from '@openlinear/db';
-import { formatSseMessage, registerClient, unregisterClient, type SSEClient } from '../events/hub';
-import { parseLastEventId, replaySince } from '../events/outbox';
+import {
+  applyClientPrincipal,
+  beginReplayHold,
+  closeStreamsForSessions,
+  endReplayHold,
+  formatCursorFrame,
+  formatSseMessage,
+  registerClient,
+  revalidateClientPrincipal,
+  SESSION_REVOKED_EVENT,
+  unregisterClient,
+  type SSEClient,
+} from '../events/hub';
+import { liveStreamPosition, parseLastEventId } from '../events/outbox';
+import { replayVisibleSince } from '../events/replay';
 import { executionSseId, parseExecutionSseId } from '@openlinear/execution-core';
 import { buildErrorEnvelope } from '../lib/http';
-import { getUserTeamIds } from '../services/team-scope';
-import { getJwtSecret } from '../lib/secrets';
-import { hashToken, isSessionRevoked } from '../services/sessions';
-import { requireInteractiveSession, type AuthRequest } from '../middleware/auth';
+import { resolveTenancyContext } from '../tenancy/context';
+import { canReceiveEvent } from '../tenancy/visibility';
+import {
+  getSessionState,
+  hashToken,
+  isSessionLive,
+  onSessionsRevoked,
+  sessionlessJwtAllowed,
+} from '../services/sessions';
+import { isPersonalAccessToken } from '../services/pats';
+import { requireInteractiveSession, verifyAccessToken, type AuthRequest } from '../middleware/auth';
 import { assertTaskAccess } from '../services/ownership';
 import { HttpError } from '../errors';
+import { broadcastToUser } from '../sse';
 
 const router: Router = Router();
 const TICKET_TTL_MS = 60_000;
+/** Expired tickets are deleted (per user, when a new one is minted) after this. */
+const TICKET_RETENTION_MS = 60 * 60 * 1000;
 const SSE_TICKET_PREFIX = 'ol_sse_';
+const HEARTBEAT_MS = 30_000;
 
 interface SseIdentity {
   userId: string;
+  /** Session the stream is bound to; `null` only for sessionless test tokens. */
+  sessionId: string | null;
 }
 
-async function consumeTicket(ticket: string): Promise<SseIdentity | null> {
+/**
+ * Consume an SSE ticket (W02b).
+ *
+ * Single use under concurrency: the ticket is claimed with one conditional
+ * UPDATE, so of N parallel connections presenting it exactly one proceeds
+ * (previously read-then-write: all of them could). The ticket is then only
+ * honoured while the session that minted it is live; revoking the session
+ * also marks its outstanding tickets consumed (`afterSessionsRevoked`).
+ */
+export async function consumeSseTicket(ticket: string): Promise<SseIdentity | null> {
   if (!ticket.startsWith(SSE_TICKET_PREFIX)) return null;
+  const tokenHash = hashToken(ticket);
+  const now = new Date();
+  const claimed = await prisma.sseTicket.updateMany({
+    where: { tokenHash, consumedAt: null, expiresAt: { gt: now } },
+    data: { consumedAt: now },
+  });
+  if (claimed.count !== 1) return null;
   const row = await prisma.sseTicket.findUnique({
-    where: { tokenHash: hashToken(ticket) },
+    where: { tokenHash },
+    select: { userId: true, sessionId: true },
   });
-  if (!row || row.consumedAt || row.expiresAt <= new Date()) return null;
-  await prisma.sseTicket.update({
-    where: { id: row.id },
-    data: { consumedAt: new Date() },
-  });
-  return { userId: row.userId };
-}
-
-async function identityFromBearer(token: string): Promise<SseIdentity | 'pending' | null> {
-  if (token.startsWith(SSE_TICKET_PREFIX)) {
-    return consumeTicket(token);
-  }
-  try {
-    const claims = jwt.verify(token, getJwtSecret()) as {
-      userId?: string;
-      twoFactorPending?: boolean;
-      typ?: string;
-    };
-    if (!claims?.userId) return null;
-    if (claims.twoFactorPending || claims.typ === 'refresh') return 'pending';
-    if (await isSessionRevoked(hashToken(token))) return null;
-    return { userId: claims.userId };
-  } catch {
+  if (!row) return null;
+  if (row.sessionId) {
+    if (!(await isSessionLive(row.sessionId))) return null;
+  } else if (!sessionlessJwtAllowed()) {
+    // Tickets minted before session binding (or without a session) are refused.
     return null;
   }
+  return { userId: row.userId, sessionId: row.sessionId };
 }
 
+async function identityFromBearer(token: string): Promise<SseIdentity | null> {
+  if (token.startsWith(SSE_TICKET_PREFIX)) {
+    return consumeSseTicket(token);
+  }
+  if (isPersonalAccessToken(token)) return null;
+  const claims = verifyAccessToken(token);
+  if (!claims) return null;
+  const session = await getSessionState(hashToken(token));
+  if (session.revoked) return null;
+  return { userId: claims.userId, sessionId: session.sessionId };
+}
+
+// Session revocation closes the streams that session opened: here at once,
+// and on other replicas when they deliver the `session:revoked` signal.
+onSessionsRevoked(({ userId, sessionIds, reason }) => {
+  closeStreamsForSessions(sessionIds, userId);
+  broadcastToUser(userId, SESSION_REVOKED_EVENT, { sessionIds, reason });
+});
+
 router.post('/ticket', requireInteractiveSession, async (req: AuthRequest, res: Response) => {
+  const sessionId = req.sessionId ?? null;
+  if (!sessionId && !sessionlessJwtAllowed()) {
+    res.status(401).json(buildErrorEnvelope('SESSION_REQUIRED', 'An active session is required'));
+    return;
+  }
   const ticket = `${SSE_TICKET_PREFIX}${randomBytes(24).toString('base64url')}`;
   await prisma.sseTicket.create({
     data: {
       userId: req.userId!,
       tokenHash: hashToken(ticket),
       expiresAt: new Date(Date.now() + TICKET_TTL_MS),
+      sessionId,
     },
   });
+  void prisma.sseTicket
+    .deleteMany({ where: { userId: req.userId!, expiresAt: { lt: new Date(Date.now() - TICKET_RETENTION_MS) } } })
+    .catch(() => undefined);
   res.status(201).json({ ticket, expiresIn: TICKET_TTL_MS / 1000 });
 });
 
@@ -88,11 +141,11 @@ router.get('/', async (req: Request, res: Response) => {
   }
 
   const identity = await identityFromBearer(token);
-  if (identity === 'pending' || !identity) {
+  if (!identity) {
     res.status(401).json(buildErrorEnvelope('INVALID_TOKEN', 'Invalid token'));
     return;
   }
-  const { userId } = identity;
+  const { userId, sessionId } = identity;
 
   const lastRaw = req.headers['last-event-id'] ?? req.query.lastEventId;
   const lastRun = typeof lastRaw === 'string' ? parseExecutionSseId(lastRaw) : null;
@@ -107,18 +160,14 @@ router.get('/', async (req: Request, res: Response) => {
     await assertTaskAccess(run.taskId, userId, 'view');
   }
 
-  let teamIds: string[] = [];
-  let workspaceIds: string[] = [];
-  try {
-    teamIds = await getUserTeamIds(userId);
-    const workspaces = await prisma.workspaceMember.findMany({
-      where: { userId },
-      select: { workspaceId: true },
-    });
-    workspaceIds = workspaces.map((membership) => membership.workspaceId);
-  } catch (err) {
-    req.log?.warn({ err, userId }, '[SSE] failed to load team memberships');
-  }
+  // The stream's principal (W02a): resolved fresh, uncached, before any byte
+  // is sent. Every live and replayed event is authorized against it, and it
+  // is refreshed on membership/access events and on every heartbeat. If it
+  // cannot be resolved the stream is refused (fail closed).
+  const principal = await resolveTenancyContext(
+    { userId, authSource: 'jwt', scopes: [] },
+    { bypassCache: true },
+  );
 
   const clientId = randomBytes(16).toString('hex');
 
@@ -132,14 +181,53 @@ router.get('/', async (req: Request, res: Response) => {
     id: clientId,
     res,
     userId,
-    teamIds,
-    workspaceIds,
+    teamIds: [],
+    workspaceIds: [],
     connectedAt: Date.now(),
+    sessionId,
   };
+  applyClientPrincipal(client, principal);
+  const lastEventId = lastRun ? null : parseLastEventId(lastRaw);
+  // Live events wait until the replay below has been written (ordering, dedupe).
+  if (lastEventId !== null) beginReplayHold(client);
   registerClient(client);
+  // W04b: events up to this position were delivered live before the stream
+  // registered (replay them); later ones arrive live. Read synchronously
+  // with registration.
+  const liveBoundary = liveStreamPosition();
+
+  let cleaned = false;
+  let heartbeatInterval: ReturnType<typeof setInterval> | null = null;
+  function cleanup() {
+    if (cleaned) return;
+    cleaned = true;
+    if (heartbeatInterval) clearInterval(heartbeatInterval);
+    unregisterClient(clientId);
+    req.log?.info({ clientId, userId }, '[SSE] client disconnected');
+  }
+  function close() {
+    unregisterClient(clientId);
+    client.held = null;
+    if (!res.writableEnded) res.end();
+    cleanup();
+  }
+
+  req.on('close', cleanup);
+  req.on('error', cleanup);
+  res.on('close', cleanup);
+  res.on('finish', cleanup);
+  res.on('error', cleanup);
+
+  // A revocation that committed after the ticket/token check but before the
+  // stream was registered did not see this stream: re-check once registered.
+  if (sessionId && !(await isSessionLive(sessionId))) {
+    req.log?.info({ clientId, userId }, '[SSE] session revoked while connecting; closing stream');
+    close();
+    return;
+  }
 
   req.log?.info(
-    { clientId, userId, teamCount: teamIds.length },
+    { clientId, userId, teamCount: client.teamIds.length },
     '[SSE] client connected',
   );
 
@@ -167,46 +255,74 @@ router.get('/', async (req: Request, res: Response) => {
     } catch (err) {
       req.log?.warn({ err, clientId, lastEventId: lastRaw }, '[SSE] run journal replay failed');
     }
-  } else {
-    const lastEventId = parseLastEventId(lastRaw);
-    if (lastEventId !== null) {
-      try {
-        const missed = await replaySince(lastEventId, { userId, teamIds, workspaceIds });
-        for (const event of missed) {
-          res.write(formatSseMessage(event.type, event.payload, event.id.toString()));
-        }
-      } catch (err) {
-        req.log?.warn({ err, clientId, lastEventId: lastEventId.toString() }, '[SSE] replay failed');
+  } else if (lastEventId !== null) {
+    let cursor: bigint | null = null;
+    let truncated = false;
+    try {
+      const replay = await replayVisibleSince(lastEventId, principal, { upTo: liveBoundary });
+      let lastWritten: bigint | null = null;
+      for (const event of replay.events) {
+        if (cleaned) break;
+        // Re-check against the current snapshot: a revocation may have
+        // refreshed this stream's principal while the replay was read.
+        if (!canReceiveEvent(client.principal ?? principal, event)) continue;
+        res.write(formatSseMessage(event.type, event.payload, event.id.toString()));
+        lastWritten = event.id;
       }
+      cursor = replay.cursor;
+      truncated = replay.truncated;
+      if (cursor !== null && (lastWritten === null || cursor > lastWritten) && !cleaned) {
+        res.write(formatCursorFrame(cursor));
+      }
+    } catch (err) {
+      req.log?.warn({ err, clientId, lastEventId: lastEventId.toString() }, '[SSE] replay failed');
+    }
+    if (truncated) {
+      // Not caught up. Held live events must not be delivered: their ids
+      // would move the client past the rows not yet scanned. The client
+      // reconnects from `cursor` and the next replay continues from there.
+      req.log?.info({ clientId, userId, cursor: cursor?.toString() }, '[SSE] replay budget reached; handing cursor to client');
+      close();
+      return;
+    }
+    endReplayHold(client, cursor);
+  }
+
+  let revalidating = false;
+  async function revalidate(): Promise<void> {
+    if (revalidating) return;
+    revalidating = true;
+    try {
+      // A stream dies with the session that opened it (bearer JWT or ticket).
+      if (sessionId && !(await isSessionLive(sessionId))) {
+        req.log?.info({ clientId, userId }, '[SSE] session revoked; closing stream');
+        close();
+        return;
+      }
+      await revalidateClientPrincipal(clientId);
+    } catch (err) {
+      req.log?.warn({ err, clientId }, '[SSE] revalidation failed; closing stream');
+      close();
+    } finally {
+      revalidating = false;
     }
   }
 
-  const heartbeatInterval = setInterval(() => {
-    if (res.writableEnded) return;
+  if (cleaned) return;
+  heartbeatInterval = setInterval(() => {
+    if (res.writableEnded) {
+      cleanup();
+      return;
+    }
     try {
       res.write(`: heartbeat\n\n`);
     } catch (err) {
       req.log?.debug({ err, clientId }, '[SSE] heartbeat write failed');
       cleanup();
+      return;
     }
-  }, 30000);
-
-  let cleaned = false;
-  function cleanup() {
-    if (cleaned) return;
-    cleaned = true;
-    clearInterval(heartbeatInterval);
-    unregisterClient(clientId);
-    req.log?.info(
-      { clientId, userId },
-      '[SSE] client disconnected',
-    );
-  }
-
-  req.on('close', cleanup);
-  req.on('error', cleanup);
-  res.on('close', cleanup);
-  res.on('error', cleanup);
+    void revalidate();
+  }, HEARTBEAT_MS);
 });
 
 export default router;

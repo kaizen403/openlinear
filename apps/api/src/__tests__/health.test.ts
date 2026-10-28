@@ -1,5 +1,4 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import request from 'supertest';
 
 const queryRawMock = vi.hoisted(() => vi.fn());
 
@@ -14,9 +13,11 @@ vi.mock('@openlinear/db', async (importOriginal) => {
 });
 
 import { createApp } from '../app';
+import { useTestServer } from './http';
 
 describe('GET /health', () => {
   const app = createApp();
+  const http = useTestServer(() => app);
 
   beforeEach(() => {
     queryRawMock.mockReset();
@@ -24,7 +25,7 @@ describe('GET /health', () => {
   });
 
   it('returns 200 with status ok', async () => {
-    const res = await request(app).get('/health');
+    const res = await http().get('/health');
 
     expect(res.status).toBe(200);
     expect(res.body.status).toBe('ok');
@@ -37,7 +38,7 @@ describe('GET /health', () => {
   it('returns 503 when the database check fails', async () => {
     queryRawMock.mockRejectedValueOnce(new Error('db down'));
 
-    const res = await request(app).get('/health');
+    const res = await http().get('/health');
 
     expect(res.status).toBe(503);
     expect(res.body.status).toBe('error');

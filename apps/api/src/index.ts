@@ -1,5 +1,5 @@
 import { config } from 'dotenv';
-import { resolve } from 'path';
+import { resolve } from 'node:path';
 
 config({ path: resolve(import.meta.dirname, '../../../.env') });
 
@@ -8,20 +8,35 @@ import { prisma } from '@openlinear/db';
 import { createApp } from './app';
 import { validateStartupEnv } from './env';
 import { logger } from './logger';
-import { startRealtime, stopOutboxRelay } from './events/relay';
+import { startRealtime, stopRealtime } from './events/relay';
 import { stopEventBus } from './events/bus';
+import { type BackgroundJobs, JOBS_RUNNER_ENV, resolveJobsRunner, startBackgroundJobs } from './jobs/runner';
 
 validateStartupEnv();
+// Background jobs belong to the worker (`node dist/worker.js`) unless
+// OPENLINEAR_JOBS_RUNNER=api: a single-process deployment with no worker.
+const jobsRunner = resolveJobsRunner();
 startTelemetry();
 
 const app = createApp();
 const PORT = Number(process.env.API_PORT ?? 3001);
 
+let jobs: BackgroundJobs | null = null;
+
 const server = app.listen(PORT, () => {
-  logger.info({ port: PORT }, '[API] server listening');
-  void startRealtime().catch((err) => {
+  logger.info({ port: PORT, [JOBS_RUNNER_ENV]: jobsRunner }, '[API] server listening');
+  void startRealtime({ role: 'api' }).catch((err) => {
     logger.error({ err }, '[API] failed to start realtime fan-out');
   });
+  if (jobsRunner === 'api') {
+    void startBackgroundJobs()
+      .then((started) => {
+        jobs = started;
+      })
+      .catch((err) => {
+        logger.error({ err }, '[API] failed to start background jobs');
+      });
+  }
 });
 
 let shuttingDown = false;
@@ -42,7 +57,8 @@ function shutdown(signal: NodeJS.Signals) {
       logger.error({ err }, '[API] server.close error');
     }
     try {
-      stopOutboxRelay();
+      stopRealtime();
+      if (jobs) await jobs.stop();
       await stopEventBus();
       await prisma.$disconnect();
       logger.info('[API] prisma disconnected');

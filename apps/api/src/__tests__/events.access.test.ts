@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { Server } from 'node:http';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import request from 'supertest';
 import jwt from 'jsonwebtoken';
 import { prisma } from '@openlinear/db';
 import { JWT_AUDIENCE, JWT_ISSUER } from '@openlinear/api-core';
@@ -10,6 +9,7 @@ import { createApp } from '../app';
 import { clients } from '../events/hub';
 import { forgetSessionCache, hashToken } from '../services/sessions';
 import { testJwtSecret } from './test-env';
+import { useTestServer } from './http';
 
 type Actor = 'owner' | 'viewer' | 'denied' | 'outsider';
 const actors: Actor[] = ['owner', 'viewer', 'denied', 'outsider'];
@@ -18,6 +18,7 @@ const originalPayload = { message: `private-run-payload-${suffix}` };
 
 describe('Agent run replay and progress permissions', () => {
   const app = createApp();
+  const http = useTestServer(() => app);
   const userIds: Partial<Record<Actor, string>> = {};
   const tokens: Partial<Record<Actor, string>> = {};
   const workspaceIds: string[] = [];
@@ -198,7 +199,7 @@ describe('Agent run replay and progress permissions', () => {
   it.each<Actor>(['outsider', 'denied', 'viewer'])('denies progress writes by %s without journal or outbox changes', async (actor) => {
     const before = await prisma.agentRunEvent.findMany({ where: { runId }, orderBy: { seq: 'asc' } });
     const outboxCount = await prisma.domainEvent.count({ where: { userIds: { has: userIds.owner! } } });
-    const response = await request(app)
+    const response = await http()
       .post('/api/agent-runs/progress')
       .set('Authorization', `Bearer ${tokens[actor]!}`)
       .send({
@@ -215,7 +216,7 @@ describe('Agent run replay and progress permissions', () => {
   });
 
   it('accepts progress from a caller with full task permission', async () => {
-    const response = await request(app)
+    const response = await http()
       .post('/api/agent-runs/progress')
       .set('Authorization', `Bearer ${tokens.owner!}`)
       .send({ runId, events: [{ seq: 3, type: 'heartbeat', payload: { allowed: true } }] });

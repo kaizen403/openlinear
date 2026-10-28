@@ -1,199 +1,193 @@
+/**
+ * Transactional outbox (W04b): the append side.
+ *
+ * Inside a domain transaction:
+ *
+ *   await transactionWithEvents(async (tx) => {
+ *     const task = await tx.task.update(…);                      // write first
+ *     await appendDomainEvent(tx, { type: 'task:updated', … });  // then append
+ *     return task;
+ *   });
+ *
+ * The event commits or rolls back with the write. After commit,
+ * `transactionWithEvents` asks this process to sequence and deliver the
+ * event right away; if that fails, or the process dies first, the owner
+ * relay picks the pending row up (nothing is lost).
+ *
+ * Append after the writes the event describes: two transactions that
+ * conflict on a row are then appended in commit order, so a client applying
+ * full-state payloads (task:updated) in stream order ends with the
+ * committed state.
+ *
+ * `persistAndDeliver` is the legacy post-commit path used by `sse.ts`
+ * broadcast helpers: append in its own transaction, then flush. It cannot
+ * be atomic with a write that already committed; converting call sites to
+ * `appendDomainEvent` is what removes that gap.
+ */
 import { prisma, type Prisma } from '@openlinear/db';
+import { PRISMA_TX_OPTIONS } from '../lib/constants';
 import { logger } from '../logger';
-import { getEventBus } from './bus';
+import { getStreamConsumer } from './consumer';
 import { deliverToLocalClients } from './hub';
-import type { DomainEventInput, PersistedDomainEvent, WireDomainEvent } from './types';
-import { toWireEvent } from './types';
+import { flushOutbox, requestOutboxFlush } from './relay';
+import { readRealtimeConfig } from './config';
+import type { DomainEventInput, PendingDomainEvent, PersistedDomainEvent, WireDomainEvent } from './types';
 
 type Db = Prisma.TransactionClient | typeof prisma;
 
-function jsonPayload(payload: unknown): Prisma.InputJsonValue {
+/** Transactions (by client object) that appended at least one event. */
+const appendedIn = new WeakSet<object>();
+
+function jsonPayload(payload: unknown, type: string): Prisma.InputJsonValue {
   try {
-    return JSON.parse(JSON.stringify(payload)) as Prisma.InputJsonValue;
-  } catch {
+    return JSON.parse(JSON.stringify(payload ?? null)) as Prisma.InputJsonValue;
+  } catch (err) {
+    logger.warn({ err, type }, '[events] event payload is not JSON-serializable; storing a placeholder');
     return { unserializable: true };
   }
 }
 
-function toCreateData(input: DomainEventInput): Prisma.DomainEventCreateInput {
-  return {
-    type: input.type,
-    actorId: input.actorId ?? null,
-    workspaceId: input.workspaceId ?? input.audience.workspaceIds?.[0] ?? null,
-    payload: jsonPayload(input.payload),
-    userIds: input.audience.userIds ?? [],
-    teamIds: input.audience.teamIds ?? [],
-    workspaceIds: input.audience.workspaceIds ?? [],
-  };
-}
-
-function toPersisted(row: {
-  id: bigint;
-  type: string;
-  occurredAt: Date;
-  actorId: string | null;
-  workspaceId: string | null;
-  payload: Prisma.JsonValue;
-  userIds: string[];
-  teamIds: string[];
-  workspaceIds: string[];
-  publishedAt: Date | null;
-}): PersistedDomainEvent {
-  return {
-    id: row.id,
-    type: row.type,
-    occurredAt: row.occurredAt,
-    actorId: row.actorId,
-    workspaceId: row.workspaceId,
-    payload: row.payload,
-    userIds: row.userIds,
-    teamIds: row.teamIds,
-    workspaceIds: row.workspaceIds,
-    publishedAt: row.publishedAt,
-  };
-}
-
-/** Insert an outbox row inside the caller's transaction. The relay (or a
- * post-commit `publishOutboxEvent`) fans it out. */
-export async function emitOutbox(tx: Db, input: DomainEventInput): Promise<PersistedDomainEvent> {
-  const row = await tx.domainEvent.create({ data: toCreateData(input) });
-  return toPersisted(row);
-}
-
-async function markPublished(id: bigint): Promise<void> {
-  await prisma.domainEvent.update({
-    where: { id },
-    data: { publishedAt: new Date() },
-  });
-}
-
-export async function publishOutboxEvent(event: PersistedDomainEvent): Promise<void> {
-  const wire = toWireEvent(event);
-  const distributed = await getEventBus().publish(wire);
-  if (!distributed) {
-    deliverToLocalClients(wire);
-  }
-  try {
-    await markPublished(event.id);
-  } catch (err) {
-    logger.warn({ err, id: event.id.toString() }, '[events] failed to mark outbox row published');
-  }
+function eventWorkspaceId(input: DomainEventInput): string | null {
+  return input.resource?.workspaceId ?? input.workspaceId ?? input.audience.workspaceIds?.[0] ?? null;
 }
 
 /**
- * Fire-and-forget path for existing `broadcast*` callers that do not have a
- * transaction handle. Writes the outbox row, then publishes.
+ * Append an event inside the caller's transaction (or, with the global
+ * client, in its own). Local-only events (`audience.all`) cannot be
+ * appended.
+ */
+export async function appendDomainEvent(db: Db, input: DomainEventInput): Promise<PendingDomainEvent> {
+  if (input.audience.all) {
+    throw new Error('Local-only events (audience.all) are not part of the stream');
+  }
+  // Explicit UTC timestamps: `timestamp(3)` columns are read as UTC.
+  const now = new Date();
+  const row = await db.domainEventOutbox.create({
+    data: {
+      type: input.type,
+      occurredAt: now,
+      createdAt: now,
+      actorId: input.actorId ?? null,
+      workspaceId: eventWorkspaceId(input),
+      payload: jsonPayload(input.payload, input.type),
+      userIds: input.audience.userIds ?? [],
+      teamIds: input.audience.teamIds ?? [],
+      workspaceIds: input.audience.workspaceIds ?? [],
+      resourceType: input.resource?.type ?? null,
+      projectId: input.resource?.projectId ?? null,
+    },
+    select: { id: true, type: true, occurredAt: true },
+  });
+  appendedIn.add(db);
+  return { outboxId: row.id, type: row.type, occurredAt: row.occurredAt };
+}
+
+/** Pre-W04b name, kept for `sse.ts` re-exports. */
+export const emitOutbox = appendDomainEvent;
+
+/** True when `tx` appended events (used to trigger a post-commit flush). */
+export function transactionAppendedEvents(tx: object): boolean {
+  return appendedIn.has(tx);
+}
+
+/**
+ * `prisma.$transaction` that flushes appended events after commit. Use it
+ * for every transaction that calls `appendDomainEvent`; a plain
+ * `$transaction` is still correct, only slower to deliver (relay interval).
+ */
+export async function transactionWithEvents<T>(
+  fn: (tx: Prisma.TransactionClient) => Promise<T>,
+  options: { timeout?: number; maxWait?: number } = PRISMA_TX_OPTIONS,
+): Promise<T> {
+  const used: { tx?: Prisma.TransactionClient } = {};
+  const result = await prisma.$transaction(async (tx) => {
+    used.tx = tx;
+    return fn(tx);
+  }, options);
+  if (used.tx && appendedIn.has(used.tx)) requestOutboxFlush();
+  return result;
+}
+
+function localWireEvent(input: DomainEventInput): WireDomainEvent {
+  return {
+    // No stream position: an empty id writes no `id:` line, so the client's
+    // Last-Event-ID is not moved (the old '0' reset it to the beginning).
+    id: '',
+    type: input.type,
+    occurredAt: new Date().toISOString(),
+    actorId: input.actorId ?? null,
+    workspaceId: eventWorkspaceId(input),
+    payload: input.payload,
+    userIds: input.audience.userIds ?? [],
+    teamIds: input.audience.teamIds ?? [],
+    workspaceIds: input.audience.workspaceIds ?? [],
+    resourceType: input.resource?.type ?? null,
+    projectId: input.resource?.projectId ?? null,
+  };
+}
+
+/**
+ * Legacy post-commit path (fire-and-forget `broadcast*` helpers): append the
+ * event in its own transaction, sequence it and deliver it to this process's
+ * clients. Resolves with the stream event once delivered here, or null when
+ * it could not be persisted or was sequenced elsewhere.
  */
 export async function persistAndDeliver(input: DomainEventInput): Promise<PersistedDomainEvent | null> {
   if (input.audience.all) {
     return null;
   }
   if (process.env.OPENLINEAR_OUTBOX === '0') {
-    deliverToLocalClients({
-      id: '0',
-      type: input.type,
-      occurredAt: new Date().toISOString(),
-      actorId: input.actorId ?? null,
-      workspaceId: input.workspaceId ?? null,
-      payload: input.payload,
-      userIds: input.audience.userIds ?? [],
-      teamIds: input.audience.teamIds ?? [],
-      workspaceIds: input.audience.workspaceIds ?? [],
-    });
+    deliverToLocalClients(localWireEvent(input));
     return null;
   }
 
+  let pending: PendingDomainEvent;
   try {
-    const row = await emitOutbox(prisma, input);
-    await publishOutboxEvent(row);
-    return { ...row, publishedAt: row.publishedAt ?? new Date() };
+    pending = await appendDomainEvent(prisma, input);
   } catch (err) {
-    logger.warn({ err, type: input.type }, '[events] outbox persist failed; delivering locally');
-    deliverToLocalClients({
-      id: '0',
-      type: input.type,
-      occurredAt: new Date().toISOString(),
-      actorId: input.actorId ?? null,
-      workspaceId: input.workspaceId ?? null,
-      payload: input.payload,
-      userIds: input.audience.userIds ?? [],
-      teamIds: input.audience.teamIds ?? [],
-      workspaceIds: input.audience.workspaceIds ?? [],
-    });
+    // The domain write already committed; without the outbox only this
+    // process's clients can still be told, and without a stream position.
+    logger.warn({ err, type: input.type }, '[events] outbox append failed; delivering to this process only');
+    deliverToLocalClients(localWireEvent(input));
     return null;
   }
-}
 
-export async function replaySince(
-  lastId: bigint,
-  audience: { userId: string; teamIds: string[]; workspaceIds: string[] },
-  limit = 200,
-): Promise<PersistedDomainEvent[]> {
-  const or: Prisma.DomainEventWhereInput[] = [
-    { userIds: { has: audience.userId } },
-  ];
-  if (audience.teamIds.length > 0) {
-    or.push({ teamIds: { hasSome: audience.teamIds } });
-  }
-  if (audience.workspaceIds.length > 0) {
-    or.push({ workspaceIds: { hasSome: audience.workspaceIds } });
-  }
-
-  const rows = await prisma.domainEvent.findMany({
-    where: {
-      id: { gt: lastId },
-      publishedAt: { not: null },
-      OR: or,
-    },
-    orderBy: { id: 'asc' },
-    take: limit,
-  });
-  return rows.map(toPersisted);
-}
-
-export async function claimUnpublished(limit = 50): Promise<PersistedDomainEvent[]> {
-  const rows = await prisma.$queryRaw<Array<{
-    id: bigint;
-    type: string;
-    occurred_at: Date;
-    actor_id: string | null;
-    workspace_id: string | null;
-    payload: Prisma.JsonValue;
-    user_ids: string[];
-    team_ids: string[];
-    workspace_ids: string[];
-    published_at: Date | null;
-  }>>`
-    SELECT id, type, occurred_at, actor_id, workspace_id, payload, user_ids, team_ids, workspace_ids, published_at
-    FROM domain_events
-    WHERE published_at IS NULL
-    ORDER BY id
-    LIMIT ${limit}
-    FOR UPDATE SKIP LOCKED
-  `;
-
-  return rows.map((row) => ({
-    id: row.id,
-    type: row.type,
-    occurredAt: row.occurred_at,
-    actorId: row.actor_id,
-    workspaceId: row.workspace_id,
-    payload: row.payload,
-    userIds: row.user_ids,
-    teamIds: row.team_ids,
-    workspaceIds: row.workspace_ids,
-    publishedAt: row.published_at,
-  }));
-}
-
-export function parseLastEventId(raw: unknown): bigint | null {
-  if (typeof raw !== 'string' || raw.trim() === '') return null;
+  if (!readRealtimeConfig().fastFlush) return null;
+  const consumer = getStreamConsumer();
+  consumer.watchSource(pending.outboxId);
   try {
-    const value = BigInt(raw.trim());
-    return value >= 0n ? value : null;
-  } catch {
+    await flushOutbox();
+    let delivered = consumer.takeWatched(pending.outboxId);
+    if (!delivered) {
+      // Another process sequenced it first: read it from the stream.
+      consumer.watchSource(pending.outboxId);
+      await consumer.catchUp();
+      delivered = consumer.takeWatched(pending.outboxId);
+    }
+    return delivered;
+  } catch (err) {
+    consumer.takeWatched(pending.outboxId);
+    logger.warn({ err, type: input.type }, '[events] outbox flush failed; the relay delivers the event');
     return null;
   }
 }
 
+export {
+  isReplayTruncated,
+  parseLastEventId,
+  readReplayPage,
+  replayEvents,
+  replaySince,
+  type ReplayAudience,
+  type ReplayOptions,
+  type ReplayPage,
+} from './replay';
+export { liveStreamPosition } from './consumer';
+export {
+  listDeadLetteredEvents,
+  readOutboxHealth,
+  requeueDeadLetteredEvents,
+  type DeadLetteredEvent,
+  type OutboxHealth,
+} from './stream';
 export type { WireDomainEvent };
