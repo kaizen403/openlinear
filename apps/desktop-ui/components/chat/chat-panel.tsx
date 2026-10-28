@@ -6,12 +6,14 @@ import { useProject } from "@/hooks/use-project"
 import { useChatSessions } from "@/hooks/use-chat-sessions"
 import { useChatStream } from "@/hooks/use-chat-stream"
 import { useChatPanelHandoff } from "@/hooks/use-chat-panel-handoff"
+import { useWorkspace } from "@/hooks/use-workspace"
 import {
   ChatComposer,
   ChatMessageList,
   ChatSessionStrip,
   ChatEmptyState,
   ChatSuggestions,
+  ChatUsageButton,
   ScopePicker,
 } from "@/components/chat"
 import { fetchChatSession } from "@/lib/api/chat"
@@ -23,8 +25,9 @@ type ChatPanelProps = {
 
 export function ChatPanel({ showHeader = true, className }: ChatPanelProps) {
   const { activeProject } = useProject()
+  const { activeWorkspace } = useWorkspace()
   const { sessions, activeSessionId, setActiveSessionId, createSession, renameSession } = useChatSessions()
-  const { messages, status, streamingContent, activeToolCalls, send, stop, reset, loadHistory } = useChatStream()
+  const { messages, status, streamingContent, activeToolCalls, send, stop, reset, loadHistory, controls, sessionUsage } = useChatStream()
   const { consumeQuery } = useChatPanelHandoff()
 
   const [editingTitle, setEditingTitle] = useState(false)
@@ -57,7 +60,7 @@ export function ChatPanel({ showHeader = true, className }: ChatPanelProps) {
     try {
       const session = await fetchChatSession(sessionId)
       if (session.messages) {
-        loadHistory(session.messages)
+        loadHistory(session.messages, sessionId, { confirmations: session.confirmations ?? [] })
       }
     } catch {}
   }, [setActiveSessionId, reset, loadHistory])
@@ -132,7 +135,7 @@ export function ChatPanel({ showHeader = true, className }: ChatPanelProps) {
                   <button
                     type="button"
                     onClick={startEditing}
-                    className="opacity-0 transition-opacity group-hover:opacity-100 text-linear-text-tertiary hover:text-linear-text"
+                    className="rounded-sm opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-linear-accent text-linear-text-tertiary hover:text-linear-text"
                     aria-label="Rename chat"
                   >
                     <Pencil className="h-3 w-3" />
@@ -143,6 +146,7 @@ export function ChatPanel({ showHeader = true, className }: ChatPanelProps) {
                 Grounded in {activeProject?.name || "the selected project"}
               </p>
             </div>
+            <ChatUsageButton sessionUsage={sessionUsage} workspaceId={activeWorkspace?.id ?? null} />
             <ScopePicker />
             <button
               type="button"
@@ -164,6 +168,7 @@ export function ChatPanel({ showHeader = true, className }: ChatPanelProps) {
             isThinking={isThinking}
             className="flex-1"
             sessionKey={activeSessionId}
+            controls={controls}
           />
           <div className="shrink-0 border-t border-linear-border bg-linear-bg px-4 py-3">
             <div className="max-w-3xl mx-auto">

@@ -9,3 +9,6 @@ export { ScopePicker } from "./scope-picker";
 export { ChatEmptyState } from "./chat-empty-state";
 export { ChatContextPills } from "./chat-context-pills";
 export { ChatSuggestions } from "./chat-suggestions";
+export { ConfirmationCard } from "./confirmation-card";
+export { TurnUsageFooter } from "./turn-usage";
+export { ChatUsageButton, ModelUsageReportView } from "./chat-usage-view";

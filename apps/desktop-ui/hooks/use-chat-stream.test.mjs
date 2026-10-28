@@ -1,7 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { renderHook, act } from '@testing-library/react'
 
-vi.mock('@/lib/api/chat', () => ({
+// Only the network call is stubbed; types, the tool-effect catalogue and
+// ChatStreamError stay real.
+vi.mock('@/lib/api/chat', async (importOriginal) => ({
+  ...(await importOriginal()),
   sendChatMessage: vi.fn(),
 }))
 
@@ -126,7 +129,9 @@ describe('useChatStream', () => {
     expect(result.current.status).toBe('idle')
   })
 
-  it('error chunk adds error message and sets status to error', async () => {
+  // The failure is structured (incomplete.error), no longer written into the
+  // assistant's text, so a partial answer and the error can both be shown.
+  it('error chunk adds an incomplete assistant turn and sets status to error', async () => {
     sendChatMessage.mockImplementation(async ({ onChunk }) => {
       onChunk({ type: 'error', error: { code: 'E', message: 'fail' } })
     })
@@ -139,11 +144,13 @@ describe('useChatStream', () => {
 
     expect(result.current.messages).toHaveLength(2)
     expect(result.current.messages[1].role).toBe('assistant')
-    expect(result.current.messages[1].content).toBe("I couldn't get a response from the model: fail")
+    expect(result.current.messages[1].content).toBe('')
+    expect(result.current.messages[1].incomplete).toMatchObject({ reason: 'error', error: { code: 'E', message: 'fail' } })
+    expect(result.current.messages[1].retry).toBe('available')
     expect(result.current.status).toBe('error')
   })
 
-  it('onError callback adds error message', async () => {
+  it('onError callback adds an incomplete assistant turn', async () => {
     sendChatMessage.mockImplementation(async ({ onError }) => {
       onError(new Error('network fail'))
     })
@@ -156,7 +163,8 @@ describe('useChatStream', () => {
 
     expect(result.current.messages).toHaveLength(2)
     expect(result.current.messages[1].role).toBe('assistant')
-    expect(result.current.messages[1].content).toBe("I couldn't get a response from the model: network fail")
+    expect(result.current.messages[1].content).toBe('')
+    expect(result.current.messages[1].incomplete).toMatchObject({ reason: 'error', error: { message: 'network fail' } })
     expect(result.current.status).toBe('error')
   })
 
@@ -230,6 +238,17 @@ describe('useChatStream', () => {
         name: null,
         createdAt: '2024-01-01T00:00:01Z',
       },
+      // The server stores each tool result as a `tool` row after the call.
+      {
+        id: 'm3',
+        sessionId: 's1',
+        role: 'tool',
+        content: JSON.stringify({ ok: true, code: 'OK', message: 'done', data: { n: 1 } }),
+        toolCalls: null,
+        toolCallId: 'tc1',
+        toolName: 'tool',
+        createdAt: '2024-01-01T00:00:02Z',
+      },
     ]
 
     await act(async () => {
@@ -244,6 +263,37 @@ describe('useChatStream', () => {
     expect(result.current.messages[1].toolCalls).toHaveLength(1)
     expect(result.current.messages[1].toolCalls[0].id).toBe('tc1')
     expect(result.current.messages[1].toolCalls[0].status).toBe('completed')
+  })
+
+  it('loadHistory marks a stored write call without a stored result as outcome unknown', async () => {
+    const { result } = renderHook(() => useChatStream())
+
+    await act(async () => {
+      result.current.loadHistory([
+        { id: 'm1', sessionId: 's1', role: 'user', content: 'make an issue', toolCalls: null, toolCallId: null, createdAt: '2024-01-01T00:00:00Z' },
+        {
+          id: 'm2',
+          sessionId: 's1',
+          role: 'assistant',
+          content: null,
+          toolCalls: [
+            { id: 'c1', type: 'function', function: { name: 'create_issue', arguments: '{"title":"x"}' } },
+            { id: 'c2', type: 'function', function: { name: 'list_issues', arguments: '{}' } },
+          ],
+          // Effects come from the server's journal states (no client catalogue).
+          toolCallStates: [
+            { toolCallId: 'c1', toolName: 'create_issue', effect: 'write', status: 'running', code: null, reconciled: false, reconciledAfter: null, endedAt: null },
+            { toolCallId: 'c2', toolName: 'list_issues', effect: 'read', status: 'running', code: null, reconciled: false, reconciledAfter: null, endedAt: null },
+          ],
+          toolCallId: null,
+          createdAt: '2024-01-01T00:00:01Z',
+        },
+      ])
+    })
+
+    const [write, read] = result.current.messages[1].toolCalls
+    expect(write).toMatchObject({ status: 'unknown', effect: 'write', code: 'TOOL_OUTCOME_UNKNOWN' })
+    expect(read).toMatchObject({ status: 'error', effect: 'read' })
   })
 
   it('multiple tool calls in one stream', async () => {

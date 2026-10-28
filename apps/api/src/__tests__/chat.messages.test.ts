@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import request from 'supertest';
 import jwt from 'jsonwebtoken';
 import { createApp } from '../app';
 import { prisma } from '@openlinear/db';
 import { testJwtSecret } from './test-env';
+import { useTestServer } from './http';
 
 const JWT_SECRET = testJwtSecret();
 
@@ -28,6 +28,7 @@ async function cleanup() {
 
 describe('Chat messages pagination', () => {
   const app = createApp();
+  const http = useTestServer(() => app);
   let user: Awaited<ReturnType<typeof prisma.user.upsert>>;
   let workspaceId: string;
   let sessionId: string;
@@ -68,7 +69,7 @@ describe('Chat messages pagination', () => {
   }, 30000);
 
   it('returns messages in chronological order', async () => {
-    const res = await request(app)
+    const res = await http()
       .get(`/api/chat/sessions/${sessionId}`)
       .set('Authorization', `Bearer ${auth}`);
     expect(res.status).toBe(200);
@@ -78,7 +79,7 @@ describe('Chat messages pagination', () => {
   });
 
   it('respects limit parameter', async () => {
-    const res = await request(app)
+    const res = await http()
       .get(`/api/chat/sessions/${sessionId}?limit=2`)
       .set('Authorization', `Bearer ${auth}`);
     expect(res.status).toBe(200);
@@ -91,24 +92,26 @@ describe('Chat messages pagination', () => {
 
   it('before cursor pagination returns older messages', async () => {
     // First get the latest 2
-    const first = await request(app)
+    const first = await http()
       .get(`/api/chat/sessions/${sessionId}?limit=2`)
       .set('Authorization', `Bearer ${auth}`);
     const cursor = first.body.nextCursor;
     expect(cursor).toBeTruthy();
 
-    const second = await request(app)
+    const second = await http()
       .get(`/api/chat/sessions/${sessionId}?limit=2&before=${cursor}`)
       .set('Authorization', `Bearer ${auth}`);
     expect(second.status).toBe(200);
     expect(second.body.messages).toHaveLength(2);
-    // These should be older messages
-    expect(second.body.messages[0].content).toBe('Message 3');
-    expect(second.body.messages[1].content).toBe('Message 4');
+    // These should be older messages: the cursor is the oldest row of the
+    // first page, so pages do not overlap (the old cursor pointed at the
+    // newest row and repeated Message 4).
+    expect(second.body.messages[0].content).toBe('Message 2');
+    expect(second.body.messages[1].content).toBe('Message 3');
   });
 
   it('rejects POST with empty content (validation error)', async () => {
-    const res = await request(app)
+    const res = await http()
       .post(`/api/chat/sessions/${sessionId}/messages`)
       .set('Authorization', `Bearer ${auth}`)
       .send({ content: '' });
@@ -117,7 +120,7 @@ describe('Chat messages pagination', () => {
 
   it('returns 404 for POST to non-existent session', async () => {
     const fakeId = '00000000-0000-0000-0000-000000000000';
-    const res = await request(app)
+    const res = await http()
       .post(`/api/chat/sessions/${fakeId}/messages`)
       .set('Authorization', `Bearer ${auth}`)
       .send({ content: 'hello' });

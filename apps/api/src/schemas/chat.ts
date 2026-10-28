@@ -25,6 +25,12 @@ export const updateChatSessionBodySchema = z.object({
 export const sendChatMessageBodySchema = z.object({
   content: z.string().trim().min(1).max(20000),
   attachmentIds: z.array(z.string().uuid()).max(10).optional(),
+  /**
+   * Optional structured approval: confirmation codes (CONFIRM-XXXXXXXX) the
+   * user approved with an explicit control instead of typing them. Treated
+   * exactly like a code typed in `content`.
+   */
+  confirmationTokens: z.array(z.string().trim().regex(/^CONFIRM-[0-9A-HJKMNP-TV-Z]{8}$/i)).max(5).optional(),
 });
 
 export const prioritySchema = z.enum(['low', 'medium', 'high']);

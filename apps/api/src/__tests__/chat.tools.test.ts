@@ -1,9 +1,17 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { prisma } from '@openlinear/db';
 import { dispatchTool, getOpenAIFunctionSpecs, WITHHELD_PRIVILEGE_TOOLS } from '../services/chat-tools';
-import type { JsonObject, ToolContext } from '../services/chat-tools/types';
+import type { JsonObject, ToolContext, ToolResult } from '../services/chat-tools/types';
+
+function confirmationCode(result: ToolResult): string {
+  const details = result.details as { confirmation?: { code?: unknown } } | undefined;
+  const code = details?.confirmation?.code;
+  if (typeof code !== 'string') throw new Error(`expected a confirmation code, got ${JSON.stringify(result)}`);
+  return code;
+}
 
 async function cleanup() {
+  await prisma.chatToolConfirmation.deleteMany({});
   await prisma.chatToolCall.deleteMany({});
   await prisma.chatMessage.deleteMany({});
   await prisma.chatSession.deleteMany({});
@@ -51,9 +59,9 @@ describe('Chat tool registry', () => {
 
   it('exposes every tool except the withheld privilege tools', () => {
     const specs = getOpenAIFunctionSpecs();
-    // 34 tools are defined; the 5 access-granting ones are withheld from the
+    // 40 tools are defined; the 5 access-granting ones are withheld from the
     // model until human approval exists, so a prompt injection cannot reach them.
-    expect(specs).toHaveLength(34 - WITHHELD_PRIVILEGE_TOOLS.size);
+    expect(specs).toHaveLength(40 - WITHHELD_PRIVILEGE_TOOLS.size);
 
     const exposed = new Set<string>(specs.map((spec) => spec.function.name));
     for (const withheld of WITHHELD_PRIVILEGE_TOOLS) {
@@ -144,6 +152,74 @@ describe('Chat tool registry', () => {
     expect(created.find((task) => task.title === 'Plan operation backend task')?.labels.map((item) => item.label.name).sort()).toEqual(['backend', 'db']);
   });
 
+  it('W17b: proposes a plan for review without creating issues; refuses loops', async () => {
+    const project = await prisma.project.findFirstOrThrow({ where: { name: 'Tool Created Project' } });
+    const before = await prisma.task.count({ where: { projectId: project.id } });
+    const result = await dispatchTool('propose_plan', ctx('propose-plan', project.id), {
+      projectId: project.id,
+      title: 'Chat plan',
+      tasks: [
+        { key: 'api', title: 'Chat plan API', acceptance: ['returns 200'], estimate: 's' },
+        { key: 'ui', title: 'Chat plan UI', blockedBy: ['api'] },
+      ],
+    } satisfies JsonObject);
+    expect(result.ok).toBe(true);
+    expect(result.data).toMatchObject({ title: 'Chat plan', revision: 1, order: ['api', 'ui'] });
+    await expect(prisma.task.count({ where: { projectId: project.id } })).resolves.toBe(before);
+    await expect(prisma.plan.count({ where: { projectId: project.id, title: 'Chat plan' } })).resolves.toBe(1);
+
+    // Reading and revising the plan from chat; the board changes only on approval.
+    const planId = (result.data as { planId: string }).planId;
+    const listed = await dispatchTool('list_plans', ctx('list-plans', project.id), { projectId: project.id } satisfies JsonObject);
+    expect(listed.ok).toBe(true);
+    expect((listed.data as { items: Array<{ id: string }> }).items.map((plan) => plan.id)).toContain(planId);
+    const read = await dispatchTool('get_plan', ctx('get-plan', project.id), { planId } satisfies JsonObject);
+    expect(read.data).toMatchObject({ id: planId, latestRevision: 1, revision: { order: ['api', 'ui'] } });
+    const revised = await dispatchTool('revise_plan', ctx('revise-plan', project.id), {
+      planId,
+      baseRevision: 1,
+      note: 'Add docs',
+      tasks: [
+        { key: 'api', title: 'Chat plan API', acceptance: ['returns 200'], estimate: 's' },
+        { key: 'ui', title: 'Chat plan UI', blockedBy: ['api'] },
+        { key: 'docs', title: 'Chat plan docs', blockedBy: ['api'] },
+      ],
+    } satisfies JsonObject);
+    expect(revised.ok).toBe(true);
+    expect(revised.data).toMatchObject({ planId, revision: 2, unchanged: false, diff: { added: ['docs'] } });
+    const stale = await dispatchTool('revise_plan', ctx('revise-plan-stale', project.id), { planId, baseRevision: 1, tasks: [{ key: 'api', title: 'x' }] } satisfies JsonObject);
+    expect(stale.ok).toBe(false);
+    expect(stale.code).toBe('PLAN_REVISION_CONFLICT');
+    await expect(prisma.task.count({ where: { projectId: project.id } })).resolves.toBe(before);
+
+    const loop = await dispatchTool('propose_plan', ctx('propose-plan-loop', project.id), {
+      projectId: project.id,
+      title: 'Loop plan',
+      tasks: [{ key: 'a', title: 'A', blockedBy: ['b'] }, { key: 'b', title: 'B', blockedBy: ['a'] }],
+    } satisfies JsonObject);
+    expect(loop.ok).toBe(false);
+    expect(loop.code).toBe('PLAN_INVALID');
+  });
+
+  it('W19b: proposes project knowledge (never active from chat) and lists it', async () => {
+    const project = await prisma.project.findFirstOrThrow({ where: { name: 'Tool Created Project' } });
+    const proposed = await dispatchTool('propose_knowledge', ctx('propose-knowledge', project.id), {
+      projectId: project.id,
+      kind: 'convention',
+      title: 'Use pnpm',
+      body: 'Never npm or yarn in this repository.',
+    } satisfies JsonObject);
+    expect(proposed.ok).toBe(true);
+    expect(proposed.data).toMatchObject({ status: 'proposed', title: 'Use pnpm' });
+    const row = await prisma.knowledgeEntry.findUniqueOrThrow({ where: { id: (proposed.data as { id: string }).id } });
+    expect(row).toMatchObject({ status: 'proposed', source: 'agent', approvedById: null, sourceRef: { chatSessionId: sessionId } });
+    const listed = await dispatchTool('list_knowledge', ctx('list-knowledge', project.id), { projectId: project.id } satisfies JsonObject);
+    expect(listed.ok).toBe(true);
+    expect(listed.data).toEqual(expect.arrayContaining([expect.objectContaining({ title: 'Use pnpm', status: 'proposed', kind: 'convention' })]));
+    const invalid = await dispatchTool('propose_knowledge', ctx('propose-knowledge-invalid', project.id), { projectId: project.id, title: '', body: 'x' } satisfies JsonObject);
+    expect(invalid.ok).toBe(false);
+  });
+
   it('bulk-updates project issues to completed/done status', async () => {
     const project = await prisma.project.findFirstOrThrow({ where: { name: 'Tool Created Project' }, include: { teams: true } });
     const teamId = project.teams[0]?.id;
@@ -156,9 +232,25 @@ describe('Chat tool registry', () => {
       ],
     });
 
-    const result = await dispatchTool('bulk_update_issues', ctx('bulk-status', project.id), {
+    // Omitting issueIds selects every active issue, but only as a preview:
+    // nothing changes until the user sends the server-issued code back.
+    const preview = await dispatchTool('bulk_update_issues', ctx('bulk-status', project.id), {
       projectId: project.id,
       status: 'completed',
+    } satisfies JsonObject);
+    expect(preview.ok).toBe(false);
+    expect(preview.code).toBe('CONFIRMATION_REQUIRED');
+    await expect(prisma.task.count({ where: { projectId: project.id, status: { not: 'done' } } })).resolves.toBeGreaterThan(0);
+
+    const code = confirmationCode(preview);
+    const result = await dispatchTool('bulk_update_issues', {
+      ...ctx('bulk-status-confirmed', project.id),
+      turnId: 'next-turn',
+      userConfirmations: new Set([code]),
+    }, {
+      projectId: project.id,
+      status: 'completed',
+      confirmationToken: code,
     } satisfies JsonObject);
 
     expect(result.ok).toBe(true);
@@ -194,9 +286,25 @@ describe('Chat tool registry', () => {
       prisma.task.count({ where: { projectId: project.id, archived: false } }),
     ).resolves.toBe(before);
 
-    const scoped = await dispatchTool('archive_issues', ctx('bulk-archive-scoped', project.id), {
+    // Named issues are previewed first; archiving needs the user's code.
+    const scopedPreview = await dispatchTool('archive_issues', ctx('bulk-archive-scoped', project.id), {
       projectId: project.id,
       issueIdentifiers: [targetIdentifier],
+    } satisfies JsonObject);
+    expect(scopedPreview.code).toBe('CONFIRMATION_REQUIRED');
+    await expect(
+      prisma.task.count({ where: { projectId: project.id, archived: false } }),
+    ).resolves.toBe(before);
+
+    const code = confirmationCode(scopedPreview);
+    const scoped = await dispatchTool('archive_issues', {
+      ...ctx('bulk-archive-scoped-confirmed', project.id),
+      turnId: 'next-turn',
+      userConfirmations: new Set([code]),
+    }, {
+      projectId: project.id,
+      issueIdentifiers: [targetIdentifier],
+      confirmationToken: code,
     } satisfies JsonObject);
     expect(scoped.ok).toBe(true);
     await expect(

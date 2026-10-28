@@ -72,7 +72,7 @@ export function VoiceCapture({
       className={cn(
         "flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-sm transition-colors",
         isRecording
-          ? "text-red-400 animate-pulse"
+          ? "text-danger animate-pulse"
           : "text-linear-text-tertiary hover:text-linear-text-secondary hover:bg-linear-bg-tertiary",
         !micSupported && "opacity-40 cursor-not-allowed",
       )}

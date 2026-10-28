@@ -1,10 +1,10 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
-import request from 'supertest';
 import jwt from 'jsonwebtoken';
 import { createApp } from '../app';
 import { prisma } from '@openlinear/db';
 import { setChatLLMClientForTesting, type ChatLLMClient, type ChatLLMEvent, type StreamChatCompletionInput } from '../lib/chat-llm';
 import { testJwtSecret } from './test-env';
+import { useTestServer } from './http';
 
 const JWT_SECRET = testJwtSecret();
 
@@ -42,6 +42,7 @@ async function cleanup() {
 
 describe('Chat streaming endpoint', () => {
   const app = createApp();
+  const http = useTestServer(() => app);
   let userId: string;
   let username: string;
   let workspaceId: string;
@@ -87,7 +88,7 @@ describe('Chat streaming endpoint', () => {
       [],
     ]));
 
-    const res = await request(app)
+    const res = await http()
       .post(`/api/chat/sessions/${sessionId}/messages`)
       .set('Authorization', `Bearer ${auth}`)
       .send({ content: 'List my workspaces' });
@@ -100,9 +101,13 @@ describe('Chat streaming endpoint', () => {
     expect(res.text).toContain('event: done');
     expect(res.text).toContain('Stream Workspace');
 
-    const toolCall = await prisma.chatToolCall.findUnique({
-      where: { sessionId_toolCallId: { sessionId, toolCallId: 'call_list_workspaces' } },
+    // The journal is keyed by the server's per-turn identity; the provider's
+    // id is kept alongside it for audit.
+    const toolCall = await prisma.chatToolCall.findFirst({
+      where: { sessionId, providerToolCallId: 'call_list_workspaces' },
     });
     expect(toolCall?.status).toBe('succeeded');
+    expect(toolCall?.effect).toBe('read');
+    expect(toolCall?.toolCallId).toMatch(/^[0-9a-f-]{36}:0:0$/);
   });
 });

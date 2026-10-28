@@ -8,15 +8,15 @@ import type { Project } from "@/lib/api"
 const SPRING = { type: "spring" as const, stiffness: 300, damping: 30 }
 
 const PRIORITY_COLORS: Record<string, string> = {
-  high: "border-red-700/40",
-  medium: "border-yellow-700/40",
-  low: "border-emerald-700/40",
+  high: "border-danger/30",
+  medium: "border-warning/30",
+  low: "border-success/30",
 }
 
 const PRIORITY_DOTS: Record<string, string> = {
-  high: "bg-red-700",
-  medium: "bg-yellow-700",
-  low: "bg-emerald-700",
+  high: "bg-danger",
+  medium: "bg-warning",
+  low: "bg-success",
 }
 
 const MIN_TASKS = 2
@@ -137,7 +137,7 @@ function ScopeSlider({ value, onChange }: { value: number; onChange: (v: number)
         <span className="text-[11px] text-linear-text-tertiary tabular-nums">~{value} tasks</span>
       </div>
       <div className="flex items-center gap-2.5">
-        <span className="text-[10px] text-muted-foreground/50 tabular-nums w-3 text-right">{MIN_TASKS}</span>
+        <span className="text-[10px] text-muted-foreground tabular-nums w-3 text-right">{MIN_TASKS}</span>
         <input
           type="range"
           min={MIN_TASKS}
@@ -163,7 +163,7 @@ function ScopeSlider({ value, onChange }: { value: number; onChange: (v: number)
             "[&::-moz-range-thumb]:cursor-pointer",
           )}
         />
-        <span className="text-[10px] text-muted-foreground/50 tabular-nums w-5">{MAX_TASKS}</span>
+        <span className="text-[10px] text-muted-foreground tabular-nums w-5">{MAX_TASKS}</span>
       </div>
     </div>
   )
@@ -237,11 +237,11 @@ export function BrainstormPanel({
               className="flex flex-col px-1 space-y-5"
             >
               {brainstormAvailable === false && (
-                <div className="rounded-sm bg-yellow-900/20 border border-yellow-700/30 px-4 py-2.5">
-                  <p className="text-[11px] text-yellow-400/90 leading-relaxed">
+                <div className="rounded-sm bg-warning/10 border border-warning/20 px-4 py-2.5">
+                  <p className="text-[11px] text-warning/90 leading-relaxed">
                     AI provider not configured. Set{" "}
-                    <code className="text-yellow-300 font-mono">BRAINSTORM_API_KEY</code> in
-                    your <code className="text-yellow-300 font-mono">.env</code> file.
+                    <code className="text-warning font-mono">BRAINSTORM_API_KEY</code> in
+                    your <code className="text-warning font-mono">.env</code> file.
                   </p>
                 </div>
               )}
@@ -330,7 +330,7 @@ export function BrainstormPanel({
                           value={answers[question] || ""}
                           onChange={(e) => onAnswerChange(question, e.target.value)}
                           placeholder="Your answer..."
-                          className="w-full ml-5 bg-linear-bg-secondary border border-linear-border rounded-sm px-3 py-2 text-[13px] text-linear-text-secondary placeholder:text-muted-foreground/50 outline-none focus:border-linear-border-hover transition-colors"
+                          className="w-full ml-5 bg-linear-bg-secondary border border-linear-border rounded-sm px-3 py-2 text-[13px] text-linear-text-secondary placeholder:text-muted-foreground outline-none focus:border-linear-border-hover transition-colors"
                         />
                       </motion.div>
                     ))}
@@ -384,7 +384,7 @@ export function BrainstormPanel({
                 <span className="text-[11px] font-medium text-linear-text-tertiary">
                   {tasks.length} task{tasks.length !== 1 && "s"} generated
                 </span>
-                <span className="text-[10px] text-muted-foreground/50">
+                <span className="text-[10px] text-muted-foreground">
                   from &quot;{query.slice(0, 32)}{query.length > 32 && "..."}&quot;
                 </span>
               </div>

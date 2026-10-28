@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import request from 'supertest';
 import jwt from 'jsonwebtoken';
 import { createApp } from '../app';
 import { prisma } from '@openlinear/db';
 import { testJwtSecret } from './test-env';
+import { useTestServer } from './http';
 
 const JWT_SECRET = testJwtSecret();
 
@@ -28,6 +28,7 @@ async function cleanup() {
 
 describe('Chat sessions API', () => {
   const app = createApp();
+  const http = useTestServer(() => app);
   let user: Awaited<ReturnType<typeof prisma.user.upsert>>;
   let other: Awaited<ReturnType<typeof prisma.user.upsert>>;
   let workspaceId: string;
@@ -62,7 +63,7 @@ describe('Chat sessions API', () => {
   }, 30000);
 
   it('creates, lists, reads, patches, and archives a workspace-scoped session', async () => {
-    const created = await request(app)
+    const created = await http()
       .post('/api/chat/sessions')
       .set('Authorization', `Bearer ${auth}`)
       .send({ workspaceId, projectId });
@@ -71,27 +72,27 @@ describe('Chat sessions API', () => {
     expect(created.body.workspaceId).toBe(workspaceId);
     expect(created.body.projectId).toBe(projectId);
 
-    const listed = await request(app)
+    const listed = await http()
       .get(`/api/chat/sessions?workspaceId=${workspaceId}`)
       .set('Authorization', `Bearer ${auth}`);
     expect(listed.status).toBe(200);
     expect(listed.body.data.some((session: { id: string }) => session.id === created.body.id)).toBe(true);
 
-    const patched = await request(app)
+    const patched = await http()
       .patch(`/api/chat/sessions/${created.body.id}`)
       .set('Authorization', `Bearer ${auth}`)
       .send({ title: 'Planning chat' });
     expect(patched.status).toBe(200);
     expect(patched.body.title).toBe('Planning chat');
 
-    const detail = await request(app)
+    const detail = await http()
       .get(`/api/chat/sessions/${created.body.id}`)
       .set('Authorization', `Bearer ${auth}`);
     expect(detail.status).toBe(200);
     expect(detail.body.session.id).toBe(created.body.id);
     expect(detail.body.messages).toEqual([]);
 
-    const archived = await request(app)
+    const archived = await http()
       .delete(`/api/chat/sessions/${created.body.id}`)
       .set('Authorization', `Bearer ${auth}`);
     expect(archived.status).toBe(204);
@@ -99,7 +100,7 @@ describe('Chat sessions API', () => {
 
   it('denies cross-user session access', async () => {
     const session = await prisma.chatSession.create({ data: { userId: user.id, workspaceId } });
-    const res = await request(app)
+    const res = await http()
       .get(`/api/chat/sessions/${session.id}`)
       .set('Authorization', `Bearer ${otherAuth}`);
     expect(res.status).toBe(404);

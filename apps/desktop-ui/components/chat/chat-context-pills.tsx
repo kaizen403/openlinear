@@ -18,8 +18,8 @@ export function ChatContextPills({ className }: ChatContextPillsProps) {
   const role = activeWorkspace?.role || "member";
 
   const roleConfig = {
-    owner:   { text: "Full access", color: "text-orange-400", icon: Shield },
-    admin:   { text: "Full access", color: "text-orange-400", icon: Shield },
+    owner:   { text: "Full access", color: "text-warning", icon: Shield },
+    admin:   { text: "Full access", color: "text-warning", icon: Shield },
     member:  { text: "Member",      color: "text-linear-text-secondary", icon: User },
     viewer:  { text: "View only",   color: "text-linear-text-tertiary", icon: Eye },
   } as const;

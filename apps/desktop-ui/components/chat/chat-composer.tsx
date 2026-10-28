@@ -287,7 +287,7 @@ export function ChatComposer({
           <p
             className={cn(
               "text-[11px] text-linear-text-tertiary",
-              voiceState === "recording" && "text-rose-400",
+              voiceState === "recording" && "text-danger",
               voiceError && "text-destructive"
             )}
           >
@@ -309,13 +309,13 @@ export function ChatComposer({
               disabled={disabled || isStreaming || !micSupported}
               className={cn(
                 "relative flex h-7 w-7 items-center justify-center rounded-sm text-linear-text-tertiary transition-colors hover:bg-linear-bg-tertiary hover:text-linear-text disabled:cursor-not-allowed disabled:opacity-30",
-                voiceState === "recording" && "bg-rose-500/10 text-rose-400 ring-1 ring-rose-500/25 hover:bg-rose-500/15 hover:text-rose-300"
+                voiceState === "recording" && "bg-danger/10 text-danger ring-1 ring-danger/25 hover:bg-danger/15 hover:text-danger"
               )}
               aria-label={voiceState === "recording" ? "Stop recording" : "Record voice"}
               aria-pressed={voiceState === "recording"}
             >
               {voiceState === "recording" && (
-                <span className="absolute inset-0 rounded-sm bg-rose-500/10 animate-ping" />
+                <span className="absolute inset-0 rounded-sm bg-danger/10 animate-ping" />
               )}
               {voiceState === "transcribing" ? (
                 <Loader2 className="relative h-3.5 w-3.5 animate-spin" />

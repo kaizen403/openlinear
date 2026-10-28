@@ -1,15 +1,17 @@
 "use client";
 
-import { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from 'react';
+import { createContext, useContext, useState, useCallback, useMemo, type ReactNode } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useWorkspace } from './use-workspace';
-import { useProject } from './use-project';
 import {
-  fetchChatSessions,
   createChatSession,
   archiveChatSession,
   updateChatSession,
   type ChatSession,
 } from '@/lib/api/chat';
+import { queryKeys } from '@/lib/query/keys';
+import { chatSessionsQuery } from '@/lib/query/resources';
+import { useAppQueryClient } from '@/lib/query/use-app-query-client';
 
 interface ChatSessionsContextValue {
   sessions: ChatSession[];
@@ -23,76 +25,76 @@ interface ChatSessionsContextValue {
 }
 
 const ChatSessionsContext = createContext<ChatSessionsContextValue | null>(null);
+const NO_SESSIONS: ChatSession[] = [];
 
+/**
+ * The chat session list lives in the query cache
+ * (`queryKeys.workspaces.chatSessions`); `chat:session:updated` events (e.g.
+ * the server's auto-title) patch it through the SSE bridge. Message streaming
+ * stays in `useChatStream`.
+ */
 export function ChatSessionsProvider({ children }: { children: ReactNode }) {
   const { activeWorkspace } = useWorkspace();
-  const [sessions, setSessions] = useState<ChatSession[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
+  const workspaceId = activeWorkspace?.id;
+  const client = useAppQueryClient();
+  const { data, isLoading } = useQuery({ ...chatSessionsQuery(workspaceId ?? ''), enabled: Boolean(workspaceId) }, client);
+  const sessions = (workspaceId ? data : undefined) ?? NO_SESSIONS;
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
 
-  const loadSessions = useCallback(async () => {
-    if (!activeWorkspace) {
-      setSessions([]);
-      return;
-    }
-
-    setIsLoading(true);
-    try {
-      const result = await fetchChatSessions(activeWorkspace.id);
-      setSessions(result.data);
-    } catch {
-      setSessions([]);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [activeWorkspace]);
-
-  useEffect(() => {
-    loadSessions();
-  }, [loadSessions]);
+  const updateSessions = useCallback((update: (prev: ChatSession[]) => ChatSession[]) => {
+    if (!workspaceId) return;
+    client.setQueryData<ChatSession[]>(queryKeys.workspaces.chatSessions(workspaceId), (prev) => update(prev ?? []));
+  }, [client, workspaceId]);
 
   const createSessionFn = useCallback(async (projectId?: string): Promise<ChatSession | null> => {
-    if (!activeWorkspace) return null;
+    if (!workspaceId) return null;
     try {
-      const session = await createChatSession(activeWorkspace.id, projectId);
-      setSessions(prev => [session, ...prev]);
+      const session = await createChatSession(workspaceId, projectId);
+      updateSessions((prev) => [session, ...prev.filter((s) => s.id !== session.id)]);
       setActiveSessionId(session.id);
       return session;
     } catch {
       return null;
     }
-  }, [activeWorkspace]);
+  }, [updateSessions, workspaceId]);
 
   const archiveSessionFn = useCallback(async (id: string) => {
     try {
       await archiveChatSession(id);
-      setSessions(prev => prev.filter(s => s.id !== id));
-      if (activeSessionId === id) setActiveSessionId(null);
+      updateSessions((prev) => prev.filter((s) => s.id !== id));
+      setActiveSessionId((current) => (current === id ? null : current));
     } catch { /* swallow */ }
-  }, [activeSessionId]);
+  }, [updateSessions]);
 
   const renameSession = useCallback(async (id: string, title: string) => {
     try {
       const updated = await updateChatSession(id, { title });
-      setSessions(prev => prev.map(s => s.id === id ? { ...s, ...updated } : s));
+      updateSessions((prev) => prev.map((s) => (s.id === id ? { ...s, ...updated } : s)));
     } catch { /* swallow */ }
-  }, []);
+  }, [updateSessions]);
 
   const refreshSessions = useCallback(async () => {
-    await loadSessions();
-  }, [loadSessions]);
+    if (!workspaceId) return;
+    try {
+      await client.query({ ...chatSessionsQuery(workspaceId), staleTime: 0 });
+    } catch {
+      updateSessions(() => []);
+    }
+  }, [client, updateSessions, workspaceId]);
+
+  const value = useMemo(() => ({
+    sessions,
+    isLoading,
+    activeSessionId,
+    setActiveSessionId,
+    createSession: createSessionFn,
+    archiveSession: archiveSessionFn,
+    renameSession,
+    refreshSessions,
+  }), [sessions, isLoading, activeSessionId, createSessionFn, archiveSessionFn, renameSession, refreshSessions]);
 
   return (
-    <ChatSessionsContext.Provider value={{
-      sessions,
-      isLoading,
-      activeSessionId,
-      setActiveSessionId,
-      createSession: createSessionFn,
-      archiveSession: archiveSessionFn,
-      renameSession,
-      refreshSessions,
-    }}>
+    <ChatSessionsContext.Provider value={value}>
       {children}
     </ChatSessionsContext.Provider>
   );

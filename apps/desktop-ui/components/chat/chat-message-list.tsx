@@ -4,7 +4,8 @@ import { useRef, useEffect, useCallback } from "react";
 import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ChatMessage } from "./chat-message";
-import type { StreamingMessage } from "@/hooks/use-chat-stream";
+import { formatToolName } from "./tool-call-card";
+import type { ChatTurnControls, StreamingMessage } from "@/hooks/use-chat-stream";
 
 interface ChatMessageListProps {
   messages: StreamingMessage[];
@@ -12,6 +13,11 @@ interface ChatMessageListProps {
   activeToolCalls?: StreamingMessage["toolCalls"];
   isThinking?: boolean;
   className?: string;
+  /**
+   * Stream status plus confirmation/retry actions from `useChatStream()`.
+   * Without it, confirmation cards only offer the typed code and Retry is hidden.
+   */
+  controls?: ChatTurnControls;
   /**
    * Identifies the current conversation (e.g. the active chat session id).
    * When it changes, the "pinned to bottom" state resets and the view jumps
@@ -30,11 +36,35 @@ function ChatThinkingIndicator() {
   return (
     <div className="flex justify-start">
       <div className="inline-flex items-center gap-2 rounded-sm bg-linear-bg-secondary px-3.5 py-2.5 text-sm text-linear-text-secondary">
-        <Loader2 className="h-3.5 w-3.5 animate-spin text-linear-accent" />
+        <Loader2 className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none text-linear-accent" aria-hidden="true" />
         <span>Thinking</span>
       </div>
     </div>
   );
+}
+
+/**
+ * One polite status line for assistive tech. It changes on phase changes
+ * (thinking, responding, running a tool, finished, failed), never per token.
+ */
+function streamAnnouncement(
+  status: ChatTurnControls["status"] | undefined,
+  isThinking: boolean,
+  activeToolCalls: StreamingMessage["toolCalls"],
+  lastMessage: StreamingMessage | undefined,
+): string {
+  if (status === "streaming" || isThinking) {
+    const running = [...activeToolCalls].reverse().find((call) => call.status === "in_progress");
+    if (running) return `Running ${formatToolName(running.name)}.`;
+    return isThinking ? "Assistant is thinking." : "Assistant is responding.";
+  }
+  if (!lastMessage || lastMessage.role !== "assistant" || !lastMessage.live) return "";
+  if (lastMessage.incomplete?.reason === "error") {
+    return `Reply failed. ${lastMessage.incomplete.error?.message ?? ""}`.trim();
+  }
+  if (lastMessage.incomplete?.reason === "stopped") return "Reply stopped.";
+  if (lastMessage.incomplete?.reason === "length") return "Reply finished, cut off at the length limit.";
+  return status === undefined ? "" : "Reply finished.";
 }
 
 export function ChatMessageList({
@@ -44,6 +74,7 @@ export function ChatMessageList({
   isThinking = false,
   className,
   sessionKey,
+  controls,
 }: ChatMessageListProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -116,22 +147,29 @@ export function ChatMessageList({
 
   if (messages.length === 0 && !showThinking) return null;
 
+  const announcement = streamAnnouncement(controls?.status, showThinking, activeToolCalls, messages[messages.length - 1]);
+
   return (
     <div
       ref={containerRef}
       className={cn("relative min-h-0 flex-1 overflow-y-auto px-4 py-6", className)}
+      aria-busy={controls?.status === "streaming" || showThinking}
     >
       <div className="mx-auto max-w-3xl space-y-4">
         {messages.map((msg, i) => (
-          <ChatMessage key={i} message={msg} />
+          <ChatMessage key={msg.id ?? i} message={msg} controls={controls} />
         ))}
         {hasStreamingMessage && (
           <ChatMessage
             message={{ role: "assistant", content: streamingContent || "", toolCalls: activeToolCalls, createdAt: new Date().toISOString() }}
             isStreaming
+            controls={controls}
           />
         )}
         {showThinking && <ChatThinkingIndicator />}
+        <p role="status" aria-live="polite" className="sr-only">
+          {announcement}
+        </p>
         <div ref={bottomRef} />
       </div>
     </div>

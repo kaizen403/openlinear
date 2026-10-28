@@ -68,7 +68,7 @@ export function BrainstormPopup() {
             exit={{ opacity: 0 }}
             transition={{ duration: 0.15 }}
             onClick={close}
-            className="fixed inset-0 z-[9998] bg-black/40 backdrop-blur-sm"
+            className="fixed inset-0 z-[9998] bg-scrim/40 backdrop-blur-sm"
           />
           <motion.div
             key="popup-panel"

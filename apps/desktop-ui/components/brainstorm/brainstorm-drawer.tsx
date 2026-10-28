@@ -42,7 +42,7 @@ export function BrainstormDrawer() {
   const { isSidebarOpen, pendingQuery, openSidebar, closeSidebar, consumeQuery } = useChatPanelHandoff()
   const { activeProject } = useProject()
   const { sessions, activeSessionId, setActiveSessionId, createSession } = useChatSessions()
-  const { messages, status, streamingContent, activeToolCalls, send, stop, reset, loadHistory } = useChatStream()
+  const { messages, status, streamingContent, activeToolCalls, send, stop, reset, loadHistory, controls } = useChatStream()
 
   const [width, setWidth] = useState(DEFAULT_WIDTH)
   const [dragging, setDragging] = useState(false)
@@ -208,7 +208,7 @@ export function BrainstormDrawer() {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.2 }}
-              className="fixed inset-0 z-[9998] bg-black/40"
+              className="fixed inset-0 z-[9998] bg-scrim/40"
               onClick={closeSidebar}
             />
 
@@ -263,6 +263,7 @@ export function BrainstormDrawer() {
               isThinking={isThinking}
               className="flex-1"
               sessionKey={activeSessionId}
+              controls={controls}
             />
           ) : (
             <div className="flex-1 min-h-0 flex flex-col">

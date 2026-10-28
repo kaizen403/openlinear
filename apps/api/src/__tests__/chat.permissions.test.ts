@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import request from 'supertest';
 import jwt from 'jsonwebtoken';
 import { createApp } from '../app';
 import { prisma } from '@openlinear/db';
 import { testJwtSecret } from './test-env';
+import { useTestServer } from './http';
 
 const JWT_SECRET = testJwtSecret();
 
@@ -28,6 +28,7 @@ async function cleanup() {
 
 describe('Chat permissions', () => {
   const app = createApp();
+  const http = useTestServer(() => app);
   let user: Awaited<ReturnType<typeof prisma.user.upsert>>;
   let other: Awaited<ReturnType<typeof prisma.user.upsert>>;
   let workspaceId: string;
@@ -62,13 +63,13 @@ describe('Chat permissions', () => {
   }, 30000);
 
   it('returns 401 for unauthenticated access', async () => {
-    const res = await request(app).get(`/api/chat/sessions?workspaceId=${workspaceId}`);
+    const res = await http().get(`/api/chat/sessions?workspaceId=${workspaceId}`);
     expect(res.status).toBe(401);
   });
 
   it('denies cross-user session access (GET /sessions/:id returns 404)', async () => {
     const session = await prisma.chatSession.create({ data: { userId: user.id, workspaceId } });
-    const res = await request(app)
+    const res = await http()
       .get(`/api/chat/sessions/${session.id}`)
       .set('Authorization', `Bearer ${otherAuth}`);
     expect(res.status).toBe(404);
@@ -76,7 +77,7 @@ describe('Chat permissions', () => {
   });
 
   it('denies listing sessions for a workspace the user is not a member of', async () => {
-    const res = await request(app)
+    const res = await http()
       .get(`/api/chat/sessions?workspaceId=${workspaceId}`)
       .set('Authorization', `Bearer ${otherAuth}`);
     expect([403, 404]).toContain(res.status);
@@ -86,7 +87,7 @@ describe('Chat permissions', () => {
     const session = await prisma.chatSession.create({
       data: { userId: user.id, workspaceId, archivedAt: new Date() },
     });
-    const res = await request(app)
+    const res = await http()
       .get(`/api/chat/sessions/${session.id}`)
       .set('Authorization', `Bearer ${auth}`);
     expect(res.status).toBe(404);
@@ -99,7 +100,7 @@ describe('Chat permissions', () => {
     const otherProject = await prisma.project.create({ data: { workspaceId: otherWorkspace.id, name: 'Other Project', key: 'OTHR' } });
     await prisma.projectAccess.create({ data: { projectId: otherProject.id, userId: user.id, permission: 'full' } });
 
-    const res = await request(app)
+    const res = await http()
       .post('/api/chat/sessions')
       .set('Authorization', `Bearer ${auth}`)
       .send({ workspaceId, projectId: otherProject.id });
