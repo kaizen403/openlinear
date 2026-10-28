@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback, Suspense } from "react"
+import { Suspense } from "react"
 import { useSearchParams } from "next/navigation"
 import {
   Layers, Clock, GitPullRequest, ExternalLink,
@@ -8,25 +8,24 @@ import {
 } from "lucide-react"
 import { cn, openExternal } from "@/lib/utils"
 import { formatDuration } from "@/types/task"
-import { fetchProjectIssues, type MyIssueTask } from "@/lib/api"
-import { useSSESubscription } from "@/providers/sse-provider"
-import type { SSEEventType, SSEEventData } from "@/providers/sse-provider"
+import type { MyIssueTask } from "@/lib/api"
+import { useProjectIssues } from "@/hooks/use-issue-lists"
 import { EmptyState } from "@/components/empty-state"
 import { Skeleton } from "@/components/ui/skeleton"
 
 type StatusGroup = 'in_progress' | 'todo' | 'done' | 'cancelled'
 
 const statusConfig: Record<StatusGroup, { label: string; icon: typeof Circle; iconClass: string }> = {
-  in_progress: { label: "In Progress", icon: Timer, iconClass: "text-yellow-400" },
+  in_progress: { label: "In Progress", icon: Timer, iconClass: "text-warning" },
   todo: { label: "Todo", icon: Circle, iconClass: "text-linear-text-tertiary" },
-  done: { label: "Done", icon: CheckCircle2, iconClass: "text-emerald-400" },
-  cancelled: { label: "Cancelled", icon: XCircle, iconClass: "text-red-400" },
+  done: { label: "Done", icon: CheckCircle2, iconClass: "text-success" },
+  cancelled: { label: "Cancelled", icon: XCircle, iconClass: "text-danger" },
 }
 
 const priorityDots: Record<string, string> = {
-  low: "bg-emerald-700",
-  medium: "bg-yellow-700",
-  high: "bg-red-700",
+  low: "bg-success",
+  medium: "bg-warning",
+  high: "bg-danger",
 }
 
 function timeAgo(dateStr: string): string {
@@ -91,7 +90,7 @@ function TaskRow({ task }: { task: MyIssueTask }) {
       {task.prUrl && (
         <button
           onClick={(e) => { e.stopPropagation(); openExternal(task.prUrl!) }}
-          className="flex items-center gap-1 text-[11px] text-purple-400 hover:text-purple-300 font-medium transition-colors flex-shrink-0"
+          className="flex items-center gap-1 text-[11px] text-discovery hover:text-linear-text font-medium transition-colors flex-shrink-0"
         >
           <GitPullRequest className="w-3 h-3" />
           PR
@@ -111,32 +110,8 @@ function ProjectIssuesContent() {
   const projectId = searchParams.get("id")
   const projectName = searchParams.get("name") || "Project"
 
-  const [tasks, setTasks] = useState<MyIssueTask[]>([])
-  const [loading, setLoading] = useState(true)
-
-  const loadData = useCallback(async () => {
-    if (!projectId) return
-    try {
-      const data = await fetchProjectIssues(projectId)
-      setTasks(data)
-    } catch (err) {
-      console.error("Failed to load project issues:", err)
-    } finally {
-      setLoading(false)
-    }
-  }, [projectId])
-
-  useEffect(() => {
-    loadData()
-  }, [loadData])
-
-  const handleSSEEvent = useCallback((eventType: SSEEventType, _data: SSEEventData) => {
-    if (eventType === 'task:updated' || eventType === 'task:created') {
-      loadData()
-    }
-  }, [loadData])
-
-  useSSESubscription(handleSSEEvent)
+  // Cached list kept live by the SSE → cache bridge (no refetch per event).
+  const { tasks, loading } = useProjectIssues(projectId)
 
   const grouped = (['in_progress', 'todo', 'done', 'cancelled'] as StatusGroup[]).map(status => ({
     status,

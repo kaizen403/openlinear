@@ -67,7 +67,7 @@ export function SessionCallbackClient() {
       <div className="w-full max-w-md rounded-sm border border-linear-border bg-linear-bg-secondary p-6 text-center">
         <img src="/brand/logo.png" alt="OpenLinear" className="h-10 mx-auto mb-4" />
         {error ? (
-          <div className="flex flex-col items-center gap-2 text-sm text-red-400">
+          <div className="flex flex-col items-center gap-2 text-sm text-danger">
             <AlertCircle className="h-5 w-5" />
             <span>{error}</span>
           </div>

@@ -3,6 +3,7 @@ import "./globals.css"
 import { ThemeProvider } from "next-themes"
 import { AuthProvider } from "@/hooks/use-auth"
 import { SSEProvider } from "@/providers/sse-provider"
+import { QueryProvider, QuerySseBridge } from "@/providers/query-provider"
 import { TeamsProvider } from "@/providers/teams-provider"
 import { WorkspaceProvider } from "@/hooks/use-workspace"
 import { ProjectProvider } from "@/hooks/use-project"
@@ -15,6 +16,13 @@ import { BrainstormPopup } from "@/components/brainstorm/brainstorm-popup"
 import { GodModeOverlay } from "@/components/god-mode-overlay"
 import { CommandPalette } from "@/components/command-palette"
 import { ShortcutsOverlay } from "@/components/shortcuts-overlay"
+import { WebVitalsReporter } from "@/components/web-vitals-reporter"
+import { accentBootScript } from "@/lib/design/accent-migration"
+
+// Applies (and migrates) the saved accent before first paint; generated from
+// lib/design so the presets, the legacy-choice map and the defaults live in
+// one place (see lib/design/accent-migration.ts).
+const ACCENT_BOOT_SCRIPT = accentBootScript()
 
 export const viewport: Viewport = {
   width: "device-width",
@@ -70,36 +78,40 @@ export default function RootLayout({
       <head>
         <script
           dangerouslySetInnerHTML={{
-            __html: `(function(){try{var d=document.documentElement;var defaults={accent:"#10b981",hover:"#059669"};var legacy={"#1d4ed8":1,"#1e40af":1,"#3b82f6":1,"#2563eb":1};function rgb(hex,fallback){var h=String(hex||"").replace("#","").trim();if(h.length===3){h=h.split("").map(function(x){return x+x}).join("")}var n=parseInt(h,16);if(!Number.isFinite(n)||h.length!==6)return fallback;return ((n>>16)&255)+" "+((n>>8)&255)+" "+(n&255)}function apply(c){d.style.setProperty("--linear-accent",c.accent);d.style.setProperty("--linear-accent-hover",c.hover);d.style.setProperty("--linear-accent-rgb",rgb(c.accent,"16 185 129"));d.style.setProperty("--linear-accent-hover-rgb",rgb(c.hover,"5 150 105"))}var s=localStorage.getItem("openlinear-accent");if(s){var c=JSON.parse(s);if(legacy[String(c.accent).toLowerCase()]||legacy[String(c.hover).toLowerCase()]){c=defaults;localStorage.setItem("openlinear-accent",JSON.stringify(c))}apply(c)}var tauri=!!window.__TAURI_INTERNALS__;var platform=(navigator.platform||navigator.userAgent||"").toLowerCase();var linux=platform.indexOf("linux")!==-1||platform.indexOf("x11")!==-1;d.dataset.openlinearRuntime=tauri?"tauri":"web";d.dataset.openlinearPlatform=linux?"linux":"other";var profile=localStorage.getItem("openlinear-render-profile");d.dataset.openlinearRenderProfile=profile||((tauri&&linux)?"fast":"default")
+            __html: `(function(){${ACCENT_BOOT_SCRIPT}try{var d=document.documentElement;var tauri=!!window.__TAURI_INTERNALS__;var platform=(navigator.platform||navigator.userAgent||"").toLowerCase();var linux=platform.indexOf("linux")!==-1||platform.indexOf("x11")!==-1;d.dataset.openlinearRuntime=tauri?"tauri":"web";d.dataset.openlinearPlatform=linux?"linux":"other";var profile=localStorage.getItem("openlinear-render-profile");d.dataset.openlinearRenderProfile=profile||((tauri&&linux)?"fast":"default")
 }catch(e){}})()`,
           }}
         />
       </head>
       <body className="font-ui antialiased">
+        <WebVitalsReporter />
         <ThemeProvider attribute="class" defaultTheme="dark" enableSystem>
           <ThemeMeta />
-          <AuthProvider>
-            <SSEProvider>
-              <WorkspaceProvider>
-                <TeamsProvider>
-                  <ProjectProvider>
-                    <ChatScopeProvider>
-                      <ChatSessionsProvider>
-                        <ChatPanelHandoffProvider>
-                          {children}
-                          <BrainstormPopup />
-                          <GodModeOverlay />
-                        </ChatPanelHandoffProvider>
-                      </ChatSessionsProvider>
-                    </ChatScopeProvider>
-                  </ProjectProvider>
-                </TeamsProvider>
-              </WorkspaceProvider>
-            </SSEProvider>
-            <CommandPalette />
-            <ShortcutsOverlay />
-            <ThemedToaster />
-          </AuthProvider>
+          <QueryProvider>
+            <AuthProvider>
+              <SSEProvider>
+                <QuerySseBridge />
+                <WorkspaceProvider>
+                  <TeamsProvider>
+                    <ProjectProvider>
+                      <ChatScopeProvider>
+                        <ChatSessionsProvider>
+                          <ChatPanelHandoffProvider>
+                            {children}
+                            <BrainstormPopup />
+                            <GodModeOverlay />
+                          </ChatPanelHandoffProvider>
+                        </ChatSessionsProvider>
+                      </ChatScopeProvider>
+                    </ProjectProvider>
+                  </TeamsProvider>
+                </WorkspaceProvider>
+              </SSEProvider>
+              <CommandPalette />
+              <ShortcutsOverlay />
+              <ThemedToaster />
+            </AuthProvider>
+          </QueryProvider>
         </ThemeProvider>
       </body>
     </html>

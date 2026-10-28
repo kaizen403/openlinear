@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect } from "react"
 import {
   Archive,
   Trash2,
@@ -11,8 +11,7 @@ import {
 } from "lucide-react"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
-import { Task } from "@/types/task"
-import { apiFetch } from "@/lib/api/fetch"
+import { useArchivedTasks } from "@/hooks/use-archived-tasks"
 import { EmptyState } from "@/components/empty-state"
 import { Skeleton } from "@/components/ui/skeleton"
 
@@ -20,36 +19,27 @@ const PRIORITY_TABS = ["all", "high", "medium", "low"] as const
 type PriorityTab = (typeof PRIORITY_TABS)[number]
 
 const priorityConfig: Record<string, { label: string; color: string; icon: typeof Flag }> = {
-  high: { label: "High", color: "text-red-600", icon: AlertTriangle },
-  medium: { label: "Medium", color: "text-yellow-600", icon: Flag },
-  low: { label: "Low", color: "text-emerald-600", icon: Flag },
+  high: { label: "High", color: "text-danger", icon: AlertTriangle },
+  medium: { label: "Medium", color: "text-warning", icon: Flag },
+  low: { label: "Low", color: "text-success", icon: Flag },
 }
 
 export default function ArchivedPage() {
-  const [tasks, setTasks] = useState<Task[]>([])
-  const [loading, setLoading] = useState(true)
+  // The archive from the query cache: archiving anywhere marks it stale
+  // (task:deleted), so the page shows the cached list or refetches once.
+  const { tasks, loading, error, errorUpdatedAt, deleteMany, deleteAll } = useArchivedTasks()
   const [activeTab, setActiveTab] = useState<PriorityTab>("all")
   const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set())
-  const [deletingAll, setDeletingAll] = useState(false)
+  const deletingAll = deleteAll.isPending
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [deletingSelected, setDeletingSelected] = useState(false)
 
-  const fetchArchived = useCallback(async () => {
-    try {
-      const data = await apiFetch<{ items: Task[] } | Task[]>('/api/tasks/archived')
-      setTasks(Array.isArray(data) ? data : data.items)
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Failed to fetch archived tasks'
-      console.error("Error fetching archived tasks:", err)
-      toast.error(msg)
-    } finally {
-      setLoading(false)
-    }
-  }, [])
-
+  // One toast per failed load, as before.
   useEffect(() => {
-    fetchArchived()
-  }, [fetchArchived])
+    if (!error) return
+    console.error("Error fetching archived tasks:", error)
+    toast.error(error instanceof Error ? error.message : 'Failed to fetch archived tasks')
+  }, [error, errorUpdatedAt])
 
   useEffect(() => {
     setSelectedIds(new Set())
@@ -57,7 +47,6 @@ export default function ArchivedPage() {
 
   const handleDeleteOne = async (taskId: string) => {
     setDeletingIds((prev) => new Set(prev).add(taskId))
-    setTasks((prev) => prev.filter((t) => t.id !== taskId))
     setSelectedIds((prev) => {
       const next = new Set(prev)
       next.delete(taskId)
@@ -65,11 +54,11 @@ export default function ArchivedPage() {
     })
 
     try {
-      await apiFetch(`/api/tasks/archived/${taskId}`, { method: 'DELETE' })
+      // Optimistic; the row comes back in place if the delete fails.
+      const { failed } = await deleteMany.mutateAsync([taskId])
+      if (failed.length > 0) toast.error('Failed to delete task')
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Failed to delete task'
-      toast.error(msg)
-      fetchArchived()
+      toast.error(err instanceof Error ? err.message : 'Failed to delete task')
     } finally {
       setDeletingIds((prev) => {
         const next = new Set(prev)
@@ -80,19 +69,11 @@ export default function ArchivedPage() {
   }
 
   const handleDeleteAll = async () => {
-    setDeletingAll(true)
-    const previousTasks = tasks
-    setTasks([])
     setSelectedIds(new Set())
-
     try {
-      await apiFetch('/api/tasks/archived', { method: 'DELETE' })
+      await deleteAll.mutateAsync()
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Failed to delete all tasks'
-      toast.error(msg)
-      setTasks(previousTasks)
-    } finally {
-      setDeletingAll(false)
+      toast.error(err instanceof Error ? err.message : 'Failed to delete all tasks')
     }
   }
 
@@ -101,27 +82,14 @@ export default function ArchivedPage() {
     if (idsToDelete.length === 0) return
 
     setDeletingSelected(true)
-    const previousTasks = tasks
-    setTasks((prev) => prev.filter((t) => !selectedIds.has(t.id)))
     setSelectedIds(new Set())
 
     try {
-      const results = await Promise.allSettled(
-        idsToDelete.map((taskId) =>
-          apiFetch(`/api/tasks/archived/${taskId}`, { method: 'DELETE' })
-        )
-      )
-      const failures = results.filter((r) => r.status === 'rejected')
-      if (failures.length > 0) {
-        toast.error(`Failed to delete ${failures.length} task(s)`)
-        setTasks(previousTasks)
-        fetchArchived()
-      }
+      // Per-item outcome: only the failed tasks come back (and stay selectable).
+      const { failed } = await deleteMany.mutateAsync(idsToDelete)
+      if (failed.length > 0) toast.error(`Failed to delete ${failed.length} task(s)`)
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Failed to delete selected tasks'
-      toast.error(msg)
-      setTasks(previousTasks)
-      fetchArchived()
+      toast.error(err instanceof Error ? err.message : 'Failed to delete selected tasks')
     } finally {
       setDeletingSelected(false)
     }
@@ -164,7 +132,7 @@ export default function ArchivedPage() {
                     <button
                       onClick={handleDeleteSelected}
                       disabled={deletingSelected}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-sm text-sm font-medium text-red-400 hover:text-red-300 hover:bg-red-500/10 transition-colors disabled:opacity-50"
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-sm text-sm font-medium text-danger hover:bg-danger/10 transition-colors disabled:opacity-50"
                     >
                       {deletingSelected ? (
                         <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -193,7 +161,7 @@ export default function ArchivedPage() {
                   <button
                     onClick={handleDeleteAll}
                     disabled={deletingAll}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-sm text-sm font-medium text-red-400 hover:text-red-300 hover:bg-red-500/10 transition-colors disabled:opacity-50"
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-sm text-sm font-medium text-danger hover:bg-danger/10 transition-colors disabled:opacity-50"
                   >
                     {deletingAll ? (
                       <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -281,16 +249,16 @@ export default function ArchivedPage() {
                     <div className="flex items-center gap-2 flex-shrink-0">
                       <span className={cn(
                         "text-xs px-1.5 py-0.5 rounded",
-                        task.priority === "high" && "bg-red-500/10 text-red-600",
-                        task.priority === "medium" && "bg-yellow-500/10 text-yellow-600",
-                        task.priority === "low" && "bg-emerald-500/10 text-emerald-600",
+                        task.priority === "high" && "bg-danger/10 text-danger",
+                        task.priority === "medium" && "bg-warning/10 text-warning",
+                        task.priority === "low" && "bg-success/10 text-success",
                       )}>
                         {config?.label}
                       </span>
                       <button
                         onClick={() => handleDeleteOne(task.id)}
                         disabled={deletingIds.has(task.id)}
-                        className="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 p-1.5 rounded-sm text-linear-text-tertiary hover:text-red-400 hover:bg-red-500/10 transition-all disabled:opacity-50"
+                        className="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 p-1.5 rounded-sm text-linear-text-tertiary hover:text-danger hover:bg-danger/10 transition-all disabled:opacity-50"
                         title="Delete permanently"
                       >
                         {deletingIds.has(task.id) ? (

@@ -110,7 +110,7 @@ export function UnifiedSelectionBar({
         onClick={onExecuteParallel}
         disabled={executeDisabled}
         title={executeTitle}
-        className="bg-[#064e3b] hover:bg-[#065f46] border border-[#065f46]/60 text-emerald-100 gap-1.5 disabled:opacity-50 shadow-sm"
+        className="bg-primary hover:bg-primary-hover active:bg-primary-pressed border border-primary text-primary-foreground gap-1.5 disabled:opacity-disabled shadow-sm"
       >
         <Play className="w-3.5 h-3.5" />
         <span className="sm:hidden">Parallel</span>
@@ -124,7 +124,7 @@ export function UnifiedSelectionBar({
         disabled={executeDisabled}
         title={executeTitle}
         variant="outline"
-        className="border-[#2a2a2a] bg-[#1a1a1a] text-linear-text hover:bg-[#252525] hover:border-[#333] gap-1.5 disabled:opacity-50"
+        className="border-linear-border bg-surface-hover text-linear-text hover:bg-surface-pressed hover:border-linear-border-hover gap-1.5 disabled:opacity-disabled"
       >
         <ListOrdered className="w-3.5 h-3.5" />
         <span className="sm:hidden">Queue</span>
@@ -138,7 +138,7 @@ export function UnifiedSelectionBar({
         disabled={combinedDisabled}
         title={combinedTitle}
         variant="outline"
-        className="border-[#2a2a2a] bg-[#1a1a1a] text-linear-text hover:bg-[#252525] hover:border-[#333] gap-1.5 disabled:opacity-50"
+        className="border-linear-border bg-surface-hover text-linear-text hover:bg-surface-pressed hover:border-linear-border-hover gap-1.5 disabled:opacity-disabled"
       >
         <Layers className="w-3.5 h-3.5" />
         <span className="sm:hidden">Combined</span>
@@ -178,7 +178,7 @@ export function UnifiedSelectionBar({
         size="sm"
         variant="outline"
         onClick={onArchive}
-        className="h-8 border-linear-border text-linear-text hover:bg-red-500/10 hover:text-red-300 hover:border-red-500/30 gap-1.5"
+        className="h-8 border-linear-border text-linear-text hover:bg-danger/10 hover:text-danger hover:border-danger/30 gap-1.5"
       >
         {deletionMode === "delete" ? (
           <Trash2 className="w-3.5 h-3.5" />
@@ -203,13 +203,27 @@ export function UnifiedSelectionBar({
   )
 }
 
+/**
+ * Group selected ids by status. Takes the board's id→task map (or a task
+ * list, indexed once) so selecting thousands of tasks stays linear instead of
+ * one `find` per selected id.
+ */
+type SelectionSource = ReadonlyMap<string, Pick<Task, 'status'>> | readonly Pick<Task, 'id' | 'status'>[]
+
+function isTaskList(source: SelectionSource): source is readonly Pick<Task, 'id' | 'status'>[] {
+  return Array.isArray(source)
+}
+
 export function bucketSelection(
-  selectedTaskIds: Set<string>,
-  tasks: Pick<Task, 'id' | 'status'>[],
+  selectedTaskIds: ReadonlySet<string>,
+  tasks: SelectionSource,
 ): SelectionBuckets {
+  const byId: ReadonlyMap<string, Pick<Task, 'status'>> = isTaskList(tasks)
+    ? new Map(tasks.map((task) => [task.id, task]))
+    : tasks
   const buckets: SelectionBuckets = { todo: [], in_progress: [], done: [], cancelled: [] }
   for (const id of selectedTaskIds) {
-    const status = tasks.find(t => t.id === id)?.status
+    const status = byId.get(id)?.status
     if (!status) continue
     buckets[status].push(id)
   }

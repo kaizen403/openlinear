@@ -44,6 +44,55 @@ export async function fetchWorkspaceStructure(id: string): Promise<WorkspaceStru
   return res;
 }
 
+/**
+ * `view=summary`: the workspace → projects → teams tree with member counts
+ * (`_count.members` on the workspace and on each team) instead of member
+ * lists, about 5 % of the full payload at scale. Older APIs ignore the
+ * parameter and send the full tree, so readers fall back to
+ * `members.length` (see `structureMemberCount`).
+ */
+export interface WorkspaceStructureSummaryTeam {
+  id: string;
+  name: string;
+  key: string;
+  color: string;
+  projectId: string;
+  _count?: { members: number; tasks?: number };
+  members?: TeamMember[];
+}
+
+export interface WorkspaceStructureSummaryProject {
+  id: string;
+  workspaceId: string | null;
+  key: string | null;
+  name: string;
+  status: Project['status'];
+  color: string;
+  icon: string | null;
+  teams: WorkspaceStructureSummaryTeam[];
+  _count?: { tasks: number };
+}
+
+export interface WorkspaceStructureSummary {
+  id: string;
+  name: string;
+  slug: string;
+  role?: WorkspaceRole;
+  _count?: { members: number; projects?: number };
+  members?: WorkspaceMember[];
+  projects: WorkspaceStructureSummaryProject[];
+  currentMember?: WorkspaceMember | null;
+}
+
+export async function fetchWorkspaceStructureSummary(id: string): Promise<WorkspaceStructureSummary> {
+  return apiFetch<WorkspaceStructureSummary>(`/api/workspaces/${id}/structure?view=summary`);
+}
+
+/** Member count of a summary workspace or team, from `_count` or (older APIs) the member list. */
+export function structureMemberCount(node: { _count?: { members: number }; members?: readonly unknown[] }): number {
+  return node._count?.members ?? node.members?.length ?? 0;
+}
+
 export async function fetchWorkspaceMembers(id: string): Promise<WorkspaceMember[]> {
   const res = await apiFetch<{ data: WorkspaceMember[]; nextCursor: string | null }>(`/api/workspaces/${id}/members?limit=200`);
   return res.data;

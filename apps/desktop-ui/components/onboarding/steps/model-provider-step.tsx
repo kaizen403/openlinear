@@ -173,8 +173,8 @@ function StatusBody({ state, onRefresh, onOpenSettings }: StatusBodyProps) {
 
   if (state.kind === "error") {
     return (
-      <div className="rounded-sm border border-red-500/20 bg-red-500/5 px-3 py-3 space-y-2">
-        <div className="flex items-start gap-2 text-xs text-red-300">
+      <div className="rounded-sm border border-danger/20 bg-danger/5 px-3 py-3 space-y-2">
+        <div className="flex items-start gap-2 text-xs text-danger">
           <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
           <span>{state.message}</span>
         </div>
@@ -204,7 +204,7 @@ function StatusBody({ state, onRefresh, onOpenSettings }: StatusBodyProps) {
       )}
 
       {hasProvider && !hasModel && (
-        <div className="rounded-sm border border-amber-500/20 bg-amber-500/5 px-3 py-2.5 text-xs text-amber-200">
+        <div className="rounded-sm border border-warning/20 bg-warning/5 px-3 py-2.5 text-xs text-warning">
           A provider is connected but no model is selected yet. Pick one in Settings.
         </div>
       )}

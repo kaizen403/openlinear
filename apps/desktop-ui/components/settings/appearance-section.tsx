@@ -5,36 +5,23 @@ import { Moon, Sun, Laptop, Check } from "lucide-react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Switch } from "@/components/ui/switch"
 import { useTheme } from "next-themes"
-
-const DEFAULT_ACCENT = { accent: "#10b981", hover: "#059669" }
-const LEGACY_ACCENTS = new Set(["#1d4ed8", "#1e40af", "#3b82f6", "#2563eb"])
-
-const ACCENT_PRESETS = [
-  { name: "Emerald", accent: DEFAULT_ACCENT.accent, hover: DEFAULT_ACCENT.hover },
-  { name: "Purple", accent: "#8b5cf6", hover: "#7c3aed" },
-  { name: "Green", accent: "#22c55e", hover: "#16a34a" },
-  { name: "Orange", accent: "#f97316", hover: "#ea580c" },
-  { name: "Pink", accent: "#ec4899", hover: "#db2777" },
-  { name: "Red", accent: "#ef4444", hover: "#dc2626" },
-  { name: "Teal", accent: "#14b8a6", hover: "#0d9488" },
-  { name: "Yellow", accent: "#eab308", hover: "#ca8a04" },
-] as const
-
-function hexToRgbTriplet(hex: string, fallback: string) {
-  let normalized = hex.replace("#", "").trim()
-  if (normalized.length === 3) {
-    normalized = normalized.split("").map((char) => char + char).join("")
-  }
-  const value = Number.parseInt(normalized, 16)
-  if (!Number.isFinite(value) || normalized.length !== 6) return fallback
-  return `${(value >> 16) & 255} ${(value >> 8) & 255} ${value & 255}`
-}
+// Presets (brand + contrast-safe solid) live with the design tokens. The
+// stored JSON keeps its `{ accent, hover }` shape; `hover` holds the solid.
+// Saved choices from before the contrast-safe presets (and the retired blues)
+// are migrated by the same table the boot script in app/layout.tsx uses.
+import { ACCENT_PRESETS, DEFAULT_ACCENT } from "@/lib/design/accent"
+import {
+  ACCENT_STORAGE_KEY,
+  DEFAULT_ACCENT_CHANNELS,
+  accentChannels,
+  migrateStoredAccent,
+} from "@/lib/design/accent-migration"
 
 function applyAccentVariables(accent: string, hover: string) {
   document.documentElement.style.setProperty("--linear-accent", accent)
   document.documentElement.style.setProperty("--linear-accent-hover", hover)
-  document.documentElement.style.setProperty("--linear-accent-rgb", hexToRgbTriplet(accent, "16 185 129"))
-  document.documentElement.style.setProperty("--linear-accent-hover-rgb", hexToRgbTriplet(hover, "5 150 105"))
+  document.documentElement.style.setProperty("--linear-accent-rgb", accentChannels(accent, DEFAULT_ACCENT_CHANNELS.accent))
+  document.documentElement.style.setProperty("--linear-accent-hover-rgb", accentChannels(hover, DEFAULT_ACCENT_CHANNELS.solid))
 }
 
 export function AppearanceSection() {
@@ -45,14 +32,11 @@ export function AppearanceSection() {
 
   useEffect(() => {
     try {
-      const stored = localStorage.getItem("openlinear-accent")
-      if (stored) {
-        let { accent, hover } = JSON.parse(stored)
-        if (LEGACY_ACCENTS.has(String(accent).toLowerCase()) || LEGACY_ACCENTS.has(String(hover).toLowerCase())) {
-          accent = DEFAULT_ACCENT.accent
-          hover = DEFAULT_ACCENT.hover
-          localStorage.setItem("openlinear-accent", JSON.stringify({ accent, hover }))
-        }
+      const stored = localStorage.getItem(ACCENT_STORAGE_KEY)
+      const result = stored ? migrateStoredAccent(JSON.parse(stored)) : null
+      if (result) {
+        const { accent, hover } = result.value
+        if (result.migrated) localStorage.setItem(ACCENT_STORAGE_KEY, JSON.stringify({ accent, hover }))
         setAccentColor(accent)
         applyAccentVariables(accent, hover)
       }
@@ -63,7 +47,7 @@ export function AppearanceSection() {
     setAccentColor(accent)
     applyAccentVariables(accent, hover)
     try {
-      localStorage.setItem("openlinear-accent", JSON.stringify({ accent, hover }))
+      localStorage.setItem(ACCENT_STORAGE_KEY, JSON.stringify({ accent, hover }))
     } catch {}
   }
 
@@ -126,7 +110,7 @@ export function AppearanceSection() {
             {ACCENT_PRESETS.map((preset) => (
               <button
                 key={preset.name}
-                onClick={() => applyAccentColor(preset.accent, preset.hover)}
+                onClick={() => applyAccentColor(preset.accent, preset.solid)}
                 className={`flex flex-col items-center gap-2 p-3 rounded-sm border transition-colors ${
                   accentColor === preset.accent
                     ? "border-linear-accent bg-linear-accent/10"
@@ -136,7 +120,7 @@ export function AppearanceSection() {
                 <div className="relative">
                   <div className="w-8 h-8 rounded-full" style={{ backgroundColor: preset.accent }} />
                   {accentColor === preset.accent && (
-                    <Check className="absolute inset-0 m-auto w-4 h-4 text-white" />
+                    <Check className="absolute inset-0 m-auto w-4 h-4 text-background" />
                   )}
                 </div>
                 <span className="text-xs text-linear-text-secondary">{preset.name}</span>

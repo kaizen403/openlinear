@@ -120,7 +120,7 @@ export function ProjectFormDialog({
         <form onSubmit={handleSubmit} className="space-y-4 py-4">
           <div className="space-y-2">
             <Label htmlFor={`${mode}-name`} className="text-linear-text">
-              Name <span className="text-red-500">*</span>
+              Name <span className="text-danger">*</span>
             </Label>
             <Input
               id={`${mode}-name`}
@@ -129,11 +129,11 @@ export function ProjectFormDialog({
               placeholder="Project name"
               className={cn(
                 "bg-linear-bg-tertiary border-linear-border text-linear-text placeholder:text-linear-text-tertiary",
-                formErrors.name && "border-red-500"
+                formErrors.name && "border-danger"
               )}
             />
             {formErrors.name && (
-              <p className="text-xs text-red-500">{formErrors.name}</p>
+              <p className="text-xs text-danger">{formErrors.name}</p>
             )}
           </div>
 
@@ -190,12 +190,12 @@ export function ProjectFormDialog({
               namePrefix={mode === "edit" ? "edit-" : ""}
             />
             {formErrors.localPath && (
-              <p className="text-xs text-red-500">{formErrors.localPath}</p>
+              <p className="text-xs text-danger">{formErrors.localPath}</p>
             )}
           </div>
 
           {formErrors._root && (
-            <div role="alert" className="rounded-sm border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-400">
+            <div role="alert" className="rounded-sm border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
               {formErrors._root}
             </div>
           )}

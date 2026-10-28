@@ -22,7 +22,7 @@ vi.mock('@/components/board/board-state', () => ({
 }))
 
 const { useSSESubscription } = await import('@/providers/sse-provider')
-const { clearExecutionProgress } = await import('@/lib/execution-state-store')
+const { clearExecutionProgress, setExecutionProgress } = await import('@/lib/execution-state-store')
 const { useTaskSSE } = await import('./use-task-sse.ts')
 
 function createMockProps() {
@@ -138,6 +138,30 @@ describe('useTaskSSE', () => {
     expect(filterFn(existingTasks)).toEqual([])
   })
 
+  it('task:deleted for a task that is already gone keeps the same list (repeated announcement)', () => {
+    const props = createMockProps()
+    renderHook(() => useTaskSSE(props))
+    const remaining = [{ id: 't2', title: 'Other', status: 'todo' }]
+
+    capturedHandler('task:deleted', { id: 't1' })
+
+    const filterFn = props.setTasks.mock.calls[0][0]
+    expect(filterFn(remaining)).toBe(remaining)
+  })
+
+  it('task:deleted goes through onTasksRemoved when the board provides it (bulk + per-task dedupe)', () => {
+    const props = { ...createMockProps(), onTasksRemoved: vi.fn() }
+    renderHook(() => useTaskSSE(props))
+
+    capturedHandler('task:deleted', { id: 't1' })
+
+    expect(props.onTasksRemoved).toHaveBeenCalledWith(['t1'])
+    expect(props.setTasks).not.toHaveBeenCalled()
+    expect(props.setSelectedTaskIds).not.toHaveBeenCalled()
+    expect(props.setSelectedTaskId).not.toHaveBeenCalled()
+    expect(clearExecutionProgress).not.toHaveBeenCalled()
+  })
+
   it('connected triggers fetchTasks and reconcileActiveBatches', () => {
     const props = createMockProps()
     renderHook(() => useTaskSSE(props))
@@ -186,6 +210,53 @@ describe('useTaskSSE', () => {
     capturedHandler('batch:task:started', { batchId: 'b1', taskId: 't1' })
 
     expect(props.setActiveBatch).toHaveBeenCalled()
+  })
+
+  it('keeps run-journal events out of the legacy progress store', () => {
+    renderHook(() => useTaskSSE(createMockProps()))
+    setExecutionProgress.mockClear()
+    capturedHandler('execution:progress', { runId: 'r1', taskId: 't1', seq: 3, type: 'tool.started', payload: {} })
+    expect(setExecutionProgress).not.toHaveBeenCalled()
+    capturedHandler('execution:progress', { taskId: 't1', status: 'executing', message: 'Working' })
+    expect(setExecutionProgress).toHaveBeenCalledWith(expect.objectContaining({ taskId: 't1', status: 'executing' }))
+  })
+
+  it('replay-gap resynchronizes tasks and batches like a fresh connection', () => {
+    const props = createMockProps()
+    renderHook(() => useTaskSSE(props))
+    capturedHandler('replay-gap', { type: 'replay-gap', reason: 'pruned', lastEventId: '41' })
+    expect(props.fetchTasks).toHaveBeenCalledWith({ silent: true })
+    expect(props.reconcileActiveBatches).toHaveBeenCalled()
+  })
+
+  it('batch:progress committed marks a running member publish-ready and merges publication', () => {
+    const props = createMockProps()
+    const activeBatch = {
+      id: 'b1',
+      status: 'running',
+      mode: 'parallel',
+      tasks: [
+        { taskId: 't1', title: 'Task', status: 'running' },
+        { taskId: 't2', title: 'Other', status: 'failed' },
+      ],
+      prUrl: null,
+    }
+    const results = []
+    props.setActiveBatch.mockImplementation((fn) => {
+      if (typeof fn === 'function') results.push(fn(activeBatch))
+    })
+
+    renderHook(() => useTaskSSE(props))
+    capturedHandler('batch:progress', { batchId: 'b1', taskId: 't1', phase: 'committed' })
+    capturedHandler('batch:progress', { batchId: 'b1', taskId: 't2', phase: 'committed' })
+    capturedHandler('batch:progress', { batchId: 'b1', publication: { state: 'retained' } })
+    capturedHandler('batch:progress', { batchId: 'other', taskId: 't1', phase: 'committed' })
+
+    expect(results[0].tasks[0].status).toBe('completed')
+    // A member that already failed is never resurrected by a late commit beat.
+    expect(results[1].tasks[1].status).toBe('failed')
+    expect(results[2].publication).toEqual({ state: 'retained' })
+    expect(results[3]).toBe(activeBatch)
   })
 
   it('batch:task:completed updates task status to completed', () => {

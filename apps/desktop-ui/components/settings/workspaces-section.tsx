@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useMemo, useState } from "react"
 import Link from "next/link"
 import {
   Building2,
@@ -18,18 +18,18 @@ import { Button } from "@/components/ui/button"
 import { EmptyState } from "@/components/empty-state"
 import { cn } from "@/lib/utils"
 import {
-  fetchWorkspaces,
-  fetchWorkspaceStructure,
-  type WorkspaceStructure,
-  type WorkspaceStructureProject,
-  type WorkspaceStructureTeam,
+  structureMemberCount,
+  type WorkspaceStructureSummary,
+  type WorkspaceStructureSummaryProject,
+  type WorkspaceStructureSummaryTeam,
 } from "@/lib/api/workspaces"
+import { useWorkspaceStructures } from "@/hooks/use-workspace-structures"
 
 function plural(count: number, singular: string, pluralLabel = `${singular}s`) {
   return `${count} ${count === 1 ? singular : pluralLabel}`
 }
 
-function TeamRow({ team }: { team: WorkspaceStructureTeam }) {
+function TeamRow({ team }: { team: WorkspaceStructureSummaryTeam }) {
   return (
     <Link
       href={`/teams/manage?id=${team.id}`}
@@ -38,12 +38,12 @@ function TeamRow({ team }: { team: WorkspaceStructureTeam }) {
       <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: team.color }} />
       <span className="min-w-0 flex-1 truncate text-sm text-linear-text">{team.name}</span>
       <span className="text-xs text-linear-text-tertiary">{team.key}</span>
-      <span className="text-xs text-linear-text-tertiary">{plural(team.members.length, "member")}</span>
+      <span className="text-xs text-linear-text-tertiary">{plural(structureMemberCount(team), "member")}</span>
     </Link>
   )
 }
 
-function ProjectRow({ project }: { project: WorkspaceStructureProject }) {
+function ProjectRow({ project }: { project: WorkspaceStructureSummaryProject }) {
   const [expanded, setExpanded] = useState(false)
 
   return (
@@ -83,7 +83,7 @@ function ProjectRow({ project }: { project: WorkspaceStructureProject }) {
   )
 }
 
-function WorkspaceRow({ workspace }: { workspace: WorkspaceStructure }) {
+function WorkspaceRow({ workspace }: { workspace: WorkspaceStructureSummary }) {
   const [expanded, setExpanded] = useState(true)
   const teamCount = workspace.projects.reduce((sum, p) => sum + p.teams.length, 0)
 
@@ -103,7 +103,7 @@ function WorkspaceRow({ workspace }: { workspace: WorkspaceStructure }) {
         <span className="text-xs text-linear-text-tertiary">{workspace.slug}</span>
         <span className="text-xs text-linear-text-tertiary">{plural(workspace.projects.length, "project")}</span>
         <span className="text-xs text-linear-text-tertiary">{plural(teamCount, "team")}</span>
-        <span className="text-xs text-linear-text-tertiary">{plural(workspace.members.length, "member")}</span>
+        <span className="text-xs text-linear-text-tertiary">{plural(structureMemberCount(workspace), "member")}</span>
         <Link
           href="/settings?section=workspace-general"
           onClick={(e) => e.stopPropagation()}
@@ -128,34 +128,17 @@ function WorkspaceRow({ workspace }: { workspace: WorkspaceStructure }) {
 }
 
 export function WorkspacesSection() {
-  const [workspaces, setWorkspaces] = useState<WorkspaceStructure[]>([])
-  const [isLoading, setIsLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-
-  const loadWorkspaces = useCallback(async () => {
-    setIsLoading(true)
-    setError(null)
-    try {
-      const baseWorkspaces = await fetchWorkspaces()
-      const structures = await Promise.all(baseWorkspaces.map((ws) => fetchWorkspaceStructure(ws.id)))
-      setWorkspaces(structures)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load workspaces")
-    } finally {
-      setIsLoading(false)
-    }
-  }, [])
-
-  useEffect(() => {
-    void loadWorkspaces()
-  }, [loadWorkspaces])
+  // Shared workspace list + one `view=summary` tree per workspace (counts, not member lists).
+  const { workspaces, isLoading, isFetching, error: loadError, refresh } = useWorkspaceStructures()
+  const error = loadError ? (loadError instanceof Error ? loadError.message : "Failed to load workspaces") : null
+  const loadWorkspaces = refresh
 
   const totals = useMemo(() => {
     return workspaces.reduce(
       (acc, ws) => {
         acc.projects += ws.projects.length
         acc.teams += ws.projects.reduce((sum, p) => sum + p.teams.length, 0)
-        acc.members += ws.members.length
+        acc.members += structureMemberCount(ws)
         return acc
       },
       { projects: 0, teams: 0, members: 0 },
@@ -175,10 +158,10 @@ export function WorkspacesSection() {
           variant="ghost"
           size="sm"
           onClick={() => void loadWorkspaces()}
-          disabled={isLoading}
+          disabled={isLoading || isFetching}
           className="text-linear-text-secondary hover:text-linear-text"
         >
-          {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+          {isLoading || isFetching ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
         </Button>
       </div>
 

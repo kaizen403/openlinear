@@ -50,7 +50,7 @@ export function isModelNotConfiguredError(err: unknown): err is ModelNotConfigur
 
 async function opencodeFetch<T>(path: string, init: ApiFetchInit, fallbackMsg: string): Promise<T> {
   try {
-    return await apiFetch<T>(path, { ...init, sidecar: true });
+    return await apiFetch<T>(path, init);
   } catch (err) {
     if (err instanceof ApiError) {
       // 404 means the sidecar isn't running (CRUD-only API doesn't mount
@@ -168,7 +168,6 @@ export async function oauthCallback(
   try {
     await apiFetchRaw('/api/opencode/auth/oauth/callback', {
       method: 'POST',
-      sidecar: true,
       signal: controller.signal,
       body: JSON.stringify({ providerId, code, method: method ?? 0 }),
     });

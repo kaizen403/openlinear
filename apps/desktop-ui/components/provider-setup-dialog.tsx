@@ -123,7 +123,7 @@ export function ProviderSetupDialog({ open, onOpenChange, onSetupComplete }: Pro
             </div>
           ) : loadError ? (
             <div className="flex flex-col items-center justify-center py-12 gap-4">
-              <AlertCircle className="w-8 h-8 text-red-400" />
+              <AlertCircle className="w-8 h-8 text-danger" />
               <div className="text-center">
                 <p className="text-sm font-medium text-linear-text">Failed to load providers</p>
                 <p className="text-xs text-linear-text-tertiary mt-1">{loadError}</p>

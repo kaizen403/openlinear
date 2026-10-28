@@ -10,6 +10,9 @@ import {
 } from "recharts"
 import { apiFetch } from "@/lib/api"
 import { cn } from "@/lib/utils"
+import { EmptyState } from "@/components/empty-state"
+import { InsightsPanel } from "@/components/insights/insights-panel"
+import { useWorkspace } from "@/hooks/use-workspace"
 
 interface UsageSummary {
   totalCostUsd: number
@@ -118,7 +121,18 @@ const sortLabels: Record<SortKey, string> = {
   recent: 'Most recent',
 }
 
+type UsageView = 'insights' | 'usage'
+
+const viewLabels: Record<UsageView, string> = {
+  insights: 'Workspace insights',
+  usage: 'My usage',
+}
+
 export default function UsagePage() {
+  // W15b: the active workspace's insights (all members' runs and delivery) next
+  // to the caller's own agent-run usage across workspaces.
+  const { activeWorkspace } = useWorkspace()
+  const [view, setView] = useState<UsageView>('insights')
   const [summary, setSummary] = useState<UsageSummary | null>(null)
   const [byTask, setByTask] = useState<ByTaskResponse | null>(null)
   const [loading, setLoading] = useState(true)
@@ -161,20 +175,47 @@ export default function UsagePage() {
       <header className="h-14 border-b border-linear-border flex items-center px-4 sm:px-6 bg-linear-bg gap-3" data-tauri-drag-region>
         <BarChart3 className="w-5 h-5 text-linear-text-secondary flex-shrink-0" />
         <h1 className="text-lg font-semibold">Usage</h1>
-        <span className="text-xs text-linear-text-tertiary bg-linear-bg-tertiary px-1.5 py-0.5 rounded">
-          last 30 days
-        </span>
+        <div role="tablist" aria-label="Usage views" className="inline-flex rounded-sm border border-linear-border p-0.5">
+          {(Object.keys(viewLabels) as UsageView[]).map((key) => (
+            <button
+              key={key}
+              type="button"
+              role="tab"
+              aria-selected={view === key}
+              onClick={() => setView(key)}
+              className={cn(
+                "rounded-[3px] px-2.5 py-1 text-xs transition-colors",
+                view === key ? "bg-linear-bg-tertiary text-linear-text" : "text-linear-text-secondary hover:text-linear-text",
+              )}
+            >
+              {viewLabels[key]}
+            </button>
+          ))}
+        </div>
+        {view === 'usage' && (
+          <span className="text-xs text-linear-text-tertiary bg-linear-bg-tertiary px-1.5 py-0.5 rounded">
+            last 30 days
+          </span>
+        )}
         <div className="flex-1 h-full" data-tauri-drag-region />
       </header>
 
       <div className="flex-1 min-h-0 overflow-y-auto bg-linear-bg">
-        {loading && !summary ? (
+        {view === 'insights' ? (
+          <div className="p-4 sm:p-6 max-w-7xl mx-auto">
+            {activeWorkspace ? (
+              <InsightsPanel key={activeWorkspace.id} scope={{ kind: 'workspace', id: activeWorkspace.id }} />
+            ) : (
+              <EmptyState icon={BarChart3} title="No workspace selected" description="Pick a workspace in the sidebar to see its insights." />
+            )}
+          </div>
+        ) : loading && !summary ? (
           <div className="flex items-center justify-center py-20">
             <Loader2 className="w-5 h-5 animate-spin text-linear-text-tertiary" />
           </div>
         ) : error ? (
           <div className="flex flex-col items-center justify-center py-20 text-linear-text-tertiary">
-            <p className="text-sm text-red-400">{error}</p>
+            <p className="text-sm text-danger">{error}</p>
           </div>
         ) : summary ? (
           <div className="p-4 sm:p-6 space-y-6 max-w-7xl mx-auto">
@@ -197,13 +238,13 @@ export default function UsagePage() {
                 icon={Coins}
                 label="Input tokens"
                 value={formatNumber(summary.totalInputTokens)}
-                accent="bg-violet-500/10 text-violet-400"
+                accent="bg-discovery/10 text-discovery"
               />
               <StatCard
                 icon={Coins}
                 label="Output tokens"
                 value={formatNumber(summary.totalOutputTokens)}
-                accent="bg-amber-500/10 text-amber-400"
+                accent="bg-warning/10 text-warning"
               />
             </div>
 
@@ -308,9 +349,9 @@ export default function UsagePage() {
                           <th className="text-right font-medium px-4 py-2 hidden sm:table-cell">Last run</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-white/[0.04]">
+                      <tbody className="divide-y divide-layer-divider">
                         {byTask.items.map((row) => (
-                          <tr key={row.taskId} className="hover:bg-white/[0.02] transition-colors group">
+                          <tr key={row.taskId} className="hover:bg-layer-hover transition-colors group">
                             <td className="px-4 py-2.5 max-w-md">
                               <div className="flex items-center gap-2 min-w-0">
                                 {row.taskIdentifier && (

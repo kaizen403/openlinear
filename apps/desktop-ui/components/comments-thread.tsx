@@ -1,23 +1,14 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState, useCallback } from "react"
+import { useMemo, useRef, useState, useCallback } from "react"
 import { Loader2, Send, Pencil, Trash2, X, Check } from "lucide-react"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { MarkdownView } from "@/components/markdown-view"
 import { useAuth } from "@/hooks/use-auth"
-import { useSSESubscription } from "@/providers/sse-provider"
+import { useTaskComments } from "@/hooks/use-task-comments"
 import { cn } from "@/lib/utils"
-import {
-  fetchComments,
-  createComment,
-  updateComment,
-  deleteComment,
-  fetchTaskTeamId,
-  fetchTeamMembers,
-  type Comment,
-} from "@/lib/api/comments"
-import type { TeamMember } from "@/lib/api/types"
+import type { Comment } from "@/lib/api/comments"
 
 interface CommentsThreadProps {
   taskId: string
@@ -65,71 +56,20 @@ function friendlyError(err: unknown, fallback: string): string {
 
 export function CommentsThread({ taskId }: CommentsThreadProps) {
   const { user } = useAuth()
-  const [comments, setComments] = useState<Comment[]>([])
-  const [loading, setLoading] = useState(true)
-  const [loadError, setLoadError] = useState<string | null>(null)
-  const [members, setMembers] = useState<TeamMember[]>([])
+  // Thread, task team and members from the query cache; `comment:*` events
+  // reach it through the SSE → cache bridge.
+  const thread = useTaskComments(taskId)
+  const { comments, members, loading } = thread
+  const [actionError, setActionError] = useState<{ taskId: string; message: string } | null>(null)
+  const loadError = (actionError?.taskId === taskId ? actionError.message : null) ??
+    (thread.loadError ? friendlyError(thread.loadError, "Failed to load comments") : null)
+  const setLoadError = useCallback((message: string) => setActionError({ taskId, message }), [taskId])
   const [body, setBody] = useState("")
   const [submitting, setSubmitting] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editDraft, setEditDraft] = useState("")
   const [mention, setMention] = useState<MentionState>(MENTION_CLOSED)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-
-  useEffect(() => {
-    let cancelled = false
-    setLoading(true)
-    setLoadError(null)
-    setComments([])
-    setMembers([])
-
-    ;(async () => {
-      try {
-        const [commentList, taskMeta] = await Promise.all([
-          fetchComments(taskId),
-          fetchTaskTeamId(taskId),
-        ])
-        if (cancelled) return
-        setComments(commentList.comments)
-        if (taskMeta.teamId) {
-          try {
-            const m = await fetchTeamMembers(taskMeta.teamId)
-            if (!cancelled) setMembers(m)
-          } catch {
-            if (!cancelled) setMembers([])
-          }
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setLoadError(friendlyError(err, "Failed to load comments"))
-        }
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
-    })()
-
-    return () => {
-      cancelled = true
-    }
-  }, [taskId])
-
-  useSSESubscription(useCallback((eventType, data) => {
-    const evt = eventType as string
-    const payload = data as unknown as {
-      taskId?: string
-      comment?: Comment
-      id?: string
-    }
-    if (payload.taskId !== taskId) return
-
-    if (evt === "comment:created" && payload.comment) {
-      setComments((prev) => (prev.some((c) => c.id === payload.comment!.id) ? prev : [...prev, payload.comment!]))
-    } else if (evt === "comment:updated" && payload.comment) {
-      setComments((prev) => prev.map((c) => (c.id === payload.comment!.id ? payload.comment! : c)))
-    } else if (evt === "comment:deleted" && payload.id) {
-      setComments((prev) => prev.filter((c) => c.id !== payload.id))
-    }
-  }, [taskId]))
 
   const memberCandidates = useMemo(() => {
     if (!mention.open) return []
@@ -224,8 +164,7 @@ export function CommentsThread({ taskId }: CommentsThreadProps) {
     if (!text || submitting) return
     setSubmitting(true)
     try {
-      const created = await createComment(taskId, text)
-      setComments((prev) => (prev.some((c) => c.id === created.id) ? prev : [...prev, created]))
+      await thread.createComment(text)
       setBody("")
       setMention(MENTION_CLOSED)
     } catch (err) {
@@ -249,21 +188,18 @@ export function CommentsThread({ taskId }: CommentsThreadProps) {
     const text = editDraft.trim()
     if (!text) return
     try {
-      const updated = await updateComment(id, text)
-      setComments((prev) => prev.map((c) => (c.id === id ? updated : c)))
+      await thread.updateComment({ id, body: text })
       cancelEdit()
     } catch (err) {
       setLoadError(friendlyError(err, "Failed to update comment"))
     }
   }
 
+  // Optimistic: the mutation removes the comment at once and restores it on failure.
   const remove = async (id: string) => {
-    const prev = comments
-    setComments((cs) => cs.filter((c) => c.id !== id))
     try {
-      await deleteComment(id)
+      await thread.deleteComment(id)
     } catch (err) {
-      setComments(prev)
       setLoadError(friendlyError(err, "Failed to delete comment"))
     }
   }
@@ -279,7 +215,7 @@ export function CommentsThread({ taskId }: CommentsThreadProps) {
       </h2>
 
       {loadError && (
-        <div className="mb-3 px-3 py-2 rounded-sm border border-red-500/30 bg-red-500/10 text-xs text-red-400">
+        <div className="mb-3 px-3 py-2 rounded-sm border border-danger/30 bg-danger/10 text-xs text-danger">
           {loadError}
         </div>
       )}
@@ -323,7 +259,7 @@ export function CommentsThread({ taskId }: CommentsThreadProps) {
                         </button>
                         <button
                           onClick={() => void remove(c.id)}
-                          className="p-1 rounded text-linear-text-tertiary hover:text-red-400 hover:bg-red-500/10"
+                          className="p-1 rounded text-linear-text-tertiary hover:text-danger hover:bg-danger/10"
                           aria-label="Delete comment"
                         >
                           <Trash2 className="w-3 h-3" />

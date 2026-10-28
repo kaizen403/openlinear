@@ -1,10 +1,13 @@
 "use client"
 
-import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from "react"
-import { fetchWorkspaces } from "@/lib/api/workspaces"
-import { useSSESubscription, type SSEEventData, type SSEEventType } from "@/providers/sse-provider"
+import { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef, type ReactNode } from "react"
+import { useQuery } from "@tanstack/react-query"
+import { useSSESubscription, type SSEEventData, type SSEEventMeta, type SSEEventType } from "@/providers/sse-provider"
 import { useAuth } from "@/hooks/use-auth"
 import type { Workspace } from "@/lib/api/types"
+import { workspacesQuery } from "@/lib/query/resources"
+import { applySseEventToCache } from "@/lib/query/sse-bridge"
+import { hasSseBridge, useAppQueryClient, useStandaloneBridgeState } from "@/lib/query/use-app-query-client"
 
 interface WorkspaceContextType {
   activeWorkspace: Workspace | null
@@ -17,88 +20,85 @@ interface WorkspaceContextType {
 const WorkspaceContext = createContext<WorkspaceContextType | undefined>(undefined)
 
 const STORAGE_KEY = "openlinear:activeWorkspaceId"
+const NO_WORKSPACES: Workspace[] = []
 
+type Selection = { kind: 'auto' } | { kind: 'id'; id: string } | { kind: 'none' }
+const AUTO: Selection = { kind: 'auto' }
+const NONE: Selection = { kind: 'none' }
+
+function pickSavedOrFirst(workspaces: Workspace[]): string | null {
+  const savedId = typeof window === 'undefined' ? null : localStorage.getItem(STORAGE_KEY)
+  return (savedId && workspaces.some((w) => w.id === savedId) ? savedId : workspaces[0]?.id) ?? null
+}
+
+/**
+ * Workspaces come from the query cache (`queryKeys.workspaces.list()`); the
+ * SSE bridge patches that list on `workspace:*` events. This provider keeps
+ * only the selection (persisted in localStorage) and its loading gate.
+ */
 export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const { isAuthenticated, isLoading: authLoading } = useAuth()
-  const [workspaces, setWorkspaces] = useState<Workspace[]>([])
-  const [activeWorkspace, setActiveWorkspaceState] = useState<Workspace | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
+  const client = useAppQueryClient()
+  const enabled = isAuthenticated && !authLoading
+  const { data, status } = useQuery({ ...workspacesQuery(), enabled }, client)
+  const workspaces = (enabled ? data : undefined) ?? NO_WORKSPACES
+  // Settled = loaded or failed. A failed load leaves no workspaces, as before.
+  const settled = enabled && status !== 'pending'
+  // `auto` follows the saved/first workspace once the list is in; it is derived
+  // during render so the list, the selection and `isLoading` land in one commit.
+  const [selection, setSelection] = useState<Selection>(AUTO)
+  const activeWorkspaceId =
+    selection.kind === 'id' ? selection.id
+      : selection.kind === 'none' || !settled ? null
+        : pickSavedOrFirst(workspaces)
+  const isLoading = authLoading ? false : !isAuthenticated ? true : !settled
 
-  const loadWorkspaces = useCallback(async () => {
-    try {
-      const data = await fetchWorkspaces()
-      setWorkspaces(data)
-      return data
-    } catch {
-      setWorkspaces([])
-      return []
-    }
-  }, [])
+  // Persist an automatic choice, as the old provider did.
+  useEffect(() => {
+    if (selection.kind !== 'auto' || !activeWorkspaceId) return
+    if (localStorage.getItem(STORAGE_KEY) !== activeWorkspaceId) localStorage.setItem(STORAGE_KEY, activeWorkspaceId)
+  }, [activeWorkspaceId, selection.kind])
 
   const setActiveWorkspace = useCallback((workspace: Workspace) => {
-    setActiveWorkspaceState(workspace)
+    setSelection({ kind: 'id', id: workspace.id })
     localStorage.setItem(STORAGE_KEY, workspace.id)
   }, [])
 
   const refreshWorkspaces = useCallback(async () => {
-    await loadWorkspaces()
-  }, [loadWorkspaces])
+    try {
+      await client.query({ ...workspacesQuery(), staleTime: 0 })
+    } catch {
+      // Keep what we have; the old provider swallowed refresh failures too.
+    }
+  }, [client])
 
-  useEffect(() => {
-    if (authLoading || !isAuthenticated) {
-      setIsLoading(!authLoading)
-      return
-    }
-    (async () => {
-      const data = await loadWorkspaces()
-      const savedId = localStorage.getItem(STORAGE_KEY)
-      if (savedId) {
-        const found = data.find((w) => w.id === savedId)
-        if (found) {
-          setActiveWorkspaceState(found)
-        } else if (data.length > 0) {
-          setActiveWorkspaceState(data[0])
-          localStorage.setItem(STORAGE_KEY, data[0].id)
-        }
-      } else if (data.length > 0) {
-        setActiveWorkspaceState(data[0])
-        localStorage.setItem(STORAGE_KEY, data[0].id)
-      }
-      setIsLoading(false)
-    })()
-  }, [authLoading, isAuthenticated, loadWorkspaces])
-
-  useSSESubscription(useCallback((eventType: SSEEventType, data: SSEEventData) => {
-    if (eventType === 'workspace:joined') {
-      const ws = data as unknown as Workspace
-      if (!ws?.id) return
-      setWorkspaces((prev) => (prev.some((w) => w.id === ws.id) ? prev.map((w) => (w.id === ws.id ? ws : w)) : [...prev, ws]))
-      return
-    }
-    if (eventType === 'workspace:updated') {
-      const ws = data as unknown as Workspace
-      if (!ws?.id) return
-      setWorkspaces((prev) => prev.map((w) => (w.id === ws.id ? { ...w, ...ws } : w)))
-      setActiveWorkspaceState((prev) => (prev?.id === ws.id ? { ...prev, ...ws } : prev))
-      return
-    }
+  const activeIdRef = useRef(activeWorkspaceId)
+  activeIdRef.current = activeWorkspaceId
+  const bridgeRef = useStandaloneBridgeState(client)
+  useSSESubscription(useCallback((eventType: SSEEventType, data: SSEEventData, meta: SSEEventMeta) => {
+    // The app's QuerySseBridge applies the event to the cache; a provider
+    // rendered without it (tests, isolated trees) applies it here.
+    if (!hasSseBridge(client)) applySseEventToCache(client, eventType, data, meta, bridgeRef())
     if (eventType === 'workspace:left' || eventType === 'workspace:deleted') {
-      const id = (data as { workspaceId?: string; id?: string }).workspaceId ?? (data as { id?: string }).id
+      const id = (data as { workspaceId?: string }).workspaceId ?? (data as { id?: string }).id
       if (!id) return
-      setWorkspaces((prev) => prev.filter((w) => w.id !== id))
-      setActiveWorkspaceState((prev) => {
-        if (prev?.id !== id) return prev
-        try { localStorage.removeItem(STORAGE_KEY) } catch {}
-        return null
-      })
+      if (activeIdRef.current !== id) return
+      setSelection(NONE)
+      try { localStorage.removeItem(STORAGE_KEY) } catch {}
     }
-  }, []))
+  }, [client, bridgeRef]))
 
-  return (
-    <WorkspaceContext.Provider value={{ activeWorkspace, workspaces, isLoading, setActiveWorkspace, refreshWorkspaces }}>
-      {children}
-    </WorkspaceContext.Provider>
+  const activeWorkspace = useMemo(
+    () => (activeWorkspaceId ? workspaces.find((w) => w.id === activeWorkspaceId) ?? null : null),
+    [activeWorkspaceId, workspaces],
   )
+
+  const value = useMemo(
+    () => ({ activeWorkspace, workspaces, isLoading, setActiveWorkspace, refreshWorkspaces }),
+    [activeWorkspace, workspaces, isLoading, setActiveWorkspace, refreshWorkspaces],
+  )
+
+  return <WorkspaceContext.Provider value={value}>{children}</WorkspaceContext.Provider>
 }
 
 export function useWorkspace() {

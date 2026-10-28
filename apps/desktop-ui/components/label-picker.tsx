@@ -13,14 +13,10 @@ import { Badge } from "@/components/ui/badge"
 import { Checkbox } from "@/components/ui/checkbox"
 import { cn } from "@/lib/utils"
 import { EmptyState } from "@/components/empty-state"
-import { apiFetch, ApiError } from "@/lib/api/fetch"
-
-interface Label {
-  id: string
-  name: string
-  color: string
-  priority: number
-}
+import { ApiError } from "@/lib/api/fetch"
+import { useProjectLabels } from "@/hooks/use-project-labels"
+import { getAppQueryClient } from "@/lib/query/app-client"
+import { queryKeys } from "@/lib/query/keys"
 
 interface LabelPickerProps {
   projectId: string
@@ -29,57 +25,31 @@ interface LabelPickerProps {
   triggerClassName?: string
 }
 
-const labelsCacheMap = new Map<string, Label[]>()
-
-async function loadLabels(projectId: string): Promise<Label[]> {
-  const cached = labelsCacheMap.get(projectId)
-  if (cached) return cached
-  const data = await apiFetch<Label[]>(`/api/labels?projectId=${projectId}`)
-  const sorted = [...data].sort((a, b) => a.priority - b.priority)
-  labelsCacheMap.set(projectId, sorted)
-  return sorted
+/** Kept for callers that change labels outside the picker; SSE `label:*` events also patch the cache. */
+export function invalidateLabelCache(projectId: string) {
+  void getAppQueryClient()?.invalidateQueries({ queryKey: queryKeys.projects.labels(projectId) })
 }
 
-export function invalidateLabelCache(projectId: string) {
-  labelsCacheMap.delete(projectId)
+function describeLabelError(err: unknown): string {
+  return err instanceof ApiError
+    ? err.message
+    : err instanceof Error
+      ? err.message
+      : 'Could not reach OpenLinear server.'
 }
 
 export function LabelPicker({ projectId, selectedIds, onChange, triggerClassName }: LabelPickerProps) {
-  const [labels, setLabels] = useState<Label[]>(labelsCacheMap.get(projectId) ?? [])
-  const [loading, setLoading] = useState(false)
   const [open, setOpen] = useState(false)
-  const [loadError, setLoadError] = useState<string | null>(null)
-
-  const fetchLabels = useCallback(async () => {
-    try {
-      setLoading(true)
-      setLoadError(null)
-      setLabels(await loadLabels(projectId))
-    } catch (err) {
-      const msg =
-        err instanceof ApiError
-          ? err.message
-          : err instanceof Error
-            ? err.message
-            : 'Could not reach OpenLinear server.'
-      setLoadError(msg)
-      toast.error(`Failed to load labels: ${msg}`)
-    } finally {
-      setLoading(false)
-    }
-  }, [projectId])
+  // Loaded the first time the picker opens, then served from the cache.
+  const { labels, loading, error, errorUpdatedAt, refetch } = useProjectLabels(projectId, { enabled: open })
+  const loadError = error ? describeLabelError(error) : null
 
   useEffect(() => {
-    if (open && !labelsCacheMap.has(projectId) && labels.length === 0 && !loading && !loadError) {
-      void fetchLabels()
-    }
-  }, [fetchLabels, labels.length, loadError, loading, open, projectId])
+    if (error) toast.error(`Failed to load labels: ${describeLabelError(error)}`)
+  }, [error, errorUpdatedAt])
 
-  useEffect(() => {
-    const cached = labelsCacheMap.get(projectId)
-    if (cached) setLabels(cached)
-    else setLabels([])
-  }, [projectId])
+  const fetchLabels = useCallback(() => { void refetch() }, [refetch])
+
 
   const toggleLabel = (labelId: string) => {
     if (selectedIds.includes(labelId)) {
@@ -135,7 +105,7 @@ export function LabelPicker({ projectId, selectedIds, onChange, triggerClassName
               </div>
             ) : loadError ? (
               <div className="p-3 flex flex-col items-center gap-2">
-                <div className="text-xs text-red-400 text-center">{loadError}</div>
+                <div className="text-xs text-danger text-center">{loadError}</div>
                 <Button
                   type="button"
                   size="sm"

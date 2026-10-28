@@ -46,10 +46,7 @@ export async function createTask(data: {
 }
 
 export async function executeTaskPublic(taskId: string): Promise<void> {
-  await apiFetch<void>(`/api/tasks/${taskId}/execute`, {
-    method: 'POST',
-    sidecar: true,
-  });
+  await apiFetch<void>(`/api/tasks/${taskId}/execute`, { method: 'POST' });
 }
 
 export async function fetchInboxTasks(): Promise<InboxTask[]> {
@@ -78,7 +75,7 @@ export async function refreshTaskPr(
 ): Promise<{ prUrl: string | null; refreshed: boolean; message?: string }> {
   return apiFetch<{ prUrl: string | null; refreshed: boolean; message?: string }>(
     `/api/tasks/${taskId}/refresh-pr`,
-    { method: 'POST', sidecar: true },
+    { method: 'POST' },
   );
 }
 

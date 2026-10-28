@@ -15,18 +15,9 @@ import {
 import { useAuth } from "@/hooks/use-auth"
 import { useWorkspace } from "@/hooks/use-workspace"
 import { useTeams } from "@/providers/teams-provider"
-import {
-  fetchWorkspaceMembers,
-  inviteWorkspaceMember,
-  updateWorkspaceMember,
-  removeWorkspaceMember,
-} from "@/lib/api/workspaces"
-import {
-  fetchTeam,
-  addTeamMember,
-  updateTeamMember,
-  removeTeamMember,
-} from "@/lib/api/teams"
+import { useTeamDetail } from "@/hooks/use-team-directory"
+import { useTeamMutations } from "@/hooks/use-team-mutations"
+import { useWorkspaceMemberAdmin } from "@/hooks/use-workspace-member-admin"
 import type { WorkspaceMember, TeamMember, WorkspaceRole } from "@/lib/api/types"
 
 import { Button } from "@/components/ui/button"
@@ -69,6 +60,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { EmptyState } from "@/components/empty-state"
 
 const WORKSPACE_ROLES: WorkspaceRole[] = ["owner", "admin", "member", "viewer"]
+const NO_TEAM_MEMBERS: TeamMember[] = []
 const TEAM_ROLES: Array<TeamMember["role"]> = ["owner", "admin", "member"]
 
 function getRoleBadgeColor(role: string) {
@@ -277,71 +269,41 @@ export default function MembersPage() {
   const [activeTab, setActiveTab] = useState("workspace")
   const [selectedTeamId, setSelectedTeamId] = useState<string>("")
 
-  const [workspaceMembers, setWorkspaceMembers] = useState<WorkspaceMember[]>([])
-  const [workspaceLoading, setWorkspaceLoading] = useState(false)
-  const [workspaceError, setWorkspaceError] = useState<string | null>(null)
+  // Workspace tab: the shared workspace-members entry (also the assignee options).
+  const workspaceAdmin = useWorkspaceMemberAdmin(activeWorkspace?.id, activeTab === "workspace")
+  const workspaceMembers = workspaceAdmin.members
+  const workspaceLoading = workspaceAdmin.isLoading
+  const workspaceError = workspaceAdmin.error
+    ? (workspaceAdmin.error instanceof Error ? workspaceAdmin.error.message : "Failed to load workspace members")
+    : null
 
-  const [teamMembers, setTeamMembers] = useState<TeamMember[]>([])
-  const [teamLoading, setTeamLoading] = useState(false)
-  const [teamError, setTeamError] = useState<string | null>(null)
+  // Teams tab: the full team (shared with the team settings page).
+  const teamDetail = useTeamDetail(activeTab === "teams" ? selectedTeamId : null)
+  const teamMembers = teamDetail.team?.members ?? NO_TEAM_MEMBERS
+  const teamLoading = activeTab === "teams" && Boolean(selectedTeamId) && teamDetail.isLoading
+  const teamError = teamDetail.error
+    ? (teamDetail.error instanceof Error ? teamDetail.error.message : "Failed to load team members")
+    : null
+  const { changeMemberRole, removeMember } = useTeamMutations()
 
-  const [isUpdating, setIsUpdating] = useState(false)
+  const isUpdating = workspaceAdmin.changeRole.isPending || changeMemberRole.isPending
 
   const [inviteOpen, setInviteOpen] = useState(false)
   const [inviteEmail, setInviteEmail] = useState("")
   const [inviteRole, setInviteRole] = useState<WorkspaceRole>("member")
-  const [inviteLoading, setInviteLoading] = useState(false)
+  const inviteLoading = workspaceAdmin.invite.isPending
 
   const [removeDialogOpen, setRemoveDialogOpen] = useState(false)
   const [removeTarget, setRemoveTarget] = useState<{ userId: string; name: string } | null>(null)
-  const [removeLoading, setRemoveLoading] = useState(false)
+  const removeLoading = workspaceAdmin.remove.isPending || removeMember.isPending
 
-  const loadWorkspaceMembers = useCallback(async () => {
-    if (!activeWorkspace?.id) return
-    setWorkspaceLoading(true)
-    setWorkspaceError(null)
-    try {
-      const data = await fetchWorkspaceMembers(activeWorkspace.id)
-      setWorkspaceMembers(data)
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to load workspace members"
-      setWorkspaceError(message)
-      toast.error(message)
-    } finally {
-      setWorkspaceLoading(false)
-    }
-  }, [activeWorkspace?.id])
-
-  const loadTeamMembers = useCallback(async () => {
-    if (!selectedTeamId) {
-      setTeamMembers([])
-      return
-    }
-    setTeamLoading(true)
-    setTeamError(null)
-    try {
-      const team = await fetchTeam(selectedTeamId)
-      setTeamMembers(team.members ?? [])
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to load team members"
-      setTeamError(message)
-      toast.error(message)
-    } finally {
-      setTeamLoading(false)
-    }
-  }, [selectedTeamId])
-
+  // One toast per failed load, as before.
   useEffect(() => {
-    if (activeTab === "workspace") {
-      void loadWorkspaceMembers()
-    }
-  }, [activeTab, loadWorkspaceMembers])
-
+    if (workspaceError) toast.error(workspaceError)
+  }, [workspaceError, workspaceAdmin.errorUpdatedAt])
   useEffect(() => {
-    if (activeTab === "teams") {
-      void loadTeamMembers()
-    }
-  }, [activeTab, loadTeamMembers])
+    if (teamError && activeTab === "teams") toast.error(teamError)
+  }, [teamError, teamDetail.errorUpdatedAt, activeTab])
 
   useEffect(() => {
     if (teams.length > 0 && !selectedTeamId) {
@@ -349,84 +311,71 @@ export default function MembersPage() {
     }
   }, [teams, selectedTeamId])
 
+  const workspaceId = activeWorkspace?.id
+  const changeWorkspaceRole = workspaceAdmin.changeRole.mutateAsync
   const handleWorkspaceRoleChange = useCallback(
     async (userId: string, role: string) => {
-      if (!activeWorkspace?.id) return
-      setIsUpdating(true)
+      if (!workspaceId) return
       try {
-        await updateWorkspaceMember(activeWorkspace.id, userId, { role: role as WorkspaceRole })
-        setWorkspaceMembers((prev) =>
-          prev.map((m) => (m.userId === userId ? { ...m, role: role as WorkspaceRole } : m))
-        )
+        await changeWorkspaceRole({ workspaceId, userId, role: role as WorkspaceRole })
         toast.success("Role updated")
       } catch (err) {
         const message = err instanceof Error ? err.message : "Failed to update role"
         toast.error(message)
-      } finally {
-        setIsUpdating(false)
       }
     },
-    [activeWorkspace?.id]
+    [workspaceId, changeWorkspaceRole]
   )
 
+  const changeTeamRole = changeMemberRole.mutateAsync
   const handleTeamRoleChange = useCallback(
     async (userId: string, role: string) => {
       if (!selectedTeamId) return
-      setIsUpdating(true)
       try {
-        await updateTeamMember(selectedTeamId, userId, { role: role as TeamMember["role"] })
-        setTeamMembers((prev) =>
-          prev.map((m) => (m.userId === userId ? { ...m, role: role as TeamMember["role"] } : m))
-        )
+        await changeTeamRole({ teamId: selectedTeamId, userId, role: role as TeamMember["role"] })
         toast.success("Role updated")
       } catch (err) {
         const message = err instanceof Error ? err.message : "Failed to update role"
         toast.error(message)
-      } finally {
-        setIsUpdating(false)
       }
     },
-    [selectedTeamId]
+    [selectedTeamId, changeTeamRole]
   )
 
+  const removeFromWorkspace = workspaceAdmin.remove.mutateAsync
   const handleRemoveWorkspaceMember = useCallback(
     async (userId: string) => {
-      if (!activeWorkspace?.id) return
-      setRemoveLoading(true)
+      if (!workspaceId) return
       try {
-        await removeWorkspaceMember(activeWorkspace.id, userId)
-        setWorkspaceMembers((prev) => prev.filter((m) => m.userId !== userId))
+        await removeFromWorkspace({ workspaceId, userId })
         toast.success("Member removed")
       } catch (err) {
         const message = err instanceof Error ? err.message : "Failed to remove member"
         toast.error(message)
       } finally {
-        setRemoveLoading(false)
         setRemoveDialogOpen(false)
         setRemoveTarget(null)
       }
     },
-    [activeWorkspace?.id]
+    [workspaceId, removeFromWorkspace]
   )
 
+  const removeFromTeam = removeMember.mutateAsync
   const handleRemoveTeamMember = useCallback(
     async (userId: string) => {
       if (!selectedTeamId) return
-      setRemoveLoading(true)
       try {
-        await removeTeamMember(selectedTeamId, userId)
-        setTeamMembers((prev) => prev.filter((m) => m.userId !== userId))
+        await removeFromTeam({ teamId: selectedTeamId, userId })
         toast.success("Member removed")
       } catch (err) {
         const message = err instanceof Error ? err.message : "Failed to remove member"
         toast.error(message)
       } finally {
-        setRemoveLoading(false)
         setRemoveDialogOpen(false)
         setRemoveTarget(null)
       }
     },
-    [selectedTeamId]
+    [selectedTeamId, removeFromTeam]
   )
 
   const openRemoveDialog = useCallback((userId: string, name: string) => {
@@ -434,26 +383,20 @@ export default function MembersPage() {
     setRemoveDialogOpen(true)
   }, [])
 
+  const inviteMember = workspaceAdmin.invite.mutateAsync
   const handleInvite = useCallback(async () => {
-    if (!activeWorkspace?.id || !inviteEmail.trim()) return
-    setInviteLoading(true)
+    if (!workspaceId || !inviteEmail.trim()) return
     try {
-      await inviteWorkspaceMember(activeWorkspace.id, {
-        username: inviteEmail.trim(),
-        role: inviteRole,
-      })
+      await inviteMember({ workspaceId, username: inviteEmail.trim(), role: inviteRole })
       toast.success("Invitation sent")
       setInviteOpen(false)
       setInviteEmail("")
       setInviteRole("member")
-      void loadWorkspaceMembers()
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to send invitation"
       toast.error(message)
-    } finally {
-      setInviteLoading(false)
     }
-  }, [activeWorkspace?.id, inviteEmail, inviteRole, loadWorkspaceMembers])
+  }, [workspaceId, inviteEmail, inviteRole, inviteMember])
 
   const handleRemoveConfirm = useCallback(() => {
     if (!removeTarget) return

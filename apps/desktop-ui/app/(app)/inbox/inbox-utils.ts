@@ -1,32 +1,11 @@
-export type NotificationType = 'mention' | 'assignment' | 'status_change' | 'comment'
-
-export interface NotificationActor {
-  id: string
-  username: string
-  avatarUrl: string | null
-}
-
-export interface AppNotification {
-  id: string
-  userId: string
-  type: NotificationType
-  taskId: string | null
-  commentId: string | null
-  actorUserId: string | null
-  actor?: NotificationActor | null
-  body: string
-  readAt: string | null
-  createdAt: string
-}
-
-export interface NotificationsListResponse {
-  items: AppNotification[]
-  page: number
-  pageSize: number
-  total: number
-  hasMore: boolean
-  unreadCount: number
-}
+// The notification shapes live with their query (lib/query/notifications.ts).
+export type {
+  AppNotification,
+  NotificationActor,
+  NotificationsListResponse,
+  NotificationType,
+} from "@/lib/query/notifications"
+import type { NotificationType } from "@/lib/query/notifications"
 
 export type FilterChip = 'all' | 'mention' | 'assignment' | 'status_change'
 
@@ -76,8 +55,8 @@ export const TYPE_META: Record<NotificationType, {
 }> = {
   mention: {
     label: '@mention',
-    color: 'text-amber-400',
-    bg: 'bg-amber-400/10',
+    color: 'text-warning',
+    bg: 'bg-warning/10',
   },
   assignment: {
     label: 'Assigned',
@@ -86,13 +65,13 @@ export const TYPE_META: Record<NotificationType, {
   },
   status_change: {
     label: 'Status',
-    color: 'text-violet-400',
-    bg: 'bg-violet-400/10',
+    color: 'text-discovery',
+    bg: 'bg-discovery/10',
   },
   comment: {
     label: 'Comment',
-    color: 'text-emerald-400',
-    bg: 'bg-emerald-400/10',
+    color: 'text-success',
+    bg: 'bg-success/10',
   },
 }
 

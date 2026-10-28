@@ -296,11 +296,11 @@ export function PersonalAccessTokensSection() {
                     <div className="flex flex-wrap items-center gap-2">
                       <p className="truncate text-sm font-medium text-linear-text">{token.name}</p>
                       {token.revokedAt ? (
-                        <Badge variant="outline" className="border-red-500/30 text-red-400">
+                        <Badge variant="outline" className="border-danger/30 text-danger">
                           Revoked
                         </Badge>
                       ) : (
-                        <Badge variant="outline" className="border-emerald-500/30 text-emerald-400">
+                        <Badge variant="outline" className="border-success/30 text-success">
                           Active
                         </Badge>
                       )}
@@ -359,7 +359,7 @@ export function PersonalAccessTokensSection() {
           </DialogHeader>
           {createdToken && (
             <div className="space-y-3">
-              <div className="flex items-start gap-2 rounded-sm border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-200">
+              <div className="flex items-start gap-2 rounded-sm border border-warning/30 bg-warning/10 p-3 text-sm text-warning">
                 <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" />
                 <p>Store it in your MCP client now. OpenLinear only keeps the hash.</p>
               </div>
@@ -397,7 +397,7 @@ export function PersonalAccessTokensSection() {
             </AlertDialogCancel>
             <AlertDialogAction
               onClick={() => void handleRevoke()}
-              className="bg-red-600 text-white hover:bg-red-700"
+              className="bg-destructive text-destructive-foreground hover:bg-destructive-hover"
             >
               Revoke
             </AlertDialogAction>

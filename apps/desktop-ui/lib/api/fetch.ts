@@ -1,11 +1,19 @@
-import { getApiUrl, getSidecarApiUrl, getAuthHeader, getAuthToken } from './client';
-import { getRefreshToken, setRefreshToken, setToken } from './token-store';
+import { getAuthHeader, getAuthToken, getCloudApiUrl, resolveApiBaseUrl } from './client';
+import { resolveApiTarget, type ApiTarget } from './routes';
+import { isDesktopRuntime } from './runtime';
+import {
+  clearStoredSession,
+  getRefreshToken,
+  initTokenStore,
+  setRefreshToken,
+  setToken,
+} from './token-store';
 
 /**
  * Server error envelope shape — backend returns `{ error, code?, message?, details? }` on non-2xx.
  */
 interface ServerErrorEnvelope {
-  error?: string;
+  error?: string | { code?: string; message?: string };
   code?: string;
   message?: string;
   details?: unknown;
@@ -52,42 +60,70 @@ export class NetworkError extends Error {
 }
 
 export interface ApiFetchInit extends Omit<RequestInit, 'headers'> {
-  /** Use the sidecar URL instead of the cloud URL. */
+  /**
+   * @deprecated Ignored: `routes.ts` decides which backend serves a path.
+   * Kept so existing call sites compile; in development a value that
+   * contradicts the route table is reported once per path.
+   */
   sidecar?: boolean;
   /** Custom headers — merged with auth + content-type. */
   headers?: HeadersInit;
   /** Skip throwing on 401 (rare — used by initial bootstrap to silently no-op). */
   allowUnauthenticated?: boolean;
+  /**
+   * Send this bearer token instead of the stored one (e.g. to verify a token
+   * before adopting it). No refresh, no `auth:expired`, nothing is stored.
+   */
+  authToken?: string;
+  /**
+   * Public endpoint (sign-in, provider discovery): send no bearer token at all,
+   * never refresh, never dispatch `auth:expired`.
+   */
+  anonymous?: boolean;
 }
 
-let authExpiredFired = false;
-let refreshInFlight: Promise<boolean> | null = null
+const REFRESH_PATH = '/api/auth/refresh';
 
-async function tryRefreshAccessToken(): Promise<boolean> {
-  const refreshToken = getRefreshToken()
-  if (!refreshToken) return false
+let authExpiredFired = false;
+let refreshInFlight: Promise<boolean> | null = null;
+
+/**
+ * Trade the refresh credential for a new access token at the cloud API (the
+ * only issuer — never the sidecar). Desktop sends the refresh token from its
+ * store; the web relies on the HttpOnly `ol_refresh` cookie. Concurrent
+ * callers share one request.
+ */
+export function refreshAccessToken(): Promise<boolean> {
   if (!refreshInFlight) {
     refreshInFlight = (async () => {
       try {
-        const res = await fetch(`${getApiUrl()}/api/auth/refresh`, {
+        await initTokenStore();
+        const desktop = isDesktopRuntime();
+        const refreshToken = getRefreshToken();
+        if (desktop && !refreshToken) return false;
+        const res = await fetch(`${getCloudApiUrl()}${REFRESH_PATH}`, {
           method: 'POST',
+          credentials: desktop ? 'omit' : 'include',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ refreshToken }),
-        })
-        if (!res.ok) return false
-        const body = (await res.json()) as { token?: string; refreshToken?: string }
-        if (!body.token) return false
-        setToken(body.token)
-        if (body.refreshToken) setRefreshToken(body.refreshToken)
-        return true
+          body: JSON.stringify(desktop ? { refreshToken } : {}),
+        });
+        if (!res.ok) {
+          if (res.status === 401 && desktop) setRefreshToken(null);
+          return false;
+        }
+        const body = (await res.json()) as { token?: string; refreshToken?: string };
+        if (!body.token) return false;
+        setToken(body.token);
+        if (desktop && body.refreshToken) setRefreshToken(body.refreshToken);
+        return true;
       } catch {
-        return false
+        return false;
       } finally {
-        refreshInFlight = null
+        refreshInFlight = null;
       }
-    })()
+    })();
   }
-  return refreshInFlight
+  return refreshInFlight;
 }
 
 function getBearerToken(headers: Headers): string | null {
@@ -105,7 +141,7 @@ function fireAuthExpired(tokenUsedForRequest: string | null) {
       return;
     }
     authExpiredFired = true;
-    setToken(null);
+    clearStoredSession();
     window.dispatchEvent(new CustomEvent('auth:expired'));
     // Reset the latch on next tick so subsequent sessions can re-trigger
     window.setTimeout(() => {
@@ -114,33 +150,36 @@ function fireAuthExpired(tokenUsedForRequest: string | null) {
   }
 }
 
-/**
- * Single seam for all HTTP calls from the desktop UI.
- *
- * - Resolves base URL lazily (cloud vs sidecar) — never at module load
- * - Auto-attaches Authorization + x-openlinear-client headers
- * - On 401: clears the same token used for the request, dispatches `auth:expired`, throws AuthExpiredError
- * - On other non-2xx: parses `{ error, code, details }` envelope, throws ApiError
- * - On network failure: throws NetworkError
- *
- * @param path - Path beginning with `/` (e.g. `/api/tasks`)
- * @param init - Standard RequestInit + `{ sidecar?: true }` to target the sidecar
- */
-export async function apiFetch<T = unknown>(
-  path: string,
-  init: ApiFetchInit = {},
-): Promise<T> {
-  const { sidecar = false, allowUnauthenticated = false, headers: customHeaders, body, ...rest } = init;
+const reportedFlagMismatches = new Set<string>();
 
-  const baseUrl = sidecar ? getSidecarApiUrl() : getApiUrl();
-  const url = path.startsWith('http') ? path : `${baseUrl}${path}`;
+function reportSidecarFlagMismatch(path: string, flag: boolean | undefined, target: ApiTarget) {
+  if (flag === undefined || (flag ? 'sidecar' : 'cloud') === target) return;
+  if (process.env.NODE_ENV === 'production') return;
+  const key = `${path}:${target}`;
+  if (reportedFlagMismatches.has(key)) return;
+  reportedFlagMismatches.add(key);
+  console.warn(
+    `[apiFetch] ${path} passed sidecar: ${String(flag)}, but routes.ts sends it to the ${target}. The route table wins; fix the call site or the table.`,
+  );
+}
 
-  const headers = buildHeaders(customHeaders, body);
-  const tokenUsedForRequest = getBearerToken(headers);
+interface ResolvedRequest {
+  url: string;
+  target: ApiTarget;
+}
 
-  let response: Response;
+async function resolveRequest(path: string, flag: boolean | undefined): Promise<ResolvedRequest> {
+  if (/^https?:\/\//i.test(path)) {
+    return { url: path, target: 'cloud' };
+  }
+  const target = resolveApiTarget(path);
+  reportSidecarFlagMismatch(path, flag, target);
+  return { url: `${await resolveApiBaseUrl(target)}${path}`, target };
+}
+
+async function send(url: string, init: RequestInit): Promise<Response> {
   try {
-    response = await fetch(url, { ...rest, headers, body });
+    return await fetch(url, init);
   } catch (err) {
     if (err instanceof DOMException && err.name === 'AbortError') {
       throw err;
@@ -151,30 +190,102 @@ export async function apiFetch<T = unknown>(
         : 'Could not reach OpenLinear server',
     );
   }
+}
 
-  if (response.status === 401 && !allowUnauthenticated && path !== '/api/auth/refresh') {
-    const refreshed = await tryRefreshAccessToken();
+async function readErrorEnvelope(response: Response): Promise<{ message?: string; code?: string; details?: unknown }> {
+  try {
+    const envelope = (await response.json()) as ServerErrorEnvelope;
+    const nested = typeof envelope.error === 'object' && envelope.error !== null ? envelope.error : undefined;
+    return {
+      message: envelope.message || (typeof envelope.error === 'string' ? envelope.error : nested?.message),
+      code: envelope.code ?? nested?.code,
+      details: envelope.details,
+    };
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Routing, auth headers, refresh-and-retry on 401, and error mapping shared by
+ * `apiFetch` and `apiFetchRaw`. Returns only 2xx responses.
+ */
+async function performRequest(path: string, init: ApiFetchInit): Promise<Response> {
+  const {
+    sidecar,
+    allowUnauthenticated = false,
+    authToken,
+    anonymous = false,
+    headers: customHeaders,
+    body,
+    ...rest
+  } = init;
+
+  const { url, target } = await resolveRequest(path, sidecar);
+  const auth: AuthMode = anonymous ? { kind: 'none' } : authToken !== undefined ? { kind: 'explicit', token: authToken } : { kind: 'session' };
+  // Only the stored session is refreshed or expired by this seam.
+  const managedSession = auth.kind === 'session';
+
+  let headers = buildHeaders(customHeaders, body, auth);
+  let tokenUsedForRequest = getBearerToken(headers);
+  let response = await send(url, { ...rest, headers, body });
+
+  const isRefreshCall = path === REFRESH_PATH || url.endsWith(REFRESH_PATH);
+  if (response.status === 401 && managedSession && tokenUsedForRequest && !isRefreshCall) {
+    // Another request may have refreshed while this one was in flight.
+    const latest = getAuthToken();
+    const refreshed = (latest !== null && latest !== tokenUsedForRequest) || (await refreshAccessToken());
     if (refreshed) {
-      const retryHeaders = buildHeaders(customHeaders, body);
-      response = await fetch(url, { ...rest, headers: retryHeaders, body });
+      headers = buildHeaders(customHeaders, body, auth);
+      tokenUsedForRequest = getBearerToken(headers);
+      response = await send(url, { ...rest, headers, body });
     }
   }
 
-  if (response.status === 401 && !allowUnauthenticated) {
+  if (response.status === 401 && !allowUnauthenticated && managedSession) {
+    const envelope = await readErrorEnvelope(response.clone());
+    if (target === 'sidecar') {
+      // The cloud API owns the session. A sidecar that still refuses a token
+      // the cloud just accepted (or could not refresh) is a local problem;
+      // it must not sign the user out.
+      throw new ApiError(401, envelope.message || 'The local execution server rejected the request', envelope.code, envelope.details);
+    }
     fireAuthExpired(tokenUsedForRequest);
-    const envelope = await readErrorEnvelope(response);
-    throw new AuthExpiredError(envelope.message || envelope.error || 'Session expired');
+    throw new AuthExpiredError(envelope.message || 'Session expired');
   }
 
   if (!response.ok) {
-    const envelope = await readErrorEnvelope(response);
+    const envelope = await readErrorEnvelope(response.clone());
     throw new ApiError(
       response.status,
-      envelope.message || envelope.error || `Request failed with status ${response.status}`,
+      envelope.message || `Request failed with status ${response.status}`,
       envelope.code,
       envelope.details,
     );
   }
+
+  return response;
+}
+
+/**
+ * Single seam for all HTTP calls from the desktop UI.
+ *
+ * - Routes the path to the cloud API or the local sidecar via `routes.ts`;
+ *   base URLs resolve lazily, never at module load
+ * - Auto-attaches Authorization + x-openlinear-client headers
+ * - On 401: refreshes the access token at the cloud API once and retries;
+ *   if that fails, clears the session used for the request, dispatches
+ *   `auth:expired`, throws AuthExpiredError (cloud routes only)
+ * - On other non-2xx: parses `{ error, code, details }` envelope, throws ApiError
+ * - On network failure: throws NetworkError
+ *
+ * @param path - Path beginning with `/` (e.g. `/api/tasks`)
+ */
+export async function apiFetch<T = unknown>(
+  path: string,
+  init: ApiFetchInit = {},
+): Promise<T> {
+  const response = await performRequest(path, init);
 
   if (response.status === 204) {
     return undefined as T;
@@ -194,71 +305,39 @@ export async function apiFetch<T = unknown>(
   }
 }
 
-async function readErrorEnvelope(response: Response): Promise<ServerErrorEnvelope> {
-  try {
-    return (await response.json()) as ServerErrorEnvelope;
-  } catch {
-    return {};
-  }
-}
-
 /**
  * Variant that returns the raw Response — used for streaming endpoints (SSE, NDJSON)
- * where the caller wants to read the body manually. Still applies auth + 401 handling
- * and throws NetworkError on connection failure.
+ * where the caller wants to read the body manually. Same routing, auth, refresh
+ * and error handling as `apiFetch`.
  */
 export async function apiFetchRaw(
   path: string,
   init: ApiFetchInit = {},
 ): Promise<Response> {
-  const { sidecar = false, allowUnauthenticated = false, headers: customHeaders, body, ...rest } = init;
-
-  const baseUrl = sidecar ? getSidecarApiUrl() : getApiUrl();
-  const url = path.startsWith('http') ? path : `${baseUrl}${path}`;
-
-  const headers = buildHeaders(customHeaders, body);
-  const tokenUsedForRequest = getBearerToken(headers);
-
-  let response: Response;
-  try {
-    response = await fetch(url, { ...rest, headers, body });
-  } catch (err) {
-    if (err instanceof DOMException && err.name === 'AbortError') {
-      throw err;
-    }
-    throw new NetworkError(
-      err instanceof Error && err.message
-        ? `Could not reach OpenLinear server: ${err.message}`
-        : 'Could not reach OpenLinear server',
-    );
-  }
-
-  if (response.status === 401 && !allowUnauthenticated) {
-    fireAuthExpired(tokenUsedForRequest);
-    const envelope = await readErrorEnvelope(response.clone());
-    throw new AuthExpiredError(envelope.message || envelope.error || 'Session expired');
-  }
-
-  if (!response.ok) {
-    const envelope = await readErrorEnvelope(response.clone());
-    throw new ApiError(
-      response.status,
-      envelope.message || envelope.error || `Request failed with status ${response.status}`,
-      envelope.code,
-      envelope.details,
-    );
-  }
-
-  return response;
+  return performRequest(path, init);
 }
 
-function buildHeaders(customHeaders: HeadersInit | undefined, body: BodyInit | null | undefined): Headers {
+type AuthMode =
+  | { kind: 'session' }
+  | { kind: 'explicit'; token: string }
+  | { kind: 'none' };
+
+function buildHeaders(
+  customHeaders: HeadersInit | undefined,
+  body: BodyInit | null | undefined,
+  auth: AuthMode,
+): Headers {
   const headers = new Headers(customHeaders);
   const authHeaders = getAuthHeader();
   for (const [key, value] of Object.entries(authHeaders)) {
     if (typeof value === 'string') {
       headers.set(key, value);
     }
+  }
+  if (auth.kind === 'explicit') {
+    headers.set('Authorization', `Bearer ${auth.token}`);
+  } else if (auth.kind === 'none') {
+    headers.delete('Authorization');
   }
   if (body !== undefined && body !== null && !headers.has('Content-Type')) {
     const isJsonable =

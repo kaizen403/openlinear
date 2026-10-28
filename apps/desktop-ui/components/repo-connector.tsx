@@ -147,7 +147,7 @@ export function RepoConnector({ onRepoConnected, onRepoDisconnected }: RepoConne
         <X className="w-4 h-4" />
       </button>
       {error && (
-        <span className="text-xs text-red-400">{error}</span>
+        <span className="text-xs text-danger">{error}</span>
       )}
     </div>
   );

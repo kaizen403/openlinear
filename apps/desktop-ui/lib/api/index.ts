@@ -25,16 +25,25 @@ export { apiFetch, apiFetchRaw, ApiError, AuthExpiredError, NetworkError } from 
 export type { ApiFetchInit } from './fetch';
 
 export {
-  extractCallbackToken,
+  completeDesktopLogin,
+  completeTwoFactorLogin,
+  DesktopLoginError,
+  fetchAuthProviders,
   fetchCurrentUser,
   getLoginUrl,
-  GITHUB_OAUTH_AVAILABLE,
   GITHUB_OAUTH_UNAVAILABLE_MESSAGE,
+  parseDesktopCallbackUrl,
+  startDesktopLogin,
   startLogin,
   logout,
   updateEmail,
   verifyCallbackToken,
 } from './auth';
+export type { AuthProviders, DesktopCallback, DesktopLoginFailure, DesktopLoginResult } from './auth';
+
+export { getCloudApiUrl, getSidecarApiUrl, isDesktopRuntime } from './client';
+export { resolveApiTarget, SIDECAR_ROUTES } from './routes';
+export type { ApiTarget } from './routes';
 
 export { fetchUserRepositories, fetchGitHubRepos, fetchGitHubBranches, importRepo, activateRepository, getActiveRepository, setActiveRepositoryBaseBranch, addRepoByUrl, getActivePublicRepository, activatePublicRepository } from './repos';
 

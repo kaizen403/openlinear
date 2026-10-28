@@ -2,18 +2,19 @@ import * as React from "react"
 import { cva, type VariantProps } from "class-variance-authority"
 
 import { cn } from "@/lib/utils"
+import { focusRing } from "@/components/ui/focus-ring"
 
 const badgeVariants = cva(
-  "inline-flex items-center rounded-sm border px-1.5 py-0.5 text-xs font-medium transition-colors",
+  ["inline-flex items-center rounded-sm border px-1.5 py-0.5 text-xs font-medium transition-colors", focusRing],
   {
     variants: {
       variant: {
         default:
-          "border-transparent bg-linear-accent text-white hover:bg-linear-accent-hover",
+          "border-transparent bg-primary text-primary-foreground hover:bg-primary-hover",
         secondary:
           "border-transparent bg-secondary text-secondary-foreground hover:bg-secondary/80",
         destructive:
-          "border-transparent bg-destructive text-destructive-foreground hover:bg-destructive/80",
+          "border-transparent bg-destructive text-destructive-foreground hover:bg-destructive-pressed",
         outline: "text-foreground",
       },
     },

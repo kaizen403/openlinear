@@ -4,6 +4,7 @@ import { useState, useMemo } from "react"
 import { Check, UserCircle, UserPlus } from "lucide-react"
 
 import { cn } from "@/lib/utils"
+import { focusRing } from "@/components/ui/focus-ring"
 import {
   Popover,
   PopoverContent,
@@ -92,6 +93,7 @@ export function AssigneePicker({
           type="button"
           className={cn(
             "h-7 inline-flex items-center gap-1.5 px-2.5 text-xs rounded-sm bg-transparent border-none hover:bg-linear-bg-tertiary text-linear-text-secondary cursor-pointer outline-none",
+            focusRing,
             className
           )}
         >

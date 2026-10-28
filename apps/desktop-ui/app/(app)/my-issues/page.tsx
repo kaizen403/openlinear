@@ -1,31 +1,29 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
 import {
   Layers, Clock, GitPullRequest, ExternalLink,
   Circle, Timer, CheckCircle2, XCircle
 } from "lucide-react"
 import { cn, openExternal } from "@/lib/utils"
 import { formatDuration } from "@/types/task"
-import { fetchMyIssues, type MyIssueTask } from "@/lib/api"
-import { useSSESubscription } from "@/providers/sse-provider"
-import type { SSEEventType, SSEEventData } from "@/providers/sse-provider"
+import type { MyIssueTask } from "@/lib/api"
+import { useMyIssues } from "@/hooks/use-issue-lists"
 import { EmptyState } from "@/components/empty-state"
 import { Skeleton } from "@/components/ui/skeleton"
 
 type StatusGroup = 'in_progress' | 'todo' | 'done' | 'cancelled'
 
 const statusConfig: Record<StatusGroup, { label: string; icon: typeof Circle; iconClass: string }> = {
-  in_progress: { label: "In Progress", icon: Timer, iconClass: "text-yellow-400" },
+  in_progress: { label: "In Progress", icon: Timer, iconClass: "text-warning" },
   todo: { label: "Todo", icon: Circle, iconClass: "text-linear-text-tertiary" },
-  done: { label: "Done", icon: CheckCircle2, iconClass: "text-emerald-400" },
-  cancelled: { label: "Cancelled", icon: XCircle, iconClass: "text-red-400" },
+  done: { label: "Done", icon: CheckCircle2, iconClass: "text-success" },
+  cancelled: { label: "Cancelled", icon: XCircle, iconClass: "text-danger" },
 }
 
 const priorityDots: Record<string, string> = {
-  low: "bg-emerald-700",
-  medium: "bg-yellow-700",
-  high: "bg-red-700",
+  low: "bg-success",
+  medium: "bg-warning",
+  high: "bg-danger",
 }
 
 function timeAgo(dateStr: string): string {
@@ -41,7 +39,7 @@ function timeAgo(dateStr: string): string {
 
 function TaskRow({ task }: { task: MyIssueTask }) {
   return (
-    <div className="flex items-start sm:items-center gap-3 px-4 py-3 hover:bg-white/[0.03] transition-colors group flex-wrap">
+    <div className="flex items-start sm:items-center gap-3 px-4 py-3 hover:bg-layer-hover transition-colors group flex-wrap">
       <div className={cn("w-2 h-2 rounded-full flex-shrink-0", priorityDots[task.priority])} />
 
       <div className="flex-1 min-w-0 w-full sm:w-auto">
@@ -78,7 +76,7 @@ function TaskRow({ task }: { task: MyIssueTask }) {
               {task.labels.map(label => (
                 <span
                   key={label.id}
-                  className="text-[10px] px-1.5 py-0.5 rounded border border-white/10"
+                  className="text-[10px] px-1.5 py-0.5 rounded border border-layer-outline"
                   style={{ backgroundColor: `${label.color}20`, color: label.color }}
                 >
                   {label.name}
@@ -99,7 +97,7 @@ function TaskRow({ task }: { task: MyIssueTask }) {
       {task.prUrl && (
         <button
           onClick={(e) => { e.stopPropagation(); openExternal(task.prUrl!) }}
-          className="flex items-center gap-1 text-[11px] text-purple-400 hover:text-purple-300 font-medium transition-colors flex-shrink-0"
+          className="flex items-center gap-1 text-[11px] text-discovery hover:text-linear-text font-medium transition-colors flex-shrink-0"
         >
           <GitPullRequest className="w-3 h-3" />
           PR
@@ -115,31 +113,8 @@ function TaskRow({ task }: { task: MyIssueTask }) {
 }
 
 export default function MyIssuesPage() {
-  const [tasks, setTasks] = useState<MyIssueTask[]>([])
-  const [loading, setLoading] = useState(true)
-
-  const loadData = useCallback(async () => {
-    try {
-      const data = await fetchMyIssues()
-      setTasks(data)
-    } catch (err) {
-      console.error("Failed to load my issues:", err)
-    } finally {
-      setLoading(false)
-    }
-  }, [])
-
-  useEffect(() => {
-    loadData()
-  }, [loadData])
-
-  const handleSSEEvent = useCallback((eventType: SSEEventType, _data: SSEEventData) => {
-    if (eventType === 'task:updated' || eventType === 'task:created') {
-      loadData()
-    }
-  }, [loadData])
-
-  useSSESubscription(handleSSEEvent)
+  // Cached list kept live by the SSE → cache bridge (no refetch per event).
+  const { tasks, loading } = useMyIssues()
 
   const grouped = (['in_progress', 'todo', 'done', 'cancelled'] as StatusGroup[]).map(status => ({
     status,
@@ -168,11 +143,11 @@ export default function MyIssuesPage() {
           <div>
             {Array.from({ length: 2 }).map((_, gi) => (
               <div key={gi}>
-                <div className="flex items-center gap-2 px-4 py-2 bg-white/[0.015] border-b border-linear-border">
+                <div className="flex items-center gap-2 px-4 py-2 bg-layer-faint border-b border-linear-border">
                   <Skeleton className="w-3.5 h-3.5 rounded" />
                   <Skeleton className="h-3 w-20 rounded" />
                 </div>
-                <div className="divide-y divide-white/[0.04]">
+                <div className="divide-y divide-layer-divider">
                   {Array.from({ length: 3 }).map((_, ri) => (
                     <div key={ri} className="flex items-center gap-3 px-4 py-3">
                       <Skeleton className="w-2 h-2 rounded-full" />
@@ -200,7 +175,7 @@ export default function MyIssuesPage() {
               const StatusIcon = config.icon
               return (
                 <div key={status}>
-                  <div className="flex items-center gap-2 px-4 py-2 bg-white/[0.015] border-b border-linear-border sticky top-0 z-10">
+                  <div className="flex items-center gap-2 px-4 py-2 bg-layer-faint border-b border-linear-border sticky top-0 z-10">
                     <StatusIcon className={cn("w-3.5 h-3.5", config.iconClass)} />
                     <span className="text-[11px] font-medium uppercase tracking-wider text-linear-text-secondary">
                       {config.label}
@@ -209,7 +184,7 @@ export default function MyIssuesPage() {
                       {groupTasks.length}
                     </span>
                   </div>
-                  <div className="divide-y divide-white/[0.04]">
+                  <div className="divide-y divide-layer-divider">
                     {groupTasks.map(task => (
                       <TaskRow key={task.id} task={task} />
                     ))}

@@ -46,6 +46,8 @@ export async function updateProject(
     leadId: string | null;
     repoUrl: string | null;
     localPath: string | null;
+    /** FE-02: one of the runner ids (`lib/api/runners`), or null for OpenCode. */
+    defaultAgent: string | null;
   }>,
 ): Promise<Project> {
   return apiFetch<Project>(`/api/projects/${id}`, {

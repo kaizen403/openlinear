@@ -8,6 +8,7 @@ import {
   setExecutionProgress,
 } from "@/lib/execution-state-store"
 import { upsertBoardTask } from "@/components/board/board-state"
+import { isOutsideBoardScope, mergeTaskUpdate, taskFromCreatedEvent } from "@/lib/query/task-cache"
 import type { ActiveBatch } from "@/components/board/use-kanban-board"
 import type { BatchMode } from "@/components/board/batch-mode"
 
@@ -25,6 +26,13 @@ export interface UseTaskSSEProps {
   setCompletedBatch: React.Dispatch<React.SetStateAction<{ taskIds: string[]; prUrl: string | null; mode: BatchMode } | null>>
   setTaskDeletionMode: React.Dispatch<React.SetStateAction<"archive" | "delete">>
   lastSelectedIdRef: React.MutableRefObject<string | null>
+  /**
+   * The board's single removal path for remote deletes. A bulk delete is
+   * announced twice — `tasks:bulk-deleted` plus one `task:deleted` per task —
+   * and this handler must treat the second announcement as a no-op. Without
+   * it, `task:deleted` falls back to a local, identity-preserving removal.
+   */
+  onTasksRemoved?: (taskIds: string[]) => void
 }
 
 export function useTaskSSE({
@@ -41,6 +49,7 @@ export function useTaskSSE({
   setCompletedBatch,
   setTaskDeletionMode,
   lastSelectedIdRef,
+  onTasksRemoved,
 }: UseTaskSSEProps) {
   const batchDismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -52,45 +61,15 @@ export function useTaskSSE({
 
   const handleSSEEvent = useCallback((eventType: SSEEventType, data: SSEEventData) => {
     switch (eventType) {
-      case 'task:created':
-        if (data.id && data.title && data.status) {
-          const taskProjectId = data.projectId
-          const taskTeamId = data.teamId
-          if (projectId && taskProjectId !== projectId) break
-          if (teamId && taskTeamId !== teamId) break
-          const newTask: Task = {
-            id: data.id,
-            title: data.title,
-            description: data.description ?? null,
-            priority: data.priority ?? 'medium',
-            status: data.status,
-            sessionId: data.sessionId ?? null,
-            createdAt: data.createdAt ?? new Date().toISOString(),
-            updatedAt: data.updatedAt ?? new Date().toISOString(),
-            labels: data.labels ?? [],
-            executionStartedAt: data.executionStartedAt ?? null,
-            executionPausedAt: data.executionPausedAt ?? null,
-            executionElapsedMs: data.executionElapsedMs ?? 0,
-            executionProgress: data.executionProgress ?? null,
-            prUrl: data.prUrl ?? null,
-            outcome: data.outcome ?? null,
-            batchId: data.batchId ?? null,
-            inboxRead: data.inboxRead ?? false,
-            identifier: data.identifier ?? null,
-            number: data.number ?? null,
-            dueDate: data.dueDate ?? null,
-            teamId: taskTeamId ?? null,
-            projectId: taskProjectId ?? null,
-            assigneeId: data.assigneeId ?? null,
-            creatorId: data.creatorId ?? null,
-            assignee: data.assignee ?? null,
-            creator: data.creator ?? null,
-            model: data.model ?? null,
-            archived: data.archived ?? false,
-          }
-          setTasks((prev) => upsertBoardTask(prev, newTask))
-        }
+      case 'task:created': {
+        // Same construction and scope rules as the SSE → cache bridge (lib/query/task-cache).
+        const newTask = taskFromCreatedEvent(data)
+        if (!newTask) break
+        if (projectId && newTask.projectId !== projectId) break
+        if (teamId && newTask.teamId !== teamId) break
+        setTasks((prev) => upsertBoardTask(prev, newTask))
         break
+      }
 
       case 'tasks:bulk-created':
         if (!projectId || data.projectId === projectId) {
@@ -100,72 +79,44 @@ export function useTaskSSE({
 
       case 'task:updated':
         if (data.id) {
+          const taskId = data.id
           if (data.status && data.status !== 'in_progress') {
-            clearExecutionProgress(data.id)
+            clearExecutionProgress(taskId)
           }
-          const movedOutOfScope =
-            data.archived === true ||
-            (projectId !== undefined && projectId !== null && data.projectId !== undefined && data.projectId !== projectId) ||
-            (teamId !== undefined && teamId !== null && data.teamId !== undefined && data.teamId !== teamId)
-
-          if (movedOutOfScope) {
-            setTasks((prev) => prev.filter((task) => task.id !== data.id))
-            setSelectedTaskId((prev) => (prev === data.id ? null : prev))
+          if (isOutsideBoardScope({ projectId: projectId ?? null, teamId: teamId ?? null }, data)) {
+            setTasks((prev) => prev.filter((task) => task.id !== taskId))
+            setSelectedTaskId((prev) => (prev === taskId ? null : prev))
             setSelectedTaskIds((prev) => {
-              if (!prev.has(data.id!)) return prev
+              if (!prev.has(taskId)) return prev
               const next = new Set(prev)
-              next.delete(data.id!)
+              next.delete(taskId)
               return next
             })
-            if (lastSelectedIdRef.current === data.id) {
+            if (lastSelectedIdRef.current === taskId) {
               lastSelectedIdRef.current = null
             }
             break
           }
 
           setTasks((prev) => {
-            const existing = prev.find((task) => task.id === data.id)
+            const existing = prev.find((task) => task.id === taskId)
             if (!existing) return prev
-
-            const updated: Task = {
-              ...existing,
-              ...(data.title !== undefined && { title: data.title }),
-              ...(data.description !== undefined && { description: data.description }),
-              ...(data.priority !== undefined && { priority: data.priority }),
-              ...(data.status !== undefined && { status: data.status }),
-              ...(data.sessionId !== undefined && { sessionId: data.sessionId }),
-              ...(data.updatedAt !== undefined && { updatedAt: data.updatedAt }),
-              ...(data.labels !== undefined && { labels: data.labels }),
-              ...(data.executionStartedAt !== undefined && { executionStartedAt: data.executionStartedAt }),
-              ...(data.executionPausedAt !== undefined && { executionPausedAt: data.executionPausedAt }),
-              ...(data.executionElapsedMs !== undefined && { executionElapsedMs: data.executionElapsedMs }),
-              ...(data.executionProgress !== undefined && { executionProgress: data.executionProgress }),
-              ...(data.prUrl !== undefined && { prUrl: data.prUrl }),
-              ...(data.outcome !== undefined && { outcome: data.outcome }),
-              ...(data.batchId !== undefined && { batchId: data.batchId }),
-              ...(data.dueDate !== undefined && { dueDate: data.dueDate }),
-              ...(data.inboxRead !== undefined && { inboxRead: data.inboxRead }),
-              ...(data.identifier !== undefined && { identifier: data.identifier }),
-              ...(data.number !== undefined && { number: data.number }),
-              ...(data.teamId !== undefined && { teamId: data.teamId }),
-              ...(data.projectId !== undefined && { projectId: data.projectId }),
-              ...(data.assigneeId !== undefined && { assigneeId: data.assigneeId }),
-              ...(data.creatorId !== undefined && { creatorId: data.creatorId }),
-              ...(data.assignee !== undefined && { assignee: data.assignee }),
-              ...(data.creator !== undefined && { creator: data.creator }),
-              ...(data.model !== undefined && { model: data.model }),
-              ...(data.archived !== undefined && { archived: data.archived }),
-            }
-
-            return upsertBoardTask(prev, updated)
+            const updated = mergeTaskUpdate(existing, data)
+            return updated === existing ? prev : upsertBoardTask(prev, updated)
           })
         }
         break
 
       case 'task:deleted':
         if (data.id) {
-          clearExecutionProgress(data.id)
-          setTasks((prev) => prev.filter((task) => task.id !== data.id))
+          if (onTasksRemoved) {
+            onTasksRemoved([data.id])
+            break
+          }
+          const deletedId = data.id
+          clearExecutionProgress(deletedId)
+          // Same array when the task is already gone (a repeated announcement).
+          setTasks((prev) => (prev.some((task) => task.id === deletedId) ? prev.filter((task) => task.id !== deletedId) : prev))
           setSelectedTaskIds((prev) => {
             if (!prev.has(data.id!)) return prev
             const next = new Set(prev)
@@ -180,8 +131,13 @@ export function useTaskSSE({
         break
 
       case 'execution:progress': {
+        // Run-journal events from the API ({ runId, taskId, seq, type, payload })
+        // share this SSE name but are not legacy progress: they have no
+        // `status`, and storing them would make task cards read an undefined
+        // phase. The run model consumes them directly (lib/run-model).
+        if ('runId' in data && 'seq' in data) break
         const progressData = data as unknown as ExecutionProgress
-        if (progressData.taskId) {
+        if (progressData.taskId && typeof progressData.status === 'string') {
           setExecutionProgress(progressData)
         }
         break
@@ -194,6 +150,13 @@ export function useTaskSSE({
         }
         break
       }
+
+      case 'replay-gap':
+        // The stream could not replay what was missed: resynchronize like a
+        // fresh connection instead of trusting partial live state.
+        fetchTasks({ silent: true })
+        void reconcileActiveBatches()
+        break
 
       case 'connected':
         console.log("[SSE] Connected with clientId:", data.clientId)
@@ -277,6 +240,28 @@ export function useTaskSSE({
         })
         break
 
+      case 'batch:progress':
+        // Sidecar progress beats: a member's work was committed locally
+        // (publish-ready, not done), or a cancelled batch's cleanup retained
+        // artifacts and reports its publication state.
+        setActiveBatch((prev) => {
+          if (!prev || prev.id !== data.batchId) return prev
+          let next = prev
+          if (data.phase === 'committed' && typeof data.taskId === 'string') {
+            next = {
+              ...next,
+              tasks: next.tasks.map(t =>
+                t.taskId === data.taskId && t.status === 'running' ? { ...t, status: 'completed' } : t
+              ),
+            }
+          }
+          if (data.publication !== undefined) {
+            next = { ...next, publication: (data.publication as ActiveBatch['publication']) ?? null }
+          }
+          return next
+        })
+        break
+
       case 'batch:merging':
         setActiveBatch((prev) => {
           if (prev?.id === data.batchId) {
@@ -324,7 +309,7 @@ export function useTaskSSE({
       default:
         break
     }
-  }, [fetchTasks, isAuthenticated, refreshActiveRepository, projectId, teamId, reconcileActiveBatches, setTasks, setSelectedTaskId, setSelectedTaskIds, setActiveBatch, setCompletedBatch, setTaskDeletionMode, lastSelectedIdRef])
+  }, [fetchTasks, isAuthenticated, refreshActiveRepository, projectId, teamId, reconcileActiveBatches, setTasks, setSelectedTaskId, setSelectedTaskIds, setActiveBatch, setCompletedBatch, setTaskDeletionMode, lastSelectedIdRef, onTasksRemoved])
 
   useSSESubscription(handleSSEEvent)
 }

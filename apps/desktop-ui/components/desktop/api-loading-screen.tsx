@@ -115,8 +115,8 @@ export function ApiLoadingScreen({ onReady, onError }: ApiLoadingScreenProps) {
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-linear-bg">
         <div className="flex flex-col items-center gap-6 px-4">
-          <div className="flex h-16 w-16 items-center justify-center rounded-full bg-red-500/10">
-            <AlertCircle className="h-8 w-8 text-red-500" />
+          <div className="flex h-16 w-16 items-center justify-center rounded-full bg-danger/10">
+            <AlertCircle className="h-8 w-8 text-danger" />
           </div>
 
           <div className="text-center">

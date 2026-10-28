@@ -33,15 +33,33 @@ export interface Task {
   teamId?: string | null
   projectId?: string | null
   model?: string | null
+  /** FE-02: agent runner for this task (null = the project's default, else OpenCode). */
+  agent?: string | null
   archived?: boolean
+  /** W17a: ids of the tasks this one is blocked by (any status). */
+  blockedByIds?: string[]
+  /** W17a: blockers that are not done yet. */
+  openBlockerCount?: number
 }
 
 export interface ExecutionProgress {
   taskId: string
-  status: 'cloning' | 'executing' | 'committing' | 'creating_pr' | 'done' | 'cancelled' | 'error'
+  status: 'queued' | 'cloning' | 'executing' | 'committing' | 'creating_pr' | 'done' | 'cancelled' | 'error'
   message: string
   prUrl?: string
   isCompareLink?: boolean
+  /** v2 run engine: the run and its journal sequence (dedupe across reconnects). */
+  runId?: string
+  runSeq?: number
+  /** v2 run engine state (queued … verifying … recovery_required); see lib/run-model RunStateWire. */
+  runState?: string
+}
+
+/** In flight: queued (accepted by the v2 engine, waiting for a slot) through publishing. */
+const ACTIVE_PROGRESS_STATUSES: ReadonlySet<string> = new Set(['queued', 'cloning', 'executing', 'committing', 'creating_pr'])
+
+export function isActiveProgressStatus(status: string | null | undefined): boolean {
+  return typeof status === 'string' && ACTIVE_PROGRESS_STATUSES.has(status)
 }
 
 export interface ExecutionLogEntry {

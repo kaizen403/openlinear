@@ -841,7 +841,7 @@ export function AIProvidersSection() {
             Retry
           </Button>
         </div>
-        <div className="flex items-center gap-2 rounded-md border border-red-500/20 bg-red-500/10 px-3 py-2.5 text-sm text-red-300">
+        <div className="flex items-center gap-2 rounded-md border border-danger/20 bg-danger/10 px-3 py-2.5 text-sm text-danger">
           <AlertCircle className="h-4 w-4 shrink-0" />
           {providerError}
         </div>
@@ -955,7 +955,7 @@ export function AIProvidersSection() {
                   <span
                     className={cn(
                       "h-2 w-2 shrink-0 rounded-full",
-                      provider.authenticated ? "bg-green-500" : "bg-linear-text-tertiary/40",
+                      provider.authenticated ? "bg-success" : "bg-linear-text-tertiary/40",
                     )}
                   />
                   <span className="flex-1 text-sm text-linear-text">{provider.name}</span>
@@ -968,7 +968,7 @@ export function AIProvidersSection() {
                         e.stopPropagation()
                         handleRemoveProvider(provider.id, provider.name)
                       }}
-                      className="h-7 w-7 p-0 text-linear-text-tertiary hover:text-red-400"
+                      className="h-7 w-7 p-0 text-linear-text-tertiary hover:text-danger"
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </Button>

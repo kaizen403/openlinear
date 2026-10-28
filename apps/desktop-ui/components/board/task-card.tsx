@@ -4,11 +4,12 @@ import { useState, useEffect, memo } from "react"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
-import { Loader2, GitBranch, Code, GitPullRequest, Check, X, ExternalLink, Play, ArrowRight, Archive, Trash2, Clock, CalendarDays } from "lucide-react"
+import { Loader2, GitBranch, GitCommit, Code, GitPullRequest, Check, X, ExternalLink, Play, ArrowRight, Archive, Trash2, Clock, CalendarDays, Ban } from "lucide-react"
 import { cn, openExternal } from "@/lib/utils"
-import { Task, ExecutionProgress, formatDuration } from "@/types/task"
+import { Task, ExecutionProgress, formatDuration, isActiveProgressStatus } from "@/types/task"
 import { STATUS_COLORS } from "@/lib/design-tokens"
 import { useExecutionProgress } from "@/lib/execution-state-store"
+import { classifyPublicationUrl, describeTaskExecution, isReadyToPublishTask } from "./execution-outcome"
 
 interface TaskCardProps {
   task: Task
@@ -21,7 +22,8 @@ interface TaskCardProps {
    * compare unstable function props.
    */
   canExecute?: boolean
-  onCancel?: (taskId: string) => void
+  /** May resolve false when the stop wasn't accepted, which re-enables Cancel. */
+  onCancel?: (taskId: string) => unknown
   onDelete?: (taskId: string) => void
   deletionMode?: "archive" | "delete"
   onMoveToInProgress?: (taskId: string) => void
@@ -34,6 +36,10 @@ interface TaskCardProps {
   isCompletedBatchTask?: boolean
   isDragging?: boolean
   suppressExecutionProgress?: boolean
+  /** W17a: an open (not done) task blocks this one. */
+  blocked?: boolean
+  /** W17a: which ones ("ENG-1, ENG-3"), for the chip's tooltip. */
+  blockedBy?: string | null
 }
 
 function formatDueDate(dateStr: string): { text: string; isOverdue: boolean } {
@@ -50,7 +56,9 @@ function formatDueDate(dateStr: string): { text: string; isOverdue: boolean } {
   return { text: due.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }), isOverdue: false }
 }
 
-const progressConfig = {
+const progressConfig: Readonly<Record<ExecutionProgress['status'], { icon: typeof Clock; label: string; color: string }>> = {
+  // v2 run engine: waiting behind the parallel limit (before this entry, a queued beat crashed the card).
+  queued: { icon: Clock, label: 'Queued', color: STATUS_COLORS.todo.text },
   cloning: { icon: GitBranch, label: 'Cloning', color: STATUS_COLORS.cloning.text },
   executing: { icon: Code, label: 'Executing', color: STATUS_COLORS.executing.text },
   committing: { icon: GitBranch, label: 'Committing', color: STATUS_COLORS.committing.text },
@@ -72,13 +80,13 @@ const LiveDuration = memo(function LiveDuration({ startedAt }: { startedAt: stri
   return <>{formatDuration(ms)}</>
 })
 
-function TaskCardComponent({ task, onExecute, canExecute, onCancel, onDelete, deletionMode, onMoveToInProgress, onTaskClick, executionProgress, selected, onToggleSelect, selectionMode, isBatchTask, isCompletedBatchTask, isDragging, suppressExecutionProgress }: TaskCardProps) {
+function TaskCardComponent({ task, onExecute, canExecute, onCancel, onDelete, deletionMode, onMoveToInProgress, onTaskClick, executionProgress, selected, onToggleSelect, selectionMode, isBatchTask, isCompletedBatchTask, isDragging, suppressExecutionProgress, blocked, blockedBy }: TaskCardProps) {
   const [cancelling, setCancelling] = useState(false)
   const liveProgress = useExecutionProgress(task.id)
   const currentProgress = suppressExecutionProgress ? undefined : (executionProgress ?? liveProgress)
   const progressForTask = currentProgress?.taskId === task.id ? currentProgress : undefined
   const progressIsActive = progressForTask
-    ? ['cloning', 'executing', 'committing', 'creating_pr'].includes(progressForTask.status)
+    ? isActiveProgressStatus(progressForTask.status)
     : false
   const progressIsTerminal = progressForTask
     ? ['done', 'cancelled', 'error'].includes(progressForTask.status)
@@ -90,11 +98,12 @@ function TaskCardComponent({ task, onExecute, canExecute, onCancel, onDelete, de
         ? progressForTask
         : undefined
 
-  useEffect(() => {
-    if (task.status !== 'in_progress') {
-      setCancelling(false)
-    }
-  }, [task.status])
+  // Leaving in_progress ends a pending cancel. Adjusted during render rather
+  // than in an effect: the effect called setCancelling(false) on every mount,
+  // and each of those no-op updates stayed queued on the card's hook until
+  // the next batch that re-rendered it, which then rendered the card a second
+  // time (75 extra renders per 100-event burst; fepolish ledger).
+  if (cancelling && task.status !== 'in_progress') setCancelling(false)
 
   const handleExecute = () => {
     if (onExecute) {
@@ -105,7 +114,9 @@ function TaskCardComponent({ task, onExecute, canExecute, onCancel, onDelete, de
   const handleCancel = () => {
     if (onCancel) {
       setCancelling(true)
-      onCancel(task.id)
+      Promise.resolve(onCancel(task.id))
+        .then((accepted) => { if (accepted === false) setCancelling(false) })
+        .catch(() => setCancelling(false))
     }
   }
 
@@ -139,8 +150,18 @@ function TaskCardComponent({ task, onExecute, canExecute, onCancel, onDelete, de
     }
   }
 
-  const isActiveProgress = task.status === 'in_progress' && !!cardProgress && progressIsActive
+  // W01: a batch member with a persisted local commit waits for the batch PR;
+  // its last live progress ("Committing…") is no longer accurate.
+  const readyToPublish = isReadyToPublishTask(task) && progressForTask?.status !== 'creating_pr'
+  const isActiveProgress = task.status === 'in_progress' && !!cardProgress && progressIsActive && !readyToPublish
   const prLink = !isActiveProgress ? (cardProgress?.prUrl || task.prUrl) : null
+  const prLinkKind = classifyPublicationUrl(prLink)
+  const outcome = task.status === 'todo' || task.status === 'cancelled'
+    ? describeTaskExecution(task, progressForTask)
+    : null
+  const retainedBranch = outcome && (outcome.kind === 'failed' || outcome.kind === 'publication_failed' || outcome.kind === 'cancelled')
+    ? outcome.retained?.branch ?? null
+    : null
   const showLiveDuration = isActiveProgress && !!task.executionStartedAt && !task.executionPausedAt
   const showStoredDuration =
     !showLiveDuration &&
@@ -176,10 +197,10 @@ function TaskCardComponent({ task, onExecute, canExecute, onCancel, onDelete, de
               <div className={cn(
                 "w-4 h-4 rounded border flex items-center justify-center cursor-pointer",
                 selected 
-                  ? "bg-linear-accent border-linear-accent" 
+                  ? "bg-primary border-primary" 
                   : "border-linear-border-hover hover:border-linear-accent/50 bg-linear-bg"
               )}>
-                {selected && <Check className="w-3 h-3 text-white" />}
+                {selected && <Check className="w-3 h-3 text-primary-foreground" />}
               </div>
             </div>
           )}
@@ -187,6 +208,8 @@ function TaskCardComponent({ task, onExecute, canExecute, onCancel, onDelete, de
           {(isBatchTask || isActiveProgress) && (
             task.status === 'done' ? (
               <Check className="w-3.5 h-3.5 flex-shrink-0 mt-0.5 text-linear-accent" />
+            ) : readyToPublish ? (
+              <GitCommit className="w-3.5 h-3.5 flex-shrink-0 mt-0.5 text-info" aria-label="Ready to publish" />
             ) : (
               <Loader2 className={cn(
                 "w-3 h-3 animate-spin flex-shrink-0 mt-0.5",
@@ -197,6 +220,13 @@ function TaskCardComponent({ task, onExecute, canExecute, onCancel, onDelete, de
         </div>
       </CardHeader>
       <CardContent className="p-3 pt-2">
+        {blocked && (
+          <div className="mb-2 inline-flex items-center gap-1 text-[11px] text-warning" title={blockedBy ? `Blocked by ${blockedBy}` : "Blocked by an unfinished task"}>
+            <Ban className="w-3 h-3" aria-hidden="true" />
+            Blocked
+            {blockedBy && <span className="sr-only"> by {blockedBy}</span>}
+          </div>
+        )}
         {task.labels.length > 0 && (
           <div className="flex flex-wrap gap-1.5 mb-3">
             {task.labels.map((label) => (
@@ -217,7 +247,14 @@ function TaskCardComponent({ task, onExecute, canExecute, onCancel, onDelete, de
           </div>
         )}
 
-        {cardProgress && (
+        {readyToPublish && (
+          <div className="mb-3 p-2 bg-linear-bg-tertiary rounded-sm flex items-center gap-2" title="The local commit is saved; the batch opens one pull request when every lane finishes">
+            <GitCommit className="w-3 h-3 text-info flex-shrink-0" aria-hidden="true" />
+            <span className="text-xs text-linear-text-secondary">Ready to publish — waiting for the batch</span>
+          </div>
+        )}
+
+        {cardProgress && !readyToPublish && (
           <div className="mb-3 p-2 bg-linear-bg-tertiary rounded-sm">
             <div className="flex items-center gap-2">
               {isActiveProgress ? (
@@ -234,11 +271,13 @@ function TaskCardComponent({ task, onExecute, canExecute, onCancel, onDelete, de
             </div>
             {prLink && (
               <button
+                type="button"
                 className="flex items-center gap-1 mt-2 text-xs text-linear-accent hover:underline"
                 onClick={(e) => { e.stopPropagation(); openExternal(prLink) }}
+                title={prLinkKind === 'compare' ? 'Branch comparison — no pull request was confirmed' : undefined}
               >
-                <ExternalLink className="w-3 h-3" />
-                View PR
+                {prLinkKind === 'compare' ? <GitBranch className="w-3 h-3" /> : <ExternalLink className="w-3 h-3" />}
+                {prLinkKind === 'compare' ? 'Compare branch' : 'View PR'}
               </button>
             )}
           </div>
@@ -246,12 +285,25 @@ function TaskCardComponent({ task, onExecute, canExecute, onCancel, onDelete, de
 
         {!cardProgress && task.status === 'done' && task.prUrl && !isCompletedBatchTask && (
           <button
+            type="button"
             className="flex items-center gap-1 mb-2 text-xs text-linear-accent hover:underline"
             onClick={(e) => { e.stopPropagation(); openExternal(task.prUrl!) }}
+            title={prLinkKind === 'compare' ? 'Branch comparison — no pull request was confirmed' : undefined}
           >
-            <GitPullRequest className="w-3 h-3" />
-            View PR
+            {prLinkKind === 'compare' ? <GitBranch className="w-3 h-3" /> : <GitPullRequest className="w-3 h-3" />}
+            {prLinkKind === 'compare' ? 'Compare branch' : 'View PR'}
           </button>
+        )}
+
+        {!cardProgress && retainedBranch && (
+          <div
+            className="mb-2 flex items-center gap-1 text-[11px] text-linear-text-tertiary min-w-0"
+            title={outcome?.retained?.path ? `${outcome.label}: ${retainedBranch} at ${outcome.retained.path}` : outcome?.label}
+          >
+            <GitBranch className="w-3 h-3 flex-shrink-0" aria-hidden="true" />
+            <span className="flex-shrink-0">Work retained on</span>
+            <span className="font-mono truncate">{retainedBranch}</span>
+          </div>
         )}
         
         <div className="flex items-center justify-between mt-1">
@@ -272,7 +324,7 @@ function TaskCardComponent({ task, onExecute, canExecute, onCancel, onDelete, de
               return (
                 <span className={cn(
                   "text-[11px] flex items-center gap-0.5 whitespace-nowrap",
-                  isOverdue ? "text-red-400" : "text-linear-text-tertiary"
+                  isOverdue ? "text-danger" : "text-linear-text-tertiary"
                 )}>
                   <CalendarDays className="w-3 h-3 flex-shrink-0" />
                   {text}
@@ -324,7 +376,7 @@ function TaskCardComponent({ task, onExecute, canExecute, onCancel, onDelete, de
               <Button
                 size="sm"
                 variant="ghost"
-                className="h-6 px-1.5 text-xs text-red-400 hover:text-red-400 hover:bg-red-500/10"
+                className="h-6 px-1.5 text-xs text-danger hover:text-danger hover:bg-danger/10"
                 disabled={cancelling}
                 onClick={(e) => {
                   e.stopPropagation()
@@ -386,6 +438,8 @@ export const TaskCard = memo(TaskCardComponent, (prev, next) => {
     prev.isBatchTask === next.isBatchTask &&
     prev.isCompletedBatchTask === next.isCompletedBatchTask &&
     prev.suppressExecutionProgress === next.suppressExecutionProgress &&
+    prev.blocked === next.blocked &&
+    prev.blockedBy === next.blockedBy &&
     prev.deletionMode === next.deletionMode
   )
 })

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import {
   Search,
@@ -43,18 +43,9 @@ import {
 } from "@/components/ui/select"
 import { buttonVariants } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
-import {
-  fetchTeams,
-  createTeam,
-  deleteTeam,
-  updateTeam,
-  joinTeam,
-  fetchProjects,
-  ApiError,
-  type Team,
-  type Project,
-} from "@/lib/api"
-import { useSSESubscription } from "@/providers/sse-provider"
+import { ApiError, type Team } from "@/lib/api"
+import { useProjectDirectory, useTeamDirectory } from "@/hooks/use-team-directory"
+import { useTeamMutations } from "@/hooks/use-team-mutations"
 import { toast } from "sonner"
 import { EmptyState } from "@/components/empty-state"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -77,8 +68,9 @@ export default function TeamsPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const filterProjectId = searchParams.get("projectId") ?? undefined
-  const [teams, setTeams] = useState<Team[]>([])
-  const [isLoading, setIsLoading] = useState(true)
+  // Cached per filter; `team:*` events patch it (lib/query/page-caches.ts).
+  const { teams, isLoading, error: teamsError, errorUpdatedAt: teamsErrorAt } = useTeamDirectory(filterProjectId)
+  const { create, join, update, remove } = useTeamMutations()
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [teamDialogMode, setTeamDialogMode] = useState<TeamDialogMode>("create")
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
@@ -92,58 +84,38 @@ export default function TeamsPage() {
     description: "",
     color: "#10b981",
   })
-  const [projects, setProjects] = useState<Project[]>([])
-  const [isLoadingProjects, setIsLoadingProjects] = useState(false)
-  const [isSubmitting, setIsSubmitting] = useState(false)
+  // The project picker loads the first time the create dialog opens, then stays cached.
+  const [projectsWanted, setProjectsWanted] = useState(false)
+  const {
+    projects,
+    isLoading: isLoadingProjects,
+    error: projectsError,
+    errorUpdatedAt: projectsErrorAt,
+    refetch: refetchProjects,
+  } = useProjectDirectory(projectsWanted)
   const [createdTeam, setCreatedTeam] = useState<Team | null>(null)
   const [joinCode, setJoinCode] = useState("")
   const [joinError, setJoinError] = useState("")
   const [copiedTeamId, setCopiedTeamId] = useState<string | null>(null)
   const [copiedCreatedCode, setCopiedCreatedCode] = useState(false)
-  const [createError, setCreateError] = useState<string | null>(null)
-  const [editError, setEditError] = useState<string | null>(null)
   const [deleteTeamId, setDeleteTeamId] = useState<string | null>(null)
-  const [isDeletingTeam, setIsDeletingTeam] = useState(false)
+  const isSubmitting = create.isPending || join.isPending || update.isPending
+  const isDeletingTeam = remove.isPending
 
-  const loadTeams = useCallback(async () => {
-    try {
-      setIsLoading(true)
-      const data = await fetchTeams({ projectId: filterProjectId })
-      setTeams(data)
-    } catch (error) {
-      toast.error(`Failed to load teams: ${describeApiError(error, "Could not reach OpenLinear server.")}`)
-    } finally {
-      setIsLoading(false)
-    }
-  }, [filterProjectId])
-
+  // One toast per failed load, as before.
   useEffect(() => {
-    loadTeams()
-  }, [loadTeams])
+    if (teamsError) toast.error(`Failed to load teams: ${describeApiError(teamsError, "Could not reach OpenLinear server.")}`)
+  }, [teamsError, teamsErrorAt])
+  useEffect(() => {
+    if (projectsError) toast.error(`Failed to load projects: ${describeApiError(projectsError, "Could not reach OpenLinear server.")}`)
+  }, [projectsError, projectsErrorAt])
 
-  const loadProjects = useCallback(async () => {
-    try {
-      setIsLoadingProjects(true)
-      const data = await fetchProjects({ fields: ['id', 'name'] })
-      setProjects(data)
-      setFormData((current) =>
-        current.projectId || data.length === 0 ? current : { ...current, projectId: data[0].id },
-      )
-    } catch (error) {
-      toast.error(`Failed to load projects: ${describeApiError(error, "Could not reach OpenLinear server.")}`)
-    } finally {
-      setIsLoadingProjects(false)
-    }
-  }, [])
-
-  useSSESubscription((eventType) => {
-    if (['team:created', 'team:updated', 'team:deleted'].includes(eventType)) {
-      loadTeams()
-    }
-    if (['project:created', 'project:updated', 'project:deleted'].includes(eventType)) {
-      loadProjects()
-    }
-  })
+  // Default the create form to the first project once the picker has loaded.
+  useEffect(() => {
+    setFormData((current) =>
+      current.projectId || projects.length === 0 ? current : { ...current, projectId: projects[0].id },
+    )
+  }, [projects])
 
   const handleCopyInviteCode = async (inviteCode: string, teamId: string) => {
     try {
@@ -171,9 +143,8 @@ export default function TeamsPage() {
     if (!formData.name.trim() || !formData.key.trim() || !formData.projectId) return
 
     try {
-      setIsSubmitting(true)
-      setCreateError(null)
-      const team = await createTeam({
+      // The server's team (with its invite code) goes straight into the cached lists.
+      const team = await create.mutateAsync({
         name: formData.name,
         key: formData.key.toUpperCase(),
         projectId: formData.projectId,
@@ -188,13 +159,8 @@ export default function TeamsPage() {
         description: "",
         color: "#6366f1",
       })
-      loadTeams()
     } catch (error) {
-      const message = describeApiError(error, "Could not reach OpenLinear server. Check your connection and try again.")
-      setCreateError(message)
-      toast.error(message)
-    } finally {
-      setIsSubmitting(false)
+      toast.error(describeApiError(error, "Could not reach OpenLinear server. Check your connection and try again."))
     }
   }
 
@@ -203,16 +169,12 @@ export default function TeamsPage() {
     if (!joinCode.trim()) return
 
     try {
-      setIsSubmitting(true)
       setJoinError("")
-      await joinTeam(joinCode.trim())
+      await join.mutateAsync(joinCode.trim())
       setJoinCode("")
       setIsDialogOpen(false)
-      loadTeams()
     } catch (error) {
       setJoinError(error instanceof Error ? error.message : "Failed to join team")
-    } finally {
-      setIsSubmitting(false)
     }
   }
 
@@ -229,9 +191,9 @@ export default function TeamsPage() {
     setJoinCode("")
     setJoinError("")
     setTeamDialogMode("create")
-    if (projects.length === 0) {
-      loadProjects()
-    }
+    // First open loads the picker; reopening after a failed or empty load retries, as before.
+    if (!projectsWanted) setProjectsWanted(true)
+    else if (projects.length === 0 && !isLoadingProjects) void refetchProjects()
     setIsDialogOpen(true)
   }
 
@@ -250,15 +212,12 @@ export default function TeamsPage() {
   const confirmDeleteTeam = async () => {
     if (!deleteTeamId) return
     try {
-      setIsDeletingTeam(true)
-      await deleteTeam(deleteTeamId)
+      // Optimistic: the row leaves at once and comes back if the delete fails.
+      await remove.mutateAsync(deleteTeamId)
       setDeleteTeamId(null)
-      loadTeams()
     } catch (error) {
       const message = describeApiError(error, "Could not reach OpenLinear server. Check your connection and try again.")
       toast.error(`Failed to delete team: ${message}`)
-    } finally {
-      setIsDeletingTeam(false)
     }
   }
 
@@ -267,23 +226,20 @@ export default function TeamsPage() {
     if (!editTeam || !editFormData.name.trim()) return
 
     try {
-      setIsSubmitting(true)
-      setEditError(null)
-      await updateTeam(editTeam.id, {
-        name: editFormData.name,
-        description: editFormData.description || null,
-        color: editFormData.color,
+      // Optimistic: every cached copy shows the edit at once; a failure rolls it back.
+      await update.mutateAsync({
+        teamId: editTeam.id,
+        edit: {
+          name: editFormData.name,
+          description: editFormData.description || null,
+          color: editFormData.color,
+        },
       })
       setIsEditDialogOpen(false)
       setEditTeam(null)
       setEditFormData({ name: "", description: "", color: "#10b981" })
-      loadTeams()
     } catch (error) {
-      const message = describeApiError(error, "Could not reach OpenLinear server. Check your connection and try again.")
-      setEditError(message)
-      toast.error(message)
-    } finally {
-      setIsSubmitting(false)
+      toast.error(describeApiError(error, "Could not reach OpenLinear server. Check your connection and try again."))
     }
   }
 
@@ -357,7 +313,7 @@ export default function TeamsPage() {
                               className="border-linear-border hover:bg-linear-bg-tertiary"
                             >
                               {copiedCreatedCode ? (
-                                <Check className="w-4 h-4 text-green-500" />
+                                <Check className="w-4 h-4 text-success" />
                               ) : (
                                 <Copy className="w-4 h-4" />
                               )}
@@ -488,7 +444,7 @@ export default function TeamsPage() {
                         </p>
                       </div>
                       {joinError && (
-                        <div className="text-sm text-red-500">
+                        <div className="text-sm text-danger">
                           {joinError}
                         </div>
                       )}
@@ -713,7 +669,7 @@ export default function TeamsPage() {
                                   title="Copy invite code"
                                 >
                                   {copiedTeamId === team.id ? (
-                                    <Check className="w-3.5 h-3.5 text-green-500" />
+                                    <Check className="w-3.5 h-3.5 text-success" />
                                   ) : (
                                     <Copy className="w-3.5 h-3.5 text-linear-text-tertiary" />
                                   )}
@@ -756,10 +712,10 @@ export default function TeamsPage() {
                                   e.stopPropagation()
                                   handleDeleteTeam(team.id)
                                 }}
-                                className="opacity-0 group-hover:opacity-100 p-1.5 rounded-sm hover:bg-red-500/10 transition-all"
+                                className="opacity-0 group-hover:opacity-100 p-1.5 rounded-sm hover:bg-danger/10 transition-all"
                                 title="Delete team"
                               >
-                                <Trash2 className="w-4 h-4 text-red-500" />
+                                <Trash2 className="w-4 h-4 text-danger" />
                               </button>
                             </div>
                           </td>
@@ -821,7 +777,7 @@ export default function TeamsPage() {
                               title="Copy invite code"
                             >
                               {copiedTeamId === team.id ? (
-                                <Check className="w-3 h-3 text-green-500" />
+                                <Check className="w-3 h-3 text-success" />
                               ) : (
                                 <Copy className="w-3 h-3 text-linear-text-tertiary" />
                               )}
@@ -861,10 +817,10 @@ export default function TeamsPage() {
                             e.stopPropagation()
                             handleDeleteTeam(team.id)
                           }}
-                          className="p-1.5 rounded-sm hover:bg-red-500/10 transition-all"
+                          className="p-1.5 rounded-sm hover:bg-danger/10 transition-all"
                           title="Delete team"
                         >
-                          <Trash2 className="w-4 h-4 text-red-500" />
+                          <Trash2 className="w-4 h-4 text-danger" />
                         </button>
                       </div>
                     </div>

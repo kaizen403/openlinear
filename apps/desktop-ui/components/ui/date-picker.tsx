@@ -4,6 +4,7 @@ import * as React from "react"
 import { ChevronLeft, ChevronRight, CalendarDays } from "lucide-react"
 
 import { cn } from "@/lib/utils"
+import { focusRing, focusRingInset } from "@/components/ui/focus-ring"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 
 const DAYS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"] as const
@@ -87,7 +88,8 @@ export function DatePicker({ value, onChange, placeholder = "Due date", classNam
         <button
           type="button"
           className={cn(
-            "h-7 w-auto px-2.5 text-xs rounded-sm bg-transparent border-none hover:bg-linear-bg-tertiary text-linear-text-secondary flex items-center gap-1.5 cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+            "h-7 w-auto px-2.5 text-xs rounded-sm bg-transparent border-none hover:bg-linear-bg-tertiary text-linear-text-secondary flex items-center gap-1.5 cursor-pointer transition-colors",
+            focusRing,
             value && "text-linear-text",
             className
           )}
@@ -102,7 +104,7 @@ export function DatePicker({ value, onChange, placeholder = "Due date", classNam
           <button
             type="button"
             onClick={prevMonth}
-            className="h-6 w-6 flex items-center justify-center rounded-sm hover:bg-linear-bg-tertiary text-linear-text-secondary cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+            className={cn("h-6 w-6 flex items-center justify-center rounded-sm hover:bg-linear-bg-tertiary text-linear-text-secondary cursor-pointer transition-colors", focusRingInset)}
           >
             <ChevronLeft className="w-3.5 h-3.5" />
           </button>
@@ -112,7 +114,7 @@ export function DatePicker({ value, onChange, placeholder = "Due date", classNam
           <button
             type="button"
             onClick={nextMonth}
-            className="h-6 w-6 flex items-center justify-center rounded-sm hover:bg-linear-bg-tertiary text-linear-text-secondary cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+            className={cn("h-6 w-6 flex items-center justify-center rounded-sm hover:bg-linear-bg-tertiary text-linear-text-secondary cursor-pointer transition-colors", focusRingInset)}
           >
             <ChevronRight className="w-3.5 h-3.5" />
           </button>
@@ -144,7 +146,8 @@ export function DatePicker({ value, onChange, placeholder = "Due date", classNam
                 type="button"
                 onClick={() => selectDate(day)}
                 className={cn(
-                  "h-7 w-full flex items-center justify-center text-xs rounded-sm cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
+                  "h-7 w-full flex items-center justify-center text-xs rounded-sm cursor-pointer transition-colors",
+                  focusRingInset,
                   "text-linear-text-secondary hover:bg-linear-bg-tertiary hover:text-linear-text",
                   isSelected && "bg-accent text-accent-foreground hover:bg-accent",
                   isTodayDate && !isSelected && "text-linear-text font-medium"
@@ -161,7 +164,7 @@ export function DatePicker({ value, onChange, placeholder = "Due date", classNam
           <button
             type="button"
             onClick={() => selectDate(new Date().getDate())}
-            className="text-[10px] text-linear-text-tertiary hover:text-linear-text cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset rounded-sm"
+            className={cn("text-[10px] text-linear-text-tertiary hover:text-linear-text cursor-pointer transition-colors rounded-sm", focusRingInset)}
           >
             Today
           </button>
@@ -169,7 +172,7 @@ export function DatePicker({ value, onChange, placeholder = "Due date", classNam
             <button
               type="button"
               onClick={clearDate}
-              className="text-[10px] text-linear-text-tertiary hover:text-red-400 cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset rounded-sm"
+              className={cn("text-[10px] text-linear-text-tertiary hover:text-danger cursor-pointer transition-colors rounded-sm", focusRingInset)}
             >
               Clear
             </button>

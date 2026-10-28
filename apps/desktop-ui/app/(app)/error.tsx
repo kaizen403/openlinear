@@ -36,7 +36,7 @@ export default function GlobalError({
           or head back to the start.
         </p>
         {error.digest ? (
-          <p className="mt-4 font-mono text-xs text-muted-foreground/70">
+          <p className="mt-4 font-mono text-xs text-muted-foreground">
             ref: {error.digest}
           </p>
         ) : null}

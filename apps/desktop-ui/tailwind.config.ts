@@ -1,5 +1,19 @@
 import type { Config } from "tailwindcss"
 
+/**
+ * A colour token as a Tailwind colour. Every token variable is an sRGB
+ * channel triplet generated from lib/design (see docs/design-tokens.md), so
+ * opacity modifiers (`bg-brand/10`) work. Names must exist in the generated
+ * block in app/globals.css; lib/design/tokens.test.ts checks every one.
+ */
+const token = (name: string) => `rgb(var(--${name}) / <alpha-value>)`
+
+/** A solid fill in an interaction state: the colour at `--state-hover|pressed` alpha. */
+const state = (name: string, which: "hover" | "pressed") => `rgb(var(--${name}) / var(--state-${which}))`
+
+/** The translucent state layer at one of its alphas (`--state-layer-faint|hover|divider|outline`). */
+const layer = (which: "faint" | "hover" | "divider" | "outline") => `rgb(var(--state-layer) / var(--state-layer-${which}))`
+
 const config: Config = {
   darkMode: ["class"],
   content: [
@@ -25,53 +39,142 @@ const config: Config = {
         mono: ["var(--font-mono)"],
       },
       colors: {
-        // Linear-inspired dark theme colors
-        background: "hsl(var(--background))",
-        foreground: "hsl(var(--foreground))",
+        // shadcn roles (tier 3).
+        background: token("background"),
+        foreground: token("foreground"),
         card: {
-          DEFAULT: "hsl(var(--card))",
-          foreground: "hsl(var(--card-foreground))",
+          DEFAULT: token("card"),
+          foreground: token("card-foreground"),
         },
         popover: {
-          DEFAULT: "hsl(var(--popover))",
-          foreground: "hsl(var(--popover-foreground))",
+          DEFAULT: token("popover"),
+          foreground: token("popover-foreground"),
         },
+        // Solid accent: fills that carry text (buttons, badges, checked
+        // selections). `hover:bg-primary-hover active:bg-primary-pressed`.
         primary: {
-          DEFAULT: "rgb(var(--linear-accent-rgb) / <alpha-value>)",
-          foreground: "hsl(var(--primary-foreground))",
+          DEFAULT: token("primary"),
+          foreground: token("primary-foreground"),
+          hover: state("primary", "hover"),
+          pressed: state("primary", "pressed"),
         },
         secondary: {
-          DEFAULT: "hsl(var(--secondary))",
-          foreground: "hsl(var(--secondary-foreground))",
+          DEFAULT: token("secondary"),
+          foreground: token("secondary-foreground"),
         },
         muted: {
-          DEFAULT: "hsl(var(--muted))",
-          foreground: "hsl(var(--muted-foreground))",
+          DEFAULT: token("muted"),
+          foreground: token("muted-foreground"),
         },
+        // Menu highlight and ghost/outline hover (solid accent + white).
         accent: {
-          DEFAULT: "rgb(var(--linear-accent-rgb) / <alpha-value>)",
-          foreground: "hsl(var(--accent-foreground))",
+          DEFAULT: token("accent"),
+          foreground: token("accent-foreground"),
         },
+        // `text-/border-destructive` are text-safe; as a background,
+        // `bg-destructive` is the solid (see backgroundColor below).
         destructive: {
-          DEFAULT: "hsl(var(--destructive))",
-          foreground: "hsl(var(--destructive-foreground))",
+          DEFAULT: token("destructive"),
+          solid: token("destructive-solid"),
+          foreground: token("destructive-foreground"),
+          hover: state("destructive-solid", "hover"),
+          pressed: state("destructive-solid", "pressed"),
         },
-        border: "hsl(var(--border))",
-        input: "hsl(var(--input))",
-        ring: "hsl(var(--ring))",
-        // Linear-specific colors
+        border: token("border"),
+        input: token("input"),
+        ring: token("ring"),
+        // Bright brand accent: indicators, accent text, selected borders, tints.
+        brand: {
+          DEFAULT: token("brand"),
+          solid: token("brand-solid"),
+        },
+        // Tones (tier 2): text/icon/dot colour; tint with /10 (bg) and /30 (border).
+        success: token("tone-success"),
+        warning: token("tone-warning"),
+        danger: token("tone-danger"),
+        info: token("tone-info"),
+        discovery: token("tone-discovery"),
+        // Surfaces and state layers (tier 2).
+        surface: {
+          canvas: token("surface-canvas"),
+          app: token("surface-app"),
+          raised: token("surface-raised"),
+          inset: token("surface-inset"),
+          card: token("surface-card"),
+          overlay: token("surface-overlay"),
+          hover: token("surface-hover"),
+          pressed: token("surface-pressed"),
+        },
+        // Translucent overlays that work on any surface (lib/design STATE_LAYER):
+        // `bg-layer-faint` (unread row, group header), `hover:bg-layer-hover`,
+        // `divide-layer-divider`, `border-layer-outline`. `bg-scrim/50` dims
+        // the page under modals and drawers.
+        layer: {
+          faint: layer("faint"),
+          hover: layer("hover"),
+          divider: layer("divider"),
+          outline: layer("outline"),
+        },
+        scrim: token("scrim"),
+        // Board task status and priority (lib/design-tokens.ts).
+        status: {
+          todo: token("status-todo"),
+          "in-progress": token("status-in-progress"),
+          done: token("status-done"),
+          cancelled: token("status-cancelled"),
+          error: token("status-error"),
+          committing: token("status-committing"),
+          publishing: token("status-publishing"),
+        },
+        priority: {
+          low: token("priority-low"),
+          medium: token("priority-medium"),
+          high: token("priority-high"),
+          urgent: token("priority-urgent"),
+        },
+        // Agent-run phase tones (components/execution/tokens.ts).
+        run: {
+          neutral: token("run-neutral"),
+          info: token("run-info"),
+          active: token("run-active"),
+          warning: token("run-warning"),
+          success: token("run-success"),
+          danger: token("run-danger"),
+        },
+        // Legacy linear-* names, kept so 2,000+ usages need no churn. Prefer
+        // the semantic names above in new code.
         linear: {
-          bg: "#111111",
-          "bg-secondary": "#141414",
-          "bg-tertiary": "#0f0f0f",
-          border: "#2a2a2a",
-          "border-hover": "#3a3a3a",
-          text: "#f5f5f5",
-          "text-secondary": "#a0a0a0",
-          "text-tertiary": "#6a6a6a",
-          accent: "rgb(var(--linear-accent-rgb) / <alpha-value>)",
-          "accent-hover": "rgb(var(--linear-accent-hover-rgb) / <alpha-value>)",
+          bg: token("linear-bg"),
+          "bg-secondary": token("linear-bg-secondary"),
+          "bg-tertiary": token("linear-bg-tertiary"),
+          border: token("linear-border"),
+          "border-hover": token("linear-border-hover"),
+          text: token("linear-text"),
+          "text-secondary": token("linear-text-secondary"),
+          "text-tertiary": token("linear-text-tertiary"),
+          // As text/border/ring: the bright brand. As a background: the solid
+          // (see backgroundColor below).
+          accent: token("brand"),
+          "accent-hover": token("brand"),
         },
+      },
+      // Background-only overrides. `bg-linear-accent` and `bg-destructive` were
+      // used almost only as fills behind white text (39 and 6 call sites), so
+      // as backgrounds they resolve to the contrast-safe solids, while
+      // `text-linear-accent` / `text-destructive` stay text-safe. Hover keeps
+      // working for any picker accent: `bg-linear-accent-hover` is the solid
+      // at the hover alpha.
+      backgroundColor: {
+        destructive: {
+          DEFAULT: token("destructive-solid"),
+        },
+        linear: {
+          accent: token("brand-solid"),
+          "accent-hover": state("brand-solid", "hover"),
+        },
+      },
+      opacity: {
+        disabled: "var(--state-disabled)",
       },
       borderRadius: {
         lg: "var(--radius)",

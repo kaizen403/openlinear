@@ -20,6 +20,10 @@ interface ColumnProps {
   droppableProps?: DroppableProvidedProps
   isDraggingOver?: boolean
   isAnyDragging?: boolean
+  /** The server has more tasks for this column than are loaded. */
+  hasMore?: boolean
+  loadingMore?: boolean
+  onLoadMore?: () => void
 }
 
 function ColumnComponent({
@@ -36,6 +40,9 @@ function ColumnComponent({
   droppableProps,
   isDraggingOver,
   isAnyDragging,
+  hasMore,
+  loadingMore,
+  onLoadMore,
 }: ColumnProps) {
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden border-r border-linear-border last:border-r-0 w-[90vw] sm:w-[72vw] flex-none md:w-full md:flex-auto snap-start bg-gradient-to-b from-linear-bg-secondary to-transparent">
@@ -45,8 +52,9 @@ function ColumnComponent({
           <Badge
             variant="secondary"
             className="bg-linear-bg-tertiary text-linear-text-tertiary text-xs px-2 py-0 h-5 backdrop-blur-sm border border-linear-border flex-shrink-0"
+            title={hasMore ? `${taskCount} loaded; more available` : undefined}
           >
-            {taskCount}
+            {hasMore ? `${taskCount}+` : taskCount}
           </Badge>
         </div>
         <div className="flex items-center gap-1.5 flex-shrink-0">
@@ -92,6 +100,19 @@ function ColumnComponent({
         )}
       >
         {children}
+        {hasMore && onLoadMore && (
+          <button
+            type="button"
+            onClick={onLoadMore}
+            disabled={loadingMore}
+            aria-busy={loadingMore || undefined}
+            aria-label={`Load more in ${title}`}
+            className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-sm text-[12px] text-linear-text-secondary bg-linear-bg-tertiary border border-linear-border hover:bg-linear-bg-secondary hover:text-linear-text transition-colors disabled:opacity-disabled disabled:pointer-events-none"
+          >
+            {loadingMore && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+            <span>{loadingMore ? "Loading…" : "Load more"}</span>
+          </button>
+        )}
         {onInlineCreate && <InlineAddTask columnId={id} columnTitle={title} onCreate={onInlineCreate} />}
       </div>
     </div>

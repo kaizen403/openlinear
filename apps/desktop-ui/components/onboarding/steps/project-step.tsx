@@ -98,10 +98,10 @@ const RepoItem = memo(function RepoItem({
 
       <div
         className={`w-4 h-4 rounded-full border-2 flex-shrink-0 flex items-center justify-center transition-colors mt-1 ${
-          isSelected ? "border-linear-accent bg-linear-accent" : "border-linear-border"
+          isSelected ? "border-primary bg-primary" : "border-linear-border"
         }`}
       >
-        {isSelected && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+        {isSelected && <div className="w-1.5 h-1.5 rounded-full bg-primary-foreground" />}
       </div>
     </button>
   )

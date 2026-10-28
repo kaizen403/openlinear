@@ -1,34 +1,21 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useEffect, useCallback } from "react"
+import { useMutation, useQuery } from "@tanstack/react-query"
 import {
-  fetchProjects,
   createProject,
   updateProject,
   deleteProject,
   ApiError,
   type Project,
 } from "@/lib/api"
-import { useSSESubscription } from "@/providers/sse-provider"
 import { useWorkspace } from "@/hooks/use-workspace"
 import { toast } from "sonner"
+import { queryKeys } from "@/lib/query/keys"
+import { projectsQuery } from "@/lib/query/resources"
+import { useAppQueryClient } from "@/lib/query/use-app-query-client"
 
-const PROJECT_LIST_FIELDS = [
-  'id',
-  'workspaceId',
-  'key',
-  'name',
-  'description',
-  'status',
-  'color',
-  'icon',
-  'targetDate',
-  'repoUrl',
-  'localPath',
-  'repositoryId',
-  'teams',
-  '_count',
-] as const
+const NO_PROJECTS: Project[] = []
 
 export function mapErrorToForm(
   err: unknown,
@@ -116,77 +103,104 @@ export function projectToFormData(project: Project): ProjectFormData {
 export function useProjects(filterTeamId?: string) {
   const { activeWorkspace, isLoading: isWorkspaceLoading } = useWorkspace()
   const activeWorkspaceId = activeWorkspace?.id
-  const [projects, setProjects] = useState<Project[]>([])
-  const [isLoading, setIsLoading] = useState(true)
+  const client = useAppQueryClient()
+  const enabled = !isWorkspaceLoading && Boolean(activeWorkspaceId)
+  // Unfiltered, this is the same cache entry as ProjectProvider's list, so the
+  // Projects page renders from cache. SSE `project:*` events patch it (bridge).
+  const query = useQuery({ ...projectsQuery(activeWorkspaceId ?? "", filterTeamId), enabled }, client)
+  const projects = (enabled ? query.data : undefined) ?? NO_PROJECTS
+  const isLoading = isWorkspaceLoading || (enabled && query.isPending)
+
+  // One toast per failed load, as before.
+  const { error, errorUpdatedAt } = query
+  useEffect(() => {
+    if (!error) return
+    const { toastMessage } = mapErrorToForm(
+      error,
+      "Could not reach OpenLinear server. Check your connection and try again.",
+    )
+    toast.error(`Failed to load projects: ${toastMessage}`)
+  }, [error, errorUpdatedAt])
 
   const loadProjects = useCallback(async () => {
-    if (isWorkspaceLoading) return
-    if (!activeWorkspaceId) {
-      setProjects([])
-      return
+    if (!activeWorkspaceId || isWorkspaceLoading) return
+    await client.refetchQueries({ queryKey: projectsQuery(activeWorkspaceId, filterTeamId).queryKey, exact: true })
+  }, [activeWorkspaceId, client, filterTeamId, isWorkspaceLoading])
+
+  /** Apply the server's copy at once, then refetch for server-computed fields (`_count`, `teams`). */
+  const reconcile = useCallback((apply: (list: Project[], teamFiltered: boolean) => Project[]) => {
+    if (!activeWorkspaceId) return
+    const prefix = queryKeys.projects.lists(activeWorkspaceId)
+    for (const cached of client.getQueryCache().findAll({ queryKey: prefix })) {
+      const list = cached.state.data
+      if (!Array.isArray(list)) continue
+      const filter = cached.queryKey[4]
+      const teamFiltered = typeof filter === "object" && filter !== null && typeof (filter as { teamId?: unknown }).teamId === "string"
+      const next = apply(list as Project[], teamFiltered)
+      if (next !== list) client.setQueryData(cached.queryKey, next)
     }
-    try {
-      const data = await fetchProjects({
-        teamId: filterTeamId,
+    void client.invalidateQueries({ queryKey: prefix })
+  }, [activeWorkspaceId, client])
+
+  const createMutation = useMutation({
+    mutationFn: ({ formData, isDesktopApp }: { formData: ProjectFormData; isDesktopApp: boolean }) =>
+      createProject({
+        name: formData.name.trim(),
         workspaceId: activeWorkspaceId,
-        fields: [...PROJECT_LIST_FIELDS],
-      })
-      setProjects(data)
-    } catch (error) {
-      const { toastMessage } = mapErrorToForm(
-        error,
-        "Could not reach OpenLinear server. Check your connection and try again.",
-      )
-      toast.error(`Failed to load projects: ${toastMessage}`)
-    }
-  }, [activeWorkspaceId, filterTeamId, isWorkspaceLoading])
+        description: formData.description.trim() || undefined,
+        status: formData.status,
+        targetDate: formData.targetDate ? new Date(formData.targetDate).toISOString() : undefined,
+        color: "#10b981",
+        repoUrl: formData.sourceType === "repo" ? formData.repoUrl.trim() : undefined,
+        localPath: formData.sourceType === "local" && isDesktopApp ? formData.localPath.trim() : undefined,
+      }),
+    onSuccess: (created) => reconcile((list, teamFiltered) => (
+      !teamFiltered && created?.id && !list.some((p) => p.id === created.id) ? [created, ...list] : list
+    )),
+  }, client)
 
-  useEffect(() => {
-    if (isWorkspaceLoading) return
-    setIsLoading(true)
-    Promise.all([loadProjects()]).finally(() => {
-      setIsLoading(false)
-    })
-  }, [isWorkspaceLoading, loadProjects])
+  const updateMutation = useMutation({
+    mutationFn: ({ projectId, formData, isDesktopApp, existingLocalPath }: {
+      projectId: string
+      formData: ProjectFormData
+      isDesktopApp: boolean
+      existingLocalPath?: string | null
+    }) =>
+      updateProject(projectId, {
+        name: formData.name.trim(),
+        description: formData.description.trim() || null,
+        status: formData.status,
+        targetDate: formData.targetDate ? new Date(formData.targetDate).toISOString() : null,
+        repoUrl: formData.sourceType === "repo" ? formData.repoUrl.trim() : null,
+        localPath:
+          formData.sourceType === "local"
+            ? (isDesktopApp || !!existingLocalPath ? formData.localPath.trim() : null)
+            : null,
+      }),
+    onSuccess: (updated, { projectId }) => reconcile((list) => (
+      updated?.id && list.some((p) => p.id === projectId)
+        ? list.map((p) => (p.id === projectId ? { ...p, ...updated } : p))
+        : list
+    )),
+  }, client)
 
-  useSSESubscription((eventType) => {
-    if (['project:created', 'project:updated', 'project:deleted'].includes(eventType)) {
-      loadProjects()
-    }
-  })
+  const deleteMutation = useMutation({
+    mutationFn: (projectId: string) => deleteProject(projectId),
+    onSuccess: (_result, projectId) => reconcile((list) => (
+      list.some((p) => p.id === projectId) ? list.filter((p) => p.id !== projectId) : list
+    )),
+  }, client)
 
   const handleCreateProject = async (formData: ProjectFormData, isDesktopApp: boolean) => {
-    await createProject({
-      name: formData.name.trim(),
-      workspaceId: activeWorkspaceId,
-      description: formData.description.trim() || undefined,
-      status: formData.status,
-      targetDate: formData.targetDate ? new Date(formData.targetDate).toISOString() : undefined,
-      color: "#10b981",
-      repoUrl: formData.sourceType === "repo" ? formData.repoUrl.trim() : undefined,
-      localPath: formData.sourceType === "local" && isDesktopApp ? formData.localPath.trim() : undefined,
-    })
-    loadProjects()
+    await createMutation.mutateAsync({ formData, isDesktopApp })
   }
 
   const handleUpdateProject = async (projectId: string, formData: ProjectFormData, isDesktopApp: boolean, existingLocalPath?: string | null) => {
-    await updateProject(projectId, {
-      name: formData.name.trim(),
-      description: formData.description.trim() || null,
-      status: formData.status,
-      targetDate: formData.targetDate ? new Date(formData.targetDate).toISOString() : null,
-      repoUrl: formData.sourceType === "repo" ? formData.repoUrl.trim() : null,
-      localPath:
-        formData.sourceType === "local"
-          ? (isDesktopApp || !!existingLocalPath ? formData.localPath.trim() : null)
-          : null,
-    })
-    loadProjects()
+    await updateMutation.mutateAsync({ projectId, formData, isDesktopApp, existingLocalPath })
   }
 
   const handleDeleteProject = async (projectId: string) => {
-    await deleteProject(projectId)
-    loadProjects()
+    await deleteMutation.mutateAsync(projectId)
   }
 
   return {

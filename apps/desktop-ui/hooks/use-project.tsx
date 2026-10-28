@@ -1,9 +1,13 @@
 "use client"
 
-import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from "react"
-import { fetchProjects, Project } from "@/lib/api"
+import { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef, type ReactNode } from "react"
+import { useQuery } from "@tanstack/react-query"
+import type { Project } from "@/lib/api"
 import { useWorkspace } from "@/hooks/use-workspace"
-import { useSSESubscription, type SSEEventData, type SSEEventType } from "@/providers/sse-provider"
+import { useSSESubscription, type SSEEventData, type SSEEventMeta, type SSEEventType } from "@/providers/sse-provider"
+import { projectsQuery, type PROJECT_FIELDS } from "@/lib/query/resources"
+import { applySseEventToCache } from "@/lib/query/sse-bridge"
+import { hasSseBridge, useAppQueryClient, useStandaloneBridgeState } from "@/lib/query/use-app-query-client"
 
 interface ProjectContextType {
   activeProject: Project | null
@@ -16,116 +20,86 @@ interface ProjectContextType {
 const ProjectContext = createContext<ProjectContextType | undefined>(undefined)
 
 const STORAGE_KEY = "openlinear:activeProjectId"
-const SHARED_PROJECT_FIELDS = [
-  'id',
-  'workspaceId',
-  'key',
-  'name',
-  'description',
-  'status',
-  'color',
-  'icon',
-  'repositoryId',
-  'localPath',
-  'repoUrl',
-  'repository',
-  'teams',
-] as const
+const NO_PROJECTS: Project[] = []
+// The home page routes teamless projects to /projects, so the shared project
+// list must carry `teams`; this fails to compile if PROJECT_FIELDS drops it.
+export const REQUIRED_PROJECT_FIELDS = ['teams'] as const satisfies ReadonlyArray<(typeof PROJECT_FIELDS)[number]>
 
+type Selection = { kind: 'auto' } | { kind: 'project'; project: Project } | { kind: 'none' }
+const AUTO: Selection = { kind: 'auto' }
+const NONE: Selection = { kind: 'none' }
+
+function pickSavedOrFirst(projects: Project[]): Project | null {
+  const savedId = typeof window === 'undefined' ? null : localStorage.getItem(STORAGE_KEY)
+  return (savedId ? projects.find((p) => p.id === savedId) : undefined) ?? projects[0] ?? null
+}
+
+/**
+ * The active workspace's projects come from the shared projects query (the
+ * same cache entry the Projects page reads); the SSE bridge patches it on
+ * `project:*` events. This provider keeps only the active-project selection.
+ */
 export function ProjectProvider({ children }: { children: ReactNode }) {
   const { activeWorkspace, isLoading: workspaceLoading } = useWorkspace()
   const activeWorkspaceId = activeWorkspace?.id
-  const [projects, setProjects] = useState<Project[]>([])
-  const [activeProject, setActiveProjectState] = useState<Project | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
+  const client = useAppQueryClient()
+  const { data, status } = useQuery({ ...projectsQuery(activeWorkspaceId ?? ""), enabled: Boolean(activeWorkspaceId) }, client)
+  const projects = (activeWorkspaceId ? data : undefined) ?? NO_PROJECTS
+  const settled = Boolean(activeWorkspaceId) && status !== 'pending'
 
-  const loadProjects = useCallback(async () => {
-    if (!activeWorkspaceId) {
-      setProjects([])
-      return [] as Project[]
-    }
-    try {
-      const data = await fetchProjects({
-        workspaceId: activeWorkspaceId,
-        fields: [...SHARED_PROJECT_FIELDS],
-      })
-      setProjects(data)
-      return data
-    } catch {
-      setProjects([])
-      return [] as Project[]
-    }
-  }, [activeWorkspaceId])
+  // `auto` = the saved or first project of the active workspace, derived during
+  // render so the list, the selection and `isLoading` land in one commit. A
+  // workspace switch goes back to `auto`, as the old provider re-picked.
+  const [selection, setSelection] = useState<Selection>(AUTO)
+  const [selectionWorkspaceId, setSelectionWorkspaceId] = useState(activeWorkspaceId)
+  if (selectionWorkspaceId !== activeWorkspaceId) {
+    setSelectionWorkspaceId(activeWorkspaceId)
+    setSelection(AUTO)
+  }
+  const activeProject = useMemo(() => {
+    if (selection.kind === 'project') return projects.find((p) => p.id === selection.project.id) ?? selection.project
+    if (selection.kind === 'none' || !settled) return null
+    return pickSavedOrFirst(projects)
+  }, [projects, selection, settled])
+  const isLoading = workspaceLoading ? true : !activeWorkspaceId ? false : !settled
+
+  // Persist an automatic choice, as the old provider did.
+  const autoProjectId = selection.kind === 'auto' ? activeProject?.id ?? null : null
+  useEffect(() => {
+    if (autoProjectId && localStorage.getItem(STORAGE_KEY) !== autoProjectId) localStorage.setItem(STORAGE_KEY, autoProjectId)
+  }, [autoProjectId])
 
   const setActiveProject = useCallback((project: Project) => {
-    setActiveProjectState(project)
+    setSelection({ kind: 'project', project })
     localStorage.setItem(STORAGE_KEY, project.id)
   }, [])
 
   const refreshProjects = useCallback(async () => {
-    await loadProjects()
-  }, [loadProjects])
-
-  useEffect(() => {
-    if (workspaceLoading) return
-    if (!activeWorkspaceId) {
-      setProjects([])
-      setActiveProjectState(null)
-      setIsLoading(false)
-      return
-    }
-    setIsLoading(true)
-    ;(async () => {
-      const data = await loadProjects()
-      const savedId = localStorage.getItem(STORAGE_KEY)
-      if (savedId) {
-        const found = data.find((p) => p.id === savedId)
-        if (found) {
-          setActiveProjectState(found)
-        } else if (data.length > 0) {
-          setActiveProjectState(data[0])
-          localStorage.setItem(STORAGE_KEY, data[0].id)
-        } else {
-          setActiveProjectState(null)
-        }
-      } else if (data.length > 0) {
-        setActiveProjectState(data[0])
-        localStorage.setItem(STORAGE_KEY, data[0].id)
-      } else {
-        setActiveProjectState(null)
-      }
-      setIsLoading(false)
-    })()
-  }, [activeWorkspaceId, workspaceLoading, loadProjects])
-
-  useSSESubscription(useCallback((eventType: SSEEventType, data: SSEEventData) => {
     if (!activeWorkspaceId) return
-    if (eventType === 'project:created') {
-      const p = data as unknown as Project
-      if (!p?.id || p.workspaceId !== activeWorkspaceId) return
-      setProjects((prev) => (prev.some((x) => x.id === p.id) ? prev : [...prev, p]))
-      return
+    try {
+      await client.query({ ...projectsQuery(activeWorkspaceId), staleTime: 0 })
+    } catch {
+      // Keep the cached list; callers only use this to pick up their own write.
     }
-    if (eventType === 'project:updated') {
-      const p = data as unknown as Project
-      if (!p?.id) return
-      setProjects((prev) => prev.map((x) => (x.id === p.id ? { ...x, ...p } : x)))
-      setActiveProjectState((prev) => (prev?.id === p.id ? { ...prev, ...p } : prev))
-      return
-    }
-    if (eventType === 'project:deleted') {
-      const id = (data as { id?: string; projectId?: string }).id ?? (data as { projectId?: string }).projectId
-      if (!id) return
-      setProjects((prev) => prev.filter((x) => x.id !== id))
-      setActiveProjectState((prev) => (prev?.id === id ? null : prev))
-    }
-  }, [activeWorkspaceId]))
+  }, [activeWorkspaceId, client])
 
-  return (
-    <ProjectContext.Provider value={{ activeProject, projects, isLoading, setActiveProject, refreshProjects }}>
-      {children}
-    </ProjectContext.Provider>
+  const activeIdRef = useRef(activeProject?.id ?? null)
+  activeIdRef.current = activeProject?.id ?? null
+  const bridgeState = useStandaloneBridgeState(client)
+  useSSESubscription(useCallback((eventType: SSEEventType, data: SSEEventData, meta: SSEEventMeta) => {
+    if (!hasSseBridge(client)) applySseEventToCache(client, eventType, data, meta, bridgeState())
+    if (eventType === 'project:deleted') {
+      const id = (data as { id?: string }).id ?? (data as { projectId?: string }).projectId
+      if (id && activeIdRef.current === id) setSelection(NONE)
+    }
+  }, [client, bridgeState]))
+
+  const value = useMemo(
+    () => ({ activeProject, projects, isLoading, setActiveProject, refreshProjects }),
+    [activeProject, projects, isLoading, setActiveProject, refreshProjects],
   )
+
+  return <ProjectContext.Provider value={value}>{children}</ProjectContext.Provider>
 }
 
 export function useProject() {

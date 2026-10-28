@@ -29,6 +29,8 @@ export interface TaskWithTeam {
   id: string;
   teamId: string | null;
   title: string;
+  /** W17b: the plan this task came from (absent on older servers). */
+  plan?: { id: string; key: string; title: string; status: string; approvedRevision: number | null } | null;
 }
 
 const COMMENTS_PAGE_SIZE = 100;
@@ -90,5 +92,7 @@ export async function fetchTaskTeamId(taskId: string): Promise<TaskWithTeam> {
 }
 
 export async function fetchTeamMembers(teamId: string): Promise<TeamMember[]> {
-  return apiFetch<TeamMember[]>(`/api/teams/${teamId}/members`);
+  // The route answers `{ data, nextCursor }` (keyset-paginated); older builds sent a bare array.
+  const res = await apiFetch<{ data: TeamMember[]; nextCursor: string | null } | TeamMember[]>(`/api/teams/${teamId}/members`);
+  return Array.isArray(res) ? res : res.data;
 }

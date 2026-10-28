@@ -1,35 +1,41 @@
 "use client"
 
 import { useState, useEffect, useCallback, Suspense } from "react"
-import { Settings, Loader2, Globe, Palette, Cpu, Shield, Key, Database, Brain, User as UserIcon, Building2 } from "lucide-react"
+import { Settings, Loader2, Globe, Palette, Cpu, Shield, Key, Database, Brain, Bot, User as UserIcon, Building2, Webhook } from "lucide-react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { toast } from "sonner"
 import { getActiveRepository } from "@/lib/api"
 import { apiFetch } from "@/lib/api/fetch"
 import { DatabaseSettings } from "@/components/desktop/database-settings"
 import { AIProvidersSection } from "@/components/settings/ai-providers-section"
+import { AgentsSection } from "@/components/settings/agents-section"
 import { PersonalAccessTokensSection } from "@/components/settings/personal-access-tokens-section"
 import { WorkspacesSection } from "@/components/settings/workspaces-section"
+import { WorkspaceWebhooksSettings } from "@/components/webhooks/workspace-webhooks-settings"
 import { ProfileSection } from "@/components/settings/profile-section"
 import { GeneralSection } from "@/components/settings/general-section"
 import { AppearanceSection } from "@/components/settings/appearance-section"
 
 import { AIExecutionSection } from "@/components/settings/ai-execution-section"
+import { RunBudgetsCard } from "@/components/settings/run-budgets-card"
+import { ApprovalModeCard } from "@/components/settings/approval-mode-card"
 import { SecuritySection } from "@/components/settings/security-section"
 
 type SettingsSection =
-  | "profile" | "workspaces" | "general" | "appearance"
-  | "ai-execution" | "ai-providers"
+  | "profile" | "workspaces" | "webhooks" | "general" | "appearance"
+  | "ai-execution" | "ai-providers" | "agents"
   | "security" | "api-keys" | "database"
 
 const NAV_ITEMS: { id: SettingsSection; label: string; icon: React.ElementType }[] = [
   { id: "profile", label: "Profile", icon: UserIcon },
   { id: "workspaces", label: "Workspaces", icon: Building2 },
+  { id: "webhooks", label: "Webhooks", icon: Webhook },
   { id: "general", label: "General", icon: Globe },
   { id: "appearance", label: "Appearance", icon: Palette },
 
   { id: "ai-execution", label: "AI Execution", icon: Cpu },
   { id: "ai-providers", label: "AI Providers", icon: Brain },
+  { id: "agents", label: "Agents", icon: Bot },
   { id: "security", label: "Security & Privacy", icon: Shield },
   { id: "api-keys", label: "API Keys", icon: Key },
   { id: "database", label: "Database", icon: Database },
@@ -122,26 +128,32 @@ function SettingsContent() {
     switch (activeSection) {
       case "profile": return <ProfileSection />
       case "workspaces": return <WorkspacesSection />
+      case "webhooks": return <WorkspaceWebhooksSettings />
       case "general": return <GeneralSection taskDeletionMode={taskDeletionMode} setTaskDeletionMode={setTaskDeletionMode} />
       case "appearance": return <AppearanceSection />
 
       case "ai-execution": return (
-        <AIExecutionSection
-          loading={loading}
-          parallelLimit={parallelLimit} setParallelLimit={setParallelLimit}
-          maxBatchSize={maxBatchSize} setMaxBatchSize={setMaxBatchSize}
-          queueAutoApprove={queueAutoApprove} setQueueAutoApprove={setQueueAutoApprove}
-          stopOnFailure={stopOnFailure} setStopOnFailure={setStopOnFailure}
-          conflictBehavior={conflictBehavior} setConflictBehavior={setConflictBehavior}
-          autoRetry={autoRetry} setAutoRetry={setAutoRetry}
-          taskDeletionMode={taskDeletionMode}
-          activeRepositoryId={activeRepositoryId}
-          activeRepositoryName={activeRepositoryName} setActiveRepositoryName={setActiveRepositoryName}
-          prBaseBranch={prBaseBranch} setPrBaseBranch={setPrBaseBranch}
-          savedPrBaseBranch={savedPrBaseBranch} setSavedPrBaseBranch={setSavedPrBaseBranch}
-        />
+        <div className="space-y-6">
+          <AIExecutionSection
+            loading={loading}
+            parallelLimit={parallelLimit} setParallelLimit={setParallelLimit}
+            maxBatchSize={maxBatchSize} setMaxBatchSize={setMaxBatchSize}
+            queueAutoApprove={queueAutoApprove} setQueueAutoApprove={setQueueAutoApprove}
+            stopOnFailure={stopOnFailure} setStopOnFailure={setStopOnFailure}
+            conflictBehavior={conflictBehavior} setConflictBehavior={setConflictBehavior}
+            autoRetry={autoRetry} setAutoRetry={setAutoRetry}
+            taskDeletionMode={taskDeletionMode}
+            activeRepositoryId={activeRepositoryId}
+            activeRepositoryName={activeRepositoryName} setActiveRepositoryName={setActiveRepositoryName}
+            prBaseBranch={prBaseBranch} setPrBaseBranch={setPrBaseBranch}
+            savedPrBaseBranch={savedPrBaseBranch} setSavedPrBaseBranch={setSavedPrBaseBranch}
+          />
+          <RunBudgetsCard />
+          <ApprovalModeCard />
+        </div>
       )
       case "ai-providers": return <AIProvidersSection />
+      case "agents": return <AgentsSection />
       case "security": return <SecuritySection />
       case "api-keys": return <PersonalAccessTokensSection />
       case "database": return (

@@ -165,6 +165,8 @@ export interface Project {
   leadId: string | null
   repoUrl: string | null
   localPath: string | null
+  /** FE-02: default agent runner for the project's tasks (null = OpenCode). */
+  defaultAgent?: string | null
   repositoryId: string | null
   repository?: {
     id: string

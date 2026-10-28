@@ -1,10 +1,14 @@
 "use client"
 
-import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from "react"
-import { fetchTeams, type Team } from "@/lib/api"
+import { createContext, useContext, useCallback, useMemo, type ReactNode } from "react"
+import { useQuery } from "@tanstack/react-query"
+import type { Team } from "@/lib/api"
 import { useAuth } from "@/hooks/use-auth"
 import { useWorkspace } from "@/hooks/use-workspace"
-import { useSSESubscription } from "@/providers/sse-provider"
+import { useSSESubscription, type SSEEventData, type SSEEventMeta, type SSEEventType } from "@/providers/sse-provider"
+import { teamsQuery } from "@/lib/query/resources"
+import { applySseEventToCache } from "@/lib/query/sse-bridge"
+import { hasSseBridge, useAppQueryClient, useStandaloneBridgeState } from "@/lib/query/use-app-query-client"
 
 interface TeamsContextType {
   teams: Team[]
@@ -13,58 +17,39 @@ interface TeamsContextType {
 }
 
 const TeamsContext = createContext<TeamsContextType | undefined>(undefined)
-const SHARED_TEAM_FIELDS = ['id', 'name', 'color', 'projectId'] as const
+const NO_TEAMS: Team[] = []
 
+/**
+ * The active workspace's teams, from the query cache. `team:*` events
+ * invalidate the list (bridge) instead of every provider refetching on its own;
+ * sign-out clears the cache (QuerySseBridge), which replaces the old
+ * `auth:expired` reset.
+ */
 export function TeamsProvider({ children }: { children: ReactNode }) {
-  const { isAuthenticated, user } = useAuth()
+  const { isAuthenticated } = useAuth()
   const { activeWorkspace, isLoading: isWorkspaceLoading } = useWorkspace()
   const activeWorkspaceId = activeWorkspace?.id
-  const [teams, setTeams] = useState<Team[]>([])
-  const [isLoading, setIsLoading] = useState(false)
+  const client = useAppQueryClient()
+  const enabled = isAuthenticated && !isWorkspaceLoading && Boolean(activeWorkspaceId)
+  const { data, isLoading: isFirstLoad } = useQuery({ ...teamsQuery(activeWorkspaceId ?? ""), enabled }, client)
+  const teams = (enabled ? data : undefined) ?? NO_TEAMS
+  // First load only: background refetches no longer flip every consumer (nothing reads it today).
+  const isLoading = enabled && isFirstLoad
 
   const reload = useCallback(async () => {
-    if (!isAuthenticated || isWorkspaceLoading) {
-      if (!isWorkspaceLoading) setTeams([])
-      return
-    }
-    if (!activeWorkspaceId) {
-      setTeams([])
-      return
-    }
-    setIsLoading(true)
-    try {
-      const data = await fetchTeams({
-        workspaceId: activeWorkspaceId,
-        fields: [...SHARED_TEAM_FIELDS],
-      })
-      setTeams(data)
-    } catch {
-      setTeams([])
-    } finally {
-      setIsLoading(false)
-    }
-  }, [activeWorkspaceId, isAuthenticated, isWorkspaceLoading])
+    if (!enabled || !activeWorkspaceId) return
+    await client.refetchQueries({ queryKey: teamsQuery(activeWorkspaceId).queryKey, exact: true })
+  }, [activeWorkspaceId, client, enabled])
 
-  useEffect(() => {
-    void reload()
-  }, [reload, user?.id])
+  const bridgeState = useStandaloneBridgeState(client)
+  useSSESubscription(useCallback((eventType: SSEEventType, data: SSEEventData, meta: SSEEventMeta) => {
+    if (!hasSseBridge(client)) applySseEventToCache(client, eventType, data, meta, bridgeState())
+  }, [client, bridgeState]))
 
-  // Clear teams when session expires (T3 dispatches `auth:expired` on 401)
-  useEffect(() => {
-    if (typeof window === "undefined") return
-    const handleAuthExpired = () => setTeams([])
-    window.addEventListener("auth:expired", handleAuthExpired)
-    return () => window.removeEventListener("auth:expired", handleAuthExpired)
-  }, [])
-
-  useSSESubscription((eventType) => {
-    if (["team:created", "team:updated", "team:deleted"].includes(eventType)) {
-      void reload()
-    }
-  })
+  const value = useMemo(() => ({ teams, isLoading, reload }), [teams, isLoading, reload])
 
   return (
-    <TeamsContext.Provider value={{ teams, isLoading, reload }}>
+    <TeamsContext.Provider value={value}>
       {children}
     </TeamsContext.Provider>
   )

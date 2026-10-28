@@ -25,7 +25,7 @@ interface PlatformInfo {
   arch: "x86_64" | "aarch64" | "unknown"
 }
 
-const OPENCODE_RELEASES_URL = "https://github.com/opencode-ai/opencode/releases"
+const OPENCODE_RELEASES_URL = "https://github.com/anomalyco/opencode/releases"
 
 export function OpencodeSetupDialog({
   open: isOpen,
@@ -147,7 +147,7 @@ export function OpencodeSetupDialog({
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Terminal className="h-5 w-5 text-green-500" />
+              <Terminal className="h-5 w-5 text-success" />
               OpenCode Ready
             </DialogTitle>
             <DialogDescription>

@@ -85,40 +85,145 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Colour tokens: three tiers (primitive → semantic → component), one dark
+ * theme. Source of truth: lib/design/*.ts; contrast rules and how to add a
+ * token: docs/design-tokens.md. Every colour variable is an sRGB channel
+ * triplet ("R G B"), so Tailwind's opacity modifiers keep working:
+ * `rgb(var(--x) / <alpha-value>)`. */
 @layer base {
+  /* @design-tokens:start. Generated from lib/design/*.ts by `node scripts/design-tokens.mjs --write`; do not edit by hand. */
   :root {
-    /* Unified dark theme — deeper blacks */
-    --background: 0 0% 4%;          /* #0a0a0a */
-    --foreground: 0 0% 90%;         /* #e6e6e6 */
-    --card: 0 0% 5%;                /* #0d0d0d */
-    --card-foreground: 0 0% 90%;
-    --popover: 0 0% 3%;             /* #080808 */
-    --popover-foreground: 0 0% 90%;
-    --primary: 160 84% 30%;
-    --primary-foreground: 0 0% 100%;
-    --secondary: 0 0% 5%;           /* #0d0d0d */
-    --secondary-foreground: 0 0% 90%;
-    --muted: 0 0% 5%;               /* #0d0d0d */
-    --muted-foreground: 0 0% 35%;   /* #595959 */
-    --accent: 160 84% 30%;
-    --accent-foreground: 0 0% 100%;
-    --destructive: 0 84% 45%;
-    --destructive-foreground: 0 0% 100%;
-    --border: 0 0% 12%;             /* #1f1f1f */
-    --input: 0 0% 12%;
-    /* Keyboard focus ring. Reuses --foreground's value rather than a new
-     * color — the original 0 0% 20% measured ~1.5:1 against this theme's
-     * near-black surfaces (background/card/popover all sit at 3-5% lightness),
-     * well under the ~3:1 WCAG 2.4.11 non-text-contrast minimum for a focus
-     * indicator. 0 0% 90% measures ~15:1 against the same surfaces. */
-    --ring: 0 0% 90%;
-    --radius: 0.125rem;
+    /* Tier 1: primitives. Authored in OKLCH (lib/design/palette.ts), emitted as sRGB channels. */
+    --ol-neutral-100: 255 255 255; /* #ffffff oklch(100% 0 0) */
+    --ol-neutral-97: 245 245 245; /* #f5f5f5 oklch(97.02% 0 0) */
+    --ol-neutral-92: 230 230 230; /* #e6e6e6 oklch(92.49% 0 0) */
+    --ol-neutral-71: 160 160 160; /* #a0a0a0 oklch(70.58% 0 0) */
+    --ol-neutral-63: 138 138 138; /* #8a8a8a oklch(63.34% 0 0) */
+    --ol-neutral-52: 106 106 106; /* #6a6a6a oklch(52.43% 0 0) */
+    --ol-neutral-35: 58 58 58; /* #3a3a3a oklch(34.85% 0 0) */
+    --ol-neutral-28: 42 42 42; /* #2a2a2a oklch(28.5% 0 0) */
+    --ol-neutral-24: 31 31 31; /* #1f1f1f oklch(23.93% 0 0) */
+    --ol-neutral-22: 26 26 26; /* #1a1a1a oklch(21.78% 0 0) */
+    --ol-neutral-19: 20 20 20; /* #141414 oklch(19.13% 0 0) */
+    --ol-neutral-18: 17 17 17; /* #111111 oklch(17.76% 0 0) */
+    --ol-neutral-17: 15 15 15; /* #0f0f0f oklch(16.84% 0 0) */
+    --ol-neutral-16: 13 13 13; /* #0d0d0d oklch(15.91% 0 0) */
+    --ol-neutral-14: 10 10 10; /* #0a0a0a oklch(14.48% 0 0) */
+    --ol-neutral-13: 8 8 8; /* #080808 oklch(13.44% 0 0) */
+    --ol-neutral-0: 0 0 0; /* #000000 oklch(0% 0 0) */
+    --ol-emerald-70: 16 185 129; /* #10b981 oklch(69.59% 0.1491 162.48) */
+    --ol-emerald-55: 3 133 91; /* #03855b oklch(54.59% 0.1181 162.48) */
+    --ol-green-80: 74 222 128; /* #4ade80 oklch(80.03% 0.1821 151.71) */
+    --ol-amber-84: 251 191 36; /* #fbbf24 oklch(83.69% 0.1644 84.43) */
+    --ol-red-71: 248 113 113; /* #f87171 oklch(71.06% 0.1661 22.22) */
+    --ol-red-55: 211 18 18; /* #d31212 oklch(54.96% 0.2181 28.51) */
+    --ol-sky-75: 56 189 248; /* #38bdf8 oklch(75.35% 0.139 232.66) */
+    --ol-purple-72: 192 132 252; /* #c084fc oklch(72.17% 0.1767 305.5) */
 
-    /* Linear accent – overridden at runtime by the accent-color picker */
+    /* Runtime inputs. Defaults; the accent picker overrides them on <html>. */
+    --linear-accent-rgb: var(--ol-emerald-70);
     --linear-accent: #10b981;
-    --linear-accent-hover: #059669;
-    --linear-accent-rgb: 16 185 129;
-    --linear-accent-hover-rgb: 5 150 105;
+    --linear-accent-hover-rgb: var(--ol-emerald-55);
+    --linear-accent-hover: #03855b;
+
+    /* Tier 2: semantic. */
+    --surface-overlay: var(--ol-neutral-13);
+    --surface-canvas: var(--ol-neutral-14);
+    --surface-card: var(--ol-neutral-16);
+    --surface-inset: var(--ol-neutral-17);
+    --surface-app: var(--ol-neutral-18);
+    --surface-raised: var(--ol-neutral-19);
+    --surface-hover: var(--ol-neutral-22);
+    --surface-pressed: var(--ol-neutral-24);
+    --fg-primary: var(--ol-neutral-97);
+    --fg-default: var(--ol-neutral-92);
+    --fg-secondary: var(--ol-neutral-71);
+    --fg-tertiary: var(--ol-neutral-63);
+    --fg-on-solid: var(--ol-neutral-100);
+    --fg-on-inverse: var(--ol-neutral-14);
+    --border-subtle: var(--ol-neutral-24);
+    --border-default: var(--ol-neutral-28);
+    --border-strong: var(--ol-neutral-35);
+    --border-control: var(--ol-neutral-52);
+    --border-focus: var(--ol-neutral-92);
+    --accent-brand: var(--linear-accent-rgb);
+    --accent-solid: var(--linear-accent-hover-rgb);
+    --tone-neutral: var(--ol-neutral-71);
+    --tone-info: var(--ol-sky-75);
+    --tone-success: var(--ol-green-80);
+    --tone-warning: var(--ol-amber-84);
+    --tone-danger: var(--ol-red-71);
+    --tone-danger-solid: var(--ol-red-55);
+    --tone-discovery: var(--ol-purple-72);
+    --state-layer: var(--ol-neutral-100);
+    --scrim: var(--ol-neutral-0);
+
+    /* Tier 3: component and role tokens (what Tailwind classes resolve to). */
+    --background: var(--surface-canvas);
+    --foreground: var(--fg-default);
+    --card: var(--surface-card);
+    --card-foreground: var(--fg-default);
+    --popover: var(--surface-overlay);
+    --popover-foreground: var(--fg-default);
+    --primary: var(--accent-solid);
+    --primary-foreground: var(--fg-on-solid);
+    --secondary: var(--surface-card);
+    --secondary-foreground: var(--fg-default);
+    --muted: var(--surface-card);
+    --muted-foreground: var(--fg-tertiary);
+    --accent: var(--accent-solid);
+    --accent-foreground: var(--fg-on-solid);
+    --destructive: var(--tone-danger);
+    --destructive-solid: var(--tone-danger-solid);
+    --destructive-foreground: var(--fg-on-solid);
+    --border: var(--border-subtle);
+    --input: var(--border-control);
+    --ring: var(--border-focus);
+    --brand: var(--accent-brand);
+    --brand-solid: var(--accent-solid);
+    --linear-bg: var(--surface-app);
+    --linear-bg-secondary: var(--surface-raised);
+    --linear-bg-tertiary: var(--surface-inset);
+    --linear-border: var(--border-default);
+    --linear-border-hover: var(--border-strong);
+    --linear-text: var(--fg-primary);
+    --linear-text-secondary: var(--fg-secondary);
+    --linear-text-tertiary: var(--fg-tertiary);
+    --status-todo: var(--fg-tertiary);
+    --status-in-progress: var(--accent-brand);
+    --status-done: var(--tone-success);
+    --status-cancelled: var(--tone-neutral);
+    --status-error: var(--tone-danger);
+    --status-committing: var(--tone-warning);
+    --status-publishing: var(--tone-discovery);
+    --priority-low: var(--fg-tertiary);
+    --priority-medium: var(--accent-brand);
+    --priority-high: var(--tone-warning);
+    --priority-urgent: var(--tone-danger);
+    --run-neutral: var(--tone-neutral);
+    --run-info: var(--tone-info);
+    --run-active: var(--accent-brand);
+    --run-warning: var(--tone-warning);
+    --run-success: var(--tone-success);
+    --run-danger: var(--tone-danger);
+    --scrollbar-thumb: var(--border-subtle);
+    --scrollbar-thumb-hover: var(--border-default);
+
+    /* States: alpha of a solid fill on hover / press, opacity of a disabled control. */
+    --state-hover: 0.9;
+    --state-pressed: 0.8;
+    --state-disabled: 0.5;
+
+    /* State layers: alpha of --state-layer over any surface (hover, emphasis, dividers, outlines). */
+    --state-layer-faint: 0.02;
+    --state-layer-hover: 0.04;
+    --state-layer-divider: 0.04;
+    --state-layer-outline: 0.1;
+  }
+  /* @design-tokens:end */
+
+  :root {
+    --radius: 0.125rem;
   }
 }
 
@@ -128,7 +233,7 @@
   }
 
   html {
-    background-color: #0a0a0a;
+    background-color: rgb(var(--background));
     font-family: var(--font-sans);
     overscroll-behavior: none;
     height: 100%;
@@ -174,7 +279,7 @@
 /* ── Dark scrollbars ─────────────────────────────────── */
 * {
   scrollbar-width: thin;
-  scrollbar-color: #1f1f1f transparent;
+  scrollbar-color: rgb(var(--scrollbar-thumb)) transparent;
 }
 
 *::-webkit-scrollbar {
@@ -187,12 +292,12 @@
 }
 
 *::-webkit-scrollbar-thumb {
-  background-color: #1f1f1f;
+  background-color: rgb(var(--scrollbar-thumb));
   border-radius: 3px;
 }
 
 *::-webkit-scrollbar-thumb:hover {
-  background-color: #2a2a2a;
+  background-color: rgb(var(--scrollbar-thumb-hover));
 }
 
 *::-webkit-scrollbar-corner {

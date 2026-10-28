@@ -1,9 +1,10 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useQuery } from "@tanstack/react-query"
 import { useWorkspace } from "@/hooks/use-workspace"
-import { fetchWorkspaceMembers } from "@/lib/api/workspaces"
 import type { WorkspaceMember } from "@/lib/api/types"
+import { workspaceMembersQuery } from "@/lib/query/resources"
+import { useAppQueryClient } from "@/lib/query/use-app-query-client"
 
 export interface TeamMemberOption {
   id: string
@@ -22,31 +23,25 @@ function toOption(member: WorkspaceMember): TeamMemberOption | null {
   }
 }
 
+/** Module-level so `select` is memoized: the options array keeps its identity until the members change. */
+function toOptions(members: WorkspaceMember[]): TeamMemberOption[] {
+  return members.map(toOption).filter((m): m is TeamMemberOption => m !== null)
+}
+
+const NO_MEMBERS: TeamMemberOption[] = []
+
+/**
+ * Workspace members as assignee options. One cache entry per workspace: the
+ * board, its filters and the task form used to fetch this list three times
+ * each time the board opened; now they share one request.
+ */
 export function useTeamMembers() {
   const { activeWorkspace } = useWorkspace()
-  const [members, setMembers] = useState<TeamMemberOption[]>([])
-  const [isLoading, setIsLoading] = useState(false)
-
-  const load = useCallback(async () => {
-    if (!activeWorkspace) {
-      setMembers([])
-      return
-    }
-    setIsLoading(true)
-    try {
-      const raw = await fetchWorkspaceMembers(activeWorkspace.id)
-      const opts = raw.map(toOption).filter((m): m is TeamMemberOption => m !== null)
-      setMembers(opts)
-    } catch {
-      setMembers([])
-    } finally {
-      setIsLoading(false)
-    }
-  }, [activeWorkspace])
-
-  useEffect(() => {
-    void load()
-  }, [load])
-
-  return { members, isLoading }
+  const workspaceId = activeWorkspace?.id
+  const client = useAppQueryClient()
+  const { data, isLoading } = useQuery(
+    { ...workspaceMembersQuery(workspaceId ?? ""), enabled: Boolean(workspaceId), select: toOptions },
+    client,
+  )
+  return { members: (workspaceId ? data : undefined) ?? NO_MEMBERS, isLoading }
 }

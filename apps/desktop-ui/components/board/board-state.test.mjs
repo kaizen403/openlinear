@@ -1,9 +1,13 @@
 import { describe, expect, it } from "vitest"
 import {
   applyBoardStatusChange,
+  bucketTasksByStatus,
   getLockedBatchTaskIds,
   moveBoardTask,
+  replaceBoardTasks,
   replaceOptimisticTask,
+  restoreRemovedTasks,
+  stabilizeBuckets,
   upsertBoardTask,
 } from "./board-state"
 
@@ -153,5 +157,43 @@ describe("board task state", () => {
   it("handles missing batch tasks gracefully", () => {
     expect(getLockedBatchTaskIds({ status: "running", tasks: [] })).toEqual(new Set())
     expect(getLockedBatchTaskIds({ status: "completed", tasks: [{ taskId: "t1" }] })).toEqual(new Set())
+  })
+})
+
+describe("bulk reconciliation helpers", () => {
+  it("replaces only tasks still on the board and keeps identity when nothing changed", () => {
+    const tasks = [task("a"), task("b")]
+    const updated = { ...task("b"), status: "done" }
+    const next = replaceBoardTasks(tasks, [updated, task("gone")])
+    expect(next.map((item) => item.id)).toEqual(["a", "b"])
+    expect(next[1]).toBe(updated)
+    expect(next[0]).toBe(tasks[0])
+    expect(replaceBoardTasks(tasks, [])).toBe(tasks)
+    expect(replaceBoardTasks(tasks, [tasks[0]])).toBe(tasks)
+  })
+
+  it("restores removed tasks near their previous neighbours without duplicates", () => {
+    const previous = ["a", "b", "c", "d", "e"].map((id) => task(id))
+    const current = [previous[0], previous[3]]
+    const restored = restoreRemovedTasks(current, previous, new Set(["b", "c", "e"]))
+    expect(restored.map((item) => item.id)).toEqual(["a", "b", "c", "d", "e"])
+    // An id that reappeared meanwhile (e.g. via SSE) is not inserted twice.
+    const again = restoreRemovedTasks([previous[0], previous[1]], previous, new Set(["b"]))
+    expect(again.map((item) => item.id)).toEqual(["a", "b"])
+    expect(restoreRemovedTasks(current, previous, new Set())).toBe(current)
+  })
+
+  it("buckets in one pass and keeps unchanged column arrays", () => {
+    const tasks = [task("a"), task("b", "in_progress"), task("c", "done")]
+    const first = bucketTasksByStatus(tasks)
+    expect(first.todo.map((item) => item.id)).toEqual(["a"])
+    expect(first.cancelled).toEqual([])
+    const changed = { ...tasks[1], title: "updated" }
+    const second = stabilizeBuckets(first, bucketTasksByStatus([tasks[0], changed, tasks[2]]))
+    expect(second.todo).toBe(first.todo)
+    expect(second.done).toBe(first.done)
+    expect(second.cancelled).toBe(first.cancelled)
+    expect(second.in_progress).not.toBe(first.in_progress)
+    expect(stabilizeBuckets(first, bucketTasksByStatus(tasks))).toBe(first)
   })
 })

@@ -7,140 +7,28 @@ import {
   MessageSquare, Bell
 } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { apiFetch } from "@/lib/api"
-import { useSSESubscription } from "@/providers/sse-provider"
 import { EmptyState } from "@/components/empty-state"
+import { ApprovalInbox } from "@/components/execution/approval-inbox"
 import { Skeleton } from "@/components/ui/skeleton"
+import { useNotifications, useUnreadNotificationCount } from "@/hooks/use-notifications"
+import {
+  BUCKET_LABEL,
+  BUCKET_ORDER,
+  FILTER_CHIPS,
+  TYPE_META,
+  bucketFor,
+  timeAgo,
+  type AppNotification,
+  type Bucket,
+  type FilterChip,
+  type NotificationType,
+} from "./inbox-utils"
 
-type NotificationType = 'mention' | 'assignment' | 'status_change' | 'comment'
-
-interface NotificationActor {
-  id: string
-  username: string
-  avatarUrl: string | null
-}
-
-interface AppNotification {
-  id: string
-  userId: string
-  type: NotificationType
-  taskId: string | null
-  commentId: string | null
-  actorUserId: string | null
-  actor?: NotificationActor | null
-  body: string
-  readAt: string | null
-  createdAt: string
-}
-
-interface NotificationsListResponse {
-  items: AppNotification[]
-  page: number
-  pageSize: number
-  total: number
-  hasMore: boolean
-  unreadCount: number
-}
-
-type FilterChip = 'all' | 'mention' | 'assignment' | 'status_change'
-
-const MS_DAY = 24 * 60 * 60 * 1000
-
-function startOfDay(d: Date): number {
-  const x = new Date(d)
-  x.setHours(0, 0, 0, 0)
-  return x.getTime()
-}
-
-type Bucket = 'today' | 'week' | 'older'
-
-function bucketFor(dateStr: string, now: number): Bucket {
-  const t = new Date(dateStr).getTime()
-  const todayStart = startOfDay(new Date(now))
-  if (t >= todayStart) return 'today'
-  if (t >= todayStart - 6 * MS_DAY) return 'week'
-  return 'older'
-}
-
-const BUCKET_LABEL: Record<Bucket, string> = {
-  today: 'Today',
-  week: 'This week',
-  older: 'Older',
-}
-
-const BUCKET_ORDER: Bucket[] = ['today', 'week', 'older']
-
-const relativeFmt = new Intl.RelativeTimeFormat('en', { numeric: 'auto' })
-
-function timeAgo(dateStr: string, now: number): string {
-  const diffSec = Math.round((new Date(dateStr).getTime() - now) / 1000)
-  const abs = Math.abs(diffSec)
-  if (abs < 60) return relativeFmt.format(diffSec, 'second')
-  if (abs < 3600) return relativeFmt.format(Math.round(diffSec / 60), 'minute')
-  if (abs < 86_400) return relativeFmt.format(Math.round(diffSec / 3600), 'hour')
-  if (abs < 7 * 86_400) return relativeFmt.format(Math.round(diffSec / 86_400), 'day')
-  if (abs < 30 * 86_400) return relativeFmt.format(Math.round(diffSec / (7 * 86_400)), 'week')
-  return new Date(dateStr).toLocaleDateString()
-}
-
-const TYPE_META: Record<NotificationType, {
-  label: string
-  Icon: typeof AtSign
-  color: string
-  bg: string
-}> = {
-  mention: {
-    label: '@mention',
-    Icon: AtSign,
-    color: 'text-amber-400',
-    bg: 'bg-amber-400/10',
-  },
-  assignment: {
-    label: 'Assigned',
-    Icon: UserPlus,
-    color: 'text-linear-accent',
-    bg: 'bg-linear-accent/10',
-  },
-  status_change: {
-    label: 'Status',
-    Icon: ArrowRightLeft,
-    color: 'text-violet-400',
-    bg: 'bg-violet-400/10',
-  },
-  comment: {
-    label: 'Comment',
-    Icon: MessageSquare,
-    color: 'text-emerald-400',
-    bg: 'bg-emerald-400/10',
-  },
-}
-
-const FILTER_CHIPS: { id: FilterChip; label: string }[] = [
-  { id: 'all', label: 'All' },
-  { id: 'mention', label: '@mentions' },
-  { id: 'assignment', label: 'Assignments' },
-  { id: 'status_change', label: 'Status changes' },
-]
-
-async function fetchNotifications(): Promise<NotificationsListResponse> {
-  return apiFetch<NotificationsListResponse>('/api/notifications?pageSize=100')
-}
-
-async function markNotificationRead(id: string): Promise<void> {
-  await apiFetch(`/api/notifications/${id}/read`, { method: 'PATCH' })
-}
-
-async function markAllNotificationsRead(): Promise<void> {
-  await apiFetch('/api/notifications/read-all', { method: 'POST' })
-}
-
-// Consumes the app's single shared SSE connection (see SSEProvider) instead
-// of opening a second EventSource just for this page.
-function useNotificationStream(onCreated: (n: AppNotification) => void): void {
-  useSSESubscription((eventType, data) => {
-    if (eventType !== 'notification:created') return
-    onCreated(data as unknown as AppNotification)
-  })
+const TYPE_ICON: Record<NotificationType, typeof AtSign> = {
+  mention: AtSign,
+  assignment: UserPlus,
+  status_change: ArrowRightLeft,
+  comment: MessageSquare,
 }
 
 function NotificationRow({
@@ -153,7 +41,7 @@ function NotificationRow({
   now: number
 }) {
   const meta = TYPE_META[notification.type]
-  const Icon = meta.Icon
+  const Icon = TYPE_ICON[notification.type]
   const unread = notification.readAt === null
   const actorName = notification.actor?.username ?? 'Someone'
 
@@ -162,8 +50,8 @@ function NotificationRow({
       onClick={() => onClick(notification)}
       className={cn(
         "w-full flex items-start gap-3 px-4 py-3 text-left transition-colors group",
-        "hover:bg-white/[0.04]",
-        unread && "bg-white/[0.02]"
+        "hover:bg-layer-hover",
+        unread && "bg-layer-faint"
       )}
     >
       <span className={cn(
@@ -211,9 +99,10 @@ function NotificationRow({
 
 export default function InboxPage() {
   const router = useRouter()
-  const [notifications, setNotifications] = useState<AppNotification[]>([])
-  const [unreadCount, setUnreadCount] = useState(0)
-  const [loading, setLoading] = useState(true)
+  // The list and the unread count come from the query cache (shared with the
+  // sidebar badge); `notification:created` events patch both (SSE bridge).
+  const { notifications, loading, error, errorUpdatedAt, markRead, markAllRead } = useNotifications()
+  const unreadCount = useUnreadNotificationCount()
   const [filter, setFilter] = useState<FilterChip>('all')
   const [now, setNow] = useState<number>(() => Date.now())
 
@@ -222,43 +111,13 @@ export default function InboxPage() {
     return () => clearInterval(t)
   }, [])
 
-  const loadData = useCallback(async () => {
-    try {
-      const res = await fetchNotifications()
-      setNotifications(res.items)
-      setUnreadCount(res.unreadCount)
-    } catch (err) {
-      console.error("Failed to load notifications:", err)
-    } finally {
-      setLoading(false)
-    }
-  }, [])
-
   useEffect(() => {
-    loadData()
-  }, [loadData])
+    if (error) console.error("Failed to load notifications:", error)
+  }, [error, errorUpdatedAt])
 
-  useNotificationStream((n) => {
-    setNotifications((prev) => {
-      if (prev.some((p) => p.id === n.id)) return prev
-      return [n, ...prev]
-    })
-    if (n.readAt === null) {
-      setUnreadCount((c) => c + 1)
-    }
-  })
-
-  const handleNotificationClick = useCallback(async (n: AppNotification) => {
-    if (n.readAt === null) {
-      const nowIso = new Date().toISOString()
-      setNotifications((prev) => prev.map((p) => p.id === n.id ? { ...p, readAt: nowIso } : p))
-      setUnreadCount((c) => Math.max(0, c - 1))
-      try {
-        await markNotificationRead(n.id)
-      } catch (err) {
-        console.error("Failed to mark notification read:", err)
-      }
-    }
+  const handleNotificationClick = useCallback((n: AppNotification) => {
+    // Optimistic; rolled back if the request fails.
+    if (n.readAt === null) markRead(n.id)
 
     if (n.taskId) {
       const params = new URLSearchParams()
@@ -273,18 +132,11 @@ export default function InboxPage() {
         }, 400)
       }
     }
-  }, [router])
+  }, [markRead, router])
 
-  const handleMarkAllRead = useCallback(async () => {
-    const nowIso = new Date().toISOString()
-    setNotifications((prev) => prev.map((p) => p.readAt ? p : { ...p, readAt: nowIso }))
-    setUnreadCount(0)
-    try {
-      await markAllNotificationsRead()
-    } catch (err) {
-      console.error("Failed to mark all read:", err)
-    }
-  }, [])
+  const handleMarkAllRead = useCallback(() => {
+    markAllRead()
+  }, [markAllRead])
 
   const filtered = useMemo(() => {
     if (filter === 'all') return notifications
@@ -347,6 +199,7 @@ export default function InboxPage() {
       </div>
 
       <div className="flex-1 min-h-0 overflow-y-auto bg-linear-bg">
+        <ApprovalInbox />
         {loading ? (
           <div className="divide-y divide-linear-border">
             {Array.from({ length: 6 }).map((_, i) => (

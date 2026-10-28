@@ -21,7 +21,7 @@ function ProjectIcon({ type, color }: { type: string | null; color: string }) {
   return (
     <div
       className="w-7 h-7 rounded-sm flex items-center justify-center flex-shrink-0 border border-linear-border"
-      style={{ backgroundColor: color || '#10b981' }}
+      style={{ backgroundColor: color || 'var(--linear-accent)' }}
     >
       {type === "target" && <Target className={iconClass} />}
       {type === "hexagon" && <Hexagon className={iconClass} />}
@@ -193,7 +193,7 @@ export function ProjectList({ projects, isLoading, searchQuery, onEdit, onDelete
                           onClick={() => onDelete(project)}
                           className="opacity-0 group-hover:opacity-100 p-1.5 rounded-sm hover:bg-linear-bg-tertiary transition-all"
                         >
-                          <Trash2 className="w-4 h-4 text-red-400" />
+                          <Trash2 className="w-4 h-4 text-danger" />
                         </button>
                       </div>
                     </td>
@@ -284,7 +284,7 @@ export function ProjectList({ projects, isLoading, searchQuery, onEdit, onDelete
                     onClick={() => onDelete(project)}
                     className="p-1.5 rounded-sm hover:bg-linear-bg-tertiary transition-all"
                   >
-                    <Trash2 className="w-4 h-4 text-red-400" />
+                    <Trash2 className="w-4 h-4 text-danger" />
                   </button>
                 </div>
               </div>

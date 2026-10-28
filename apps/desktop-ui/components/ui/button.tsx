@@ -3,15 +3,16 @@ import { Slot } from "@radix-ui/react-slot"
 import { cva, type VariantProps } from "class-variance-authority"
 
 import { cn } from "@/lib/utils"
+import { focusRing } from "@/components/ui/focus-ring"
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-sm text-sm font-medium transition-colors disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+  ["inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-sm text-sm font-medium transition-colors disabled:pointer-events-none disabled:opacity-disabled [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0", focusRing],
   {
     variants: {
       variant: {
-        default: "bg-linear-accent text-white hover:bg-linear-accent-hover active:bg-linear-accent-hover",
+        default: "bg-primary text-primary-foreground hover:bg-primary-hover active:bg-primary-pressed",
         destructive:
-          "bg-destructive text-destructive-foreground hover:bg-destructive/90 active:bg-destructive/80",
+          "bg-destructive text-destructive-foreground hover:bg-destructive-hover active:bg-destructive-pressed",
         outline:
           "border border-input bg-transparent hover:bg-accent hover:text-accent-foreground active:bg-accent/80",
         secondary:

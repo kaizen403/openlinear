@@ -1,6 +1,6 @@
 "use client"
 
-import { Suspense, useState, useEffect, useCallback } from "react"
+import { Suspense, useState, useEffect } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import {
   Users,
@@ -46,18 +46,10 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import {
-  fetchTeam,
-  updateTeam,
-  deleteTeam,
-  removeTeamMember,
-  updateTeamMember,
-  type Team,
-  type TeamMember,
-} from "@/lib/api"
-import { useSSESubscription } from "@/providers/sse-provider"
-import { apiFetch, ApiError } from "@/lib/api/fetch"
+import type { TeamMember } from "@/lib/api"
 import { useAuth } from "@/hooks/use-auth"
+import { useTeamDetail } from "@/hooks/use-team-directory"
+import { useTeamMutations } from "@/hooks/use-team-mutations"
 import {
   Select,
   SelectContent,
@@ -89,60 +81,54 @@ function TeamDetailPageContent() {
   const searchParams = useSearchParams()
   const teamId = searchParams.get("id") ?? ""
 
-  const [team, setTeam] = useState<Team | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
+  // The full team from the cache (shared with Settings → Members); `team:*`
+  // events patch it in place instead of reloading the page.
+  const { team, isLoading, error: loadError, errorUpdatedAt: loadErrorAt } = useTeamDetail(teamId)
+  const { update, remove, changeMemberRole, removeMember } = useTeamMutations()
   const [teamName, setTeamName] = useState("")
   const [teamDescription, setTeamDescription] = useState("")
   const [teamColor, setTeamColor] = useState("#10b981")
-  const [isSavingTeam, setIsSavingTeam] = useState(false)
   const [copiedInviteCode, setCopiedInviteCode] = useState(false)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
-  const [isDeleting, setIsDeleting] = useState(false)
   const [removeMemberId, setRemoveMemberId] = useState<string | null>(null)
-  const [isRemovingMember, setIsRemovingMember] = useState(false)
-
-  const loadTeam = useCallback(async () => {
-    if (!teamId) return
-    try {
-      setIsLoading(true)
-      const data = await fetchTeam(teamId)
-      setTeam(data)
-      setTeamName(data.name)
-      setTeamDescription(data.description || "")
-      setTeamColor(data.color)
-    } catch (error) {
-      console.error("Failed to fetch team:", error)
-    } finally {
-      setIsLoading(false)
-    }
-  }, [teamId])
+  const isSavingTeam = update.isPending
+  const isDeleting = remove.isPending || remove.isSuccess
+  const isRemovingMember = removeMember.isPending
 
   useEffect(() => {
-    loadTeam()
-  }, [loadTeam])
+    if (loadError) console.error("Failed to fetch team:", loadError)
+  }, [loadError, loadErrorAt])
 
-  useSSESubscription((eventType) => {
-    if (['team:created', 'team:updated', 'team:deleted'].includes(eventType)) {
-      loadTeam()
-    }
-  })
+  // The form follows the server's values when they change (first load, a
+  // successful save, someone else's edit) — not on unrelated refetches, which
+  // used to reset it on every team event. While a save is in flight or after
+  // it failed, the optimistic write and its rollback leave the typed values alone.
+  const serverName = team?.name
+  const serverDescription = team?.description
+  const serverColor = team?.color
+  const saveInFlightOrFailed = (update.isPending || update.isError) && update.variables?.teamId === teamId
+  useEffect(() => {
+    if (serverName === undefined || saveInFlightOrFailed) return
+    setTeamName(serverName)
+    setTeamDescription(serverDescription || "")
+    if (serverColor) setTeamColor(serverColor)
+  }, [teamId, serverName, serverDescription, serverColor, saveInFlightOrFailed])
 
   const handleSaveTeamInfo = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!teamId || !teamName.trim()) return
 
     try {
-      setIsSavingTeam(true)
-      await updateTeam(teamId, {
-        name: teamName,
-        description: teamDescription || null,
-        color: teamColor,
+      await update.mutateAsync({
+        teamId,
+        edit: {
+          name: teamName,
+          description: teamDescription || null,
+          color: teamColor,
+        },
       })
-      loadTeam()
     } catch (error) {
       console.error("Failed to update team:", error)
-    } finally {
-      setIsSavingTeam(false)
     }
   }
 
@@ -164,13 +150,11 @@ function TeamDetailPageContent() {
 
   const handleRoleChange = async (userId: string, role: TeamMember['role']) => {
     if (!teamId) return
-    const prev = team?.members ?? []
-    setTeam((t) => (t ? { ...t, members: prev.map((m) => (m.userId === userId ? { ...m, role } : m)) } : t))
     try {
-      await updateTeamMember(teamId, userId, { role })
+      // Optimistic, rolled back on failure (as before).
+      await changeMemberRole.mutateAsync({ teamId, userId, role })
       toast.success("Role updated")
     } catch (err) {
-      setTeam((t) => (t ? { ...t, members: prev } : t))
       toast.error(err instanceof Error ? err.message : "Failed to update role")
     }
   }
@@ -178,14 +162,10 @@ function TeamDetailPageContent() {
   const confirmRemoveMember = async () => {
     if (!teamId || !removeMemberId) return
     try {
-      setIsRemovingMember(true)
-      await removeTeamMember(teamId, removeMemberId)
+      await removeMember.mutateAsync({ teamId, userId: removeMemberId })
       setRemoveMemberId(null)
-      loadTeam()
     } catch (error) {
       console.error("Failed to remove team member:", error)
-    } finally {
-      setIsRemovingMember(false)
     }
   }
 
@@ -193,13 +173,11 @@ function TeamDetailPageContent() {
     if (!teamId) return
 
     try {
-      setIsDeleting(true)
-      await deleteTeam(teamId)
+      await remove.mutateAsync(teamId)
       setIsDeleteDialogOpen(false)
       router.push('/teams')
     } catch (error) {
       console.error("Failed to delete team:", error)
-      setIsDeleting(false)
     }
   }
 
@@ -336,7 +314,7 @@ function TeamDetailPageContent() {
                           className="border-linear-border hover:bg-linear-bg-tertiary"
                         >
                           {copiedInviteCode ? (
-                            <Check className="w-4 h-4 text-green-500" />
+                            <Check className="w-4 h-4 text-success" />
                           ) : (
                             <Copy className="w-4 h-4" />
                           )}

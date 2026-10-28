@@ -93,9 +93,9 @@ export function OAuthCallbackClient() {
 
         <div className="flex items-center gap-2">
           {error ? (
-            <AlertCircle className="h-5 w-5 text-red-400" />
+            <AlertCircle className="h-5 w-5 text-danger" />
           ) : (
-            <CheckCircle2 className="h-5 w-5 text-green-400" />
+            <CheckCircle2 className="h-5 w-5 text-success" />
           )}
           <h1 className="text-base font-semibold text-linear-text">
             {error ? "OAuth failed" : "OAuth callback received"}

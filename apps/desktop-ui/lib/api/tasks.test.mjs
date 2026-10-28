@@ -57,13 +57,11 @@ describe('tasks API', () => {
     expect(result).toEqual({ id: 't1', title: 'New' })
   })
 
-  it('executeTaskPublic calls sidecar', async () => {
+  // Routing to the sidecar is decided by routes.ts (see routes.test.mjs), not by a per-call flag.
+  it('executeTaskPublic posts to the execute route', async () => {
     apiFetch.mockResolvedValue(undefined)
     await executeTaskPublic('t1')
-    expect(apiFetch).toHaveBeenCalledWith('/api/tasks/t1/execute', {
-      method: 'POST',
-      sidecar: true,
-    })
+    expect(apiFetch).toHaveBeenCalledWith('/api/tasks/t1/execute', { method: 'POST' })
   })
 
   it('fetchInboxCount returns count', async () => {
@@ -90,13 +88,10 @@ describe('tasks API', () => {
     expect(apiFetch).toHaveBeenCalledWith('/api/inbox/read-all', { method: 'PATCH' })
   })
 
-  it('refreshTaskPr calls sidecar', async () => {
+  it('refreshTaskPr posts to the refresh-pr route', async () => {
     apiFetch.mockResolvedValue({ prUrl: null, refreshed: true })
     const result = await refreshTaskPr('t1')
-    expect(apiFetch).toHaveBeenCalledWith('/api/tasks/t1/refresh-pr', {
-      method: 'POST',
-      sidecar: true,
-    })
+    expect(apiFetch).toHaveBeenCalledWith('/api/tasks/t1/refresh-pr', { method: 'POST' })
     expect(result).toEqual({ prUrl: null, refreshed: true })
   })
 

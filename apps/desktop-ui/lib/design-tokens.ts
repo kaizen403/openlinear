@@ -5,8 +5,11 @@
  * shadows. All UI surfaces should import from this module instead of
  * hand-rolling tailwind class strings or inline hex literals.
  *
- * Tokens use the `linear-*` namespace (which respects the runtime
- * `--linear-accent` CSS variable) plus semantic shadcn tokens.
+ * Colours are the design-token component tier (`status-*`, `priority-*`,
+ * `run-*`; lib/design/tokens.ts, contrast-checked by lib/design/tokens.test.ts).
+ * Class names are written out in full so Tailwind can see them. Coloured
+ * chips tint their own token at /10 (background) and /30 (border); neutral
+ * ones (todo, low) sit on `bg-muted`.
  */
 
 export type StatusKey =
@@ -45,84 +48,84 @@ export interface ColorTriad {
 export const STATUS_COLORS: Readonly<Record<StatusKey, ColorTriad>> = {
   todo: {
     bg: "bg-muted",
-    text: "text-muted-foreground",
+    text: "text-status-todo",
     border: "border-border",
-    dot: "bg-muted-foreground",
+    dot: "bg-status-todo",
   },
   in_progress: {
-    bg: "bg-linear-accent/10",
-    text: "text-linear-accent",
-    border: "border-linear-accent/30",
-    dot: "bg-linear-accent",
+    bg: "bg-status-in-progress/10",
+    text: "text-status-in-progress",
+    border: "border-status-in-progress/30",
+    dot: "bg-status-in-progress",
   },
   done: {
-    bg: "bg-green-500/10",
-    text: "text-green-400",
-    border: "border-green-500/30",
-    dot: "bg-green-400",
+    bg: "bg-status-done/10",
+    text: "text-status-done",
+    border: "border-status-done/30",
+    dot: "bg-status-done",
   },
   cancelled: {
-    bg: "bg-gray-500/10",
-    text: "text-gray-400",
-    border: "border-gray-500/30",
-    dot: "bg-gray-400",
+    bg: "bg-status-cancelled/10",
+    text: "text-status-cancelled",
+    border: "border-status-cancelled/30",
+    dot: "bg-status-cancelled",
   },
   error: {
-    bg: "bg-red-500/10",
-    text: "text-red-400",
-    border: "border-red-500/30",
-    dot: "bg-red-400",
+    bg: "bg-status-error/10",
+    text: "text-status-error",
+    border: "border-status-error/30",
+    dot: "bg-status-error",
   },
   cloning: {
-    bg: "bg-linear-accent/10",
-    text: "text-linear-accent",
-    border: "border-linear-accent/30",
-    dot: "bg-linear-accent",
+    bg: "bg-status-in-progress/10",
+    text: "text-status-in-progress",
+    border: "border-status-in-progress/30",
+    dot: "bg-status-in-progress",
   },
   executing: {
-    bg: "bg-linear-accent/10",
-    text: "text-linear-accent",
-    border: "border-linear-accent/30",
-    dot: "bg-linear-accent",
+    bg: "bg-status-in-progress/10",
+    text: "text-status-in-progress",
+    border: "border-status-in-progress/30",
+    dot: "bg-status-in-progress",
   },
   committing: {
-    bg: "bg-yellow-500/10",
-    text: "text-yellow-400",
-    border: "border-yellow-500/30",
-    dot: "bg-yellow-400",
+    bg: "bg-status-committing/10",
+    text: "text-status-committing",
+    border: "border-status-committing/30",
+    dot: "bg-status-committing",
   },
   creating_pr: {
-    bg: "bg-purple-500/10",
-    text: "text-purple-400",
-    border: "border-purple-500/30",
-    dot: "bg-purple-400",
+    bg: "bg-status-publishing/10",
+    text: "text-status-publishing",
+    border: "border-status-publishing/30",
+    dot: "bg-status-publishing",
   },
 } as const
 
 export const PRIORITY_COLORS: Readonly<Record<PriorityKey, ColorTriad>> = {
   low: {
     bg: "bg-muted",
-    text: "text-muted-foreground",
+    text: "text-priority-low",
     border: "border-border",
-    dot: "bg-muted-foreground",
+    dot: "bg-priority-low",
   },
   medium: {
-    bg: "bg-linear-accent/10",
-    text: "text-linear-accent",
-    border: "border-linear-accent/30",
-    dot: "bg-linear-accent",
+    bg: "bg-priority-medium/10",
+    text: "text-priority-medium",
+    border: "border-priority-medium/30",
+    dot: "bg-priority-medium",
   },
   high: {
-    bg: "bg-amber-500/10",
-    text: "text-amber-400",
-    border: "border-amber-500/30",
-    dot: "bg-amber-400",
+    bg: "bg-priority-high/10",
+    text: "text-priority-high",
+    border: "border-priority-high/30",
+    dot: "bg-priority-high",
   },
   urgent: {
-    bg: "bg-destructive/10",
-    text: "text-destructive",
-    border: "border-destructive/40",
-    dot: "bg-destructive",
+    bg: "bg-priority-urgent/10",
+    text: "text-priority-urgent",
+    border: "border-priority-urgent/30",
+    dot: "bg-priority-urgent",
   },
 } as const
 
@@ -152,7 +155,7 @@ export const SHADOWS = {
 
 export type ShadowKey = keyof typeof SHADOWS
 
-/** Brand colors with no semantic linear-* equivalent; use as inline style. */
+/** Third-party brand colours (macOS window controls, GitHub); fixed, not themable. */
 export const BRAND_COLORS = {
   macClose: "#ff5f57",
   macMinimize: "#febc2e",
@@ -167,9 +170,9 @@ export const BRAND_COLORS = {
 /** Batch-execution status colors (distinct semantic from STATUS_COLORS). */
 export const BATCH_STATUS_COLORS = {
   queued: { text: "text-linear-text-tertiary", bg: "bg-linear-border" },
-  running: { text: "text-linear-accent", bg: "bg-linear-accent" },
-  completed: { text: "text-green-400", bg: "bg-green-500/10", dot: "bg-green-500" },
-  failed: { text: "text-red-400", bg: "bg-red-500/10", dot: "bg-red-500" },
-  skipped: { text: "text-amber-400", bg: "bg-amber-500/10" },
+  running: { text: "text-run-active", bg: "bg-run-active" },
+  completed: { text: "text-run-success", bg: "bg-run-success/10", dot: "bg-run-success" },
+  failed: { text: "text-run-danger", bg: "bg-run-danger/10", dot: "bg-run-danger" },
+  skipped: { text: "text-run-warning", bg: "bg-run-warning/10" },
   cancelled: { text: "text-linear-text-tertiary", bg: "bg-linear-border-hover" },
 } as const

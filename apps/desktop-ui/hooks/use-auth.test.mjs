@@ -1,15 +1,35 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook, act, waitFor } from '@testing-library/react'
 import { createElement } from 'react'
+
+class DesktopLoginError extends Error {
+  constructor(reason, message) {
+    super(message)
+    this.reason = reason
+  }
+}
 
 vi.mock('@/lib/api', () => ({
   fetchCurrentUser: vi.fn(),
   getActiveRepository: vi.fn(),
   logout: vi.fn(),
   verifyCallbackToken: vi.fn(),
+  completeDesktopLogin: vi.fn(),
+  DesktopLoginError,
 }))
 
-const { fetchCurrentUser, getActiveRepository, logout, verifyCallbackToken } = await import('@/lib/api')
+let deepLinkHandler = null
+const invoke = vi.fn(async () => null)
+vi.mock('@tauri-apps/api/event', () => ({
+  listen: vi.fn(async (_name, handler) => {
+    deepLinkHandler = handler
+    return () => {}
+  }),
+}))
+vi.mock('@tauri-apps/api/core', () => ({ invoke: (...args) => invoke(...args) }))
+
+const { fetchCurrentUser, getActiveRepository, logout, verifyCallbackToken, completeDesktopLogin } = await import('@/lib/api')
+const { toast } = await import('sonner')
 const { AuthProvider, useAuth } = await import('./use-auth.tsx')
 
 function wrapper({ children }) {
@@ -170,6 +190,64 @@ describe('useAuth', () => {
       value: { ...window.location, search: originalSearch },
       writable: true,
       configurable: true,
+    })
+  })
+
+  describe('desktop sign-in deep link', () => {
+    beforeEach(() => {
+      deepLinkHandler = null
+      window.__TAURI_INTERNALS__ = {}
+      fetchCurrentUser.mockResolvedValue(null)
+      getActiveRepository.mockResolvedValue(null)
+    })
+
+    afterEach(() => {
+      window.__TAURI_INTERNALS__ = undefined
+    })
+
+    async function deliver(result, payload) {
+      await waitFor(() => expect(deepLinkHandler).not.toBeNull())
+      await act(async () => {
+        deepLinkHandler({ payload })
+      })
+      await waitFor(() => expect(result.current.isLoading).toBe(false))
+    }
+
+    it('redeems the one-time code with its state and signs in', async () => {
+      const user = { id: 'u1', username: 'octo' }
+      completeDesktopLogin.mockResolvedValue({ status: 'signed_in', user })
+      const { result } = renderHook(() => useAuth(), { wrapper })
+      await deliver(result, { success: true, code: 'code-1', state: 'state-1' })
+      expect(completeDesktopLogin).toHaveBeenCalledWith({ kind: 'code', code: 'code-1', state: 'state-1' })
+      expect(result.current.user).toEqual(user)
+    })
+
+    it('ignores a deep link that carries a token instead of a code', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const { result } = renderHook(() => useAuth(), { wrapper })
+      await deliver(result, { success: true, token: 'eyJhbGciOiJIUzI1NiJ9.e.s' })
+      expect(completeDesktopLogin).not.toHaveBeenCalled()
+      expect(verifyCallbackToken).not.toHaveBeenCalled()
+      expect(result.current.user).toBeNull()
+      warn.mockRestore()
+    })
+
+    it('drops unsolicited callbacks quietly', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      completeDesktopLogin.mockRejectedValue(new DesktopLoginError('unsolicited', 'not ours'))
+      const { result } = renderHook(() => useAuth(), { wrapper })
+      await deliver(result, { success: true, code: 'code-x', state: 'state-x' })
+      expect(toast.error).not.toHaveBeenCalled()
+      expect(result.current.user).toBeNull()
+      warn.mockRestore()
+    })
+
+    it('keeps the two-factor challenge for the login page', async () => {
+      completeDesktopLogin.mockResolvedValue({ status: 'two_factor_required', tempToken: 'temp-1' })
+      const { result } = renderHook(() => useAuth(), { wrapper })
+      await deliver(result, { success: true, code: 'code-2', state: 'state-2' })
+      expect(result.current.pendingTwoFactorToken).toBe('temp-1')
+      expect(result.current.user).toBeNull()
     })
   })
 })

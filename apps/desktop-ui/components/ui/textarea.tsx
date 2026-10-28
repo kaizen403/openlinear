@@ -1,6 +1,7 @@
 import * as React from "react"
 
 import { cn } from "@/lib/utils"
+import { focusRing } from "@/components/ui/focus-ring"
 
 const Textarea = React.forwardRef<
   HTMLTextAreaElement,
@@ -12,7 +13,8 @@ const Textarea = React.forwardRef<
       autoCorrect="off"
       spellCheck={false}
       className={cn(
-        "flex min-h-[80px] w-full rounded-sm border border-input bg-transparent px-2.5 py-2 text-sm placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+        "flex min-h-[80px] w-full rounded-sm border border-input bg-transparent px-2.5 py-2 text-sm placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-disabled",
+        focusRing,
         className
       )}
       ref={ref}

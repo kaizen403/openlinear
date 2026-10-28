@@ -1,6 +1,6 @@
 "use client"
 
-import { Suspense, useState, useEffect, useCallback } from "react"
+import { Suspense, useState, useEffect } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import {
   Users,
@@ -41,23 +41,14 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import {
-  updateProject,
-  deleteProject,
-  fetchProjectAccess,
-  grantProjectAccess,
-  revokeProjectAccess,
-  fetchWorkspaceMembers,
-  type Project,
-  type ProjectAccess,
-  type ProjectPermission,
-  type WorkspaceMember,
-} from "@/lib/api"
-import { apiFetch } from "@/lib/api/fetch"
-import { useProject } from "@/hooks/use-project"
+import type { ProjectPermission } from "@/lib/api"
 import { useWorkspace } from "@/hooks/use-workspace"
+import { useProjectSettings } from "@/hooks/use-project-settings"
+import { VerificationSettingsSection } from "@/components/projects/verification-settings-section"
+import { WebhooksSection } from "@/components/webhooks/webhooks-section"
+import { RunnerSelect } from "@/components/execution/runner-select"
+import { downloadProjectExport } from "@/lib/api/project-export"
 import { toast } from "sonner"
-import { invalidateLabelCache } from "@/components/label-picker"
 
 const permissionLabels: Record<ProjectPermission, string> = {
   full: "Full access",
@@ -83,42 +74,29 @@ function ProjectManageContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const projectId = searchParams.get("id") ?? ""
-  const { refreshProjects } = useProject()
   const { activeWorkspace } = useWorkspace()
 
-  const [project, setProject] = useState<Project | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
+  // Project, access rules, members and labels from the query cache (labels and
+  // members are the entries the label picker and the board already use).
+  const settings = useProjectSettings(projectId, activeWorkspace?.id)
+  const { project, isLoading, access, isLoadingAccess, workspaceMembers, labels, isLoadingLabels } = settings
   const [projectName, setProjectName] = useState("")
   const [projectDescription, setProjectDescription] = useState("")
-  const [isSaving, setIsSaving] = useState(false)
-
-  const [access, setAccess] = useState<ProjectAccess[]>([])
-  const [isLoadingAccess, setIsLoadingAccess] = useState(false)
-  const [workspaceMembers, setWorkspaceMembers] = useState<WorkspaceMember[]>([])
+  const isSaving = settings.save.isPending
 
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
-  const [isDeleting, setIsDeleting] = useState(false)
+  const [isExporting, setIsExporting] = useState(false)
+  const isDeleting = settings.remove.isPending
   const [revokeTarget, setRevokeTarget] = useState<{ userId: string; username: string } | null>(null)
-  const [isRevoking, setIsRevoking] = useState(false)
+  const isRevoking = settings.revoke.isPending
 
   const [grantUserId, setGrantUserId] = useState("")
   const [grantPermission, setGrantPermission] = useState<ProjectPermission>("full")
-  const [isGranting, setIsGranting] = useState(false)
+  const isGranting = settings.grant.isPending
 
-  // Labels state
-  interface ProjectLabel {
-    id: string
-    name: string
-    color: string
-    priority: number
-    projectId: string
-  }
-
-  const [labels, setLabels] = useState<ProjectLabel[]>([])
-  const [isLoadingLabels, setIsLoadingLabels] = useState(false)
   const [newLabelName, setNewLabelName] = useState("")
   const [newLabelColor, setNewLabelColor] = useState("#6366f1")
-  const [isCreatingLabel, setIsCreatingLabel] = useState(false)
+  const isCreatingLabel = settings.createLabel.isPending
   const [editingLabelId, setEditingLabelId] = useState<string | null>(null)
   const [editLabelName, setEditLabelName] = useState("")
   const [editLabelColor, setEditLabelColor] = useState("")
@@ -128,86 +106,48 @@ function ProjectManageContent() {
     "#3b82f6", "#6366f1", "#8b5cf6", "#ec4899", "#64748b",
   ]
 
-  const loadSettings = useCallback(async () => {
-    if (!projectId) return
-    setIsLoading(true)
-    setIsLoadingAccess(true)
-    try {
-      const [projectData, accessData] = await Promise.all([
-        apiFetch<Project>(`/api/projects/${projectId}`),
-        fetchProjectAccess(projectId),
-      ])
-
-      setProject(projectData)
-      setProjectName(projectData.name)
-      setProjectDescription(projectData.description || "")
-      setAccess(accessData)
-
-      const workspaceId = projectData.workspaceId ?? activeWorkspace?.id
-      if (workspaceId) {
-        setWorkspaceMembers(await fetchWorkspaceMembers(workspaceId))
-      } else {
-        setWorkspaceMembers([])
-      }
-    } catch {
-      toast.error("Failed to load project")
-    } finally {
-      setIsLoading(false)
-      setIsLoadingAccess(false)
-    }
-  }, [activeWorkspace?.id, projectId])
-
+  // One toast per failed load, as before.
+  const { loadError, loadErrorAt, labelsError, labelsErrorAt } = settings
   useEffect(() => {
-    loadSettings()
-  }, [loadSettings])
-
-  const loadLabels = useCallback(async () => {
-    if (!projectId) return
-    setIsLoadingLabels(true)
-    try {
-      const data = await apiFetch<ProjectLabel[]>(`/api/labels?projectId=${projectId}`)
-      setLabels(data.sort((a, b) => b.priority - a.priority))
-    } catch {
-      toast.error("Failed to load labels")
-    } finally {
-      setIsLoadingLabels(false)
-    }
-  }, [projectId])
-
+    if (loadError) toast.error("Failed to load project")
+  }, [loadError, loadErrorAt])
   useEffect(() => {
-    if (projectId) void loadLabels()
-  }, [projectId, loadLabels])
+    if (labelsError) toast.error("Failed to load labels")
+  }, [labelsError, labelsErrorAt])
+
+  // The form starts from the loaded project (and follows a reload of another project).
+  const loadedId = project?.id
+  const loadedName = project?.name
+  const loadedDescription = project?.description
+  useEffect(() => {
+    if (loadedId === undefined || loadedName === undefined) return
+    setProjectName(loadedName)
+    setProjectDescription(loadedDescription || "")
+    // Only when a project (re)loads: later edits (own or from events) must not clobber typing.
+  }, [loadedId])
 
   const handleSave = async () => {
     if (!projectId || !projectName.trim()) return
     try {
-      setIsSaving(true)
-      const updated = await updateProject(projectId, {
+      await settings.save.mutateAsync({
         name: projectName.trim(),
         description: projectDescription.trim() || null,
       })
-      setProject(updated)
-      refreshProjects()
       toast.success("Project updated")
     } catch {
       toast.error("Failed to update project")
-    } finally {
-      setIsSaving(false)
     }
   }
 
   const handleDelete = async () => {
     if (!projectId) return
     try {
-      setIsDeleting(true)
-      await deleteProject(projectId)
-      refreshProjects()
+      await settings.remove.mutateAsync()
       toast.success("Project deleted")
       router.push("/projects")
     } catch {
       toast.error("Failed to delete project")
     } finally {
-      setIsDeleting(false)
       setIsDeleteDialogOpen(false)
     }
   }
@@ -215,36 +155,21 @@ function ProjectManageContent() {
   const handleGrantAccess = async () => {
     if (!projectId || !grantUserId) return
     try {
-      setIsGranting(true)
-      const granted = await grantProjectAccess(projectId, grantUserId, grantPermission)
-      setAccess((prev) => [
-        ...prev.filter((entry) => entry.userId !== granted.userId),
-        granted,
-      ])
+      await settings.grant.mutateAsync({ userId: grantUserId, permission: grantPermission })
       setGrantUserId("")
       setGrantPermission("full")
       toast.success("Access granted")
     } catch {
       toast.error("Failed to grant access")
-    } finally {
-      setIsGranting(false)
     }
   }
 
   const handlePermissionChange = async (userId: string, permission: ProjectPermission) => {
     if (!projectId) return
-    const previous = access
-    setAccess((prev) =>
-      prev.map((entry) => (entry.userId === userId ? { ...entry, permission } : entry)),
-    )
     try {
-      const updated = await grantProjectAccess(projectId, userId, permission)
-      setAccess((prev) =>
-        prev.map((entry) => (entry.userId === userId ? updated : entry)),
-      )
+      await settings.changePermission.mutateAsync({ userId, permission })
       toast.success("Access updated")
     } catch {
-      setAccess(previous)
       toast.error("Failed to update access")
     }
   }
@@ -252,52 +177,32 @@ function ProjectManageContent() {
   const handleRevoke = async () => {
     if (!projectId || !revokeTarget) return
     try {
-      setIsRevoking(true)
-      await revokeProjectAccess(projectId, revokeTarget.userId)
-      setAccess((prev) =>
-        prev.map((entry) =>
-          entry.userId === revokeTarget.userId ? { ...entry, permission: "deny" } : entry,
-        ),
-      )
+      await settings.revoke.mutateAsync(revokeTarget.userId)
       toast.success(`Access revoked for ${revokeTarget.username}`)
     } catch {
       toast.error("Failed to revoke access")
     } finally {
-      setIsRevoking(false)
       setRevokeTarget(null)
     }
   }
 
   const handleCreateLabel = async () => {
     if (!newLabelName.trim() || !projectId) return
-    setIsCreatingLabel(true)
     try {
-      const label = await apiFetch<ProjectLabel>('/api/labels', {
-        method: 'POST',
-        body: JSON.stringify({ name: newLabelName.trim(), color: newLabelColor, projectId }),
-      })
-      setLabels((prev) => [label, ...prev])
+      const label = await settings.createLabel.mutateAsync({ name: newLabelName.trim(), color: newLabelColor })
       setNewLabelName("")
       setNewLabelColor("#6366f1")
-      invalidateLabelCache(projectId)
       toast.success(`Label "${label.name}" created`)
     } catch {
       toast.error("Failed to create label")
-    } finally {
-      setIsCreatingLabel(false)
     }
   }
 
   const handleUpdateLabel = async (labelId: string) => {
     if (!editLabelName.trim()) return
     try {
-      const updated = await apiFetch<ProjectLabel>(`/api/labels/${labelId}`, {
-        method: 'PATCH',
-        body: JSON.stringify({ name: editLabelName.trim(), color: editLabelColor }),
-      })
-      setLabels((prev) => prev.map((l) => (l.id === labelId ? updated : l)))
+      await settings.updateLabel.mutateAsync({ labelId, name: editLabelName.trim(), color: editLabelColor })
       setEditingLabelId(null)
-      invalidateLabelCache(projectId)
       toast.success("Label updated")
     } catch {
       toast.error("Failed to update label")
@@ -306,9 +211,7 @@ function ProjectManageContent() {
 
   const handleDeleteLabel = async (labelId: string) => {
     try {
-      await apiFetch(`/api/labels/${labelId}`, { method: 'DELETE' })
-      setLabels((prev) => prev.filter((l) => l.id !== labelId))
-      invalidateLabelCache(projectId)
+      await settings.deleteLabel.mutateAsync(labelId)
       toast.success("Label deleted")
     } catch {
       toast.error("Failed to delete label")
@@ -376,6 +279,21 @@ function ProjectManageContent() {
                 placeholder="Optional description"
                 className="bg-linear-bg-secondary border-linear-border"
               />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs text-linear-text-secondary">Default agent</Label>
+              <RunnerSelect
+                aria-label="Default agent for this project's tasks"
+                value={project.defaultAgent ?? null}
+                inheritLabel="OpenCode (default)"
+                disabled={isSaving}
+                onChange={(defaultAgent) => {
+                  settings.save.mutateAsync({ defaultAgent })
+                    .then(() => toast.success("Default agent updated"))
+                    .catch(() => toast.error("Failed to update the default agent"))
+                }}
+              />
+              <p className="text-xs text-linear-text-tertiary">Tasks without their own agent run with this one.</p>
             </div>
             <Button
               size="sm"
@@ -641,6 +559,30 @@ function ProjectManageContent() {
               )}
             </div>
           </SettingsPanel>
+        </SettingsSection>
+
+        <VerificationSettingsSection projectId={project.id} />
+
+        <WebhooksSection projectId={project.id} />
+
+        <SettingsSection
+          title="Export"
+          description="Download this project as JSON: tasks, comments, labels, runs and verification evidence. Credentials and execution logs are left out, and pasted secrets are redacted."
+        >
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={isExporting}
+            onClick={() => {
+              setIsExporting(true)
+              downloadProjectExport(project.id)
+                .then((result) => toast.success(result.truncated ? `Exported the first tasks to ${result.fileName} (the project has ${result.taskCount})` : `Exported ${result.taskCount} tasks to ${result.fileName}`))
+                .catch((error: unknown) => toast.error(error instanceof Error ? error.message : "Export failed"))
+                .finally(() => setIsExporting(false))
+            }}
+          >
+            {isExporting ? "Exporting..." : "Export project"}
+          </Button>
         </SettingsSection>
 
         <SettingsSection

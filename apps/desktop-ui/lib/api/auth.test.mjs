@@ -1,171 +1,325 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
-const mockApiFetch = vi.fn()
+const invoke = vi.fn()
+vi.mock('@tauri-apps/api/core', () => ({ invoke: (...args) => invoke(...args) }))
+vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn(async () => () => {}) }))
 
-vi.mock('./fetch', () => ({
-  apiFetch: mockApiFetch,
-  ApiError: class ApiError extends Error {
-    constructor(status, message, code, details) {
-      super(message)
-      this.status = status
-      this.code = code
-      this.details = details
-      this.name = 'ApiError'
-    }
-  },
-  AuthExpiredError: class AuthExpiredError extends Error {
-    constructor(message) {
-      super(message)
-      this.status = 401
-      this.code = 'auth_expired'
-      this.name = 'AuthExpiredError'
-    }
-  },
-  NetworkError: class NetworkError extends Error {
-    constructor(message, retryAfterMs) {
-      super(message)
-      this.retryAfterMs = retryAfterMs
-      this.name = 'NetworkError'
-    }
-  },
-}))
-
-vi.mock('./client', () => ({
-  getApiUrl: vi.fn().mockReturnValue('http://127.0.0.1:3001'),
-  getSidecarApiUrl: vi.fn().mockReturnValue('http://127.0.0.1:3001'),
-  resolveKnownSidecarApiUrl: vi.fn().mockResolvedValue('http://127.0.0.1:3001'),
-}))
-
-const { apiFetch, ApiError, AuthExpiredError, NetworkError } = await import('./fetch')
+const auth = await import('./auth.ts')
+const client = await import('./client.ts')
+const tokenStore = await import('./token-store.ts')
+const desktopAuth = await import('./desktop-auth.ts')
+const { open } = await import('@tauri-apps/plugin-shell')
 
 const {
-  extractCallbackToken,
+  completeDesktopLogin,
+  completeTwoFactorLogin,
+  DesktopLoginError,
+  fetchAuthProviders,
   fetchCurrentUser,
   getLoginUrl,
   logout,
+  startDesktopLogin,
+  startLogin,
   updateEmail,
   verifyCallbackToken,
-} = await import('./auth.ts')
+} = auth
 
-describe('extractCallbackToken', () => {
-  it('extracts token from query string', () => {
-    expect(extractCallbackToken('?token=abc123')).toBe('abc123')
-  })
+const CLOUD = 'https://cloud.example.test'
+const ENV_KEYS = ['NEXT_PUBLIC_API_URL', 'NEXT_PUBLIC_CLOUD_API_URL', 'NEXT_PUBLIC_SIDECAR_URL']
+const savedEnv = {}
+const USER = { id: 'u1', username: 'octo' }
+const CODE = 'c'.repeat(43)
+const STATE = 's'.repeat(32)
+const VERIFIER = 'v'.repeat(43)
 
-  it('extracts token from openlinear callback URL', () => {
-    expect(extractCallbackToken('openlinear://callback?token=xyz')).toBe('xyz')
-  })
+function json(status, body) {
+  return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
+}
 
-  it('returns empty string for error callback', () => {
-    expect(extractCallbackToken('openlinear://callback?error=denied')).toBe('')
-  })
+function bodyOf(call) {
+  return JSON.parse(call[1].body)
+}
 
-  it('extracts JWT pattern', () => {
-    expect(extractCallbackToken('eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjMifQ.abc')).toBe('eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjMifQ.abc')
-  })
+function authorizationOf(call) {
+  const headers = call[1]?.headers
+  return headers instanceof Headers ? headers.get('Authorization') : headers?.Authorization ?? null
+}
 
-  it('decodes URL-encoded token', () => {
-    expect(extractCallbackToken('?token=abc%20123')).toBe('abc 123')
-  })
+function urls() {
+  return globalThis.fetch.mock.calls.map(([url]) => String(url))
+}
 
-  it('returns empty string for empty input', () => {
-    expect(extractCallbackToken('')).toBe('')
-    expect(extractCallbackToken('   ')).toBe('')
-  })
+function setDesktop(enabled) {
+  window.__TAURI_INTERNALS__ = enabled ? {} : undefined
+  if (enabled) {
+    process.env.NEXT_PUBLIC_CLOUD_API_URL = CLOUD
+  } else {
+    delete process.env.NEXT_PUBLIC_CLOUD_API_URL
+  }
+}
 
-  it('returns normalized string for non-URL non-JWT input', () => {
-    expect(extractCallbackToken('random-string')).toBe('random-string')
-  })
+beforeEach(() => {
+  for (const key of ENV_KEYS) savedEnv[key] = process.env[key]
+  process.env.NEXT_PUBLIC_API_URL = CLOUD
+  delete process.env.NEXT_PUBLIC_SIDECAR_URL
+  setDesktop(false)
+  invoke.mockReset()
+  invoke.mockResolvedValue(null)
+  open.mockClear()
+  client.resetSidecarUrlCacheForTests()
+  tokenStore.resetTokenStoreForTests()
+  desktopAuth.resetPendingLoginsForTests()
+  localStorage.clear()
+  vi.stubGlobal('fetch', vi.fn())
+})
 
-  it('handles openlinear callback without token', () => {
-    expect(extractCallbackToken('openlinear://callback')).toBe('')
-  })
-
-  it('extracts token from full URL', () => {
-    expect(extractCallbackToken('https://example.com?token=abc123')).toBe('abc123')
-  })
+afterEach(() => {
+  vi.unstubAllGlobals()
+  setDesktop(false)
+  for (const key of ENV_KEYS) {
+    if (savedEnv[key] === undefined) delete process.env[key]
+    else process.env[key] = savedEnv[key]
+  }
 })
 
 describe('fetchCurrentUser', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-    localStorage.clear()
+  it('returns null without a token and makes no request', async () => {
+    await expect(fetchCurrentUser()).resolves.toBeNull()
+    expect(globalThis.fetch).not.toHaveBeenCalled()
   })
 
-  it('returns null when no token in localStorage', async () => {
-    const result = await fetchCurrentUser()
-    expect(result).toBeNull()
+  it('asks the cloud API for the user', async () => {
+    localStorage.setItem('token', 'tok')
+    globalThis.fetch.mockResolvedValueOnce(json(200, USER))
+    await expect(fetchCurrentUser()).resolves.toEqual(USER)
+    expect(urls()).toEqual([`${CLOUD}/api/auth/me`])
   })
 
-  it('returns user data when token exists and request succeeds', async () => {
-    const user = { id: 'u1', username: 'test' }
-    localStorage.setItem('token', 'tok123')
-    apiFetch.mockResolvedValue(user)
-    const result = await fetchCurrentUser()
-    expect(result).toEqual(user)
+  it('refreshes an expired access token before giving up', async () => {
+    localStorage.setItem('token', 'expired')
+    globalThis.fetch
+      .mockResolvedValueOnce(json(401, {}))
+      .mockResolvedValueOnce(json(200, { token: 'fresh' }))
+      .mockResolvedValueOnce(json(200, USER))
+    await expect(fetchCurrentUser()).resolves.toEqual(USER)
+    expect(urls()).toEqual([`${CLOUD}/api/auth/me`, `${CLOUD}/api/auth/refresh`, `${CLOUD}/api/auth/me`])
+    expect(localStorage.getItem('token')).toBe('fresh')
   })
 
-  it('returns null on AuthExpiredError', async () => {
-    localStorage.setItem('token', 'tok123')
-    apiFetch.mockRejectedValue(new AuthExpiredError('Session expired'))
-    const result = await fetchCurrentUser()
-    expect(result).toBeNull()
-  })
-
-  it('returns null on NetworkError', async () => {
-    localStorage.setItem('token', 'tok123')
-    apiFetch.mockRejectedValue(new NetworkError('Offline'))
-    const result = await fetchCurrentUser()
-    expect(result).toBeNull()
-  })
-
-  it('returns null on 401 ApiError', async () => {
-    localStorage.setItem('token', 'tok123')
-    apiFetch.mockRejectedValue(new ApiError(401, 'Unauthorized', 'auth_expired'))
-    const result = await fetchCurrentUser()
-    expect(result).toBeNull()
-  })
-
-  it('returns null on 500 ApiError', async () => {
-    localStorage.setItem('token', 'tok123')
-    apiFetch.mockRejectedValue(new ApiError(500, 'Server Error', 'internal'))
-    const result = await fetchCurrentUser()
-    expect(result).toBeNull()
-  })
-})
-
-describe('getLoginUrl', () => {
-  it('returns non-desktop login URL', () => {
-    const url = getLoginUrl()
-    expect(url).toContain('/api/auth/github')
-  })
-})
-
-describe('logout', () => {
-  it('removes token and redirects', () => {
-    localStorage.setItem('token', 'tok123')
-    logout()
+  it('drops a token the API rejects', async () => {
+    localStorage.setItem('token', 'bad')
+    globalThis.fetch.mockResolvedValueOnce(json(401, {})).mockResolvedValueOnce(json(401, {}))
+    await expect(fetchCurrentUser()).resolves.toBeNull()
     expect(localStorage.getItem('token')).toBeNull()
+  })
+
+  it('keeps the token on server errors', async () => {
+    localStorage.setItem('token', 'tok')
+    globalThis.fetch.mockResolvedValueOnce(json(500, {}))
+    await expect(fetchCurrentUser()).resolves.toBeNull()
+    expect(localStorage.getItem('token')).toBe('tok')
+  })
+})
+
+describe('verifyCallbackToken (web /auth/session)', () => {
+  it('verifies the token before storing it', async () => {
+    let storedDuringRequest = 'unset'
+    globalThis.fetch.mockImplementationOnce(async () => {
+      storedDuringRequest = localStorage.getItem('token')
+      return json(200, USER)
+    })
+    await expect(verifyCallbackToken('candidate')).resolves.toEqual(USER)
+    expect(storedDuringRequest).toBeNull()
+    expect(authorizationOf(globalThis.fetch.mock.calls[0])).toBe('Bearer candidate')
+    expect(localStorage.getItem('token')).toBe('candidate')
+  })
+
+  it('stores nothing when the API rejects the token', async () => {
+    localStorage.setItem('token', 'previous')
+    globalThis.fetch.mockResolvedValueOnce(json(401, { error: 'Invalid token' }))
+    await expect(verifyCallbackToken('forged')).rejects.toMatchObject({ status: 401 })
+    expect(localStorage.getItem('token')).toBe('previous')
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('provider discovery and web sign-in', () => {
+  it('builds the web login URL on the cloud API', () => {
+    expect(getLoginUrl()).toBe(`${CLOUD}/api/auth/github`)
+  })
+
+  it('reports GitHub availability from the API, anonymously', async () => {
+    localStorage.setItem('token', 'tok')
+    globalThis.fetch.mockResolvedValueOnce(json(200, { github: { enabled: true } }))
+    await expect(fetchAuthProviders()).resolves.toEqual({ github: { enabled: true } })
+    expect(authorizationOf(globalThis.fetch.mock.calls[0])).toBeNull()
+  })
+
+  it('treats an unreachable API as sign-in unavailable', async () => {
+    globalThis.fetch.mockRejectedValueOnce(new Error('offline'))
+    await expect(fetchAuthProviders()).resolves.toEqual({ github: { enabled: false } })
+  })
+
+  it('does not navigate when GitHub sign-in is disabled', async () => {
+    globalThis.fetch.mockResolvedValueOnce(json(200, { github: { enabled: false } }))
+    await expect(startLogin()).resolves.toBe(false)
+  })
+})
+
+describe('desktop sign-in', () => {
+  beforeEach(() => setDesktop(true))
+
+  it('binds the sign-in to a PKCE challenge and opens GitHub in the system browser', async () => {
+    localStorage.setItem('token', 'old-session')
+    tokenStore.setToken('old-session')
+    globalThis.fetch.mockResolvedValueOnce(json(200, { authorizeUrl: 'https://github.com/login/oauth/authorize?state=signed' }))
+
+    await expect(startDesktopLogin()).resolves.toBe(true)
+
+    const call = globalThis.fetch.mock.calls[0]
+    expect(String(call[0])).toBe(`${CLOUD}/api/auth/desktop/authorize`)
+    expect(authorizationOf(call)).toBeNull()
+    const sent = bodyOf(call)
+    expect(sent.codeChallengeMethod).toBe('S256')
+    expect(sent.codeChallenge).toMatch(/^[A-Za-z0-9_-]{43}$/)
+    const pending = desktopAuth.findPendingLogin(sent.state)
+    expect(pending).not.toBeNull()
+    await expect(desktopAuth.computeCodeChallenge(pending.verifier)).resolves.toBe(sent.codeChallenge)
+    expect(JSON.stringify(sent)).not.toContain(pending.verifier)
+    expect(open).toHaveBeenCalledWith('https://github.com/login/oauth/authorize?state=signed')
+  })
+
+  it('startLogin uses the desktop flow in Tauri', async () => {
+    globalThis.fetch.mockResolvedValueOnce(json(200, { authorizeUrl: 'https://github.com/login/oauth/authorize?state=signed' }))
+    await expect(startLogin()).resolves.toBe(true)
+    expect(urls()).toEqual([`${CLOUD}/api/auth/desktop/authorize`])
+  })
+
+  it('returns false when the server has GitHub sign-in disabled', async () => {
+    globalThis.fetch.mockResolvedValueOnce(json(503, { code: 'GITHUB_OAUTH_DISABLED' }))
+    await expect(startDesktopLogin()).resolves.toBe(false)
+    expect(open).not.toHaveBeenCalled()
+  })
+
+  it('refuses to open anything but GitHub', async () => {
+    globalThis.fetch.mockResolvedValueOnce(json(200, { authorizeUrl: 'https://evil.example/login' }))
+    await expect(startDesktopLogin()).rejects.toBeInstanceOf(DesktopLoginError)
+    expect(open).not.toHaveBeenCalled()
+  })
+
+  function remember(state = STATE) {
+    desktopAuth.rememberPendingLogin({ state, verifier: VERIFIER, createdAt: Date.now() })
+  }
+
+  it('redeems the code with the stored verifier and keeps the tokens', async () => {
+    remember()
+    globalThis.fetch
+      .mockResolvedValueOnce(json(200, { token: 'access-1', refreshToken: 'refresh-1', tokenType: 'Bearer' }))
+      .mockResolvedValueOnce(json(200, USER))
+
+    await expect(completeDesktopLogin({ kind: 'code', code: CODE, state: STATE })).resolves.toEqual({ status: 'signed_in', user: USER })
+
+    const redeem = globalThis.fetch.mock.calls[0]
+    expect(String(redeem[0])).toBe(`${CLOUD}/api/auth/desktop/token`)
+    expect(bodyOf(redeem)).toEqual({ code: CODE, codeVerifier: VERIFIER })
+    expect(authorizationOf(redeem)).toBeNull()
+    expect(authorizationOf(globalThis.fetch.mock.calls[1])).toBe('Bearer access-1')
+    expect(tokenStore.getToken()).toBe('access-1')
+    expect(tokenStore.getRefreshToken()).toBe('refresh-1')
+    expect(localStorage.getItem('refreshToken')).toBeNull()
+    // The attempt is spent: the same link is not redeemed again.
+    await expect(completeDesktopLogin({ kind: 'code', code: CODE, state: STATE })).rejects.toMatchObject({ reason: 'unsolicited' })
+  })
+
+  it('ignores a callback it did not start, without any request', async () => {
+    await expect(completeDesktopLogin({ kind: 'code', code: CODE, state: STATE })).rejects.toMatchObject({ reason: 'unsolicited' })
+    expect(globalThis.fetch).not.toHaveBeenCalled()
+    expect(tokenStore.getToken()).toBeNull()
+  })
+
+  it('redeems a code delivered twice only once', async () => {
+    remember()
+    globalThis.fetch
+      .mockResolvedValueOnce(json(200, { token: 'access-1', refreshToken: 'refresh-1' }))
+      .mockResolvedValueOnce(json(200, USER))
+    const [a, b] = await Promise.all([
+      completeDesktopLogin({ kind: 'code', code: CODE, state: STATE }),
+      completeDesktopLogin({ kind: 'code', code: CODE, state: STATE }),
+    ])
+    expect(a).toEqual(b)
+    expect(urls().filter((url) => url.endsWith('/api/auth/desktop/token'))).toHaveLength(1)
+  })
+
+  it('surfaces a rejected code and stores nothing', async () => {
+    remember()
+    globalThis.fetch.mockResolvedValueOnce(json(400, { code: 'DESKTOP_AUTH_CODE_INVALID' }))
+    await expect(completeDesktopLogin({ kind: 'code', code: CODE, state: STATE })).rejects.toMatchObject({ reason: 'rejected' })
+    expect(tokenStore.getToken()).toBeNull()
+    expect(desktopAuth.findPendingLogin(STATE)).toBeNull()
+  })
+
+  it('keeps the verifier after a network failure so the link can be retried', async () => {
+    remember()
+    globalThis.fetch
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockResolvedValueOnce(json(200, { token: 'access-1', refreshToken: 'refresh-1' }))
+      .mockResolvedValueOnce(json(200, USER))
+    await expect(completeDesktopLogin({ kind: 'code', code: CODE, state: STATE })).rejects.toMatchObject({ reason: 'network' })
+    await expect(completeDesktopLogin({ kind: 'code', code: CODE, state: STATE })).resolves.toMatchObject({ status: 'signed_in' })
+  })
+
+  it('reports provider errors only for its own sign-in', async () => {
+    remember()
+    await expect(completeDesktopLogin({ kind: 'error', error: 'access_denied', state: STATE })).rejects.toMatchObject({ reason: 'provider_error' })
+    await expect(completeDesktopLogin({ kind: 'error', error: 'access_denied', state: 'x'.repeat(32) })).rejects.toMatchObject({ reason: 'unsolicited' })
+    expect(globalThis.fetch).not.toHaveBeenCalled()
+  })
+
+  it('hands back the two-factor challenge without storing a session', async () => {
+    remember()
+    globalThis.fetch.mockResolvedValueOnce(json(200, { twoFactorRequired: true, tempToken: 'temp-1' }))
+    await expect(completeDesktopLogin({ kind: 'code', code: CODE, state: STATE })).resolves.toEqual({
+      status: 'two_factor_required',
+      tempToken: 'temp-1',
+    })
+    expect(tokenStore.getToken()).toBeNull()
+  })
+
+  it('finishes a two-factor sign-in anonymously', async () => {
+    tokenStore.setToken('stale')
+    globalThis.fetch
+      .mockResolvedValueOnce(json(200, { token: 'access-2', refreshToken: 'refresh-2' }))
+      .mockResolvedValueOnce(json(200, USER))
+    await expect(completeTwoFactorLogin('temp-1', '123456')).resolves.toEqual(USER)
+    const validate = globalThis.fetch.mock.calls[0]
+    expect(String(validate[0])).toBe(`${CLOUD}/api/auth/2fa/validate`)
+    expect(authorizationOf(validate)).toBeNull()
+    expect(bodyOf(validate)).toEqual({ tempToken: 'temp-1', code: '123456' })
+    expect(tokenStore.getToken()).toBe('access-2')
+    expect(tokenStore.getRefreshToken()).toBe('refresh-2')
   })
 })
 
 describe('updateEmail', () => {
-  it('calls apiFetch with PATCH', async () => {
-    apiFetch.mockResolvedValue({ id: 'u1', email: 'test@example.com' })
-    const result = await updateEmail('test@example.com')
-    expect(apiFetch).toHaveBeenCalledWith('/api/auth/me', {
-      method: 'PATCH',
-      body: JSON.stringify({ email: 'test@example.com' }),
-    })
-    expect(result).toEqual({ id: 'u1', email: 'test@example.com' })
+  it('PATCHes the cloud API', async () => {
+    localStorage.setItem('token', 'tok')
+    globalThis.fetch.mockResolvedValueOnce(json(200, { id: 'u1', email: 'test@example.com' }))
+    await expect(updateEmail('test@example.com')).resolves.toEqual({ id: 'u1', email: 'test@example.com' })
+    expect(globalThis.fetch.mock.calls[0][1].method).toBe('PATCH')
+    expect(urls()).toEqual([`${CLOUD}/api/auth/me`])
   })
 })
 
-describe('verifyCallbackToken', () => {
-  it('returns user when token is valid', async () => {
-    const user = { id: 'u1', username: 'test' }
-    apiFetch.mockResolvedValue(user)
-    const result = await verifyCallbackToken('valid-token')
-    expect(result).toEqual(user)
+describe('logout', () => {
+  it('revokes the session at the cloud API and forgets the token', () => {
+    localStorage.setItem('token', 'tok123')
+    globalThis.fetch.mockResolvedValue(json(200, { success: true }))
+    logout()
+    const [url, init] = globalThis.fetch.mock.calls[0]
+    expect(url).toBe(`${CLOUD}/api/auth/logout`)
+    expect(init.method).toBe('POST')
+    expect(init.headers.Authorization).toBe('Bearer tok123')
+    expect(init.credentials).toBe('include')
+    expect(localStorage.getItem('token')).toBeNull()
   })
 })

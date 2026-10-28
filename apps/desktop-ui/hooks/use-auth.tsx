@@ -6,18 +6,27 @@ import { toast } from 'sonner';
 import {
   User,
   Repository,
+  completeDesktopLogin,
+  DesktopLoginError,
   fetchCurrentUser,
   getActiveRepository,
   logout as apiLogout,
-  verifyCallbackToken,
+  type DesktopCallback,
+  type DesktopLoginResult,
 } from '@/lib/api';
 import { initTokenStore } from '@/lib/api/token-store';
+import { isDesktopRuntime } from '@/lib/api/runtime';
 
 interface AuthContextType {
   user: User | null;
   activeRepository: Repository | null;
   isLoading: boolean;
   isAuthenticated: boolean;
+  /** Set when a desktop sign-in needs a TOTP code to finish. */
+  pendingTwoFactorToken: string | null;
+  clearPendingTwoFactor: () => void;
+  /** Finish a desktop sign-in from an `openlinear://callback` deep link (or pasted copy). */
+  completeDesktopCallback: (callback: DesktopCallback) => Promise<DesktopLoginResult>;
   refreshUser: () => Promise<void>;
   refreshActiveRepository: () => Promise<void>;
   logout: () => void;
@@ -25,11 +34,28 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+/**
+ * Emitted by apps/desktop/src-tauri/src/deeplink.rs for `openlinear://callback`.
+ * Carries a one-time code and the state this app generated — never a token.
+ */
 type AuthCallbackPayload = {
   success: boolean;
-  token?: string;
+  code?: string;
+  state?: string;
   error?: string;
+  /** Older shells forwarded a token; such payloads are ignored. */
+  token?: string;
 };
+
+function toDesktopCallback(payload: AuthCallbackPayload): DesktopCallback | null {
+  if (payload.error) {
+    return { kind: 'error', error: payload.error, state: payload.state ?? null };
+  }
+  if (payload.success && payload.code && payload.state) {
+    return { kind: 'code', code: payload.code, state: payload.state };
+  }
+  return null;
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const router = useRouter();
@@ -37,6 +63,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [activeRepository, setActiveRepository] = useState<Repository | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [pendingTwoFactorToken, setPendingTwoFactorToken] = useState<string | null>(null);
   const authRequestId = useRef(0);
 
   const loadUser = useCallback(async (): Promise<{ stale: boolean; user: User | null }> => {
@@ -91,33 +118,58 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     })();
   }, [loadUser, refreshActiveRepository]);
 
-  const handleAuthCallback = useCallback(async (payload: AuthCallbackPayload) => {
-    if (payload.success && payload.token) {
-      setIsLoading(true);
-      setActiveRepository(null);
-
-      const requestId = ++authRequestId.current;
-      try {
-        const userData = await verifyCallbackToken(payload.token);
-        if (requestId !== authRequestId.current) return;
-        setUser(userData);
-        await refreshActiveRepository();
-        toast.success('Authenticated. Opening OpenLinear...');
-        if (pathname === '/login' || pathname === '/login/') {
-          router.replace('/');
-        }
-      } catch (err) {
-        console.warn('[Auth] Failed to verify Tauri callback token:', err);
-        toast.error('Could not finish GitHub sign-in. Try signing in again.');
-      } finally {
-        if (requestId === authRequestId.current) {
-          setIsLoading(false);
-        }
+  const completeDesktopCallback = useCallback(async (callback: DesktopCallback): Promise<DesktopLoginResult> => {
+    const requestId = ++authRequestId.current;
+    setIsLoading(true);
+    try {
+      const result = await completeDesktopLogin(callback);
+      if (result.status === 'two_factor_required') {
+        setPendingTwoFactorToken(result.tempToken);
+        return result;
       }
-    } else if (payload.error) {
-      console.error('[Auth] Tauri callback error:', payload.error);
+      if (requestId === authRequestId.current) {
+        setPendingTwoFactorToken(null);
+        setActiveRepository(null);
+        setUser(result.user);
+        await refreshActiveRepository();
+      }
+      return result;
+    } finally {
+      if (requestId === authRequestId.current) {
+        setIsLoading(false);
+      }
     }
-  }, [pathname, refreshActiveRepository, router]);
+  }, [refreshActiveRepository]);
+
+  const handleAuthCallback = useCallback(async (payload: AuthCallbackPayload) => {
+    const callback = toDesktopCallback(payload);
+    if (!callback) {
+      if (payload.token) {
+        console.warn('[Auth] Ignored a sign-in deep link that carried a token; tokens are only accepted from the token endpoint.');
+      }
+      return;
+    }
+    try {
+      const result = await completeDesktopCallback(callback);
+      if (result.status === 'two_factor_required') {
+        toast.info('Enter your two-factor code to finish signing in.');
+        router.replace('/login');
+        return;
+      }
+      toast.success('Authenticated. Opening OpenLinear...');
+      if (pathname === '/login' || pathname === '/login/') {
+        router.replace('/');
+      }
+    } catch (err) {
+      if (err instanceof DesktopLoginError && err.reason === 'unsolicited') {
+        // Not a sign-in this app started (stale or crafted link): drop it.
+        console.warn('[Auth] Ignored an unsolicited sign-in callback.');
+        return;
+      }
+      console.warn('[Auth] Desktop sign-in failed:', err);
+      toast.error(err instanceof DesktopLoginError ? err.message : 'Could not finish GitHub sign-in. Try signing in again.');
+    }
+  }, [completeDesktopCallback, pathname, router]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -146,7 +198,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     };
 
-    if ('__TAURI_INTERNALS__' in window) {
+    if (isDesktopRuntime()) {
       void setupTauri();
     }
 
@@ -160,6 +212,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     apiLogout();
     setUser(null);
     setActiveRepository(null);
+    setPendingTwoFactorToken(null);
+  }, []);
+
+  const clearPendingTwoFactor = useCallback(() => {
+    setPendingTwoFactorToken(null);
   }, []);
 
   useEffect(() => {
@@ -185,6 +242,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         activeRepository,
         isLoading,
         isAuthenticated: !!user,
+        pendingTwoFactorToken,
+        clearPendingTwoFactor,
+        completeDesktopCallback,
         refreshUser,
         refreshActiveRepository,
         logout,

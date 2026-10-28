@@ -1,10 +1,11 @@
 "use client"
 
-import { useEffect, useState, useCallback, useRef } from "react"
+import { memo, useEffect, useState, useCallback, useMemo, useRef } from "react"
 import { createPortal } from "react-dom"
 import { DragDropContext, Droppable, Draggable, DropResult } from "@hello-pangea/dnd"
 import { Column } from "./column"
 import { TaskCard } from "./task-card"
+import { blockedTaskIdsOf, blockerSummary, readyToRun } from "./blocked"
 import { UnifiedSelectionBar, bucketSelection } from "./unified-selection-bar"
 import { BatchProgress } from "./batch-progress"
 import { DashboardLoading } from "./dashboard-loading"
@@ -27,32 +28,36 @@ import { cn } from "@/lib/utils"
 import { Plus, Settings2, GitBranch, CircleDot, Layers, Play, Pencil, Inbox } from "lucide-react"
 import { Task } from "@/types/task"
 import { Project, Repository } from "@/lib/api"
-import { useKanbanBoard, COLUMNS, KanbanBoardProps, isTaskActivelyExecuting } from "./use-kanban-board"
+import { useKanbanBoard, COLUMNS, KanbanBoardProps, isTaskActivelyExecuting, type ActiveBatch } from "./use-kanban-board"
 import { getExecutionProgress } from "@/lib/execution-state-store"
 import { InProgressBatchGroup } from "./in-progress-batch-group"
 import { DoneColumnContent } from "./done-column-content"
 import { ModelSelector } from "./model-selector"
 import { formatBatchExecutionMode } from "./batch-mode"
 import { useRouter } from "next/navigation"
-import { BoardFilters, useBoardFilters } from "./board-filters"
+import { BoardFilters, matchesDependencyFilter, useBoardFilters, type BoardFiltersState } from "./board-filters"
 import { useTeamMembers } from "@/hooks/use-team-members"
 import { isEditableTarget, isInsideOverlay } from "./keyboard-guards"
+import { stabilizeBuckets, type TaskBuckets } from "./board-state"
+import { useQuery } from "@tanstack/react-query"
+import { maxBatchSizeOf, settingsQuery } from "@/lib/query/resources"
+import { useAppQueryClient } from "@/lib/query/use-app-query-client"
+import { isTerminalBatchStatus } from "./batch-state"
+import { isReadyToPublishTask } from "./execution-outcome"
+import { useStableCallback } from "./use-stable-callback"
 
 interface ProjectConfigPanelProps {
   selectedProject: Project | undefined
   activeRepository: Repository | null
-  tasks: Task[]
-  selectedTaskIds: Set<string>
-  activeBatch: { mode: string; status: string } | null
+  totalIssues: number
+  /** More issues exist than are loaded (keyset paging). */
+  moreIssues: boolean
+  selectedCount: number
+  activeBatchMode: string | null
 }
 
-function ProjectConfigPanel({ selectedProject, activeRepository, tasks, selectedTaskIds, activeBatch }: ProjectConfigPanelProps) {
+const ProjectConfigPanel = memo(function ProjectConfigPanel({ selectedProject, activeRepository, totalIssues, moreIssues, selectedCount, activeBatchMode }: ProjectConfigPanelProps) {
   const router = useRouter()
-  const todoCount = tasks.filter(t => t.status === 'todo').length
-  const inProgressCount = tasks.filter(t => t.status === 'in_progress').length
-  const doneCount = tasks.filter(t => t.status === 'done').length
-  const cancelledCount = tasks.filter(t => t.status === 'cancelled').length
-  const totalIssues = todoCount + inProgressCount + doneCount + cancelledCount
 
   const sourceFromRepoUrl = (() => {
     const repoUrl = selectedProject?.repoUrl
@@ -88,20 +93,20 @@ function ProjectConfigPanel({ selectedProject, activeRepository, tasks, selected
     {
       icon: CircleDot,
       label: 'Scope',
-      value: `${totalIssues} issues`,
+      value: `${totalIssues}${moreIssues ? '+' : ''} issues`,
       status: 'neutral',
     },
     {
       icon: Play,
       label: 'Workflow',
-      value: activeBatch ? formatBatchExecutionMode(activeBatch.mode) : 'Idle',
-      status: activeBatch ? 'active' : 'neutral',
+      value: activeBatchMode ? formatBatchExecutionMode(activeBatchMode) : 'Idle',
+      status: activeBatchMode ? 'active' : 'neutral',
     },
     {
       icon: Layers,
       label: 'Selection',
-      value: selectedTaskIds.size > 0 ? `${selectedTaskIds.size} selected` : 'None',
-      status: selectedTaskIds.size > 0 ? 'active' : 'neutral',
+      value: selectedCount > 0 ? `${selectedCount} selected` : 'None',
+      status: selectedCount > 0 ? 'active' : 'neutral',
     },
   ]
 
@@ -161,13 +166,289 @@ function ProjectConfigPanel({ selectedProject, activeRepository, tasks, selected
       </div>
     </div>
   )
+})
+
+interface TaskHandlers {
+  onMoveToInProgress: (taskId: string) => void
+  onExecute: (taskId: string) => void
+  onCancel: (taskId: string) => Promise<boolean>
+  onDelete: (taskId: string) => void
+  onTaskClick: (taskId: string) => void
+  onToggleSelect: (taskId: string, modifiers?: { shift?: boolean; meta?: boolean }) => void
+}
+
+interface BoardTaskItemProps extends TaskHandlers {
+  task: Task
+  index: number
+  selected: boolean
+  selectionMode: boolean
+  /** Whole-board selection disables dragging. */
+  dragLocked: boolean
+  isBatchTask: boolean
+  isStarting: boolean
+  canExecute: boolean
+  deletionMode: "archive" | "delete"
+  isCompletedBatch?: boolean
+  /** W17a: an open task blocks this one. */
+  isBlocked: boolean
+  /** W17a: "ENG-1, ENG-3" for the chip's tooltip. */
+  blockedBy: string | null
+}
+
+/**
+ * One draggable card. Memoized so an SSE update re-renders only the card
+ * whose task object changed, not every Draggable on the board.
+ */
+const BoardTaskItem = memo(function BoardTaskItem({
+  task,
+  index,
+  selected,
+  selectionMode,
+  dragLocked,
+  isBatchTask,
+  isStarting,
+  canExecute,
+  deletionMode,
+  isCompletedBatch,
+  isBlocked,
+  blockedBy,
+  onMoveToInProgress,
+  onExecute,
+  onCancel,
+  onDelete,
+  onTaskClick,
+  onToggleSelect,
+}: BoardTaskItemProps) {
+  const dragDisabled =
+    dragLocked ||
+    task.id.startsWith('temp-') ||
+    isBatchTask ||
+    isStarting ||
+    isTaskActivelyExecuting(task, getExecutionProgress(task.id))
+
+  return (
+    <Draggable
+      draggableId={task.id}
+      index={index}
+      isDragDisabled={dragDisabled}
+    >
+      {(provided, snapshot) => {
+        const child = (
+          <div
+            ref={provided.innerRef}
+            {...provided.draggableProps}
+            {...provided.dragHandleProps}
+            style={provided.draggableProps.style}
+            data-board-task={task.id}
+          >
+            <TaskCard
+              task={task}
+              onMoveToInProgress={task.status === 'todo' ? onMoveToInProgress : undefined}
+              onExecute={onExecute}
+              canExecute={canExecute}
+              onCancel={task.status === 'in_progress' ? onCancel : undefined}
+              onDelete={onDelete}
+              onTaskClick={onTaskClick}
+              selected={selected}
+              onToggleSelect={onToggleSelect}
+              selectionMode={selectionMode}
+              isBatchTask={isBatchTask}
+              isCompletedBatchTask={isCompletedBatch}
+              isDragging={snapshot.isDragging}
+              deletionMode={deletionMode}
+              blocked={isBlocked}
+              blockedBy={blockedBy}
+            />
+          </div>
+        )
+        if (snapshot.isDragging) {
+          return createPortal(child, document.body)
+        }
+        return child
+      }}
+    </Draggable>
+  )
+})
+
+interface BoardColumnProps extends TaskHandlers {
+  column: (typeof COLUMNS)[number]
+  tasks: Task[]
+  selectedTaskIds: ReadonlySet<string>
+  selectionActive: boolean
+  columnSelecting: boolean
+  batchTaskIdSet: ReadonlySet<string>
+  blockedTaskIds: ReadonlySet<string>
+  /** Tooltip text per blocked task id. */
+  blockerLabels: ReadonlyMap<string, string>
+  startingExecuteIds: ReadonlySet<string>
+  canExecute: boolean
+  deletionMode: "archive" | "delete"
+  isAnyDragging: boolean
+  /** Only passed to the In Progress column. */
+  activeBatch: ActiveBatch | null
+  /** Keyset paging: more tasks of this column exist on the server. */
+  hasMore: boolean
+  loadingMore: boolean
+  onAddTask: (status: Task['status']) => void
+  onToggleColumnSelection: (columnId: string) => void
+  onToggleColumnSelectAll: (status: Task['status']) => void
+  onLoadMore: (status: Task['status']) => void
+}
+
+/**
+ * A status column. Memoized with per-column task arrays that keep their
+ * identity while unchanged (see stabilizeBuckets), so an update to one task
+ * leaves the other three columns untouched.
+ */
+const BoardColumn = memo(function BoardColumn({
+  column,
+  tasks,
+  selectedTaskIds,
+  selectionActive,
+  columnSelecting,
+  batchTaskIdSet,
+  blockedTaskIds,
+  blockerLabels,
+  startingExecuteIds,
+  canExecute,
+  deletionMode,
+  isAnyDragging,
+  activeBatch,
+  hasMore,
+  loadingMore,
+  onAddTask,
+  onToggleColumnSelection,
+  onToggleColumnSelectAll,
+  onLoadMore,
+  ...handlers
+}: BoardColumnProps) {
+  const hasParallelGroup = column.status === 'in_progress' && batchTaskIdSet.size > 0
+  const columnSelectionActive = !hasParallelGroup && columnSelecting
+  const selectionMode = selectionActive || columnSelecting
+
+  const renderItem = (task: Task, index: number, isCompletedBatch?: boolean) => (
+    <BoardTaskItem
+      key={task.id}
+      task={task}
+      index={index}
+      selected={selectedTaskIds.has(task.id)}
+      selectionMode={selectionMode}
+      dragLocked={selectionActive}
+      isBatchTask={batchTaskIdSet.has(task.id)}
+      isStarting={startingExecuteIds.has(task.id)}
+      canExecute={canExecute}
+      deletionMode={deletionMode}
+      isCompletedBatch={isCompletedBatch}
+      isBlocked={blockedTaskIds.has(task.id)}
+      blockedBy={blockerLabels.get(task.id) ?? null}
+      {...handlers}
+    />
+  )
+
+  return (
+    <Droppable droppableId={column.id}>
+      {(provided, snapshot) => (
+        <Column
+          id={column.id}
+          title={column.title}
+          taskCount={tasks.length}
+          onAddTask={() => onAddTask(column.status)}
+          selectionActive={columnSelectionActive}
+          onToggleSelection={!hasParallelGroup ? () => onToggleColumnSelection(column.id) : undefined}
+          onSelectAll={columnSelectionActive ? () => onToggleColumnSelectAll(column.status) : undefined}
+          innerRef={provided.innerRef}
+          droppableProps={provided.droppableProps}
+          isDraggingOver={snapshot.isDraggingOver}
+          isAnyDragging={isAnyDragging}
+          hasMore={hasMore}
+          loadingMore={loadingMore}
+          onLoadMore={() => onLoadMore(column.status)}
+        >
+          {tasks.length === 0 && hasMore ? null : tasks.length === 0 && !snapshot.isDraggingOver ? (
+            <EmptyState
+              size="compact"
+              icon={Inbox}
+              title={`No ${column.title.toLowerCase()} tasks`}
+              action={
+                <button
+                  type="button"
+                  onClick={() => onAddTask(column.status)}
+                  className="inline-flex items-center gap-1.5 h-8 px-3 rounded-sm text-xs font-medium text-linear-text-secondary hover:text-linear-text hover:bg-linear-bg-tertiary transition-colors"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  Add task
+                </button>
+              }
+            />
+          ) : (() => {
+            if (hasParallelGroup) {
+              const batch = tasks.filter(t => batchTaskIdSet.has(t.id))
+              const rest = tasks.filter(t => !batchTaskIdSet.has(t.id))
+              const batchGroupCount = batch.length > 0 && activeBatch ? 1 : 0
+              return (
+                <>
+                  {batch.length > 0 && activeBatch && (
+                    <InProgressBatchGroup
+                      batch={batch}
+                      activeBatch={activeBatch}
+                      canExecute={canExecute}
+                      selectedTaskIds={selectedTaskIds}
+                      onExecute={handlers.onExecute}
+                      onCancel={handlers.onCancel}
+                      onDelete={handlers.onDelete}
+                      deletionMode={deletionMode}
+                      onTaskClick={handlers.onTaskClick}
+                      onToggleSelect={handlers.onToggleSelect}
+                    />
+                  )}
+                  {rest.map((task, i) => renderItem(task, batchGroupCount + i))}
+                </>
+              )
+            }
+
+            if (column.status === 'done') {
+              return <DoneColumnContent columnTasks={tasks} renderTask={renderItem} />
+            }
+
+            return tasks.map((task, index) => renderItem(task, index))
+          })()}
+          {provided.placeholder}
+        </Column>
+      )}
+    </Droppable>
+  )
+})
+
+/** Keeps the previous Set when its members didn't change. */
+/** Keep the previous map while its entries are unchanged (columns stay memoized). */
+function useStableStringMap(map: ReadonlyMap<string, string>): ReadonlyMap<string, string> {
+  const ref = useRef(map)
+  const previous = ref.current
+  if (previous !== map && (previous.size !== map.size || [...map].some(([key, value]) => previous.get(key) !== value))) {
+    ref.current = map
+  }
+  return ref.current
+}
+
+function useStableIdSet(ids: ReadonlySet<string>): ReadonlySet<string> {
+  const ref = useRef(ids)
+  const previous = ref.current
+  if (previous !== ids && (previous.size !== ids.size || [...ids].some((id) => !previous.has(id)))) {
+    ref.current = ids
+  }
+  return ref.current
 }
 
 export function KanbanBoard(props: KanbanBoardProps) {
   const {
     tasks,
+    tasksByStatus,
+    tasksById,
     loading,
     error,
+    columnPaging,
+    hasMoreTasks,
+    loadMoreTasks,
     isTaskFormOpen,
     setIsTaskFormOpen,
     defaultStatus,
@@ -176,15 +457,15 @@ export function KanbanBoard(props: KanbanBoardProps) {
     selectionActive,
     selectingColumns,
     activeBatch,
-    setActiveBatch,
+    displayedBatch,
+    dismissBatch,
     canExecute,
     activeRepository,
     selectedProject,
-    batchTaskIds,
+    batchTaskIdSet: rawBatchTaskIdSet,
     selectedTask,
     startingExecuteIds,
     isSelectedTaskExecuting,
-    getTasksByStatus,
     handleAddTask,
     handleDragEnd,
     handleExecute,
@@ -196,14 +477,16 @@ export function KanbanBoard(props: KanbanBoardProps) {
     handleMoveToInProgress,
     handleBatchMoveToInProgress,
     handleBatchExecute,
+    handleRunWithBlockers,
+    handleRunReady,
     handleCancelBatch,
     handleApproveNextBatchTask,
+    handleCheckPullRequest,
     toggleTaskSelect,
     toggleColumnSelection,
     toggleColumnSelectAll,
     selectAllVisible,
     clearSelection,
-    handleInlineCreateTask,
     handleTaskCreated,
     handleBulkDelete,
     handleBulkChangeStatus,
@@ -226,17 +509,61 @@ export function KanbanBoard(props: KanbanBoardProps) {
 
   const filters = useBoardFilters()
   const { members } = useTeamMembers()
+  const batchTaskIdSet = useStableIdSet(rawBatchTaskIdSet)
+  const blockedTaskIds = useStableIdSet(useMemo(() => blockedTaskIdsOf(tasks, tasksById), [tasks, tasksById]))
+  const blockerLabels = useStableStringMap(useMemo(() => {
+    const labels = new Map<string, string>()
+    for (const id of blockedTaskIds) {
+      const task = tasksById.get(id)
+      const summary = task ? blockerSummary(task, tasksById) : null
+      if (summary) labels.set(id, summary)
+    }
+    return labels
+  }, [blockedTaskIds, tasksById]))
 
-  const getFilteredTasksByStatus = useCallback((status: Task['status']) => {
-    const statusTasks = getTasksByStatus(status)
-    if (filters.assigneeIds.length === 0) return statusTasks
-    return statusTasks.filter((t) => filters.assigneeIds.includes(t.assigneeId || ""))
-  }, [getTasksByStatus, filters.assigneeIds])
+  // Column task lists after the assignee and dependency filters, still identity-stable per column.
+  const assigneeKey = filters.assigneeIds.join(',')
+  const dependencyFilter = filters.dependency ?? null
+  const filteredBucketsRef = useRef<TaskBuckets | null>(null)
+  const columnTasks = useMemo(() => {
+    if (!assigneeKey && !dependencyFilter) {
+      filteredBucketsRef.current = null
+      return tasksByStatus
+    }
+    const allowed = assigneeKey ? new Set(assigneeKey.split(',')) : null
+    const keep = (t: Task) => (!allowed || allowed.has(t.assigneeId || "")) && matchesDependencyFilter(t, dependencyFilter, blockedTaskIds)
+    const filtered: TaskBuckets = {
+      todo: tasksByStatus.todo.filter(keep),
+      in_progress: tasksByStatus.in_progress.filter(keep),
+      done: tasksByStatus.done.filter(keep),
+      cancelled: tasksByStatus.cancelled.filter(keep),
+    }
+    const next = stabilizeBuckets(filteredBucketsRef.current, filtered)
+    filteredBucketsRef.current = next
+    return next
+  }, [tasksByStatus, assigneeKey, dependencyFilter, blockedTaskIds])
 
-  const handleFiltersChange = useCallback((state: { assigneeIds: string[]; groupByAssignee: boolean }) => {
-    filters.setAssigneeIds(state.assigneeIds)
-    filters.setGroupByAssignee(state.groupByAssignee)
-  }, [filters.setAssigneeIds, filters.setGroupByAssignee])
+  const totalIssues = tasks.length
+  // "Run ready": what the Ready filter shows (assignee filter included), within the batch size.
+  const settingsClient = useAppQueryClient()
+  const { data: boardSettings } = useQuery(settingsQuery(), settingsClient)
+  const readyTasks = useMemo(() => {
+    if (filters.dependency !== "ready") return []
+    const visible = [...columnTasks.todo, ...columnTasks.in_progress]
+    return readyToRun(visible, blockedTaskIds, maxBatchSizeOf(boardSettings))
+  }, [filters.dependency, columnTasks, blockedTaskIds, boardSettings])
+  const readyTaskIds = useMemo(() => {
+    const ready = new Set<string>()
+    if (!displayedBatch) return ready
+    for (const task of tasks) {
+      if (task.batchId === displayedBatch.id && isReadyToPublishTask(task)) ready.add(task.id)
+    }
+    return ready
+  }, [tasks, displayedBatch])
+
+  const handleFiltersChange = useCallback((state: BoardFiltersState) => {
+    filters.setFilters(state)
+  }, [filters.setFilters])
 
   const handleDragStart = useCallback(() => {
     setIsDragging(true)
@@ -253,155 +580,96 @@ export function KanbanBoard(props: KanbanBoardProps) {
     handleDragEnd(result)
   }, [handleDragEnd])
 
+  // Stable identities for memoized columns (useTaskSelection's handlers
+  // change with the filtered task list).
+  const onToggleColumnSelection = useStableCallback(toggleColumnSelection)
+  const onToggleColumnSelectAll = useStableCallback(toggleColumnSelectAll)
+  const onMoveToInProgress = useStableCallback((taskId: string) => { void handleMoveToInProgress(taskId) })
+  const onExecute = useStableCallback((taskId: string) => { void handleExecute(taskId) })
+  const onDelete = useStableCallback((taskId: string) => { void handleDelete(taskId) })
+  const onTaskClick = useStableCallback((taskId: string) => { void handleTaskClick(taskId) })
+  const onLoadMore = useStableCallback((status: Task['status']) => { void loadMoreTasks(status) })
+
   useEffect(() => {
     const handler = () => setIsTaskFormOpen(true)
     window.addEventListener("openlinear:new-issue", handler)
     return () => window.removeEventListener("openlinear:new-issue", handler)
   }, [setIsTaskFormOpen])
 
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (isEditableTarget(e.target)) return
+  // Registered once; always runs against the latest board state.
+  const onKeyDown = useStableCallback((e: KeyboardEvent) => {
+    if (isEditableTarget(e.target)) return
 
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'a') {
-        e.preventDefault()
-        selectAllVisible()
-        return
-      }
-      if (e.key === 'Escape' && selectionActive) {
-        clearSelection()
-        return
-      }
-      if (e.key === 'Escape' && selectedTaskId) {
-        handleDrawerClose()
-        return
-      }
-
-      if (e.metaKey || e.ctrlKey || e.altKey) return
-      const k = e.key.toLowerCase()
-
-      const allTasks = COLUMNS.flatMap(col => getTasksByStatus(col.status))
-      const currentIdx = selectedTaskId
-        ? allTasks.findIndex(t => t.id === selectedTaskId)
-        : -1
-
-      if (k === 'j') {
-        e.preventDefault()
-        const nextIdx = currentIdx < allTasks.length - 1 ? currentIdx + 1 : 0
-        if (allTasks[nextIdx]) handleTaskClick(allTasks[nextIdx].id)
-        return
-      }
-      if (k === 'k') {
-        e.preventDefault()
-        const prevIdx = currentIdx > 0 ? currentIdx - 1 : allTasks.length - 1
-        if (allTasks[prevIdx]) handleTaskClick(allTasks[prevIdx].id)
-        return
-      }
-      if (k === 'x') {
-        e.preventDefault()
-        if (selectedTaskId) toggleTaskSelect(selectedTaskId)
-        return
-      }
-      if (k === 'e') {
-        e.preventDefault()
-        if (selectedTaskId && canExecute) handleExecute(selectedTaskId)
-        return
-      }
-      if (k === 'd' || k === 'backspace') {
-        // Focus can legitimately be inside an open dialog/sheet/popover on a
-        // non-input element (e.g. a button) — the overlay owns keyboard input
-        // at that point, so the board's destructive shortcut must not fire.
-        if (isInsideOverlay(e.target)) return
-        e.preventDefault()
-        if (selectionActive) {
-          if (selectedTaskIds.size > 0) setPendingDelete({ kind: 'bulk', count: selectedTaskIds.size })
-        } else if (selectedTaskId) {
-          setPendingDelete({ kind: 'single', taskId: selectedTaskId })
-        }
-        return
-      }
-      if (k === 'l') {
-        e.preventDefault()
-        if (selectedTaskId) handleMoveToInProgress(selectedTaskId)
-        return
-      }
-      if (k === '1') {
-        e.preventDefault()
-        if (selectionActive) handleBulkChangeStatus('todo')
-        else if (selectedTaskId) handleBulkChangeStatus('todo')
-        return
-      }
-      if (k === '2') {
-        e.preventDefault()
-        if (selectionActive) handleBulkChangeStatus('in_progress')
-        else if (selectedTaskId) handleBulkChangeStatus('in_progress')
-        return
-      }
-      if (k === '3') {
-        e.preventDefault()
-        if (selectionActive) handleBulkChangeStatus('done')
-        else if (selectedTaskId) handleBulkChangeStatus('done')
-        return
-      }
-      if (k === '4') {
-        e.preventDefault()
-        if (selectionActive) handleBulkChangeStatus('cancelled')
-        else if (selectedTaskId) handleBulkChangeStatus('cancelled')
-        return
-      }
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'a') {
+      e.preventDefault()
+      selectAllVisible()
+      return
     }
+    if (e.key === 'Escape' && selectionActive) {
+      clearSelection()
+      return
+    }
+    if (e.key === 'Escape' && selectedTaskId) {
+      handleDrawerClose()
+      return
+    }
+
+    if (e.metaKey || e.ctrlKey || e.altKey) return
+    const k = e.key.toLowerCase()
+
+    const statusShortcut = ({ '1': 'todo', '2': 'in_progress', '3': 'done', '4': 'cancelled' } as const)[k as '1' | '2' | '3' | '4']
+    if (statusShortcut) {
+      e.preventDefault()
+      if (selectionActive) void handleBulkChangeStatus(statusShortcut)
+      else if (selectedTaskId) void handleBulkChangeStatus(statusShortcut, [selectedTaskId])
+      return
+    }
+
+    if (k === 'j' || k === 'k') {
+      e.preventDefault()
+      const allTasks = COLUMNS.flatMap(col => tasksByStatus[col.status])
+      if (allTasks.length === 0) return
+      const currentIdx = selectedTaskId ? allTasks.findIndex(t => t.id === selectedTaskId) : -1
+      const nextIdx = k === 'j'
+        ? (currentIdx < allTasks.length - 1 ? currentIdx + 1 : 0)
+        : (currentIdx > 0 ? currentIdx - 1 : allTasks.length - 1)
+      const target = allTasks[nextIdx]
+      if (target) void handleTaskClick(target.id)
+      return
+    }
+    if (k === 'x') {
+      e.preventDefault()
+      if (selectedTaskId) toggleTaskSelect(selectedTaskId)
+      return
+    }
+    if (k === 'e') {
+      e.preventDefault()
+      if (selectedTaskId && canExecute) void handleExecute(selectedTaskId)
+      return
+    }
+    if (k === 'd' || k === 'backspace') {
+      // Focus can legitimately be inside an open dialog/sheet/popover on a
+      // non-input element (e.g. a button) — the overlay owns keyboard input
+      // at that point, so the board's destructive shortcut must not fire.
+      if (isInsideOverlay(e.target)) return
+      e.preventDefault()
+      if (selectionActive) {
+        if (selectedTaskIds.size > 0) setPendingDelete({ kind: 'bulk', count: selectedTaskIds.size })
+      } else if (selectedTaskId) {
+        setPendingDelete({ kind: 'single', taskId: selectedTaskId })
+      }
+      return
+    }
+    if (k === 'l') {
+      e.preventDefault()
+      if (selectedTaskId) void handleMoveToInProgress(selectedTaskId)
+    }
+  })
+
+  useEffect(() => {
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [selectAllVisible, clearSelection, selectionActive, selectedTaskId, selectedTaskIds, getTasksByStatus, handleTaskClick, toggleTaskSelect, canExecute, handleExecute, handleMoveToInProgress, handleBulkChangeStatus, handleDrawerClose])
-
-  const renderTask = (task: Task, index: number, isCompletedBatch?: boolean) => {
-    const dragDisabled =
-      selectionActive ||
-      task.id.startsWith('temp-') ||
-      batchTaskIds.includes(task.id) ||
-      isTaskActivelyExecuting(task, getExecutionProgress(task.id), startingExecuteIds, task.id)
-
-    return (
-      <Draggable
-        key={task.id}
-        draggableId={task.id}
-        index={index}
-        isDragDisabled={dragDisabled}
-      >
-        {(provided, snapshot) => {
-          const child = (
-            <div
-              ref={provided.innerRef}
-              {...provided.draggableProps}
-              {...provided.dragHandleProps}
-              style={provided.draggableProps.style}
-            >
-              <TaskCard
-                task={task}
-                onMoveToInProgress={task.status === 'todo' ? handleMoveToInProgress : undefined}
-                onExecute={handleExecute}
-                canExecute={canExecute}
-                onCancel={task.status === 'in_progress' ? handleCancel : undefined}
-                onDelete={handleDelete}
-                onTaskClick={handleTaskClick}
-                selected={selectedTaskIds.has(task.id)}
-                onToggleSelect={toggleTaskSelect}
-                selectionMode={selectionActive || selectingColumns.has(task.status)}
-                isBatchTask={batchTaskIds.includes(task.id)}
-                isCompletedBatchTask={isCompletedBatch}
-                isDragging={snapshot.isDragging}
-                deletionMode={taskDeletionMode}
-              />
-            </div>
-          )
-          if (snapshot.isDragging) {
-            return createPortal(child, document.body)
-          }
-          return child
-        }}
-      </Draggable>
-    )
-  }
+  }, [onKeyDown])
 
   if (loading) {
     return <DashboardLoading />
@@ -411,7 +679,7 @@ export function KanbanBoard(props: KanbanBoardProps) {
     return (
       <div className="flex-1 flex items-center justify-center">
         <div className="text-center">
-          <p className="text-red-400 mb-4">{error}</p>
+          <p className="text-danger mb-4">{error}</p>
           <button
             type="button"
             onClick={() => { fetchTasks({ showLoading: true, clearError: true }) }}
@@ -424,31 +692,45 @@ export function KanbanBoard(props: KanbanBoardProps) {
     )
   }
 
+  const handlers: TaskHandlers = {
+    onMoveToInProgress,
+    onExecute,
+    onCancel: handleCancel,
+    onDelete,
+    onTaskClick,
+    onToggleSelect: toggleTaskSelect,
+  }
+
   return (
     <DragDropContext onDragStart={handleDragStart} onDragEnd={handleDragEndWithState}>
       <div ref={boardRef} className="flex-1 min-h-0 relative bg-linear-bg flex flex-col overflow-hidden">
-        {activeBatch && (
+        {displayedBatch && (
           <BatchProgress
-            batchId={activeBatch.id}
-            status={activeBatch.status}
-            mode={activeBatch.mode}
-            tasks={activeBatch.tasks}
-            prUrl={activeBatch.prUrl}
+            batchId={displayedBatch.id}
+            status={displayedBatch.status}
+            mode={displayedBatch.mode}
+            tasks={displayedBatch.tasks}
+            prUrl={displayedBatch.prUrl}
+            publication={displayedBatch.publication ?? null}
+            readyTaskIds={readyTaskIds}
             onCancel={handleCancelBatch}
-            onDismiss={activeBatch.status === 'completed' ? () => setActiveBatch(null) : undefined}
-            onViewActivity={handleTaskClick}
+            onDismiss={isTerminalBatchStatus(displayedBatch.status) ? dismissBatch : undefined}
+            onViewActivity={onTaskClick}
             onApproveNext={handleApproveNextBatchTask}
           />
         )}
         <ProjectConfigPanel
           selectedProject={selectedProject}
           activeRepository={activeRepository}
-          tasks={tasks}
-          selectedTaskIds={selectedTaskIds}
-          activeBatch={activeBatch}
+          totalIssues={totalIssues}
+          moreIssues={hasMoreTasks}
+          selectedCount={selectedTaskIds.size}
+          activeBatchMode={activeBatch ? activeBatch.mode : null}
         />
         <BoardFilters
-          value={{ assigneeIds: filters.assigneeIds, groupByAssignee: filters.groupByAssignee }}
+          value={{ assigneeIds: filters.assigneeIds, groupByAssignee: filters.groupByAssignee, dependency: filters.dependency }}
+          readyCount={canExecute ? readyTasks.length : 0}
+          onRunReady={() => { void handleRunReady(readyTasks.map((task) => task.id)) }}
           onChange={handleFiltersChange}
         />
         {filters.groupByAssignee ? (
@@ -486,29 +768,31 @@ export function KanbanBoard(props: KanbanBoardProps) {
                     </div>
                     <div className="flex md:grid md:grid-cols-2 lg:grid-cols-4 overflow-x-auto overflow-y-hidden snap-x snap-mandatory md:overflow-x-visible md:snap-none">
                       {COLUMNS.map((column) => {
-                        const columnTasks = laneTasks.filter((t) => t.status === column.status)
+                        const laneColumnTasks = laneTasks.filter((t) => t.status === column.status)
                         return (
                           <div key={column.id} className="min-w-[280px] md:min-w-0 snap-start border-r border-linear-border last:border-r-0 p-2">
                             <div className="text-[10px] uppercase tracking-wider text-linear-text-tertiary mb-1 px-1">
-                              {column.title} ({columnTasks.length})
+                              {column.title} ({laneColumnTasks.length})
                             </div>
                             <div className="space-y-1.5">
-                              {columnTasks.map((task) => (
+                              {laneColumnTasks.map((task) => (
                                 <TaskCard
                                   key={task.id}
                                   task={task}
-                                  onMoveToInProgress={task.status === 'todo' ? handleMoveToInProgress : undefined}
-                                  onExecute={handleExecute}
+                                  onMoveToInProgress={task.status === 'todo' ? onMoveToInProgress : undefined}
+                                  onExecute={onExecute}
                                   canExecute={canExecute}
                                   onCancel={task.status === 'in_progress' ? handleCancel : undefined}
-                                  onDelete={handleDelete}
-                                  onTaskClick={handleTaskClick}
+                                  onDelete={onDelete}
+                                  onTaskClick={onTaskClick}
                                   selected={selectedTaskIds.has(task.id)}
                                   onToggleSelect={toggleTaskSelect}
                                   selectionMode={selectionActive}
-                                  isBatchTask={batchTaskIds.includes(task.id)}
+                                  isBatchTask={batchTaskIdSet.has(task.id)}
                                   isDragging={false}
                                   deletionMode={taskDeletionMode}
+                                  blocked={blockedTaskIds.has(task.id)}
+                                  blockedBy={blockerLabels.get(task.id) ?? null}
                                 />
                               ))}
                             </div>
@@ -523,86 +807,31 @@ export function KanbanBoard(props: KanbanBoardProps) {
           </div>
         ) : (
         <div className="flex md:grid md:grid-cols-2 lg:grid-cols-4 flex-1 min-h-0 overflow-x-auto overflow-y-hidden snap-x snap-mandatory md:overflow-x-visible md:snap-none">
-          {COLUMNS.map((column) => {
-            const columnTasks = getFilteredTasksByStatus(column.status)
-            const hasParallelGroup =
-              column.status === 'in_progress' && batchTaskIds.length > 0
-            const selectionActive = !hasParallelGroup && selectingColumns.has(column.id)
-            return (
-              <Droppable key={column.id} droppableId={column.id}>
-                {(provided, snapshot) => (
-                  <Column
-                    id={column.id}
-                    title={column.title}
-                    taskCount={columnTasks.length}
-                    onAddTask={() => handleAddTask(column.status)}
-                    selectionActive={selectionActive}
-                    onToggleSelection={!hasParallelGroup ? () => toggleColumnSelection(column.id) : undefined}
-                    onSelectAll={selectionActive ? () => toggleColumnSelectAll(column.status) : undefined}
-                    innerRef={provided.innerRef}
-                    droppableProps={provided.droppableProps}
-                    isDraggingOver={snapshot.isDraggingOver}
-                    isAnyDragging={isDragging}
-                  >
-                    {columnTasks.length === 0 && !snapshot.isDraggingOver ? (
-                      <EmptyState
-                        size="compact"
-                        icon={Inbox}
-                        title={`No ${column.title.toLowerCase()} tasks`}
-                        action={
-                          <button
-                            type="button"
-                            onClick={() => handleAddTask(column.status)}
-                            className="inline-flex items-center gap-1.5 h-8 px-3 rounded-sm text-xs font-medium text-linear-text-secondary hover:text-linear-text hover:bg-linear-bg-tertiary transition-colors"
-                          >
-                            <Plus className="w-3.5 h-3.5" />
-                            Add task
-                          </button>
-                        }
-                      />
-                    ) : (() => {
-                      if (column.status === 'in_progress' && batchTaskIds.length > 0) {
-                        const batch = columnTasks.filter(t => batchTaskIds.includes(t.id))
-                        const rest = columnTasks.filter(t => !batchTaskIds.includes(t.id))
-                        const batchGroupCount = batch.length > 0 && activeBatch ? 1 : 0
-                        return (
-                          <>
-                            {batch.length > 0 && activeBatch && (
-                              <InProgressBatchGroup
-                                batch={batch}
-                                activeBatch={activeBatch}
-                                canExecute={canExecute}
-                                selectedTaskIds={selectedTaskIds}
-                                onExecute={handleExecute}
-                                onCancel={handleCancel}
-                                onDelete={handleDelete}
-                                deletionMode={taskDeletionMode}
-                                onTaskClick={handleTaskClick}
-                                onToggleSelect={toggleTaskSelect}
-                              />
-                            )}
-                            {rest.map((task, i) => renderTask(task, batchGroupCount + i))}
-                          </>
-                        )
-                      }
-
-                      if (column.status === 'done') {
-                        return (
-                          <DoneColumnContent
-                            columnTasks={columnTasks}
-                            renderTask={renderTask}
-                          />
-                        )
-                      }
-
-                      return columnTasks.map((task, index) => renderTask(task, index))
-                    })()}
-                    {provided.placeholder}
-                  </Column>
-                )}
-              </Droppable>
-            )
-          })}
+          {COLUMNS.map((column) => (
+            <BoardColumn
+              key={column.id}
+              column={column}
+              tasks={columnTasks[column.status]}
+              selectedTaskIds={selectedTaskIds}
+              selectionActive={selectionActive}
+              columnSelecting={selectingColumns.has(column.id)}
+              batchTaskIdSet={batchTaskIdSet}
+              blockedTaskIds={blockedTaskIds}
+              blockerLabels={blockerLabels}
+              startingExecuteIds={startingExecuteIds}
+              canExecute={canExecute}
+              deletionMode={taskDeletionMode}
+              isAnyDragging={isDragging}
+              activeBatch={column.status === 'in_progress' ? activeBatch : null}
+              hasMore={columnPaging[column.status].hasMore}
+              loadingMore={columnPaging[column.status].loading}
+              onAddTask={handleAddTask}
+              onToggleColumnSelection={onToggleColumnSelection}
+              onToggleColumnSelectAll={onToggleColumnSelectAll}
+              onLoadMore={onLoadMore}
+              {...handlers}
+            />
+          ))}
         </div>
         )}
         <TaskFormDialog
@@ -618,12 +847,14 @@ export function KanbanBoard(props: KanbanBoardProps) {
           task={selectedTask}
           open={!!selectedTaskId}
           onClose={handleDrawerClose}
-          onDelete={handleDelete}
+          onDelete={onDelete}
           onCancel={handleCancel}
-          onExecute={selectedTaskId && batchTaskIds.includes(selectedTaskId) ? undefined : handleExecute}
+          onExecute={selectedTaskId && batchTaskIdSet.has(selectedTaskId) ? undefined : onExecute}
+          onRunWithBlockers={canExecute && !(selectedTaskId && batchTaskIdSet.has(selectedTaskId)) ? handleRunWithBlockers : undefined}
           onUpdate={handleUpdateTask}
+          onCheckPullRequest={handleCheckPullRequest}
           isExecuting={isSelectedTaskExecuting}
-          project={selectedProject ? { id: selectedProject.id, name: selectedProject.name } : null}
+          project={selectedProject ? { id: selectedProject.id, name: selectedProject.name, defaultAgent: selectedProject.defaultAgent ?? null } : null}
           deletionMode={taskDeletionMode}
         />
 
@@ -654,8 +885,8 @@ export function KanbanBoard(props: KanbanBoardProps) {
               <AlertDialogAction
                 onClick={(e) => {
                   e.preventDefault()
-                  if (pendingDelete?.kind === 'bulk') handleBulkDelete()
-                  else if (pendingDelete?.kind === 'single') handleDelete(pendingDelete.taskId)
+                  if (pendingDelete?.kind === 'bulk') void handleBulkDelete()
+                  else if (pendingDelete?.kind === 'single') void handleDelete(pendingDelete.taskId)
                   setPendingDelete(null)
                 }}
                 className={cn(buttonVariants({ variant: "destructive" }))}
@@ -668,7 +899,7 @@ export function KanbanBoard(props: KanbanBoardProps) {
 
         {(() => {
           if (selectedTaskIds.size === 0) return null
-          const buckets = bucketSelection(selectedTaskIds, tasks)
+          const buckets = bucketSelection(selectedTaskIds, tasksById)
           const executeDisabledReason = !canExecute
             ? 'Connect a repository in Project Settings to enable execution'
             : null
@@ -682,7 +913,7 @@ export function KanbanBoard(props: KanbanBoardProps) {
               onExecuteQueue={() => handleBatchExecute('queue')}
               onExecuteCombined={() => handleBatchExecute('combined')}
               onMoveToInProgress={handleBatchMoveToInProgress}
-              onChangeStatus={handleBulkChangeStatus}
+              onChangeStatus={(status) => { void handleBulkChangeStatus(status) }}
               onArchive={handleBulkDelete}
               onClear={clearSelection}
               deletionMode={taskDeletionMode}

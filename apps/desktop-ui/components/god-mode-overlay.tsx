@@ -220,7 +220,7 @@ export function GodModeOverlay() {
                   "flex h-6 w-6 items-center justify-center rounded-sm transition-colors",
                   !micSupported && "opacity-40 cursor-not-allowed",
                   isRecording
-                    ? "text-red-500 animate-pulse"
+                    ? "text-danger animate-pulse"
                     : "text-linear-text-tertiary hover:text-linear-text-secondary hover:bg-linear-bg-tertiary"
                 )}
               >

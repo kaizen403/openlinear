@@ -33,7 +33,7 @@ export default function SectionError({
           back home.
         </p>
         {error.digest ? (
-          <p className="mt-3 font-mono text-xs text-muted-foreground/70">
+          <p className="mt-3 font-mono text-xs text-muted-foreground">
             ref: {error.digest}
           </p>
         ) : null}
