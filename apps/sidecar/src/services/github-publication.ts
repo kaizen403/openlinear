@@ -1,3 +1,24 @@
+/**
+ * GitHub REST base. Tests may point it at a loopback stub with
+ * OPENLINEAR_GITHUB_API_URL, honoured only when NODE_ENV=test and only for an
+ * http loopback URL, so a production environment can never redirect the
+ * user's GitHub token.
+ */
+export function githubApiBase(env: NodeJS.ProcessEnv = process.env): string {
+  const override = env.OPENLINEAR_GITHUB_API_URL;
+  if (override && env.NODE_ENV === 'test') {
+    try {
+      const url = new URL(override);
+      if (url.protocol === 'http:' && (url.hostname === '127.0.0.1' || url.hostname === 'localhost')) {
+        return override.replace(/\/+$/, '');
+      }
+    } catch {
+      // fall through to the real API
+    }
+  }
+  return 'https://api.github.com';
+}
+
 export function isGithubPullRequestUrl(value: unknown, fullName: string): value is string {
   if (typeof value !== 'string') return false;
   try {
@@ -25,7 +46,7 @@ export async function publishGithubPullRequest(input: {
     || !/^[A-Za-z0-9_.-]+$/.test(repo) || repo === '.' || repo === '..') {
     throw new Error('Invalid repository identity for publication');
   }
-  const baseUrl = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pulls`;
+  const baseUrl = `${githubApiBase()}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pulls`;
   const headers = { Authorization: `Bearer ${input.accessToken}`, Accept: 'application/vnd.github.v3+json' };
   let response: Response | undefined;
   let ambiguous = false;
