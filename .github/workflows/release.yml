@@ -1,5 +1,18 @@
 name: release
 
+# Builds the desktop app for every target from a release tag, verifies what
+# goes into it, and publishes a GitHub release with SHA256SUMS and build
+# provenance. Signing/notarization run only when their secrets exist; see
+# docs/reports/revamp-2026-10-26/release.md for the secrets and variables.
+#
+# Repository variables (all optional):
+#   NEXT_PUBLIC_CLOUD_API_URL         cloud API baked into the app (default https://openlinear.tech)
+#   OPENLINEAR_RELEASE_DRAFT          'false' publishes immediately; otherwise the release is a draft
+#   OPENLINEAR_REQUIRE_SIGNED_RELEASE 'true' fails macOS builds that would not be signed + notarized
+#   OPENLINEAR_PUBLISH_CLI            'true' publishes packages/openlinear-cli (only for non-draft releases)
+#
+# Actions are pinned to commit SHAs (resolved 2026-10-25 from the tags in the comments).
+
 on:
   push:
     tags:
@@ -7,33 +20,87 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Tag to release (e.g. v0.1.52)'
+        description: 'Existing tag to build and release (e.g. v0.1.62)'
         required: true
 
-permissions:
-  contents: write
-  packages: write
+permissions: {}
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
 
 jobs:
-  build-linux:
-    runs-on: ubuntu-22.04
+  build:
+    name: build ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-22.04
+            platform: linux
+            target: x86_64-unknown-linux-gnu
+            arch: x86_64
+          - runner: macos-14
+            platform: macos
+            target: aarch64-apple-darwin
+            arch: aarch64
+          # macos-13 was retired; macos-15-intel is the x86_64 macOS image.
+          - runner: macos-15-intel
+            platform: macos
+            target: x86_64-apple-darwin
+            arch: x86_64
+    env:
+      TARGET: ${{ matrix.target }}
+      # One cloud API for the web bundle and the Rust launcher's compile-time
+      # default (option_env!("OPENLINEAR_API_URL") in sidecar.rs).
+      NEXT_PUBLIC_CLOUD_API_URL: ${{ vars.NEXT_PUBLIC_CLOUD_API_URL || 'https://openlinear.tech' }}
+      OPENLINEAR_API_URL: ${{ vars.NEXT_PUBLIC_CLOUD_API_URL || 'https://openlinear.tech' }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - name: Checkout the release tag
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: refs/tags/${{ env.RELEASE_TAG }}
+          persist-credentials: false
+
+      - name: Resolve the release version
+        run: |
+          set -euo pipefail
+          if ! printf '%s' "$RELEASE_TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "::error::Release tag '$RELEASE_TAG' is not vMAJOR.MINOR.PATCH[-PRERELEASE]"
+            exit 1
+          fi
+          echo "VERSION=${RELEASE_TAG#v}" >> "$GITHUB_ENV"
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      - name: Setup Node 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: pnpm
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
+          targets: ${{ matrix.target }}
 
-      - name: Install Linux dependencies
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          workspaces: apps/desktop/src-tauri -> target
+          key: ${{ matrix.target }}
+
+      - name: Install Linux build dependencies
+        if: matrix.platform == 'linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -47,168 +114,252 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Generate Prisma client
-        run: pnpm --filter @openlinear/db db:generate
+      - name: Stamp the release version and cloud API origin into the Tauri config
+        run: |
+          # shellcheck disable=SC2016 # single quotes: JavaScript, not shell
+          node -e '
+            const fs = require("node:fs");
+            const file = "apps/desktop/src-tauri/tauri.conf.json";
+            const config = JSON.parse(fs.readFileSync(file, "utf8"));
+            const version = process.argv[1];
+            if (config.version !== version) {
+              console.log(`::notice::tauri.conf.json version ${config.version} -> ${version} (from the tag)`);
+            }
+            config.version = version;
+            // The production CSP must allow the cloud API the UI is built for.
+            const api = new URL(process.env.NEXT_PUBLIC_CLOUD_API_URL);
+            if (api.protocol !== "https:") {
+              console.log(`::error::NEXT_PUBLIC_CLOUD_API_URL must be https (got ${api.origin})`);
+              process.exit(1);
+            }
+            const csp = config.app.security.csp;
+            const directives = csp.split(";").map((d) => d.trim());
+            const i = directives.findIndex((d) => d.startsWith("connect-src "));
+            if (i < 0) {
+              console.log("::error::production CSP has no connect-src");
+              process.exit(1);
+            }
+            if (!directives[i].split(/\s+/).includes(api.origin)) {
+              directives[i] += ` ${api.origin}`;
+              config.app.security.csp = directives.join("; ");
+              console.log(`::notice::added ${api.origin} to the production connect-src`);
+            }
+            fs.writeFileSync(file, JSON.stringify(config, null, 2) + "\n");
+          ' "$VERSION"
 
-      - name: Build desktop
-        run: pnpm build:desktop
+      - name: Build the sidecar binary (Node 22, pkg)
+        run: SKIP_OPENCODE_DOWNLOAD=1 bash scripts/build-sidecar.sh --target "$TARGET"
 
-      - name: Prepare release artifacts
+      - name: Smoke-test the sidecar binary (empty env, no DATABASE_URL)
+        run: bash scripts/release/smoke-sidecar-binary.sh "apps/desktop/src-tauri/binaries/openlinear-sidecar-$TARGET"
+
+      - name: Fetch and verify OpenCode (pin + upstream digest + signed release attestation)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OPENCODE_REQUIRE_ATTESTATION: '1'
+        run: bash scripts/download-opencode.sh --target "$TARGET"
+
+      - name: Pre-seed the pinned appimagetool
+        if: matrix.platform == 'linux'
+        env:
+          APPIMAGETOOL_URL: https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-x86_64.AppImage
+          APPIMAGETOOL_SHA256: ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0
         run: |
           set -euo pipefail
-          VERSION=${GITHUB_REF_NAME#v}
-          APPIMAGE=$(ls apps/desktop/src-tauri/target/release/bundle/appimage/*.AppImage | head -n 1)
-          DEB=$(ls apps/desktop/src-tauri/target/release/bundle/deb/*.deb | head -n 1)
-          mkdir -p dist/release
-          cp "$APPIMAGE" "dist/release/openlinear-${VERSION}-x86_64.AppImage"
-          cp "$DEB" "dist/release/openlinear-${VERSION}-x86_64.deb"
+          # scripts/build-appimage-workaround.sh uses this path instead of
+          # downloading the unpinned "continuous" build.
+          mkdir -p .cache/appimage-tools
+          curl -fsSL --retry 3 "$APPIMAGETOOL_URL" -o .cache/appimage-tools/appimagetool-x86_64.AppImage
+          echo "$APPIMAGETOOL_SHA256  .cache/appimage-tools/appimagetool-x86_64.AppImage" | sha256sum -c -
+          chmod +x .cache/appimage-tools/appimagetool-x86_64.AppImage
 
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: linux-artifacts
-          path: dist/release/*
-
-  build-macos-arm:
-    runs-on: macos-14
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-apple-darwin
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Generate Prisma client
-        run: pnpm --filter @openlinear/db db:generate
-
-      - name: Build desktop
+      - name: Configure macOS signing and notarization (skipped when secrets are absent)
+        id: signing
+        if: matrix.platform == 'macos'
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          NEXT_PUBLIC_CLOUD_API_URL: ${{ vars.NEXT_PUBLIC_CLOUD_API_URL || 'https://openlinear.tech' }}
-        run: pnpm build:desktop
+          REQUIRE_SIGNED: ${{ vars.OPENLINEAR_REQUIRE_SIGNED_RELEASE }}
+        run: bash scripts/release/configure-macos-signing.sh
 
-      - name: Prepare release artifacts
-        run: |
-          set -euo pipefail
-          VERSION=${GITHUB_REF_NAME#v}
-          DMG=$(ls apps/desktop/src-tauri/target/release/bundle/dmg/*.dmg | head -n 1)
-          mkdir -p dist/release
-          cp "$DMG" "dist/release/openlinear-${VERSION}-aarch64.dmg"
+      - name: Build the macOS app and DMG
+        if: matrix.platform == 'macos'
+        run: pnpm --filter @openlinear/desktop tauri build --bundles app,dmg
 
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: macos-arm-artifacts
-          path: dist/release/*
+      - name: Build the Linux .deb
+        if: matrix.platform == 'linux'
+        run: pnpm --filter @openlinear/desktop tauri build --bundles deb
 
-  build-macos-intel:
-    runs-on: macos-13
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - name: Build the Linux AppImage (sidecars injected after linuxdeploy)
+        if: matrix.platform == 'linux'
+        run: bash scripts/build-appimage-workaround.sh
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-apple-darwin
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Generate Prisma client
-        run: pnpm --filter @openlinear/db db:generate
-
-      - name: Build desktop
+      - name: Verify the bundles (shipped binaries, OpenCode version, bundled sidecar smoke)
         env:
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          NEXT_PUBLIC_CLOUD_API_URL: ${{ vars.NEXT_PUBLIC_CLOUD_API_URL || 'https://openlinear.tech' }}
-        run: pnpm build:desktop
-
-      - name: Prepare release artifacts
+          PLATFORM: ${{ matrix.platform }}
         run: |
           set -euo pipefail
-          VERSION=${GITHUB_REF_NAME#v}
-          DMG=$(ls apps/desktop/src-tauri/target/release/bundle/dmg/*.dmg | head -n 1)
+          shopt -s nullglob
+          BUNDLE=apps/desktop/src-tauri/target/release/bundle
+          verified=0
+          verify() {
+            bash scripts/release/verify-desktop-bundle.sh "$1" "$2"
+            verified=$((verified + 1))
+          }
+          if [ "$PLATFORM" = "linux" ]; then
+            for f in "$BUNDLE"/deb/*.deb; do verify deb "$f"; done
+            for f in "$BUNDLE"/appimage/*.AppImage; do verify appimage "$f"; done
+            expected=2
+          else
+            for f in "$BUNDLE"/macos/*.app; do verify macos-app "$f"; done
+            expected=1
+          fi
+          if [ "$verified" -ne "$expected" ]; then
+            echo "::error::verified $verified bundle(s), expected $expected"
+            exit 1
+          fi
+
+      - name: Collect release artifacts and per-target checksums
+        env:
+          ARCH: ${{ matrix.arch }}
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          BUNDLE=apps/desktop/src-tauri/target/release/bundle
+          pick() {
+            if [ "$#" -ne 1 ]; then
+              echo "::error::expected exactly one artifact, found $#: $*" >&2
+              return 1
+            fi
+            printf '%s' "$1"
+          }
           mkdir -p dist/release
-          cp "$DMG" "dist/release/openlinear-${VERSION}-x86_64.dmg"
+          if [ "$PLATFORM" = "linux" ]; then
+            APPIMAGE="$(pick "$BUNDLE"/appimage/*.AppImage)"
+            DEB="$(pick "$BUNDLE"/deb/*.deb)"
+            cp "$APPIMAGE" "dist/release/openlinear-${VERSION}-${ARCH}.AppImage"
+            cp "$DEB" "dist/release/openlinear-${VERSION}-${ARCH}.deb"
+          else
+            DMG="$(pick "$BUNDLE"/dmg/*.dmg)"
+            cp "$DMG" "dist/release/openlinear-${VERSION}-${ARCH}.dmg"
+          fi
+          cd dist/release
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum openlinear-* > "checksums-${TARGET}.sha256"
+          else
+            shasum -a 256 openlinear-* > "checksums-${TARGET}.sha256"
+          fi
+          cat "checksums-${TARGET}.sha256"
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: macos-intel-artifacts
+          name: release-${{ matrix.target }}
           path: dist/release/*
+          if-no-files-found: error
+          retention-days: 7
 
-  create-release:
-    runs-on: ubuntu-22.04
-    needs: [build-linux, build-macos-arm, build-macos-intel]
+  release:
+    name: create GitHub release
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
     steps:
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
+      - name: Download build artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
+          pattern: release-*
           path: dist/release
           merge-multiple: true
 
-      - name: Create GitHub release
-        uses: softprops/action-gh-release@v2
+      - name: Verify per-target checksums and write SHA256SUMS
+        working-directory: dist/release
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          parts=(checksums-*.sha256)
+          # One checksum file per build matrix entry.
+          if [ "${#parts[@]}" -ne 3 ]; then
+            echo "::error::expected 3 per-target checksum files, found ${#parts[@]}"
+            exit 1
+          fi
+          cat "${parts[@]}" | sort -k2 > SHA256SUMS
+          rm -f "${parts[@]}"
+          # Detects corruption between the build jobs and this job.
+          sha256sum -c SHA256SUMS
+          for f in openlinear-*; do
+            if ! awk -v f="$f" '$2 == f { found = 1 } END { exit !found }' SHA256SUMS; then
+              echo "::error::$f is not listed in SHA256SUMS"
+              exit 1
+            fi
+          done
+          cat SHA256SUMS
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
         with:
-          files: dist/release/*
+          subject-path: dist/release/openlinear-*
+
+      - name: Create the GitHub release
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: OpenLinear ${{ env.RELEASE_TAG }}
+          draft: ${{ vars.OPENLINEAR_RELEASE_DRAFT != 'false' }}
+          prerelease: ${{ contains(env.RELEASE_TAG, '-') }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            dist/release/openlinear-*
+            dist/release/SHA256SUMS
 
   publish-cli:
-    runs-on: ubuntu-22.04
-    needs: create-release
+    name: publish CLI (opt-in)
+    needs: release
+    # The CLI downloads from the published release, so it is only published
+    # when releases are not drafts.
+    if: vars.OPENLINEAR_PUBLISH_CLI == 'true' && vars.OPENLINEAR_RELEASE_DRAFT == 'false'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - name: Checkout the release tag
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: refs/tags/${{ env.RELEASE_TAG }}
+          persist-credentials: false
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      - name: Setup Node 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           registry-url: https://npm.pkg.github.com
-          cache: pnpm
           scope: '@openlinear'
 
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Publish CLI
+      - name: Test the CLI installer
         working-directory: packages/openlinear-cli
-        run: npm publish --access public
+        run: node --test test/*.test.js
+
+      - name: Set the CLI version from the tag
+        working-directory: packages/openlinear-cli
+        run: npm version "${RELEASE_TAG#v}" --no-git-tag-version --allow-same-version
+
+      - name: Publish the CLI
+        working-directory: packages/openlinear-cli
+        run: npm publish
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

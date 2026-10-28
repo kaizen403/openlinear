@@ -3,11 +3,20 @@ name: Dev
 on:
   push:
     branches: [dev]
+  pull_request:
+    branches: [dev, main]
   workflow_dispatch:
 
+# One run per pull request, or per pushed branch; a newer commit cancels the
+# run it supersedes. Push and pull_request runs never share a group, so the
+# only commit checked twice is a `dev` -> `main` release PR: the push run checks
+# `dev` itself and the PR run checks its merge with `main`, which can differ.
 concurrency:
-  group: dev-${{ github.ref_name }}
+  group: dev-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
+
+permissions:
+  contents: read
 
 env:
   TURBO_TELEMETRY_DISABLED: 1
@@ -20,6 +29,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          # Full history: the migration safety review diffs against the PR
+          # base or the commit before the push.
           fetch-depth: 0
 
       - uses: pnpm/action-setup@v4
@@ -41,27 +52,76 @@ jobs:
         run: pnpm lint
 
       - name: Migration safety review
+        env:
+          # PR: the base branch tip. Push: the commit before the push (all
+          # zeros for a new branch; the script then checks the last commit).
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: bash scripts/ci/migration-safety.sh "$BASE_SHA"
+
+  secret-scan:
+    name: Secret scan (gitleaks, new commits only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history: the scan range is the PR base (or the commit before
+          # the push) up to the head.
+          fetch-depth: 0
+
+      - name: Install gitleaks (pinned, checksum-verified)
+        env:
+          GITLEAKS_VERSION: 8.30.1
+          # sha256 of gitleaks_8.30.1_linux_x64.tar.gz; matches upstream's
+          # gitleaks_8.30.1_checksums.txt and the release API asset digest.
+          GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
         run: |
-          FILES=$(git diff --name-only origin/${{ github.event.repository.default_branch }}...HEAD -- 'packages/db/prisma/migrations/**' || true)
-          if [ -z "$FILES" ]; then
-            echo "No migration changes."
-            exit 0
+          set -euo pipefail
+          tarball="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/$tarball" \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/${tarball}"
+          echo "${GITLEAKS_SHA256}  $RUNNER_TEMP/$tarball" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/gitleaks-bin"
+          tar -xzf "$RUNNER_TEMP/$tarball" -C "$RUNNER_TEMP/gitleaks-bin" gitleaks
+          echo "$RUNNER_TEMP/gitleaks-bin" >> "$GITHUB_PATH"
+
+      - name: Scan the commits this push or pull request adds
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          ZERO_SHA=0000000000000000000000000000000000000000
+          CONFIG="$RUNNER_TEMP/gitleaks.toml"
+          cp .gitleaks.toml "$CONFIG"
+          # Only the new commits are scanned: secrets already in history are
+          # an owner rotation/purge decision (docs/runbooks/rotate-leaked-secrets.md)
+          # and must not block every PR.
+          if [ -n "${BASE_SHA}" ] && [ "${BASE_SHA}" != "${ZERO_SHA}" ] \
+            && git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
+            RANGE="${BASE_SHA}..${HEAD_SHA}"
+            # Scan with the base commit's rules, so a PR (or push) cannot
+            # weaken the allowlist for its own scan. The change that first
+            # adds .gitleaks.toml bootstraps with its own copy.
+            if git cat-file -e "${BASE_SHA}:.gitleaks.toml" 2>/dev/null; then
+              git show "${BASE_SHA}:.gitleaks.toml" > "$CONFIG"
+              echo "Using .gitleaks.toml from the base commit ${BASE_SHA}."
+            fi
+          else
+            # New branch, force push or manual dispatch: scan the head commit.
+            echo "::warning::No usable base (${GITHUB_EVENT_NAME}); scanning only ${HEAD_SHA}."
+            RANGE="-1 ${HEAD_SHA}"
           fi
-          FAIL=0
-          for f in $FILES; do
-            [ -f "$f" ] || continue
-            if grep -q 'migration-safety: allow' "$f"; then
-              echo "skip (opt-in): $f"
-              continue
-            fi
-            if grep -iEq '^[[:space:]]*(DROP[[:space:]]+(TABLE|COLUMN)|ALTER[[:space:]]+TABLE[^;]*DROP[[:space:]]+COLUMN|TRUNCATE)' "$f"; then
-              echo "::error file=$f::destructive DDL without '-- migration-safety: allow'"; FAIL=1
-            fi
-            if grep -iE '^[[:space:]]*CREATE[[:space:]]+(UNIQUE[[:space:]]+)?INDEX' "$f" | grep -ivq 'CONCURRENTLY'; then
-              echo "::error file=$f::CREATE INDEX without CONCURRENTLY"; FAIL=1
-            fi
-          done
-          exit $FAIL
+          echo "Scanning ${RANGE}"
+          # A checked-in .gitleaksignore is not honoured: it would let a change
+          # silence its own finding by fingerprint (gitleaks reads it from the
+          # scanned directory). Inline `gitleaks:allow` comments still work
+          # and are visible in review.
+          rm -f .gitleaksignore
+          # --redact keeps secret values out of the job log; findings still
+          # show rule, file, line and commit.
+          gitleaks git --config "$CONFIG" --log-opts "${RANGE}" \
+            --redact --verbose --no-banner --exit-code 1 .
 
   test:
     name: Test
@@ -100,7 +160,7 @@ jobs:
       - name: Generate Prisma client
         run: pnpm --filter @openlinear/db db:generate
 
-      - name: Push schema to test database
+      - name: Apply migrations to test database
         run: pnpm --filter @openlinear/db exec prisma migrate deploy
 
       - name: Run tests
@@ -128,3 +188,95 @@ jobs:
 
       - name: Build all packages
         run: pnpm build --filter '!@openlinear/desktop' --filter '!intro-video'
+
+  changes:
+    name: Detect API image changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      api_image: ${{ steps.filter.outputs.api_image }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - id: filter
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          set -euo pipefail
+          if [ -z "${BASE_SHA}" ] || [ "${BASE_SHA}" = "0000000000000000000000000000000000000000" ] \
+            || ! git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
+            echo "No usable base (${GITHUB_EVENT_NAME}); building the API image."
+            echo "api_image=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Everything that feeds apps/api/Dockerfile.
+          CHANGED="$(git diff --name-only "${BASE_SHA}...HEAD" -- \
+            apps/api packages pnpm-lock.yaml pnpm-workspace.yaml package.json turbo.json \
+            .dockerignore scripts/ci/smoke-api-image.sh .github/workflows/dev.yml)"
+          if [ -n "$CHANGED" ]; then
+            printf 'API image inputs changed:\n%s\n' "$CHANGED"
+            echo "api_image=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No API image inputs changed; skipping the image build."
+            echo "api_image=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  api-image:
+    name: API image (build + smoke, no push)
+    needs: changes
+    if: needs.changes.outputs.api_image == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: openlinear
+          POSTGRES_PASSWORD: openlinear
+          POSTGRES_DB: openlinear_smoke
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://openlinear:openlinear@localhost:5432/openlinear_smoke
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build API image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./apps/api/Dockerfile
+          push: false
+          load: true
+          tags: openlinear-api:ci-${{ github.sha }}
+          cache-from: type=gha,scope=api-image
+          cache-to: type=gha,mode=max,scope=api-image
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      # Only packages/db is needed, for the Prisma CLI.
+      - run: pnpm install --frozen-lockfile --filter @openlinear/db
+
+      - name: Apply migrations to the smoke database
+        run: pnpm --filter @openlinear/db exec prisma migrate deploy
+
+      - name: Smoke-test API and worker containers
+        run: bash scripts/ci/smoke-api-image.sh "openlinear-api:ci-${{ github.sha }}" "$DATABASE_URL"
+
+      - name: Image size
+        if: always()
+        run: docker image ls "openlinear-api:ci-${{ github.sha }}" --format '{{.Repository}}:{{.Tag}} {{.Size}}' || true

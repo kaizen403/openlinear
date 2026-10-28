@@ -1,0 +1,116 @@
+# gitleaks configuration for OpenLinear.
+#
+# CI (.github/workflows/dev.yml, job "Secret scan") runs gitleaks on the commits
+# a push or pull request adds — never the full history, so the credentials that
+# already leaked in old commits (an owner rotation/purge decision, see
+# docs/runbooks/rotate-leaked-secrets.md) don't block every PR. CI loads this
+# file from the *base* commit (PR base, or the commit before a push), so a
+# change cannot weaken the rules for its own scan; edits here take effect for
+# the next change after they land.
+#
+# Local use (redacts secrets in the output):
+#   gitleaks git --config .gitleaks.toml --log-opts "origin/dev..HEAD" --redact .
+#   gitleaks dir --config .gitleaks.toml --redact <path>
+#
+# Allowlist policy: only exact, documented values that are fake by
+# construction (test fixtures and documentation placeholders). Never allowlist
+# whole paths or directories. When adding an entry, name the file that
+# contains it and why the value cannot be a real credential. Because CI scans
+# use the base commit's copy of this file, a change that adds a new fixture should
+# mark the line with an inline `gitleaks:allow` comment instead (or land the
+# allowlist entry first).
+
+title = "OpenLinear secret scanning"
+
+[extend]
+# Start from the default rule set embedded in the pinned gitleaks binary.
+useDefault = true
+
+# --- OpenLinear-specific rules ------------------------------------------------
+
+# Personal access tokens (apps/api/src/middleware/auth.ts:
+# `ol_pat_<32 lowercase hex>`). The default rules miss them; a real one was
+# committed to AGENTS.md/ISSUES.md/docs in 2026-05 and removed in 9e1aef8.
+[[rules]]
+id = "openlinear-pat"
+description = "OpenLinear personal access token"
+regex = '''\bol_pat_[0-9a-f]{32}\b'''
+keywords = ["ol_pat_"]
+
+[[rules.allowlists]]
+description = "Synthetic PAT fixtures (apps/mcp/test/auth.test.ts, apps/sidecar/src/auth/principal.test.ts, scripts/release/smoke-sidecar-binary.sh)"
+regexTarget = "match"
+regexes = [
+  '''^ol_pat_0{32}$''',
+  '''^ol_pat_(?:0123456789abcdef){2}$''',
+  '''^ol_pat_(?:a1){16}$''',
+]
+
+# Database URLs with an embedded password. The default rules miss them; the
+# Neon production URLs were committed in .env.dev/.env.prod (f37414b).
+[[rules]]
+id = "postgres-url-password"
+description = "PostgreSQL connection string with an embedded password"
+regex = '''postgres(?:ql)?://[^\s:@/'"`]+:([^\s:@/'"`]+)@[^\s/'"`]+'''
+secretGroup = 1
+keywords = ["postgres://", "postgresql://"]
+
+[[rules.allowlists]]
+description = "Local, CI-service and reserved example hosts (dev/test databases in docker-compose, dev.yml, .env.example, tests)"
+regexTarget = "match"
+regexes = [
+  '''@(?:localhost|127\.0\.0\.1|\[::1\]|postgres|db|host|h|x)(?::\d+)?(?:/|$)''',
+  '''@[^\s/'"`]*\.(?:example|invalid|test|localhost)(?::\d+)?(?:/|$)''',
+]
+
+[[rules.allowlists]]
+description = "Placeholder or templated passwords in docs and tests"
+regexes = [
+  '''^(?:password|pass|secret|changeme|p|x|\$\{[^}]*\}|\$[A-Z_][A-Z0-9_]*|<[^>]*>|\*+|x+)$''',
+]
+
+# --- Allowlisted test fixtures ------------------------------------------------
+
+[[allowlists]]
+description = "Synthetic JWTs in unit tests: header {alg:HS256}, payloads {userId:u1}/{sub:123}, fake signatures"
+# apps/api/src/__tests__/log-redaction.test.ts (JWT constant),
+# apps/desktop-ui/hooks/use-auth.test.mjs, apps/desktop-ui/lib/api/desktop-auth.test.mjs
+condition = "AND"
+paths = ['''(?:^|/)(?:__tests__/[^/]+|[^/]+\.test)\.(?:ts|tsx|mts|mjs|js)$''']
+regexes = [
+  '''^eyJhbGciOiJIUzI1NiJ9\.eyJ1c2VySWQiOiJ1MSJ9\.c2lnbmF0dXJlLXZhbHVl$''',
+  '''^eyJhbGciOiJIUzI1NiJ9\.eyJzdWIiOiIxMjMifQ\.abc$''',
+  '''^eyJhbGciOiJIUzI1NiJ9\.e\.s$''',
+]
+
+# --- Documented non-secrets (exact file + value pairs) ------------------------
+# generic-api-key false positives in committed docs, kept so that a full-tree
+# `gitleaks dir` scan is clean. Each block needs BOTH the path and the value.
+
+[[allowlists]]
+description = "Documentation placeholder PAT `ol_pat_a1b2c3d4e5f6...` (literal dots) in MCP plan examples"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = ['''(?:^|/)\.omo/plans/(?:openlinear-mcp|mcp-phase-1-pat-auth)\.md$''']
+regexes = ['''^ol_pat_a1b2c3d4e5f6\.\.\.$''']
+
+[[allowlists]]
+description = "Benchmark label in a report heading (`# API benchmark: with-phase0-plus-probe`)"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = ['''(?:^|/)docs/reports/perf-baseline-2026-10-26/bench-with-phase0-plus-probe\.md$''']
+regexes = ['''^with-phase0-plus-probe$''']
+
+[[allowlists]]
+description = "Prose (`credential mediation, merge/publish decisions`)"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = ['''(?:^|/)docs/reports/backend-review-2026-10-15/openai\.md$''']
+regexes = ['''^merge/publish$''']
+
+[[allowlists]]
+description = "SHA-256 source-file digests in benchmark artifacts (`\"../src/services/git-credentials.ts\": \"<sha256>\"`)"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = ['''(?:^|/)docs/reports/backend-review-2026-10-15/artifacts/[^/]+\.json$''']
+regexes = ['''^[0-9a-f]{64}$''']

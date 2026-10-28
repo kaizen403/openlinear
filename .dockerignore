@@ -1,32 +1,63 @@
-node_modules
-**/node_modules
-**/.next
-**/.turbo
-**/dist
-**/out
-**/coverage
-**/.cache
+# Build context for apps/api/Dockerfile (context = repository root).
+#
+# The Dockerfile's prune stage copies the whole context so `turbo prune` can
+# read every workspace manifest, so this file is what keeps the context small
+# and free of secrets. Never weaken the secrets section.
+
+# --- Secrets: never enter any image layer, not even a discarded build stage ---
+**/.env
+**/.env.*
+!**/.env.example
+**/*.pem
+**/*.key
+**/*.crt
+**/*.der
+**/.dev.vars
+**/.npmrc
+
+# --- VCS, CI and editor state ---
 .git
 .github
-.sisyphus
+.vscode
+.idea
+**/.DS_Store
+
+# --- Dependencies and build output (rebuilt inside the image) ---
+**/node_modules
+**/.pnpm-store
+**/.next
+**/.turbo
+**/.cache
+**/dist
+**/out
+**/build
+**/coverage
+**/*.tsbuildinfo
+**/*.log
+# Prisma client: regenerated in the image from schema.prisma.
+packages/db/generated
+
+# --- Native/desktop artifacts ---
+apps/desktop/src-tauri/target
+apps/desktop/src-tauri/binaries
+apps/mcp/.wrangler
+**/*.dmg
+**/*.AppImage
+**/*.deb
+
+# --- Not part of any build (workspace manifests stay: turbo prune needs them) ---
+apps/intro-video/**
+!apps/intro-video/package.json
 docs
 packaging
-apps/desktop/src-tauri/target
-apps/desktop/src-tauri/binaries/openlinear-sidecar-*
-apps/desktop/src-tauri/binaries/opencode-*
-apps/intro-video
-*.log
-*.dmg
-*.AppImage
-*.deb
-.DS_Store
-.env
-.env.local
-.env.*.local
+tasks
+.sisyphus
+.omo
+.omx
+.opencode-monitor
+ISSUES.md
 logo.png
 logo.jpg
 logo-trimmed.png
 test-apply-patch.js
 test-edit.js
-README.md
-LICENSE

@@ -23,10 +23,11 @@
     "build": "node esbuild.config.js",
     "build:pkg": "pkg . --out-path dist",
     "start": "node dist/index.js",
+    "start:worker": "node dist/worker.js",
     "worker": "tsx src/worker.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "lint": "biome check --error-on-warnings src/tenancy src/events src/worker.ts src/registry.ts src/jobs src/modules src/storage src/__tests__/tenancy.test.ts src/__tests__/events.outbox.test.ts src/__tests__/authorization-matrix.test.ts"
+    "lint": "biome check --error-on-warnings src/tenancy src/events src/worker.ts src/index.ts src/readiness.ts src/registry.ts src/jobs src/modules src/storage src/__tests__/tenancy.test.ts src/__tests__/events.outbox.test.ts src/__tests__/authorization-matrix.test.ts src/__tests__/readiness.test.ts src/__tests__/jobs.runner.test.ts src/__tests__/jobs.pgboss.test.ts"
   },
   "dependencies": {
     "@openlinear/api-core": "workspace:*",

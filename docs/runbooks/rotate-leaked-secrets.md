@@ -17,6 +17,7 @@ published.
 | GitHub OAuth | **Removed.** Leaked dev secret now 404s (app gone). Leaked prod secret 401s (dead). `/api/auth/github` returns `GITHUB_OAUTH_DISABLED`. Do not put new secrets in Azure until replacement apps exist. |
 | `JWT_SECRET` in `.env.example` | **Done.** Placeholder removed so clones cannot copy a published value. |
 | Secret scanning + push protection | **On** for `kaizen403/openlinear`. |
+| gitleaks in CI | **Added 2026-10-26, not yet run on GitHub.** `dev.yml` job "Secret scan" scans only the commits a PR or push adds, with `.gitleaks.toml` (default rules + OpenLinear PAT and Postgres-URL rules). History is deliberately not scanned in CI (see §1.1). |
 | History purge (`git filter-repo`) | **Not done** (force-push; coordinate clones). Rotation is the real fix. |
 
 ## 1. What is exposed, and where
@@ -32,7 +33,34 @@ published.
 `.env.dev` and `.env.prod` were tracked by git. Phase 0 fixed `.gitignore` (the
 old rules enumerated suffixes and missed both names) and untracked them with
 `git rm --cached`, so they stay on disk but leave the index. **They remain in
-git history** — see step 5.
+git history** — see step 6.
+
+### 1.1 History scan (2026-10-26, gitleaks 8.30.1 + `.gitleaks.toml`, values redacted)
+
+Scope: every commit reachable from `922dbd7` or from a release tag (the
+`v0.1.x` tags are on the public remote and carry 233 commits that `dev` no
+longer contains), plus the working tree. The working tree is clean. Findings in
+history, excluding documented fixtures and false positives:
+
+| Commit (date, UTC) | File | Rule | Note |
+|---|---|---|---|
+| `f37414b` (2026-05-31) | `.env.dev` | `generic-api-key` (`TOKEN_ENCRYPTION_KEY`), `postgres-url-password` (`DATABASE_URL`) | Listed above; dev Neon rotated |
+| `f37414b` (2026-05-31) | `.env.prod` | `generic-api-key` (`GITHUB_CLIENT_SECRET`), `postgres-url-password` (`DATABASE_URL`) | Listed above; prod Neon rotation blocked |
+| `d7aece7` (2026-05-21) | `AGENTS.md`, `ISSUES.md` | `openlinear-pat` | The leaked PAT; owner revoked |
+| `c6bb0d5` (2026-05-22) | `apps/mcp-docs/app/authentication/page.tsx`, `.../quickstart/page.tsx` | `openlinear-pat` | Same PAT; pages since redeployed |
+| `65373df` (2026-05-05) | `.env.docker` (deleted in `657a84c`) | `generic-api-key` (`GITHUB_CLIENT_SECRET`) | **Not in the table above.** A third GitHub OAuth client secret, different from the `.env.dev`/`.env.prod` values (compared by hash). The same file also carries a hyphenated dev `JWT_SECRET` phrase. Confirm the OAuth app whose client ID is in that file is deleted, and that the phrase was never used outside local Docker. |
+| `7076fd7` (2026-02-08) | `apps/desktop-ui/app/settings/page.tsx` | `generic-api-key` | An `sk-ol-…` key hard-coded in a settings mock-up. OpenLinear never issued `sk-ol-` keys; most likely fake, listed for completeness. |
+| `8193d28` (2026-03-01), tags only | `.github/workflows/deploy.yml:130` | `generic-api-key` | **Not in the table above.** A 64-hex value passed to `npm publish --otp=`. Removed the same day (`1876b72`), but still reachable from 44 public tags (up to `v0.1.61`). It is not a one-time-password shape: find out whether it was a registry or GitHub token, and revoke it if so. |
+| `5d2534d` (2026-03-01), tags only | `apps/intro-video/build/318.bundle.js` | `algolia-api-key` | Committed Remotion build output. Algolia keys in client bundles are public search-only keys; low risk. |
+
+The default gitleaks rules miss the PAT and the database URLs; the two custom
+rules in `.gitleaks.toml` exist because of these leaks. Run locally (redacted):
+
+```bash
+gitleaks git --config .gitleaks.toml --redact .                  # full history, all refs incl. tags
+# tracked files only (a plain `gitleaks dir .` also walks node_modules):
+git checkout-index -a --prefix=/tmp/ol-tree/ && gitleaks dir --config .gitleaks.toml --redact /tmp/ol-tree
+```
 
 ## 2. Order of operations
 
@@ -47,8 +75,12 @@ Rotate in this order so you do not lock yourself out.
 
 2. **Neon passwords.** Reset the role password on both the dev and prod
    branches. Update `DATABASE_URL` in Azure Container Apps configuration (and
-   your local `.env`). Note that Phase 0 also added `DIRECT_DATABASE_URL` usage
-   for migrations — set both.
+   your local `.env`). `DATABASE_URL` is the only database variable the API,
+   worker and Prisma CLI read (`packages/db/prisma.config.ts`); there is no
+   `DIRECT_DATABASE_URL` (an earlier version of this runbook said there was).
+   `SHADOW_DATABASE_URL` exists only for the CI drift check's disposable
+   database. To run `prisma migrate deploy` against Neon, give that one command
+   a direct (non-`-pooler`) connection string in `DATABASE_URL`.
 
 3. **`TOKEN_ENCRYPTION_KEY`.** Generate with `openssl rand -base64 48`.
    Stored GitHub tokens are encrypted under the *old* key, so you must
@@ -66,8 +98,10 @@ Rotate in this order so you do not lock yourself out.
 
 4. **`JWT_SECRET`.** Generate with `openssl rand -base64 48`. Rotating it
    invalidates every existing session, which is the desired outcome here. Set it
-   in Azure config. For the desktop app, the Tauri launcher now generates a
-   per-install random secret into the OS keychain — no shared value ships.
+   in Azure config. The desktop app needs no JWT secret: since W03a the sidecar
+   validates tokens through the cloud API, and the Tauri launcher strips
+   `JWT_SECRET`, `TOKEN_ENCRYPTION_KEY` and `DATABASE_URL` from the sidecar's
+   environment (`apps/desktop/src-tauri/src/sidecar.rs`, `SIDECAR_FORBIDDEN_ENV`).
    Skip `OPENLINEAR_ALLOW_SESSIONLESS_JWT`.
 
 5. **GitHub OAuth.** The leaked apps are gone. Login stays 503
@@ -82,9 +116,11 @@ Rotate in this order so you do not lock yourself out.
    Decide explicitly whether to do it, and if the repo is public treat all five
    credential classes as compromised regardless.
 
-7. **Prevent recurrence.** Enable GitHub secret scanning + push protection on
-   the repository, and add `gitleaks` to pre-commit and CI (see
-   `04-infrastructure/A5-observability-cicd-infra.md` §2 in the revamp plan).
+7. **Prevent recurrence.** GitHub secret scanning + push protection are on.
+   gitleaks runs in CI on every PR and `dev` push (`.github/workflows/dev.yml`,
+   job "Secret scan"; rules in `.gitleaks.toml`). A local pre-commit hook is
+   optional: `gitleaks git --config .gitleaks.toml --staged --redact .`
+   (gitleaks ≥ 8.19; the CI pin is 8.30.1).
 
 ## 3. Verifying the rotation
 

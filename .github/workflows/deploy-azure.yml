@@ -58,16 +58,41 @@ jobs:
       - name: Apply migrations to test database
         run: pnpm --filter @openlinear/db exec prisma migrate deploy
 
+      # Prisma 7 removed `--shadow-database-url` and renamed
+      # `--to-schema-datamodel` to `--to-schema`. The shadow database now comes
+      # from `datasource.shadowDatabaseUrl` in packages/db/prisma.config.ts,
+      # which reads SHADOW_DATABASE_URL. It must be its own database (Prisma
+      # resets it before replaying the migrations) and must already exist.
+      - name: Create shadow database for drift check
+        run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c 'CREATE DATABASE openlinear_shadow'
+
       - name: Check for schema/migration drift
+        working-directory: packages/db
+        env:
+          SHADOW_DATABASE_URL: postgresql://openlinear:openlinear@localhost:5432/openlinear_shadow
         run: |
-          pnpm --filter @openlinear/db exec prisma migrate diff \
+          # With --exit-code: 0 = in sync, 2 = drift, anything else = the
+          # command itself failed. Run prisma via `pnpm exec` in the package
+          # directory: `pnpm --filter ... exec` flattens exit code 2 into 1,
+          # which would make drift and a broken command indistinguishable.
+          rc=0
+          pnpm exec prisma migrate diff \
             --from-migrations ./prisma/migrations \
-            --to-schema-datamodel ./prisma/schema.prisma \
-            --shadow-database-url "$DATABASE_URL" \
-            --exit-code && echo "No drift." || {
-              echo "::error::schema.prisma has changes with no corresponding migration. Run 'prisma migrate dev' and commit the result."
+            --to-schema ./prisma/schema.prisma \
+            --exit-code || rc=$?
+          case "$rc" in
+            0)
+              echo "No drift."
+              ;;
+            2)
+              echo "::error::Schema/migration drift: schema.prisma differs from the migration history (diff above). Run 'prisma migrate dev' and commit the generated migration."
               exit 1
-            }
+              ;;
+            *)
+              echo "::error::The drift check could not run (prisma migrate diff exited $rc). This is a CLI/configuration error, not evidence of drift; see the output above."
+              exit 1
+              ;;
+          esac
 
       - name: Migration safety review
         run: |
