@@ -12,9 +12,9 @@
     "core:window:allow-start-dragging",
     "core:window:allow-set-focus",
     "shell:allow-open",
-    "fs:default",
     "store:default",
     "deep-link:default",
-    "os:default"
+    "os:allow-platform",
+    "os:allow-arch"
   ]
 }

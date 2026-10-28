@@ -11,7 +11,8 @@
   },
   "app": {
     "security": {
-      "csp": "default-src 'self' tauri: ipc: http://ipc.localhost; connect-src 'self' tauri: ipc: http://ipc.localhost http://127.0.0.1:* http://localhost:* https://openlinear.tech https://api.github.com; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; font-src 'self' data:"
+      "csp": "default-src 'self' tauri: ipc: http://ipc.localhost; connect-src 'self' tauri: ipc: http://ipc.localhost http://127.0.0.1:* https://openlinear.tech https://api.openlinear.tech https://api.github.com; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self' data:; object-src 'none'; base-uri 'self'",
+      "devCsp": "default-src 'self' tauri: ipc: http://ipc.localhost; connect-src 'self' tauri: ipc: http://ipc.localhost http://127.0.0.1:* http://localhost:* ws://127.0.0.1:* ws://localhost:* https://openlinear.tech https://api.openlinear.tech https://api.github.com; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; font-src 'self' data:"
     },
     "windows": [
       {
@@ -47,7 +48,7 @@
     }
   },
   "plugins": {
-    "shell": { "open": true },
+    "shell": { "open": "(https://|mailto:)\\S+" },
     "deep-link": {
       "desktop": {
         "schemes": ["openlinear"]

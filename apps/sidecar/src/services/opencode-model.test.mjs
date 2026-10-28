@@ -9,7 +9,7 @@ vi.mock('./opencode', () => ({
   getClientForUser: mocks.getClientForUser,
 }));
 
-vi.mock('@openlinear/api/logger', () => ({
+vi.mock('../lib/logger', () => ({
   logger: { warn: mocks.loggerWarn, info: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
 

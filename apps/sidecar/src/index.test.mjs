@@ -111,7 +111,7 @@ async function loadIndex(options = {}) {
   }
   vi.doMock('express', () => ({ default: mocks.express }));
   vi.doMock('@openlinear/db', () => ({ prisma }));
-  vi.doMock('@openlinear/api/logger', () => ({ logger }));
+  vi.doMock('./lib/logger', () => ({ logger }));
   vi.doMock('./app', () => ({ createSidecarApp: mocks.createSidecarApp }));
   vi.doMock('./services/opencode', () => ({
     initOpenCode: mocks.initOpenCode,
@@ -239,6 +239,34 @@ describe('sidecar entrypoint', () => {
       skipDotenv: '0',
     });
     await expect(missingDotenv.module.loadDotenvIfPresent()).resolves.toBeUndefined();
+  });
+
+  it('ignores database URLs that come from the shared .env, but keeps explicit ones (W03a)', async () => {
+    const fromFile = 'postgresql://cloud@db.example.invalid/openlinear';
+    const dotenvConfig = vi.fn(() => {
+      process.env.DATABASE_URL = fromFile;
+      process.env.SOME_SETTING = 'kept';
+      return { parsed: { DATABASE_URL: fromFile, SOME_SETTING: 'kept' } };
+    });
+
+    const context = await loadIndex({ dotenvConfig, skipDotenv: '0' });
+    delete process.env.DATABASE_URL;
+    await context.module.loadDotenvIfPresent(['node', 'index.js']);
+    expect(process.env.DATABASE_URL).toBeUndefined();
+    expect(process.env.SOME_SETTING).toBe('kept');
+
+    // Set explicitly before load: kept, so the persistence guard still refuses it.
+    process.env.DATABASE_URL = 'postgresql://explicit@127.0.0.1/explicit';
+    await context.module.loadDotenvIfPresent(['node', 'index.js']);
+    expect(process.env.DATABASE_URL).toBe(fromFile);
+
+    // --with-cloud-api (local *_test DB mode) keeps the file value.
+    delete process.env.DATABASE_URL;
+    await context.module.loadDotenvIfPresent(['node', 'index.js', '--with-cloud-api']);
+    expect(process.env.DATABASE_URL).toBe(fromFile);
+
+    delete process.env.DATABASE_URL;
+    delete process.env.SOME_SETTING;
   });
 
   it('closes servers across listening, already-closed, and close-error states', async () => {

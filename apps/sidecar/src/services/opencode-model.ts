@@ -1,5 +1,5 @@
 import type { OpencodeClient } from '@opencode-ai/sdk';
-import { logger } from '@openlinear/api/logger';
+import { logger } from '../lib/logger';
 import { getClientForUser } from './opencode';
 
 /**

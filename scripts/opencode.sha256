@@ -1,22 +1,33 @@
-# SHA-256 checksums for the opencode-ai/opencode release assets that
-# scripts/download-opencode.sh downloads, pinned to OPENCODE_VERSION in that
-# script. Format matches `shasum -a 256 -c`: "<sha256>  <asset-name>".
+# SHA-256 checksums for the anomalyco/opencode (formerly sst/opencode) CLI
+# release assets that scripts/download-opencode.sh downloads, pinned to
+# OPENCODE_VERSION in that script. Format matches `shasum -a 256 -c`:
+# "<sha256>  <asset-name>".
 #
-# Sourced from the upstream release's own checksums.txt
-# (https://github.com/opencode-ai/opencode/releases/download/<version>/checksums.txt)
-# and independently re-verified here by downloading each asset and running
-# `shasum -a 256` on it directly — these are not copied blind.
+# The version must match the @opencode-ai/sdk version the sidecar drives
+# (apps/sidecar, pnpm-lock.yaml): SDK 1.18.30 <-> CLI v1.18.30. The previous
+# pin (opencode-ai/opencode v0.0.55) was the archived Go CLI, a different
+# program that does not implement the server API the SDK speaks.
 #
-# REGENERATE when bumping OPENCODE_VERSION:
+# PROVENANCE: first taken from the GitHub release API's per-asset `digest`
+# field (W03a, 2026-10-25). Re-verified 2026-10-25 (release slice) for all
+# four assets with `scripts/download-opencode.sh --all --verify-only
+# --cross-check-npm`: downloaded bytes == pin == upstream digest; GitHub-signed
+# immutable-release attestation verified (`gh release verify-asset`); and the
+# binary inside each archive is byte-identical to the one in upstream's npm
+# package `opencode-<os>-<arch>@1.18.30` (tarball checked against the npm
+# registry's sha512 integrity). download-opencode.sh re-checks the pin, the
+# upstream digest and (when gh is available; always in release.yml) the
+# attestation on every run.
+#
+# REGENERATE when bumping the version (and @opencode-ai/sdk together):
 #   VERSION=vX.Y.Z
-#   curl -fsSL "https://github.com/opencode-ai/opencode/releases/download/$VERSION/checksums.txt" \
-#     | grep -E 'opencode-(mac|linux)-(arm64|x86_64)\.tar\.gz$' > scripts/opencode.sha256.new
-#   # Then independently re-download each of those four assets and confirm
-#   # `shasum -a 256` matches before replacing this file — never trust a
-#   # single source for a supply-chain-critical checksum.
+#   gh api repos/anomalyco/opencode/releases/tags/$VERSION \
+#     --jq '.assets[] | select(.name | test("^opencode-(darwin-(arm64|x64)\\.zip|linux-(x64|arm64)\\.tar\\.gz)$")) | "\(.digest | ltrimstr("sha256:"))  \(.name)"'
+#   # update the "# Version:" line below, then confirm independently:
+#   scripts/download-opencode.sh --all --verify-only --cross-check-npm
 #
-# Version: v0.0.55
-d560e5cdbeffc38522e172a1b31d346ee23200d1a46d1e96f092bb9e1ba1f41d  opencode-mac-arm64.tar.gz
-87b2ab64d81fbf19cdf7535dae2f004f67fb501b9b98956b59cce44a644f1fac  opencode-mac-x86_64.tar.gz
-7f1f41203e7920aec48f3e2216d334e9ce8c6d0a7b107ceb758fefa4d4c98025  opencode-linux-x86_64.tar.gz
-530eb136fdfc9eadef96aa2250bbdb9210e9f7cc1bd4f733d332ca9dd61d22e0  opencode-linux-arm64.tar.gz
+# Version: v1.18.30
+a5e43d6887386efc7d68ce49ae28e3bbdfdee3dfd1d7169b612c3ce67e53b1e8  opencode-darwin-arm64.zip
+7453007e58ff122401438d95ccb24334874b5908dcaee77883f96c23395d5710  opencode-darwin-x64.zip
+55007246858165496ff85ba1c2b648f7421e8e2013bf4189a680c9ff8e699d17  opencode-linux-x64.tar.gz
+4111a55c2a02c0fac314bd51e9a2330280e6d29d2b85b9554fff6d62612566ed  opencode-linux-arm64.tar.gz

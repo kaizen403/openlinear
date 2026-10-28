@@ -15,8 +15,40 @@
 # Workaround: build the AppImage WITHOUT the sidecars in externalBin so
 # linuxdeploy never touches them, then inject the unpatched sidecars into the
 # resulting AppDir and re-pack with appimagetool.
+#
+# appimagetool is pinned by version and SHA-256 (the same pin release.yml
+# pre-seeds). A cached copy that does not match the pin — e.g. an older
+# unpinned "continuous" download — is replaced, and a download that does not
+# match fails the build.
+#
+# Usage:
+#   scripts/build-appimage-workaround.sh              # build the AppImage
+#   scripts/build-appimage-workaround.sh --tool-only  # only fetch + verify appimagetool
+# Overrides (both together, for a deliberate pin bump):
+#   APPIMAGETOOL_URL, APPIMAGETOOL_SHA256
+# Cache location (default <repo>/.cache/appimage-tools): APPIMAGETOOL_CACHE_DIR
 
 set -euo pipefail
+
+# Pin: AppImage/appimagetool 1.9.1, verified against the release API digest
+# (docs/reports/revamp-2026-10-26/release.md §3.3).
+APPIMAGETOOL_PINNED_URL="https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-x86_64.AppImage"
+APPIMAGETOOL_PINNED_SHA256="ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0"
+
+TOOL_ONLY=0
+case "${1:-}" in
+    "") ;;
+    --tool-only) TOOL_ONLY=1 ;;
+    *) echo "usage: $0 [--tool-only]" >&2; exit 2 ;;
+esac
+
+if [ -n "${APPIMAGETOOL_URL:-}${APPIMAGETOOL_SHA256:-}" ] \
+    && { [ -z "${APPIMAGETOOL_URL:-}" ] || [ -z "${APPIMAGETOOL_SHA256:-}" ]; }; then
+    echo "[appimage] set APPIMAGETOOL_URL and APPIMAGETOOL_SHA256 together" >&2
+    exit 2
+fi
+APPIMAGETOOL_URL="${APPIMAGETOOL_URL:-$APPIMAGETOOL_PINNED_URL}"
+APPIMAGETOOL_SHA256="${APPIMAGETOOL_SHA256:-$APPIMAGETOOL_PINNED_SHA256}"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
@@ -32,16 +64,51 @@ TAURI_CONF_BACKUP="$TAURI_CONF.appimage-backup"
 BINARIES_DIR="apps/desktop/src-tauri/binaries"
 BUNDLE_DIR="apps/desktop/src-tauri/target/release/bundle"
 APPIMAGE_DIR="$BUNDLE_DIR/appimage"
-CACHE_DIR="$ROOT_DIR/.cache/appimage-tools"
+CACHE_DIR="${APPIMAGETOOL_CACHE_DIR:-$ROOT_DIR/.cache/appimage-tools}"
 APPIMAGETOOL="$CACHE_DIR/appimagetool-x86_64.AppImage"
 
-mkdir -p "$CACHE_DIR"
+sha256_of() {
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$1" | awk '{print $1}'
+    else
+        shasum -a 256 "$1" | awk '{print $1}'
+    fi
+}
 
-if [ ! -x "$APPIMAGETOOL" ]; then
-    log "Downloading appimagetool..."
-    curl -fsSL -o "$APPIMAGETOOL" \
-        https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
-    chmod +x "$APPIMAGETOOL"
+# Leaves a verified, executable appimagetool at $APPIMAGETOOL or exits 1.
+ensure_appimagetool() {
+    mkdir -p "$CACHE_DIR"
+    if [ -f "$APPIMAGETOOL" ]; then
+        if [ "$(sha256_of "$APPIMAGETOOL")" = "$APPIMAGETOOL_SHA256" ]; then
+            chmod +x "$APPIMAGETOOL"
+            ok "appimagetool verified (cached, sha256 ${APPIMAGETOOL_SHA256:0:12}…)"
+            return 0
+        fi
+        warn "Cached appimagetool does not match the pinned sha256 (stale or unpinned download); replacing it."
+        rm -f "$APPIMAGETOOL"
+    fi
+    log "Downloading appimagetool from $APPIMAGETOOL_URL ..."
+    local tmp="$APPIMAGETOOL.download.$$"
+    if ! curl -fsSL --retry 3 -o "$tmp" "$APPIMAGETOOL_URL"; then
+        rm -f "$tmp"
+        err "Failed to download appimagetool."
+        exit 1
+    fi
+    local actual
+    actual="$(sha256_of "$tmp")"
+    if [ "$actual" != "$APPIMAGETOOL_SHA256" ]; then
+        rm -f "$tmp"
+        err "appimagetool checksum mismatch: expected $APPIMAGETOOL_SHA256, got $actual."
+        exit 1
+    fi
+    chmod +x "$tmp"
+    mv -f "$tmp" "$APPIMAGETOOL"
+    ok "appimagetool downloaded and verified (sha256 ${APPIMAGETOOL_SHA256:0:12}…)"
+}
+
+ensure_appimagetool
+if [ "$TOOL_ONLY" = 1 ]; then
+    exit 0
 fi
 
 restore_state() {

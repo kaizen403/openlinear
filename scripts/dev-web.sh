@@ -41,27 +41,39 @@ pnpm db:seed
 # if this machine's database has more than one user.
 # export OPENLINEAR_ALLOW_SHARED_OPENCODE=1
 
-# Honor SIDECAR=0 to start the CRUD-only API instead (faster boot, no execution).
-# Default is execution-capable mode so the kanban board's Execute/Parallel/Queue work.
-if [ "${OPENLINEAR_CRUD_ONLY:-0}" = "1" ] || [ "${SIDECAR:-1}" = "0" ]; then
-  echo "[dev:web] CRUD-ONLY mode — execution endpoints (/api/tasks/:id/execute, /api/batches) will 404."
-  echo "[dev:web] Starting @openlinear/api on :3001 and Next.js dev server on :3000..."
-  API_PORT=3001 pnpm --filter @openlinear/api dev &
-  API_PID=$!
-else
-  echo "[dev:web] Starting execution-capable @openlinear/sidecar on :3001 and Next.js dev server on :3000..."
-  API_PORT=3001 pnpm --filter @openlinear/sidecar dev &
-  API_PID=$!
-fi
+# W03a: the cloud API (auth, CRUD, chat, events) always runs on :3001.
+# Unless SIDECAR=0 / OPENLINEAR_CRUD_ONLY=1, the execution sidecar runs on
+# :3003 without DATABASE_URL and authenticates/persists through the API.
+export NEXT_PUBLIC_API_URL="${NEXT_PUBLIC_API_URL:-http://127.0.0.1:3001}"
+export NEXT_PUBLIC_SIDECAR_URL="${NEXT_PUBLIC_SIDECAR_URL:-http://127.0.0.1:3003}"
+echo "[dev:web] Starting @openlinear/api on :3001..."
+API_PORT=3001 pnpm --filter @openlinear/api dev &
+API_PID=$!
+SIDECAR_PID=""
 
-# Wait for sidecar/api /health
-for i in $(seq 1 40); do
+for i in $(seq 1 60); do
   if curl -sf http://127.0.0.1:3001/health >/dev/null 2>&1; then
     break
   fi
   sleep 0.5
 done
 
+if [ "${OPENLINEAR_CRUD_ONLY:-0}" = "1" ] || [ "${SIDECAR:-1}" = "0" ]; then
+  echo "[dev:web] CRUD-ONLY mode — execution endpoints (/api/tasks/:id/execute, /api/batches) are unavailable."
+else
+  echo "[dev:web] Starting execution sidecar on :3003..."
+  env -u DATABASE_URL API_PORT=3003 OPENLINEAR_API_URL=http://127.0.0.1:3001 pnpm --filter @openlinear/sidecar dev &
+  SIDECAR_PID=$!
+  for i in $(seq 1 40); do
+    if curl -sf http://127.0.0.1:3003/health >/dev/null 2>&1; then
+      break
+    fi
+    sleep 0.5
+  done
+fi
+
+echo "[dev:web] Starting Next.js dev server on :3000..."
 PORT=3000 pnpm --filter @openlinear/desktop-ui dev
 
 kill $API_PID 2>/dev/null
+[ -n "$SIDECAR_PID" ] && kill $SIDECAR_PID 2>/dev/null

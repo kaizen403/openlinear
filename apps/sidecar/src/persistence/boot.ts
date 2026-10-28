@@ -47,6 +47,15 @@ export function assertLocalTestDatabase(rawUrl: string): void {
   }
 }
 
+/**
+ * Prisma persistence is a development/test mode only:
+ * - `--with-cloud-api` with a (loopback `*_test`) DATABASE_URL, or
+ * - a test process, unless it is configured exactly like production (an
+ *   OPENLINEAR_API_URL and no DATABASE_URL) — the API-only end-to-end test
+ *   runs the sidecar that way.
+ */
 export function shouldUsePrisma(env = process.env, argv = process.argv): boolean {
-  return isSidecarTestEnv(env) || (withCloudApiRequested(argv, env) && Boolean(env.DATABASE_URL));
+  if (withCloudApiRequested(argv, env) && Boolean(env.DATABASE_URL)) return true;
+  if (!isSidecarTestEnv(env)) return false;
+  return Boolean(env.DATABASE_URL) || !env.OPENLINEAR_API_URL;
 }

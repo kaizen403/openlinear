@@ -10,15 +10,32 @@ static API_SERVER_PROCESS: Mutex<Option<CommandChild>> = Mutex::new(None);
 static API_SERVER_PORT: Mutex<Option<u16>> = Mutex::new(None);
 
 const STORE_FILE: &str = "settings.json";
-const STORE_KEY_DATABASE_URL: &str = "database_url";
-const STORE_KEY_GITHUB_CLIENT_ID: &str = "github_client_id";
+const STORE_KEY_CLOUD_API_URL: &str = "cloud_api_url";
 const STORE_KEY_FRONTEND_URL: &str = "frontend_url";
 const STORE_KEY_REPOS_DIR: &str = "repos_dir";
-const STORE_KEY_JWT_SECRET: &str = "jwt_secret";
-const STORE_KEY_TOKEN_ENCRYPTION_KEY: &str = "token_encryption_key";
+/// Settings-store key: JSON array of environment variable names the user has
+/// chosen to forward to the sidecar (e.g. `["ANTHROPIC_API_KEY"]`). Only
+/// names in `OPT_IN_ENV` are honoured; nothing secret is forwarded by default.
+const STORE_KEY_SIDECAR_ENV_PASSTHROUGH: &str = "sidecar_env_passthrough";
 
-const DEFAULT_DATABASE_URL: &str = "postgresql://openlinear:openlinear@localhost:5432/openlinear";
+/// W03a: the sidecar authenticates callers and persists through the cloud
+/// API. Same default as the desktop UI's cloud URL (`CLOUD_DEFAULT`).
+const DEFAULT_CLOUD_API_URL: &str = "https://openlinear.tech";
 const DEFAULT_FRONTEND_URL: &str = "http://127.0.0.1:3000";
+
+/// Cloud-only credentials the sidecar must never receive (W03a): no
+/// database URL, no JWT signing secret, no token-encryption key, no OAuth
+/// client secret, no ambient GitHub token. They are explicitly removed from
+/// the inherited environment of the spawned sidecar as well.
+const SIDECAR_FORBIDDEN_ENV: &[&str] = &[
+    "DATABASE_URL",
+    "JWT_SECRET",
+    "TOKEN_ENCRYPTION_KEY",
+    "GITHUB_CLIENT_SECRET",
+    "GITHUB_TOKEN",
+    "BRAINSTORM_API_KEY",
+    "OPENLINEAR_WITH_CLOUD_API",
+];
 const PIDFILE_NAME: &str = "sidecar.pid";
 const SHUTDOWN_GRACE: Duration = Duration::from_secs(5);
 
@@ -58,65 +75,106 @@ fn read_store_string(app: &AppHandle, key: &str) -> Option<String> {
     value.as_str().map(|s| s.to_string())
 }
 
-/// Generates 32 random bytes, hex-encoded, from two v4 UUIDs' worth of
-/// OS-backed randomness. Avoids hand-rolling a hex encoder or pulling in a
-/// CSPRNG crate beyond what's already resolved transitively for `uuid`.
-fn generate_secret_hex() -> String {
-    format!(
-        "{}{}",
-        uuid::Uuid::new_v4().simple(),
-        uuid::Uuid::new_v4().simple()
-    )
+/// Environment variables the sidecar may inherit from the desktop process
+/// (W03a): process basics, locale, proxies and CA bundles needed to reach the
+/// cloud API, and the OpenCode/git identity knobs. Everything else — notably
+/// any database URL, signing/encryption secret, model-provider key or
+/// SSH_AUTH_SOCK in the user's shell — is dropped by `env_clear()` before the
+/// sidecar starts (see `OPT_IN_ENV` for the explicit opt-in path).
+const INHERITED_ENV_EXACT: &[&str] = &[
+    "PATH", "HOME", "USER", "LOGNAME", "SHELL", "LANG", "LANGUAGE", "TZ", "TERM", "TMPDIR",
+    "TMP", "TEMP", "SystemRoot", "windir", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "ComSpec",
+    "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "http_proxy", "https_proxy",
+    "all_proxy", "no_proxy", "NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE", "SSL_CERT_DIR",
+    "CURL_CA_BUNDLE", "REQUESTS_CA_BUNDLE", "LOG_LEVEL",
+];
+const INHERITED_ENV_PREFIXES: &[&str] = &["LC_", "XDG_", "OPENCODE_", "OPENLINEAR_GIT_"];
+
+/// Name fragments that mark a variable as a credential. A prefix match never
+/// carries one of these (e.g. `OPENCODE_SERVER_PASSWORD`,
+/// `OPENCODE_AUTH_CONTENT`, `OPENCODE_CONFIG_CONTENT` with an inline key).
+const SECRET_NAME_MARKERS: &[&str] = &[
+    "SECRET", "TOKEN", "PASSWORD", "PASSWD", "PASSPHRASE", "CREDENTIAL", "PRIVATE", "API_KEY",
+    "APIKEY", "ACCESS_KEY", "SESSION", "COOKIE", "DATABASE", "DSN", "AUTH", "CONFIG_CONTENT",
+];
+
+/// Secrets the user may forward explicitly through the settings store
+/// (`sidecar_env_passthrough`). Never forwarded by default.
+const OPT_IN_ENV: &[&str] = &[
+    "ANTHROPIC_API_KEY",
+    "OPENAI_API_KEY",
+    "OPENROUTER_API_KEY",
+    "GEMINI_API_KEY",
+    "GOOGLE_GENERATIVE_AI_API_KEY",
+    "GROQ_API_KEY",
+    "MISTRAL_API_KEY",
+    "DEEPSEEK_API_KEY",
+    "XAI_API_KEY",
+    "FIREWORKS_API_KEY",
+    "CARTESIA_API_KEY",
+    "SSH_AUTH_SOCK",
+];
+
+fn looks_secret(name: &str) -> bool {
+    // "AUTHOR" (OPENLINEAR_GIT_AUTHOR_NAME/EMAIL) is identity, not a credential.
+    let upper = name.to_ascii_uppercase().replace("AUTHOR", "");
+    SECRET_NAME_MARKERS.iter().any(|marker| upper.contains(*marker))
 }
 
-/// Resolves a secret for `store_key`/`env_override`, preferring in order: an
-/// explicit operator-set environment variable, a previously-generated value
-/// already persisted in the Tauri store, or — failing both — a freshly
-/// generated per-install random value that gets persisted for next launch.
-///
-/// This replaces the old behavior of simply forwarding `JWT_SECRET` from the
-/// ambient environment (or not forwarding it at all, in the case of
-/// `TOKEN_ENCRYPTION_KEY`): every desktop install now gets its own random
-/// secret, generated once and reused across restarts, unless the operator
-/// overrides it explicitly. See C6a F2/F3 — the API side no longer has a
-/// hardcoded dev fallback for either secret, in any NODE_ENV, so the sidecar
-/// will refuse to boot if this doesn't supply one.
-fn get_or_create_secret(app: &AppHandle, store_key: &str, env_override: &str) -> Result<String, String> {
-    if let Ok(value) = std::env::var(env_override) {
-        if !value.trim().is_empty() {
-            return Ok(value);
-        }
+fn is_inheritable(key: &str) -> bool {
+    if SIDECAR_FORBIDDEN_ENV.iter().any(|forbidden| *forbidden == key) {
+        return false;
     }
-
-    if let Some(existing) = read_store_string(app, store_key) {
-        if !existing.trim().is_empty() {
-            return Ok(existing);
-        }
+    if INHERITED_ENV_EXACT.iter().any(|name| *name == key) {
+        return true;
     }
+    INHERITED_ENV_PREFIXES.iter().any(|prefix| key.starts_with(*prefix)) && !looks_secret(key)
+}
 
-    let generated = generate_secret_hex();
-    let store = app
-        .store(STORE_FILE)
-        .map_err(|e| format!("Failed to open settings store: {}", e))?;
-    store.set(store_key, serde_json::Value::String(generated.clone()));
-    store
-        .save()
-        .map_err(|e| format!("Failed to persist generated secret: {}", e))?;
-    Ok(generated)
+fn inherited_env() -> Vec<(String, String)> {
+    // vars_os: a non-UTF-8 variable is skipped instead of panicking the launcher.
+    std::env::vars_os()
+        .filter_map(|(key, value)| Some((key.into_string().ok()?, value.into_string().ok()?)))
+        .filter(|(key, _)| is_inheritable(key))
+        .collect()
+}
+
+/// The opt-in secrets the user listed in the settings store, if they are set
+/// in the desktop process environment.
+fn opted_in_env(app: &AppHandle) -> Vec<(String, String)> {
+    let Ok(store) = app.store(STORE_FILE) else {
+        return Vec::new();
+    };
+    let Some(value) = store.get(STORE_KEY_SIDECAR_ENV_PASSTHROUGH) else {
+        return Vec::new();
+    };
+    let Some(names) = value.as_array() else {
+        return Vec::new();
+    };
+    let forwarded: Vec<(String, String)> = names
+        .iter()
+        .filter_map(|name| name.as_str())
+        .filter(|name| OPT_IN_ENV.iter().any(|allowed| allowed == name))
+        .filter_map(|name| std::env::var(name).ok().map(|value| (name.to_string(), value)))
+        .collect();
+    forwarded
+}
+
+/// The cloud API the sidecar authenticates and persists through: settings
+/// store, then `OPENLINEAR_API_URL`, then the build-time value, then the
+/// desktop UI's default cloud URL.
+fn cloud_api_url(app: &AppHandle) -> String {
+    read_store_string(app, STORE_KEY_CLOUD_API_URL)
+        .or_else(|| std::env::var("OPENLINEAR_API_URL").ok())
+        .or_else(|| option_env!("OPENLINEAR_API_URL").map(|s| s.to_string()))
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| DEFAULT_CLOUD_API_URL.to_string())
 }
 
 fn build_sidecar_env(app: &AppHandle, port: u16) -> Result<Vec<(String, String)>, String> {
-    let database_url = read_store_string(app, STORE_KEY_DATABASE_URL)
-        .or_else(|| std::env::var("DATABASE_URL").ok())
-        .unwrap_or_else(|| DEFAULT_DATABASE_URL.to_string());
-
     let frontend_url = read_store_string(app, STORE_KEY_FRONTEND_URL)
         .or_else(|| std::env::var("FRONTEND_URL").ok())
         .unwrap_or_else(|| DEFAULT_FRONTEND_URL.to_string());
-
-    let github_client_id = read_store_string(app, STORE_KEY_GITHUB_CLIENT_ID)
-        .or_else(|| std::env::var("GITHUB_CLIENT_ID").ok())
-        .unwrap_or_default();
 
     // No default here on purpose: the sidecar's own repo-storage.ts now
     // picks a safe per-user app-data default (mode 0700, symlink/ownership
@@ -128,52 +186,47 @@ fn build_sidecar_env(app: &AppHandle, port: u16) -> Result<Vec<(String, String)>
     let cors_origin = std::env::var("CORS_ORIGIN")
         .unwrap_or_else(|_| format!("{},tauri://localhost,https://tauri.localhost", frontend_url));
 
-    let jwt_secret = get_or_create_secret(app, STORE_KEY_JWT_SECRET, "JWT_SECRET")?;
-    let token_encryption_key =
-        get_or_create_secret(app, STORE_KEY_TOKEN_ENCRYPTION_KEY, "TOKEN_ENCRYPTION_KEY")?;
-
-    let mut env = vec![
+    // W03a: no DATABASE_URL, no JWT_SECRET, no TOKEN_ENCRYPTION_KEY. The
+    // sidecar validates the desktop's bearer token and persists through the
+    // cloud API named here; it never holds a database or signing credential.
+    let mut env = inherited_env();
+    env.extend(vec![
         ("API_PORT".to_string(), port.to_string()),
-        ("DATABASE_URL".to_string(), database_url),
+        ("OPENLINEAR_API_URL".to_string(), cloud_api_url(app)),
         ("FRONTEND_URL".to_string(), frontend_url),
-        ("GITHUB_CLIENT_ID".to_string(), github_client_id),
         ("CORS_ORIGIN".to_string(), cors_origin),
-        ("JWT_SECRET".to_string(), jwt_secret),
-        ("TOKEN_ENCRYPTION_KEY".to_string(), token_encryption_key),
         ("OPENLINEAR_SKIP_DOTENV".to_string(), "1".to_string()),
-    ];
+    ]);
 
     if let Some(repos_dir) = repos_dir {
         env.push(("REPOS_DIR".to_string(), repos_dir));
     }
 
     // Packaged (release) builds run the sidecar as production; `tauri dev`
-    // keeps it in the default (development) mode. NODE_ENV is what
-    // apps/api's validateStartupEnv() (mirrored on the sidecar side in
-    // index.ts) uses to decide whether a missing secret is fatal.
+    // keeps it in the default (development) mode.
     if !cfg!(debug_assertions) {
         env.push(("NODE_ENV".to_string(), "production".to_string()));
     }
 
-    // NOTE: OPENLINEAR_TRUST_PROXY_AUTH is deliberately NOT set here anymore
-    // — apps/api/src/env.ts now hard-rejects it at startup regardless of
-    // value, so forwarding it would just make the sidecar refuse to boot.
-    // See C6a F2 / C2 C-09.
+    // NOTE: OPENLINEAR_TRUST_PROXY_AUTH is deliberately NOT set here — the
+    // sidecar hard-rejects it at startup. See C6a F2 / C2 C-09.
 
-    for key in [
-        "GITHUB_CLIENT_SECRET",
-        "GITHUB_REDIRECT_URI",
-        "GITHUB_TOKEN",
-        "BRAINSTORM_API_KEY",
-        "BRAINSTORM_MODEL",
-        "BRAINSTORM_PROVIDER",
-        "BRAINSTORM_BASE_URL",
-        "OAUTH_INTERCEPTOR_PORT",
-    ] {
-        if let Ok(value) = std::env::var(key) {
-            env.push((key.to_string(), value));
+    if let Ok(value) = std::env::var("OAUTH_INTERCEPTOR_PORT") {
+        env.push(("OAUTH_INTERCEPTOR_PORT".to_string(), value));
+    }
+
+    // The sidecar looks for `opencode-<triple>` next to its own executable,
+    // but bundles install externalBin without the suffix, so point it at the
+    // shipped binary unless the user already chose one via OPENCODE_BIN.
+    if !env.iter().any(|(key, _)| key == "OPENCODE_BIN") {
+        if let Some(bin) = crate::opencode::bundled_opencode_path() {
+            env.push(("OPENCODE_BIN".to_string(), bin.to_string_lossy().into_owned()));
         }
     }
+
+    // Explicit, user-chosen secrets only (model-provider keys, CARTESIA_API_KEY,
+    // SSH_AUTH_SOCK): see OPT_IN_ENV and docs/reports/revamp-2026-10-26/release.md.
+    env.extend(opted_in_env(app));
 
     Ok(env)
 }
@@ -323,10 +376,14 @@ pub async fn launch_sidecar(app: AppHandle) -> Result<(), String> {
     let port = pick_free_port()?;
     let env = build_sidecar_env(&app, port)?;
 
+    // W03a: start from an empty environment so no ambient DATABASE_URL or
+    // signing/encryption secret reaches the sidecar; `env` carries the
+    // allowlisted inherited variables plus the sidecar's own configuration.
     let mut sidecar_command = app
         .shell()
         .sidecar("openlinear-sidecar")
-        .map_err(|e| format!("Failed to create sidecar command: {}", e))?;
+        .map_err(|e| format!("Failed to create sidecar command: {}", e))?
+        .env_clear();
 
     for (key, value) in env {
         sidecar_command = sidecar_command.env(key, value);
@@ -522,12 +579,40 @@ mod tests {
     }
 
     #[test]
-    fn test_generate_secret_hex_is_64_lowercase_hex_chars_and_varies() {
-        let a = generate_secret_hex();
-        let b = generate_secret_hex();
-        assert_eq!(a.len(), 64);
-        assert!(a.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()));
-        assert_ne!(a, b, "two generated secrets should not collide");
+    fn test_sidecar_never_inherits_cloud_only_credentials() {
+        // W03a: the forbidden list wins over every allowlist entry/prefix.
+        for key in SIDECAR_FORBIDDEN_ENV.iter() {
+            assert!(!is_inheritable(key), "{} must not be inheritable", key);
+            assert!(!OPT_IN_ENV.iter().any(|name| name == key), "{} must not be opt-in", key);
+        }
+        for key in ["DATABASE_URL", "JWT_SECRET", "TOKEN_ENCRYPTION_KEY"] {
+            assert!(SIDECAR_FORBIDDEN_ENV.iter().any(|name| *name == key));
+        }
+    }
+
+    #[test]
+    fn test_inherited_env_allowlist_carries_no_secrets_by_default() {
+        for key in ["PATH", "HOME", "HTTPS_PROXY", "LC_ALL", "XDG_DATA_HOME", "OPENCODE_BIN"] {
+            assert!(is_inheritable(key), "{} should be inherited", key);
+        }
+        // Git identity is not a credential, despite containing "AUTH".
+        assert!(is_inheritable("OPENLINEAR_GIT_AUTHOR_NAME"));
+        assert!(is_inheritable("OPENLINEAR_GIT_COMMITTER_EMAIL"));
+        // Prefix matches never smuggle credentials.
+        for key in [
+            "OPENCODE_SERVER_PASSWORD",
+            "OPENCODE_AUTH_CONTENT",
+            "OPENCODE_CONFIG_CONTENT",
+            "OPENCODE_API_KEY",
+            "XDG_SESSION_COOKIE",
+            "OPENLINEAR_GIT_TOKEN",
+        ] {
+            assert!(!is_inheritable(key), "{} must not be inherited", key);
+        }
+        // Opt-in secrets are never inherited implicitly.
+        for key in OPT_IN_ENV.iter() {
+            assert!(!is_inheritable(key), "{} must be opt-in only", key);
+        }
     }
 
     #[cfg(unix)]

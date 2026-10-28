@@ -1,6 +1,7 @@
 //! OpenCode CLI detection module
 
 use serde::Serialize;
+use std::path::PathBuf;
 use std::process::Command;
 use which::which;
 
@@ -12,35 +13,44 @@ pub struct OpenCodeStatus {
     pub path: Option<String>,
 }
 
+/// The OpenCode binary shipped next to the app executable (Tauri
+/// `externalBin`). Bundles (.app, .deb, AppImage) and `tauri dev` install it
+/// without the target-triple suffix; the suffixed name is the source layout
+/// in `src-tauri/binaries/`.
+pub(crate) fn bundled_opencode_path() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let bin_dir = exe.parent()?;
+    let suffix = if cfg!(windows) { ".exe" } else { "" };
+    let candidates = [
+        bin_dir.join(format!("opencode{}", suffix)),
+        bin_dir.join(format!("opencode-{}{}", env!("TARGET"), suffix)),
+    ];
+    candidates.into_iter().find(|path| path.is_file())
+}
+
 #[tauri::command]
 pub fn check_opencode() -> OpenCodeStatus {
-    // First check bundled sidecar next to our own binary
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(bin_dir) = exe.parent() {
-            let target_triple = env!("TARGET");
-            let bundled = bin_dir.join(format!("opencode-{}", target_triple));
-            if bundled.exists() {
-                let version = Command::new(&bundled)
-                    .arg("--version")
-                    .output()
-                    .ok()
-                    .and_then(|output| {
-                        if output.status.success() {
-                            String::from_utf8(output.stdout).ok()
-                        } else {
-                            String::from_utf8(output.stderr).ok()
-                        }
-                    })
-                    .map(|s| s.trim().to_string())
-                    .filter(|s| !s.is_empty());
+    // First check the bundled binary next to our own executable
+    if let Some(bundled) = bundled_opencode_path() {
+        let version = Command::new(&bundled)
+            .arg("--version")
+            .output()
+            .ok()
+            .and_then(|output| {
+                if output.status.success() {
+                    String::from_utf8(output.stdout).ok()
+                } else {
+                    String::from_utf8(output.stderr).ok()
+                }
+            })
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
 
-                return OpenCodeStatus {
-                    found: true,
-                    version,
-                    path: Some(bundled.to_string_lossy().to_string()),
-                };
-            }
-        }
+        return OpenCodeStatus {
+            found: true,
+            version,
+            path: Some(bundled.to_string_lossy().to_string()),
+        };
     }
 
     // Fall back to system PATH

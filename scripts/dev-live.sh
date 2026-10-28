@@ -38,11 +38,20 @@ ensure_database() {
 
 ensure_database
 
-export API_PORT="${API_PORT:-3001}"
+# Two backends since the sidecar stopped mounting the cloud routes:
+#   - cloud API (apps/api): auth, workspaces, projects, tasks, chat, events
+#   - sidecar (apps/sidecar): local execution (/api/tasks/:id/execute, ...)
+# The UI routes each path with apps/desktop-ui/lib/api/routes.ts.
+CLOUD_API_PORT="${CLOUD_API_PORT:-3001}"
+SIDECAR_PORT="${SIDECAR_PORT:-3003}"
+CLOUD_API_URL="http://127.0.0.1:$CLOUD_API_PORT"
+SIDECAR_URL="http://127.0.0.1:$SIDECAR_PORT"
 # OpenCode is single-tenant. Do not default this to 1; set it explicitly
 # if this machine's database has more than one user.
 # export OPENLINEAR_ALLOW_SHARED_OPENCODE=1
-export NEXT_PUBLIC_API_URL="http://127.0.0.1:$API_PORT"
+export NEXT_PUBLIC_API_URL="$CLOUD_API_URL"        # web build: cloud API
+export NEXT_PUBLIC_CLOUD_API_URL="$CLOUD_API_URL"  # Tauri dev: cloud API
+export NEXT_PUBLIC_SIDECAR_URL="$SIDECAR_URL"      # web build: local execution
 export FRONTEND_URL="http://127.0.0.1:3000"
 REQUIRED_CORS_ORIGINS="http://127.0.0.1:3000,http://localhost:3000,tauri://localhost,https://tauri.localhost"
 export CORS_ORIGIN="${CORS_ORIGIN:+$CORS_ORIGIN,}$REQUIRED_CORS_ORIGINS"
@@ -58,18 +67,29 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-log "Starting sidecar on port $API_PORT..."
-API_PORT="$API_PORT" pnpm --filter @openlinear/sidecar dev &
-PIDS+=($!)
+wait_for_health() {
+    local name="$1" url="$2"
+    for i in $(seq 1 30); do
+        if curl -sf "$url/health" >/dev/null 2>&1; then
+            ok "$name ready at $url"
+            return 0
+        fi
+        [ "$i" -eq 30 ] && { echo "$name failed to start"; exit 1; }
+        sleep 1
+    done
+}
 
-for i in $(seq 1 30); do
-    if curl -sf "http://127.0.0.1:$API_PORT/health" >/dev/null 2>&1; then
-        ok "Sidecar ready on :$API_PORT"
-        break
-    fi
-    [ "$i" -eq 30 ] && { echo "Sidecar failed to start"; exit 1; }
-    sleep 1
-done
+log "Starting cloud API on port $CLOUD_API_PORT..."
+API_PORT="$CLOUD_API_PORT" pnpm --filter @openlinear/api dev &
+PIDS+=($!)
+wait_for_health "Cloud API" "$CLOUD_API_URL"
+
+log "Starting sidecar on port $SIDECAR_PORT..."
+# W03a: the sidecar persists only through the cloud API; it must not inherit
+# the database URL exported above for the API (its boot check refuses it).
+env -u DATABASE_URL API_PORT="$SIDECAR_PORT" OPENLINEAR_API_URL="$CLOUD_API_URL" pnpm --filter @openlinear/sidecar dev &
+PIDS+=($!)
+wait_for_health "Sidecar" "$SIDECAR_URL"
 
 log "Starting Next.js dev server on :3000 (hot reload)..."
 PORT=3000 pnpm --filter @openlinear/desktop-ui dev &
@@ -86,7 +106,8 @@ for i in $(seq 1 30); do
 done
 
 log "Launching Tauri desktop app (live reload from Next.js dev server)..."
-OPENLINEAR_SKIP_SIDECAR=1 API_PORT="$API_PORT" \
+# With OPENLINEAR_SKIP_SIDECAR=1 the shell reports API_PORT as the sidecar port.
+OPENLINEAR_SKIP_SIDECAR=1 API_PORT="$SIDECAR_PORT" \
     pnpm --filter @openlinear/desktop exec tauri dev \
     --no-dev-server-wait \
     --config '{"build":{"beforeDevCommand":"","devUrl":"http://127.0.0.1:3000"}}'

@@ -69,7 +69,9 @@ ok "@openlinear/sidecar type-check passed."
 # ── Environment ────────────────────────────────────────────────────
 export API_PORT="${API_PORT:-3001}"
 export OPENLINEAR_ALLOW_SHARED_OPENCODE="${OPENLINEAR_ALLOW_SHARED_OPENCODE:-1}"
+export SIDECAR_PORT="${SIDECAR_PORT:-3003}"
 export NEXT_PUBLIC_API_URL="http://127.0.0.1:${API_PORT}"
+export NEXT_PUBLIC_SIDECAR_URL="http://127.0.0.1:${SIDECAR_PORT}"
 export FRONTEND_URL="http://127.0.0.1:3000"
 export LOG_LEVEL="debug"
 export NODE_ENV="development"
@@ -82,7 +84,8 @@ export NEXT_DEBUG="1"
 export NEXT_TELEMETRY_DEBUG="1"
 
 log "Debug environment configured:"
-log "  API_PORT            = ${API_PORT}"
+log "  API_PORT            = ${API_PORT} (cloud API)"
+log "  SIDECAR_PORT        = ${SIDECAR_PORT} (execution sidecar)"
 log "  LOG_LEVEL           = ${LOG_LEVEL}"
 log "  NODE_OPTIONS        = ${NODE_OPTIONS:-<none>}"
 log "  NEXT_DEBUG          = ${NEXT_DEBUG}"
@@ -105,15 +108,28 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
+# ── Cloud API ────────────────────────────────────────────────────────
+log "Starting @openlinear/api on port ${API_PORT}..."
+API_PORT="${API_PORT}" pnpm --filter @openlinear/api dev &
+PIDS+=("$!")
+for i in $(seq 1 60); do
+    if curl -sf "http://127.0.0.1:${API_PORT}/health" >/dev/null 2>&1; then
+        ok "API ready on :${API_PORT}"
+        break
+    fi
+    sleep 0.5
+done
+
 # ── Sidecar ──────────────────────────────────────────────────────────
-log "Starting @openlinear/sidecar on port ${API_PORT} with inspector..."
-API_PORT="${API_PORT}" pnpm --filter @openlinear/sidecar debug &
+# W03a: no DATABASE_URL; authenticates and persists through the cloud API.
+log "Starting @openlinear/sidecar on port ${SIDECAR_PORT} with inspector..."
+env -u DATABASE_URL API_PORT="${SIDECAR_PORT}" OPENLINEAR_API_URL="http://127.0.0.1:${API_PORT}" pnpm --filter @openlinear/sidecar debug &
 PIDS+=("$!")
 
 log "Waiting for sidecar /health..."
 for i in $(seq 1 40); do
-    if curl -sf "http://127.0.0.1:${API_PORT}/health" >/dev/null 2>&1; then
-        ok "Sidecar ready on :${API_PORT}"
+    if curl -sf "http://127.0.0.1:${SIDECAR_PORT}/health" >/dev/null 2>&1; then
+        ok "Sidecar ready on :${SIDECAR_PORT}"
         break
     fi
     if [ "$i" -eq 40 ]; then
@@ -126,7 +142,7 @@ done
 # ── Desktop UI ─────────────────────────────────────────────────────
 if command -v tauri &>/dev/null || pnpm --filter @openlinear/desktop tauri --version &>/dev/null 2>&1; then
     log "Launching Tauri desktop app (debug mode)..."
-    OPENLINEAR_SKIP_SIDECAR=1 API_PORT="${API_PORT}" PORT=3000 \
+    OPENLINEAR_SKIP_SIDECAR=1 API_PORT="${SIDECAR_PORT}" PORT=3000 \
         pnpm --filter @openlinear/desktop exec tauri dev \
         --no-dev-server-wait \
         --config '{"build":{"beforeDevCommand":"PORT=3000 pnpm --filter @openlinear/desktop-ui debug","devUrl":"http://127.0.0.1:3000"}}'

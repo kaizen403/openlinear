@@ -84,11 +84,8 @@ export DESKTOP_BUILD_BUNDLES="$BUNDLE_TARGETS"
 
 log "Checking prerequisites..."
 
-if ! command -v docker &>/dev/null; then
-    err "Docker is required for the database. Install: https://docs.docker.com/get-docker/"
-    exit 1
-fi
-
+# The packaged sidecar is API-only (W03a): building the desktop app needs no
+# database, no Docker and no .env secrets.
 if ! command -v pnpm &>/dev/null; then
     err "pnpm is not installed. Run: npm install -g pnpm"
     exit 1
@@ -99,6 +96,11 @@ if ! command -v cargo &>/dev/null; then
     exit 1
 fi
 
+if [ ! -d node_modules ] || [ ! -d apps/desktop/node_modules ]; then
+    log "Installing dependencies..."
+    pnpm install --frozen-lockfile
+fi
+
 if ! pnpm --filter @openlinear/desktop tauri --version &>/dev/null 2>&1; then
     err "Tauri CLI not found. Run: pnpm install"
     exit 1
@@ -106,119 +108,37 @@ fi
 
 ok "Prerequisites OK."
 
-if [ ! -f .env ]; then
-    if [ -f .env.example ]; then
-        warn "No .env found. Copying .env.example -> .env"
-        cp .env.example .env
-    else
-        warn "No .env or .env.example found. Creating minimal .env..."
-        cat > .env <<'EOF'
-DATABASE_URL=postgresql://openlinear:openlinear@localhost:5432/openlinear
-JWT_SECRET=openlinear-dev-secret-change-in-production
-TOKEN_ENCRYPTION_KEY=openlinear-dev-encryption-key-min-16-chars
-GITHUB_CLIENT_ID=
-GITHUB_CLIENT_SECRET=
-GITHUB_REDIRECT_URI=http://localhost:3001/api/auth/github/callback
-EOF
-    fi
-fi
-
-while IFS= read -r line || [ -n "$line" ]; do
-    case "$line" in
-        \#*|""|\;*) continue ;;
-    esac
-    key="${line%%=*}"
-    value="${line#*=}"
-    case "$value" in
-        \"*) value="${value#\"}"; value="${value%\"}" ;;
-        \'*) value="${value#\'}"; value="${value%\'}" ;;
-    esac
-    export "$key=$value"
-done < .env
-
-if [ -z "${DATABASE_URL:-}" ]; then
-    DATABASE_URL=""
-fi
-
-LOCAL_DATABASE_URL="${DESKTOP_BUILD_DATABASE_URL:-postgresql://openlinear:openlinear@localhost:5432/openlinear}"
-USE_LOCAL_DATABASE=1
-
-if [ "${DESKTOP_BUILD_USE_ENV_DATABASE:-0}" = "1" ]; then
-    if [ -z "${DATABASE_URL:-}" ]; then
-        err "DESKTOP_BUILD_USE_ENV_DATABASE=1 was set, but DATABASE_URL is empty."
-        exit 1
-    fi
-    USE_LOCAL_DATABASE=0
-    warn "Using DATABASE_URL from .env for schema sync."
-else
-    if [ -n "${DATABASE_URL:-}" ] && [ "$DATABASE_URL" != "$LOCAL_DATABASE_URL" ]; then
-        warn "Ignoring .env DATABASE_URL for desktop build schema sync."
-        warn "Using local Docker database. Set DESKTOP_BUILD_USE_ENV_DATABASE=1 to opt into .env DATABASE_URL."
-    fi
-    export DATABASE_URL="$LOCAL_DATABASE_URL"
-fi
-
-if [ ! -d node_modules ] || [ ! -d apps/desktop/node_modules ]; then
-    log "Installing dependencies..."
-    pnpm install
-fi
-
-if [ "$USE_LOCAL_DATABASE" -eq 1 ]; then
-    if ! docker ps --format '{{.Names}}' | grep -q 'openlinear-db'; then
-        log "Starting PostgreSQL..."
-        docker compose up -d
-    fi
-
-    log "Waiting for local database..."
-    for i in $(seq 1 30); do
-        if docker exec openlinear-db pg_isready -U openlinear -d openlinear &>/dev/null; then
-            ok "Database ready."
-            break
-        fi
-        if [ "$i" -eq 30 ]; then
-            err "Database failed to start after 30s."
-            exit 1
-        fi
-        sleep 1
-    done
-else
-    log "Skipping local Docker database startup."
-fi
-
-log "Syncing database schema..."
-pnpm --filter @openlinear/db db:generate
-pnpm db:push
-
 log "Cleaning previous build artifacts..."
 rm -rf apps/desktop/src-tauri/target/release/bundle
 rm -rf apps/desktop-ui/out
 rm -rf apps/desktop-ui/.next
 
-log "Building packages (excluding desktop apps to avoid lock conflicts)..."
-pnpm turbo run build --filter=!@openlinear/desktop --filter=!@openlinear/desktop-ui
+# Node 22 pkg executable for the host target, then the pinned OpenCode binary
+# (checksum + upstream digest + release attestation when gh is available).
+log "Building sidecar binary and fetching OpenCode..."
+"$ROOT_DIR/scripts/build-sidecar.sh"
 
-log "Building desktop-ui for Tauri..."
-pnpm --filter @openlinear/desktop-ui build:tauri
-
-log "Building sidecar binary..."
-pnpm build:sidecar
+case "$HOST_OS/$(uname -m)" in
+    Darwin/arm64) HOST_TRIPLE="aarch64-apple-darwin" ;;
+    Darwin/x86_64) HOST_TRIPLE="x86_64-apple-darwin" ;;
+    Linux/x86_64) HOST_TRIPLE="x86_64-unknown-linux-gnu" ;;
+    Linux/aarch64) HOST_TRIPLE="aarch64-unknown-linux-gnu" ;;
+    *) err "Unsupported host: $HOST_OS/$(uname -m)"; exit 1 ;;
+esac
 
 BINARIES_DIR="apps/desktop/src-tauri/binaries"
-if [ ! -f "$BINARIES_DIR/openlinear-sidecar-x86_64-unknown-linux-gnu" ] && \
-   [ ! -f "$BINARIES_DIR/openlinear-sidecar-x86_64-apple-darwin" ] && \
-   [ ! -f "$BINARIES_DIR/openlinear-sidecar-aarch64-apple-darwin" ]; then
-    err "Sidecar binary not found after build. Check $BINARIES_DIR"
-    exit 1
-fi
-
-if [ ! -f "$BINARIES_DIR/opencode-x86_64-unknown-linux-gnu" ] && \
-   [ ! -f "$BINARIES_DIR/opencode-x86_64-apple-darwin" ] && \
-   [ ! -f "$BINARIES_DIR/opencode-aarch64-apple-darwin" ]; then
-    err "OpenCode binary not found after build. Check $BINARIES_DIR"
-    exit 1
-fi
-
+for name in openlinear-sidecar opencode; do
+    if [ ! -x "$BINARIES_DIR/$name-$HOST_TRIPLE" ]; then
+        err "$name binary not found after build. Check $BINARIES_DIR"
+        exit 1
+    fi
+done
 ok "Sidecar binaries ready."
+
+if [ "$SKIP_TEST" -eq 0 ]; then
+    log "Smoke-testing the packaged sidecar..."
+    "$ROOT_DIR/scripts/release/smoke-sidecar-binary.sh" "$BINARIES_DIR/openlinear-sidecar-$HOST_TRIPLE"
+fi
 
 log "Building Tauri desktop app (this may take several minutes)..."
 if [ "$TARGET_CHOICE" = "appimage" ]; then
@@ -244,6 +164,13 @@ if [ "$SKIP_TEST" -eq 1 ]; then
     exit 0
 fi
 
+log "Verifying the bundle (shipped binaries, OpenCode version, bundled sidecar smoke)..."
+if [ "$TARGET_CHOICE" = "appimage" ]; then
+    "$ROOT_DIR/scripts/release/verify-desktop-bundle.sh" appimage "$(find "$BUNDLE_DIR/appimage" -maxdepth 1 -type f -name '*.AppImage' | head -1)"
+else
+    "$ROOT_DIR/scripts/release/verify-desktop-bundle.sh" macos-app "$(find "$BUNDLE_DIR/macos" -maxdepth 1 -type d -name '*.app' | head -1)"
+fi
+
 EXECUTABLE=""
 RAW_BINARY="apps/desktop/src-tauri/target/release/openlinear-desktop"
 APPIMAGE_CANDIDATE="$(find "$BUNDLE_DIR/appimage" -maxdepth 1 -type f -name "*.AppImage" 2>/dev/null | head -1 || true)"
@@ -262,7 +189,7 @@ if [ -n "$EXECUTABLE" ] && [ -f "$EXECUTABLE" ]; then
     APP_PID=$!
 
     log "Checking app process stays alive (max 15s)..."
-    for i in $(seq 1 15); do
+    for _ in $(seq 1 15); do
         if ! kill -0 $APP_PID 2>/dev/null; then
             warn "Desktop app process exited before smoke check completed."
             break

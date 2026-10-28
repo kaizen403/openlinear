@@ -2,16 +2,10 @@ import express from 'express';
 import http from 'node:http';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-// `app.ts` imports `createApp`/`buildErrorHandler` from `@openlinear/api/app`
-// and mounts the full sidecar router set at module load. Stub all of that
-// out (matching the pattern `index.test.mjs` already uses for `./app`) so
-// importing this module for `createHostOriginGuard`/`createSidecarApp`
-// doesn't pull in the cloud API's 28 routers, Prisma, etc.
-vi.mock('@openlinear/api/app', () => ({
-  buildErrorHandler: () => (err, _req, res, _next) => {
-    res.status(500).json({ error: err instanceof Error ? err.message : 'error' });
-  },
-}));
+// `app.ts` mounts the full sidecar router set at module load. Stub the
+// routers out (matching the pattern `index.test.mjs` already uses for
+// `./app`) so importing this module for `createHostOriginGuard`/
+// `createSidecarApp` doesn't pull in OpenCode, git, or persistence.
 
 function stubRouter(label) {
   const router = express.Router();

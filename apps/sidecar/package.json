@@ -16,12 +16,10 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.74.0",
     "@cartesia/cartesia-js": "^3.1.0",
     "@opencode-ai/sdk": "^1.18.23",
-    "@openai/codex-sdk": "^0.147.0",
+    "@openai/codex-sdk": "0.164.0",
     "@openlinear/api-client": "workspace:*",
-    "@openlinear/api": "workspace:*",
     "@openlinear/db": "workspace:*",
     "@openlinear/execution-core": "workspace:*",
     "cookie-parser": "^1.4.7",
@@ -30,8 +28,6 @@
     "express": "^5.2.1",
     "express-rate-limit": "^8.4.1",
     "helmet": "^8.1.0",
-    "jsonwebtoken": "^9.0.2",
-    "openai": "^6.22.0",
     "pino": "^10.3.1",
     "pino-http": "^11.0.0",
     "zod": "^3.25.6"
@@ -40,7 +36,6 @@
     "@types/cookie-parser": "^1.4.8",
     "@types/cors": "^2.8.17",
     "@types/express": "^5.0.6",
-    "@types/jsonwebtoken": "^9.0.9",
     "@types/node": "^20.14.0",
     "@vitest/coverage-v8": "4.0.18",
     "@yao-pkg/pkg": "^5.12.0",
