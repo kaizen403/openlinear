@@ -1,0 +1,77 @@
+{
+  "schemaVersion": "openlinear.eval.manifest/v1",
+  "id": "pilot-holdout-dev-harness-parity",
+  "title": "Pilot: OpenLinear+Codex vs native Codex on development holdout tasks",
+  "createdAt": "2026-10-26T00:00:00.000Z",
+  "purpose": "development",
+  "track": "harness-parity",
+  "repeats": 3,
+  "suites": [
+    {
+      "id": "holdout-dev",
+      "kind": "private-holdout",
+      "name": "openlinear-backend-holdout",
+      "version": "0.1",
+      "source": { "repository": "private holdout repository (not public)", "revision": "main", "datasetChecksum": null, "config": null, "split": "development" },
+      "official": false,
+      "tasks": [
+        { "id": "replace-with-task-id", "checksum": "0000000000000000000000000000000000000000000000000000000000000000", "category": "tenancy", "cluster": "repo-a", "sealed": false, "images": [] }
+      ]
+    }
+  ],
+  "hardware": { "provider": "local-host", "os": "darwin 25.0.0", "arch": "arm64", "cpus": 10, "memoryMb": 32768, "diskMb": null, "resourcePolicy": "none", "headroom": null },
+  "concurrency": { "maxConcurrentTrials": 2, "order": "randomized-interleaved", "seed": 20261026 },
+  "toolchain": { "node": "22.16.0", "git": "2.49.0", "packageManager": "pnpm@9", "python": null, "docker": null, "harbor": null, "extra": {} },
+  "configurations": [
+    {
+      "id": "ol-codex",
+      "label": "OpenLinear (adapter) + Codex",
+      "harness": "openlinear",
+      "transport": "adapter",
+      "runner": { "id": "codex", "binaryVersion": "latest", "binarySha256": null, "sdkVersion": "0.164.0", "mode": "real" },
+      "model": { "requested": "gpt-6.1-sol", "snapshot": "", "provider": "openai", "endpoint": "https://api.openai.com/v1", "region": null, "effort": "medium", "sampling": { "temperature": null, "topP": null, "seed": null }, "maxOutputTokens": null, "contextPolicy": "runner default", "routing": "fixed" },
+      "assets": {
+        "systemContract": "0000000000000000000000000000000000000000000000000000000000000000",
+        "promptTemplate": "0000000000000000000000000000000000000000000000000000000000000000",
+        "tools": "0000000000000000000000000000000000000000000000000000000000000000",
+        "skills": "0000000000000000000000000000000000000000000000000000000000000000",
+        "mcpConfig": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "enhancements": { "systemContract": true }
+    },
+    {
+      "id": "native-codex",
+      "label": "Codex CLI (native)",
+      "harness": "native",
+      "transport": "cli",
+      "runner": { "id": "codex", "binaryVersion": "latest", "binarySha256": null, "sdkVersion": null, "mode": "real" },
+      "model": { "requested": "gpt-6.1-sol", "snapshot": "", "provider": "openai", "endpoint": "https://api.openai.com/v1", "region": null, "effort": "medium", "sampling": { "temperature": null, "topP": null, "seed": null }, "maxOutputTokens": null, "contextPolicy": "runner default", "routing": "fixed" },
+      "assets": {
+        "systemContract": "0000000000000000000000000000000000000000000000000000000000000000",
+        "promptTemplate": "0000000000000000000000000000000000000000000000000000000000000000",
+        "tools": "0000000000000000000000000000000000000000000000000000000000000000",
+        "skills": "0000000000000000000000000000000000000000000000000000000000000000",
+        "mcpConfig": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "enhancements": {}
+    }
+  ],
+  "sandbox": { "provider": "macos-seatbelt (sidecar W09a) / external container for native", "agentNetwork": "allowlist", "allowedHosts": ["api.openai.com"], "verifierNetwork": "no-network", "envPolicy": "allowlist", "privateHome": true },
+  "budgets": { "agentTimeoutMs": 3000000, "verifierTimeoutMs": 600000, "maxUsdPerTask": 10, "maxTokensPerTask": 1000000, "maxTurns": null, "stopRule": "first-cap", "headroomPct": 10, "gradeOnTimeout": true },
+  "retries": { "infraRetries": 1, "retryOutcomes": ["infra"], "keepOriginal": true },
+  "prices": [],
+  "verifier": { "revision": "grader assets hashed into each task checksum", "graderAssets": "0000000000000000000000000000000000000000000000000000000000000000", "method": "pristine-checkout" },
+  "contamination": { "sealedHoldoutPresent": false, "crossTaskMemoryReset": true, "solutionLookup": "blocked", "historySanitized": true, "canaries": [] },
+  "analysis": {
+    "primaryMetric": "single-attempt-success",
+    "bootstrapResamples": 5000,
+    "confidence": 0.95,
+    "clusterBy": "cluster",
+    "practicalThresholdPts": null,
+    "nonInferiorityMarginPts": 3,
+    "comparisons": [{ "treatment": "ol-codex", "baseline": "native-codex" }],
+    "categories": ["tenancy", "migrations", "async", "sdk", "sse", "recovery", "git"]
+  },
+  "aliases": [],
+  "drift": []
+}

@@ -1,0 +1,81 @@
+name: Eval smoke
+
+# W21: offline evaluation-harness smoke. Synthetic tasks, FAKE (replayed)
+# runners only — no model, no network beyond package install, no secrets.
+# It proves the pipeline (manifest → trials → pristine-checkout grading →
+# statistics → report) still works; it is not a benchmark.
+
+on:
+  pull_request:
+    paths:
+      - 'packages/evals/**'
+      - 'packages/execution-core/**'
+      - '.github/workflows/eval-smoke.yml'
+  push:
+    branches: [dev, main]
+    paths:
+      - 'packages/evals/**'
+      - 'packages/execution-core/**'
+      - '.github/workflows/eval-smoke.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: eval-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  TURBO_TELEMETRY_DISABLED: 1
+
+jobs:
+  smoke:
+    name: Offline eval smoke (fake runners)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Typecheck
+        run: pnpm --filter @openlinear/evals typecheck
+
+      - name: Lint
+        run: pnpm exec biome check --error-on-warnings packages/evals/src
+
+      - name: Unit and integration tests (real git, fake runners)
+        run: pnpm eval:test
+
+      - name: Smoke
+        run: pnpm eval:smoke --out "$RUNNER_TEMP/eval-smoke" --quiet
+
+      - name: Ablation smoke (W16b / W19a / W19b arms, fake runners)
+        run: pnpm eval:cli ablation smoke all --quiet
+
+      - name: Dry runs (public suites; nothing executed)
+        run: |
+          pnpm eval:dry-run:tb4 > "$RUNNER_TEMP/eval-smoke/dry-run-tb4.md"
+          pnpm eval:dry-run:swe-pro > "$RUNNER_TEMP/eval-smoke/dry-run-swe-pro.md"
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-smoke-report
+          path: |
+            ${{ runner.temp }}/eval-smoke/report.md
+            ${{ runner.temp }}/eval-smoke/report.json
+            ${{ runner.temp }}/eval-smoke/manifest.json
+            ${{ runner.temp }}/eval-smoke/trials.jsonl
+            ${{ runner.temp }}/eval-smoke/dry-run-*.md
+          if-no-files-found: warn
+          retention-days: 14
