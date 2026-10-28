@@ -1,9 +1,9 @@
-import { mkdtempSync, realpathSync, rmSync, symlinkSync } from 'fs';
+import { existsSync, mkdtempSync, realpathSync, rmSync, statSync, symlinkSync } from 'fs';
 import { tmpdir } from 'os';
 import { join, resolve } from 'path';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 
-// repo-storage.ts performs real fs checks (lstat/mkdir) at import time —
+// repo-storage.ts performs real fs checks (lstat/mkdir) on first use —
 // point REPOS_DIR at a private, real (non-symlinked) temp dir before
 // importing so the module under test never touches the real per-user app
 // data directory during tests, and so realpath-based comparisons inside the
@@ -92,5 +92,41 @@ describe('repo storage path safety', () => {
     expect(() => assertPathInsideReposDir(nestedDir, { allowRoot: false })).toThrow(
       '[Sidecar] Refusing repository path outside repository storage',
     );
+  });
+});
+
+describe('repo storage directory check', () => {
+  async function freshModule(reposDir) {
+    const previous = process.env.REPOS_DIR;
+    process.env.REPOS_DIR = reposDir;
+    vi.resetModules();
+    try {
+      return await import('./repo-storage');
+    } finally {
+      process.env.REPOS_DIR = previous;
+    }
+  }
+
+  it('creates nothing on import; the first use creates the directory privately', async () => {
+    const parent = mkdtempSync(join(realpathSync(tmpdir()), 'openlinear-repo-storage-lazy-'));
+    cleanupDirs.push(parent);
+    const reposDir = join(parent, 'repos');
+    const storage = await freshModule(reposDir);
+    expect(existsSync(reposDir)).toBe(false);
+    expect(storage.assertReposDirSafe()).toBe(reposDir);
+    expect(statSync(reposDir).mode & 0o777).toBe(0o700);
+    expect(storage.buildReposPath('p1')).toBe(join(reposDir, 'p1'));
+  });
+
+  it('still refuses a symlinked directory, on the first use', async () => {
+    const parent = mkdtempSync(join(realpathSync(tmpdir()), 'openlinear-repo-storage-link-'));
+    cleanupDirs.push(parent);
+    const target = mkdtempSync(join(realpathSync(tmpdir()), 'openlinear-repo-storage-target-'));
+    cleanupDirs.push(target);
+    const reposDir = join(parent, 'repos');
+    symlinkSync(target, reposDir);
+    const storage = await freshModule(reposDir);
+    expect(() => storage.assertReposDirSafe()).toThrow('it is a symlink');
+    expect(() => storage.buildReposPath('p1')).toThrow('it is a symlink');
   });
 });

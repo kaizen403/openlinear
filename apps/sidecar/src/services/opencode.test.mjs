@@ -6,7 +6,25 @@ const mocks = vi.hoisted(() => ({
   existsSync: vi.fn(),
   createOpencodeClient: vi.fn(),
   broadcastToAll: vi.fn(),
+  attemptRoute: vi.fn(),
+  attemptShutdownAll: vi.fn(),
+  attemptRelease: vi.fn(),
+  attemptMetadataFor: vi.fn(),
+  attemptDeps: [],
 }));
+
+// W09a: directory-scoped clients go through the per-attempt sandbox manager.
+// It is replaced here so these tests stay about process management; the
+// manager itself is covered in sandbox/opencode-attempts.test.ts.
+class FakeAttemptServerManager {
+  constructor(deps) {
+    mocks.attemptDeps.push(deps);
+  }
+  route(...args) { return mocks.attemptRoute(...args); }
+  shutdownAll() { return mocks.attemptShutdownAll(); }
+  release(directory) { return mocks.attemptRelease(directory); }
+  metadataFor(directory) { return mocks.attemptMetadataFor(directory); }
+}
 
 function makeProc() {
   const proc = new EventEmitter();
@@ -42,8 +60,11 @@ async function importSubject(env = {}) {
   vi.doMock('@opencode-ai/sdk', () => ({
     createOpencodeClient: mocks.createOpencodeClient,
   }));
-  vi.doMock('@openlinear/api/sse', () => ({
-    broadcastToAll: mocks.broadcastToAll,
+  vi.doMock('../events/publisher', () => ({
+    publishGlobalEvent: mocks.broadcastToAll,
+  }));
+  vi.doMock('../sandbox/opencode-attempts', () => ({
+    AttemptServerManager: FakeAttemptServerManager,
   }));
 
   return import('./opencode');
@@ -65,6 +86,12 @@ describe('opencode host process manager', () => {
     }
     mocks.existsSync.mockReturnValue(false);
     mocks.createOpencodeClient.mockReturnValue({ client: true });
+    mocks.attemptDeps.length = 0;
+    // Default: an explicit trusted-host grant, i.e. the legacy shared server.
+    mocks.attemptRoute.mockResolvedValue({ kind: 'trusted-host', metadata: { mode: 'trusted-host' } });
+    mocks.attemptShutdownAll.mockResolvedValue(undefined);
+    mocks.attemptRelease.mockResolvedValue(undefined);
+    mocks.attemptMetadataFor.mockReturnValue(null);
   });
 
   afterEach(() => {
@@ -73,7 +100,8 @@ describe('opencode host process manager', () => {
     vi.doUnmock('node:child_process');
     vi.doUnmock('node:fs');
     vi.doUnmock('@opencode-ai/sdk');
-    vi.doUnmock('@openlinear/api/sse');
+    vi.doUnmock('../events/publisher');
+    vi.doUnmock('../sandbox/opencode-attempts');
     delete process.env.OPENCODE_BIN;
     delete process.env.OPENCODE_PORT;
     delete process.env.OPENCODE_HOST;
@@ -101,15 +129,22 @@ describe('opencode host process manager', () => {
       restartAttempts: 0,
     });
 
+    // The shared server runs unsandboxed: a per-launch password, sent by every client.
+    const password = mocks.spawn.mock.calls[0][2].env.OPENCODE_SERVER_PASSWORD;
+    expect(password).toMatch(/^[A-Za-z0-9_-]{32}$/);
+    const authorization = `Basic ${Buffer.from(`opencode:${password}`).toString('base64')}`;
+
     await expect(subject.getClientForUser('user-1', '/repo')).resolves.toEqual({ client: true });
     expect(mocks.createOpencodeClient).toHaveBeenCalledWith({
       baseUrl: 'http://0.0.0.0:3210',
+      headers: { authorization },
       directory: '/repo',
     });
 
     await expect(subject.getClientForUser('user-1')).resolves.toEqual({ client: true });
     expect(mocks.createOpencodeClient).toHaveBeenCalledWith({
       baseUrl: 'http://0.0.0.0:3210',
+      headers: { authorization },
     });
   });
 
@@ -489,7 +524,8 @@ describe('T3 (R1 P0-1/P0-2/P1-9) — injected OpenCode config', () => {
       expect(config.permission.read['*.env.*']).toBe('deny');
       expect(config.permission.read['*.env.example']).toBe('allow');
       expect(config.compaction).toEqual({ auto: true, prune: true });
-      expect(config.plugin).toEqual(['opencode-openlinear']);
+      // W09a: the phantom `opencode-openlinear` plugin (no such package) is gone.
+      expect(config).not.toHaveProperty('plugin');
     } finally {
       if (originalDbUrl === undefined) delete process.env.DATABASE_URL;
       else process.env.DATABASE_URL = originalDbUrl;
@@ -591,5 +627,92 @@ describe('OpenCodeAdapter', () => {
 
     await subject.openCodeAdapter.shutdown();
     expect(subject.openCodeAdapter.isRunning()).toBe(false);
+  });
+});
+
+describe('W09a — per-attempt sandboxed servers', () => {
+  beforeEach(() => {
+    mocks.spawn.mockReset();
+    mocks.createOpencodeClient.mockReset();
+    mocks.createOpencodeClient.mockReturnValue({ client: true });
+    mocks.broadcastToAll.mockReset();
+    mocks.attemptDeps.length = 0;
+    mocks.attemptRoute.mockReset();
+    mocks.attemptRoute.mockResolvedValue({ kind: 'trusted-host', metadata: { mode: 'trusted-host' } });
+    mocks.attemptShutdownAll.mockReset();
+    mocks.attemptShutdownAll.mockResolvedValue(undefined);
+    mocks.attemptRelease.mockReset();
+    mocks.attemptRelease.mockResolvedValue(undefined);
+    mocks.attemptMetadataFor.mockReset();
+    mocks.attemptMetadataFor.mockReturnValue(null);
+  });
+
+  it('returns the attempt client for directory-scoped requests in enforce mode', async () => {
+    const proc = makeProc();
+    mocks.spawn.mockReturnValue(proc);
+    const attemptClient = { attempt: true };
+    mocks.attemptRoute.mockResolvedValue({ kind: 'attempt', client: attemptClient, metadata: { mode: 'enforce' } });
+    const subject = await importSubject({ OPENCODE_BIN: '/custom/opencode' });
+    await startReady(subject);
+
+    await expect(subject.getClientForUser('user-1', '/repo/worktree')).resolves.toBe(attemptClient);
+    expect(mocks.attemptRoute).toHaveBeenCalledWith('user-1', '/repo/worktree');
+    // The shared server is never handed out for an attempt in enforce mode.
+    expect(mocks.createOpencodeClient).not.toHaveBeenCalledWith(expect.objectContaining({ directory: '/repo/worktree' }));
+    // Management (no directory) calls still use the shared server.
+    await subject.getClientForUser('user-1');
+    expect(mocks.attemptRoute).toHaveBeenCalledTimes(1);
+  });
+
+  it('propagates SANDBOX_UNAVAILABLE without spawning anything for the attempt', async () => {
+    const proc = makeProc();
+    mocks.spawn.mockReturnValue(proc);
+    const unavailable = Object.assign(new Error('No verified sandbox'), { code: 'SANDBOX_UNAVAILABLE' });
+    mocks.attemptRoute.mockRejectedValue(unavailable);
+    const subject = await importSubject({ OPENCODE_BIN: '/custom/opencode' });
+    await startReady(subject);
+    const spawnsBefore = mocks.spawn.mock.calls.length;
+
+    await expect(subject.getClientForUser('user-1', '/repo/worktree')).rejects.toBe(unavailable);
+    expect(mocks.spawn.mock.calls.length).toBe(spawnsBefore);
+  });
+
+  it('wires the manager to the sandboxed launcher and stops attempt servers on shutdown', async () => {
+    const proc = makeProc();
+    mocks.spawn.mockReturnValue(proc);
+    const subject = await importSubject({ OPENCODE_BIN: '/custom/opencode' });
+    await startReady(subject);
+    await subject.getClientForUser('user-1', '/repo/worktree');
+    const deps = mocks.attemptDeps.at(-1);
+
+    expect(deps.resolveBinary()).toBe('/custom/opencode');
+    expect(deps.agentConfig()).not.toHaveProperty('plugin');
+    mocks.createOpencodeClient.mockReturnValueOnce({ config: { get: async () => ({ data: { model: 'anthropic/x' } }) } });
+    await expect(deps.managementConfig()).resolves.toEqual({ model: 'anthropic/x' });
+    deps.createClient({ baseUrl: 'http://127.0.0.1:1', directory: '/repo/worktree', headers: { authorization: 'Basic x' }, fetch });
+    expect(mocks.createOpencodeClient).toHaveBeenLastCalledWith(expect.objectContaining({ headers: { authorization: 'Basic x' } }));
+    deps.onEvent('sandbox:attempt', { attemptKey: 'k' });
+    expect(mocks.broadcastToAll).toHaveBeenCalledWith('sandbox:attempt', { attemptKey: 'k' });
+
+    const attemptProc = makeProc();
+    mocks.spawn.mockReturnValueOnce(attemptProc);
+    const launching = deps.launch({ command: '/usr/bin/sandbox-exec', args: ['-p', 'profile'], cwd: '/repo/worktree', env: { PATH: '/usr/bin' }, extraFds: [7] }, 1000);
+    attemptProc.stdout.emit('data', Buffer.from('opencode server listening on http://127.0.0.1:5555\n'));
+    await expect(launching).resolves.toEqual(expect.objectContaining({ url: 'http://127.0.0.1:5555' }));
+    expect(mocks.spawn).toHaveBeenLastCalledWith('/usr/bin/sandbox-exec', ['-p', 'profile'], {
+      cwd: '/repo/worktree',
+      env: { PATH: '/usr/bin' },
+      detached: true,
+      stdio: ['ignore', 'pipe', 'pipe', 7],
+    });
+
+    mocks.attemptMetadataFor.mockReturnValue({ mode: 'enforce', policyHash: 'abc' });
+    expect(subject.getSandboxRunMetadata('/repo/worktree')).toEqual({ mode: 'enforce', policyHash: 'abc' });
+    await subject.releaseAttemptServer('/repo/worktree');
+    expect(mocks.attemptRelease).toHaveBeenCalledWith('/repo/worktree');
+
+    await subject.shutdownOpenCode();
+    expect(mocks.attemptShutdownAll).toHaveBeenCalledTimes(1);
+    expect(subject.getSandboxRunMetadata('/repo/worktree')).toBeNull();
   });
 });

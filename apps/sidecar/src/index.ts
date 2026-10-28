@@ -1,23 +1,35 @@
 import express from 'express';
 import type { Server } from 'node:http';
-import { logger } from '@openlinear/api/logger';
-import { validateStartupEnv } from '@openlinear/api/env';
+import { logger } from './lib/logger';
+import { validateSidecarEnv } from './env';
+import { loadPrismaClient } from './persistence/prisma-loader';
 import { createSidecarApp } from './app';
 import { initOpenCode, registerShutdownHandlers } from './services/opencode';
 import {
   recoverInFlightExecutions,
   recoverActiveBatches,
 } from './services/execution/recovery';
-import { assertSidecarPersistenceMode, shouldUsePrisma } from './persistence/boot';
+import { assertSidecarPersistenceMode, shouldUsePrisma, withCloudApiRequested } from './persistence/boot';
 import { RunJournal } from './journal/sqlite';
 import { gcLocalWorktrees } from './workspace/local-worktree';
+import { assertReposDirSafe } from './services/repo-storage';
 
 const PORT = Number(process.env.API_PORT ?? 3001);
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
 const OAUTH_INTERCEPTOR_PORT = Number(process.env.OAUTH_INTERCEPTOR_PORT ?? 1455);
 const BIND_HOST = process.env.SIDECAR_BIND_HOST || '127.0.0.1';
 
-export async function loadDotenvIfPresent() {
+/**
+ * Database URLs the shared repository `.env` carries for the cloud API. The
+ * sidecar persists only through OPENLINEAR_API_URL (W03a), and its boot
+ * check refuses a DATABASE_URL without --with-cloud-api. Values that come
+ * from the shared `.env` file are therefore ignored instead of aborting
+ * every dev start; a DATABASE_URL set explicitly in the environment is
+ * still refused by assertSidecarPersistenceMode.
+ */
+export const DOTENV_IGNORED_DATABASE_KEYS = ['DATABASE_URL', 'DIRECT_DATABASE_URL', 'SHADOW_DATABASE_URL'] as const;
+
+export async function loadDotenvIfPresent(argv: readonly string[] = process.argv) {
   if (process.env.OPENLINEAR_SKIP_DOTENV === '1') return;
   try {
     const dotenv = await import('dotenv');
@@ -27,7 +39,13 @@ export async function loadDotenvIfPresent() {
     /* v8 ignore start -- package snapshot fallback; Vitest always provides import.meta.dirname. */
     if (!cwd) cwd = process.cwd();
     /* v8 ignore stop */
-    dotenv.config({ path: resolve(cwd, '../../../.env'), quiet: true });
+    const preexisting = new Set(Object.keys(process.env));
+    const result = dotenv.config({ path: resolve(cwd, '../../../.env'), quiet: true });
+    if (!withCloudApiRequested([...argv], process.env)) {
+      for (const key of DOTENV_IGNORED_DATABASE_KEYS) {
+        if (!preexisting.has(key) && result?.parsed && key in result.parsed) delete process.env[key];
+      }
+    }
   } catch {
     // dotenv missing or path unresolvable (e.g. inside pkg snapshot) — skip silently.
   }
@@ -65,15 +83,21 @@ export function closeServer(server: Server, name: string): Promise<void> {
 export async function start() {
   await loadDotenvIfPresent();
   assertSidecarPersistenceMode();
-  if (shouldUsePrisma()) {
-    validateStartupEnv();
-  }
-  const app = createSidecarApp({ port: PORT });
+  // W03a: no DATABASE_URL, no JWT signing secret, no token-encryption key.
+  // Authentication and persistence go through OPENLINEAR_API_URL.
+  validateSidecarEnv();
+  assertReposDirSafe();
+  let boundPort = PORT;
+  const app = createSidecarApp({ port: () => boundPort });
   registerShutdownHandlers();
 
+  let listening: Server | undefined;
   const server = app.listen(PORT, BIND_HOST, () => {
-    logger.info({ host: BIND_HOST, port: PORT }, '[Sidecar] server listening');
+    const address = listening?.address();
+    if (address && typeof address === 'object') boundPort = address.port;
+    logger.info({ host: BIND_HOST, port: boundPort }, '[Sidecar] server listening');
   });
+  listening = server;
 
   const interceptApp = express();
   interceptApp.get('/auth/callback', (req, res) => {
@@ -112,7 +136,7 @@ export async function start() {
       await closeServer(server, 'server');
       if (shouldUsePrisma()) {
         try {
-          const { prisma } = await import('@openlinear/db');
+          const prisma = await loadPrismaClient();
           await prisma.$disconnect();
           logger.info('[Sidecar] prisma disconnected');
         } catch (disconnectErr) {
@@ -140,9 +164,13 @@ export async function start() {
   });
 
   try {
-    void gcLocalWorktrees({ maxAgeHours: 24, maxBytes: 20 * 1024 * 1024 * 1024 }).catch((err) => {
-      logger.warn({ err }, '[Sidecar] worktree GC failed');
-    });
+    // W11a: with the v2 run engine, worktrees are swept journal-aware after
+    // recovery (7-day retention, receipts); the 24 h age sweep is legacy only.
+    void import('./run/index')
+      .then(({ runEngineActive }) => (runEngineActive() ? { removed: 0 } : gcLocalWorktrees({ maxAgeHours: 24, maxBytes: 20 * 1024 * 1024 * 1024 })))
+      .catch((err: unknown) => {
+        logger.warn({ err }, '[Sidecar] worktree GC failed');
+      });
     const journal = new RunJournal(RunJournal.defaultPath());
     await recoverInFlightExecutions({ journal });
     await recoverActiveBatches();
@@ -151,7 +179,7 @@ export async function start() {
   }
 
   if (shouldUsePrisma()) {
-    const { prisma } = await import('@openlinear/db');
+    const prisma = await loadPrismaClient();
     try {
       await prisma.$connect();
     } catch (err) {

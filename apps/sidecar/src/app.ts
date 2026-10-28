@@ -3,10 +3,17 @@ import cors from 'cors';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 import rateLimit, { RateLimitRequestHandler } from 'express-rate-limit';
-import { buildErrorHandler } from '@openlinear/api/app';
+import { createErrorHandler } from './lib/errors';
+import { resolvePersistenceMode } from './persistence/store';
 import executionRouter from './routes/execution';
+import taskDiffRouter from './routes/task-diff';
+import { createRepoContextRouter } from './routes/repo-context';
 import opencodeRouter from './routes/opencode';
 import batchesRouter from './routes/batches';
+import { createRunnersRouter } from './routes/runners';
+import { createSandboxGrantsRouter } from './routes/sandbox-grants';
+import approvalsRouter from './routes/approvals';
+import reviewsRouter from './routes/reviews';
 import transcribeRouter from './routes/transcribe';
 import { createLocalEventsRouter } from './sse/local';
 
@@ -38,9 +45,9 @@ const SAFE_SEC_FETCH_SITE_VALUES = new Set(['same-origin', 'same-site', 'none'])
  * Builds the same trusted-origin allowlist as `apps/api/src/app.ts`'s
  * `buildCorsOrigin()`/`addLoopbackAliases()` — same `CORS_ORIGIN` env var,
  * same localhost/127.0.0.1 aliasing, same Tauri origins. That helper isn't
- * exported from the API package, so this mirrors it rather than diverging
- * from it; if the two ever need to be shared for real, export one from
- * `@openlinear/api/app` and import it here instead of maintaining two copies.
+ * exported from the API package (and the sidecar no longer depends on it,
+ * W03a), so this mirrors it; if the two ever need to be shared, move the
+ * helper into a small shared package rather than importing the cloud API.
  */
 function buildTrustedOriginAllowlist(): Set<string> {
   const allowed = new Set<string>();
@@ -87,11 +94,15 @@ function buildTrustedOriginAllowlist(): Set<string> {
  *    `Sec-Fetch-Site` (when present) to be same-origin/same-site/none, stops
  *    the request from having a side effect in the first place.
  */
-export function createHostOriginGuard(port: number) {
-  const allowedHosts = new Set([`127.0.0.1:${port}`, `localhost:${port}`, `[::1]:${port}`]);
+export function createHostOriginGuard(port: number | (() => number)) {
+  const resolvePort = typeof port === 'function' ? port : () => port;
   const allowedOrigins = buildTrustedOriginAllowlist();
 
   return function hostOriginGuard(req: Request, res: Response, next: NextFunction): void {
+    // Resolved per request so a sidecar bound to an ephemeral port (API_PORT=0)
+    // checks the port it actually listens on.
+    const current = resolvePort();
+    const allowedHosts = new Set([`127.0.0.1:${current}`, `localhost:${current}`, `[::1]:${current}`]);
     const host = req.headers.host;
     if (!host || !allowedHosts.has(host)) {
       res.status(403).json({ error: 'forbidden_host' });
@@ -116,7 +127,7 @@ export function createHostOriginGuard(port: number) {
   };
 }
 
-export function createSidecarApp(options: { port?: number } = {}): Application {
+export function createSidecarApp(options: { port?: number | (() => number) } = {}): Application {
   const app = express();
   const port = options.port ?? Number(process.env.API_PORT ?? 3001);
 
@@ -129,16 +140,25 @@ export function createSidecarApp(options: { port?: number } = {}): Application {
   app.use(makeRateLimiter(60_000, 120, 'sidecar'));
 
   app.get('/health', (_req, res) => {
-    res.json({ ok: true, service: 'sidecar' });
+    // W03a: report the persistence mode (never a credential) so the shell and
+    // tests can see an API-only sidecar.
+    res.json({ ok: true, service: 'sidecar', persistence: resolvePersistenceMode() });
   });
 
+  // FE-04: `/api/approvals` and `/api/tasks/:id/approvals*`; W19a: `/api/tasks/:id/reviews*` (per-route auth).
+  app.use('/api', approvalsRouter);
+  app.use('/api', reviewsRouter);
+  app.use('/api/tasks', taskDiffRouter);
+  app.use('/api/tasks', createRepoContextRouter());
   app.use('/api/tasks', executionRouter);
   app.use('/api/opencode', opencodeRouter);
   app.use('/api/batches', batchesRouter);
+  app.use('/api/runners', createRunnersRouter());
+  app.use('/api/sandbox/grants', createSandboxGrantsRouter());
   app.use('/api/transcribe', transcribeRouter);
   app.use('/api/events', createLocalEventsRouter());
 
-  app.use(buildErrorHandler());
+  app.use(createErrorHandler());
 
   return app;
 }

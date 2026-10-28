@@ -1,16 +1,20 @@
-import { Router, Response } from 'express';
+import { Router, type Response } from 'express';
 import { z } from 'zod';
-import { prisma, Prisma } from '@openlinear/db';
-import { requireAuth, AuthRequest } from '../middleware/auth';
+import { prisma, type Prisma } from '@openlinear/db';
+import { requireAuth, type AuthRequest } from '../middleware/auth';
 import { assertTaskAccess } from '../services/ownership';
 import { getUserTeamIds } from '../services/team-scope';
+import { resolvePrincipalForUser } from '../tenancy/context';
+import { scopedTaskWhere } from '../tenancy/scopes';
 import { paginated, paginationSkipTake } from '../schemas/pagination';
 import { HttpError, ValidationError } from '../errors';
 import { PRISMA_TX_OPTIONS } from '../lib/constants';
 import { persistAndDeliver } from '../events/outbox';
 import { deliverToLocalClients } from '../events/hub';
+import { resolveTaskEventResource } from '../sse';
+import type { DomainEventResource } from '../events/types';
 import { executionSseId } from '@openlinear/execution-core';
-import { validateBody, ValidatedRequest } from '../middleware/validate';
+import { validateBody, type ValidatedRequest } from '../middleware/validate';
 
 const router: Router = Router();
 
@@ -51,16 +55,25 @@ const createRunSchema = z.object({
   externalSessionId: z.string().min(1).optional(),
 });
 
+/**
+ * A recorded price is a positive, finite amount: insights and usage read a
+ * stored cost as "known spend", so 0 or a negative value would show as (or
+ * subtract from) real money. A run without a price leaves `costUsd` unset.
+ * The cap stays far below the column's `Decimal(12, 6)` limit.
+ */
+const MAX_AGENT_RUN_COST_USD = 100_000;
+const tokenCount = z.number().int().min(0).max(2_147_483_647);
+
 const updateRunSchema = z.object({
   status: z.enum(['pending', 'running', 'succeeded', 'failed', 'cancelled']).optional(),
   endedAt: z.string().datetime().optional(),
-  costUsd: z.number().optional(),
+  costUsd: z.number().finite().positive().max(MAX_AGENT_RUN_COST_USD).optional(),
   costBasis: z.string().nullable().optional(),
-  inputTokens: z.number().int().optional(),
-  outputTokens: z.number().int().optional(),
-  cachedInputTokens: z.number().int().optional(),
-  cacheWriteTokens: z.number().int().optional(),
-  reasoningTokens: z.number().int().optional(),
+  inputTokens: tokenCount.optional(),
+  outputTokens: tokenCount.optional(),
+  cachedInputTokens: tokenCount.optional(),
+  cacheWriteTokens: tokenCount.optional(),
+  reasoningTokens: tokenCount.optional(),
   prUrl: z.string().nullable().optional(),
   errorMessage: z.string().nullable().optional(),
   externalSessionId: z.string().nullable().optional(),
@@ -94,7 +107,7 @@ router.get(
       throw new HttpError(400, 'TASK_OR_USER_REQUIRED', 'taskId or userId is required');
     }
 
-    const where: { taskId?: string; userId?: string; task?: { teamId: { in: string[] } } } = {};
+    const where: Prisma.AgentRunWhereInput = {};
 
     if (taskId) {
       await assertTaskAccess(taskId, req.userId!, 'view');
@@ -110,7 +123,10 @@ router.get(
         res.json(paginated([], 0, page, pageSize));
         return;
       }
-      where.task = { teamId: { in: teamIds } };
+      // Own runs on team tasks the principal can still read (project deny,
+      // revoked membership and PAT workspace binding apply).
+      const principal = req.tenancy ?? await resolvePrincipalForUser(req.userId!);
+      where.task = scopedTaskWhere(principal, { teamId: { in: teamIds } });
     }
 
     const [runs, total] = await prisma.$transaction(
@@ -161,9 +177,20 @@ router.patch(
   validateBody(updateRunSchema),
   async (req: AuthRequest & ValidatedRequest<z.infer<typeof updateRunSchema>>, res: Response) => {
     const id = req.params.id as string;
-    const existing = await prisma.agentRun.findUnique({ where: { id }, select: { id: true, taskId: true } });
+    const existing = await prisma.agentRun.findUnique({ where: { id }, select: { id: true, taskId: true, userId: true, executionAttempt: { select: { id: true } } } });
     if (!existing) throw new HttpError(404, 'NOT_FOUND', 'Agent run not found');
     await assertTaskAccess(existing.taskId, req.userId!, 'full');
+    // A run's outcome, usage and cost are reported by whoever started it (the
+    // `userId` set on create). Other members with full task access must not
+    // rewrite them: insights read these columns as the project's history.
+    if (existing.userId !== req.userId) {
+      throw new HttpError(403, 'AGENT_RUN_NOT_OWNER', 'Only the user who started this agent run can update it');
+    }
+    // Runs of the execution service are recorded through its attempt
+    // callbacks (capability-bound); their outcome and cost are not editable here.
+    if (existing.executionAttempt) {
+      throw new HttpError(409, 'AGENT_RUN_MANAGED', 'This run is recorded by the execution service; its outcome and cost cannot be edited');
+    }
     const body = req.validBody!;
     const data: Prisma.AgentRunUpdateInput = {};
     if (body.status !== undefined) data.status = body.status;
@@ -196,7 +223,7 @@ router.post(
         id: true,
         taskId: true,
         userId: true,
-        task: { select: { teamId: true, workspaceId: true, creatorId: true } },
+        task: { select: { teamId: true, workspaceId: true, creatorId: true, projectId: true } },
       },
     });
     if (!run) throw new HttpError(404, 'NOT_FOUND', 'Agent run not found');
@@ -205,6 +232,9 @@ router.post(
     const userIds = [req.userId!, run.userId, run.task.creatorId].filter((id): id is string => Boolean(id));
     const teamIds = run.task.teamId ? [run.task.teamId] : [];
     const workspaceIds = run.task.workspaceId ? [run.task.workspaceId] : [];
+    // Live and replayed progress is authorized against the task's resource,
+    // not the routing audience (a denied workspace member gets nothing).
+    const resource: DomainEventResource = (await resolveTaskEventResource(run.task)) ?? { type: 'user' };
 
     const stored: Array<{ seq: number; sseId: string }> = [];
     for (const event of events) {
@@ -235,11 +265,13 @@ router.post(
         type: 'execution:progress',
         occurredAt: new Date().toISOString(),
         actorId: req.userId!,
-        workspaceId: run.task.workspaceId,
+        workspaceId: resource.workspaceId ?? run.task.workspaceId,
         payload,
         userIds,
         teamIds,
         workspaceIds,
+        resourceType: resource.type,
+        projectId: resource.projectId ?? null,
       });
       stored.push({ seq: event.seq, sseId });
     }
@@ -250,8 +282,9 @@ router.post(
         type: 'execution:progress',
         payload: { runId, taskId: run.taskId, seq: last.seq, type: last.type, payload: last.payload ?? {} },
         actorId: req.userId!,
-        workspaceId: run.task.workspaceId,
+        workspaceId: resource.workspaceId ?? run.task.workspaceId,
         audience: { userIds, teamIds, workspaceIds },
+        resource,
       });
     }
 

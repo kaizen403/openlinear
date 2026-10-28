@@ -7,8 +7,8 @@ import express, {
 } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
-import rateLimit, { RateLimitRequestHandler } from 'express-rate-limit';
 import pinoHttp from 'pino-http';
+import { ipRateLimiter, principalRateLimiter, readRateLimitConfig } from './middleware/rate-limit';
 import { randomUUID } from 'node:crypto';
 import labelRoutes from './routes/labels';
 import tasksRouter from './routes/tasks';
@@ -18,6 +18,11 @@ import authRouter from './routes/auth';
 import reposRouter from './routes/repos';
 import teamsRouter from './routes/teams';
 import projectsRouter from './routes/projects';
+import { plansRouter, projectPlansRouter } from './routes/plans';
+import { projectSchedulesRouter, schedulesRouter } from './routes/schedules';
+import { projectInsightsRouter, workspaceInsightsRouter } from './routes/insights';
+import { knowledgeRouter, projectKnowledgeRouter } from './routes/knowledge';
+import { projectWebhooksRouter, webhooksRouter, workspaceWebhooksRouter } from './routes/webhooks';
 import workspacesRouter from './routes/workspaces';
 import inboxRouter from './routes/inbox';
 import searchRouter from './routes/search';
@@ -40,14 +45,21 @@ import ssoRouter from './routes/sso';
 import auditRouter from './routes/audit';
 import sessionsRouter from './routes/sessions';
 import totpRouter from './routes/totp';
+import executionsRouter from './routes/executions';
+import githubAppRouter from './routes/github-app';
 import { clients } from './sse';
-import { logger } from './logger';
+import { httpLogRedaction, logger } from './logger';
 import { isOwnershipError } from './services/ownership';
 import { isValidationError, isHttpError } from './errors';
 import { buildErrorEnvelope } from './lib/http';
 import { Prisma, prisma } from '@openlinear/db';
 import { requireAuth, requireInteractiveSession } from './middleware/auth';
 import { secretsAreConfigured } from './lib/secrets';
+import { checkReadiness } from './readiness';
+import { routeTiming } from './middleware/route-timing';
+
+/** Probe endpoints: polled by the orchestrator and deploy checks, never rate limited. */
+const PROBE_PATHS = new Set(['/health', '/livez', '/readyz']);
 
 function addLoopbackAliases(allowed: Set<string>, origin: string) {
   allowed.add(origin);
@@ -87,30 +99,6 @@ function buildCorsOrigin(): cors.CorsOptions['origin'] {
   };
 }
 
-function makeRateLimiter(windowMs: number, max: number, name: string): RateLimitRequestHandler {
-  return rateLimit({
-    windowMs,
-    limit: max,
-    standardHeaders: 'draft-7',
-    legacyHeaders: false,
-    skip: (req) => {
-      if (process.env.NODE_ENV === 'test') return true;
-      return req.path === '/api/events' || req.path.startsWith('/api/events');
-    },
-    handler: (req, res) => {
-      const retryAfterSeconds = Math.ceil(windowMs / 1000);
-      res.status(429).json(buildErrorEnvelope(
-        'RATE_LIMITED',
-        'Too many requests',
-        {
-          details: { scope: name, retryAfterSeconds },
-          extras: { scope: name, retryAfterSeconds },
-        },
-      ));
-    },
-  });
-}
-
 function isMountedGithubOAuthPath(path: string): boolean {
   return path === '/github' || path.startsWith('/github/');
 }
@@ -145,15 +133,10 @@ export function createApp(): Application {
         res.setHeader('x-request-id', id);
         return id;
       },
-      redact: {
-        paths: [
-          'req.headers.authorization',
-          'req.headers.cookie',
-          'req.query.token',
-          'res.headers["set-cookie"]',
-        ],
-        censor: '[REDACTED]',
-      },
+      // Shared with the base logger (logger.ts): credential headers, redirect
+      // locations, sensitive query parameters (also scrubbed from the logged
+      // URL), and credential-bearing body fields.
+      ...httpLogRedaction(),
       customLogLevel: (_req, res, err) => {
         if (err || res.statusCode >= 500) return 'error';
         if (res.statusCode >= 400) return 'warn';
@@ -162,6 +145,8 @@ export function createApp(): Application {
     }),
   );
 
+  app.use(routeTiming());
+
   app.use(
     cors({
       origin: buildCorsOrigin(),
@@ -169,17 +154,25 @@ export function createApp(): Application {
     }),
   );
 
-  // Rate limiters mount BEFORE body parsing so floods are cheap to reject
-  const defaultLimiter = makeRateLimiter(60_000, 100, 'default');
-  const authLimiter = makeRateLimiter(60_000, 60, 'auth');
-  const githubOAuthLimiter = makeRateLimiter(60_000, 120, 'github-oauth');
-  const reposUrlLimiter = makeRateLimiter(60_000, 10, 'repos-url');
+  // Rate limiters mount BEFORE body parsing so floods are cheap to reject.
+  // Authenticated requests are limited per principal (session user / PAT),
+  // the rest per IP (middleware/rate-limit.ts).
+  const rateLimitConfig = readRateLimitConfig();
+  const defaultLimiter = principalRateLimiter(rateLimitConfig);
+  const authLimiter = ipRateLimiter(rateLimitConfig, rateLimitConfig.authMax, 'auth');
+  const githubOAuthLimiter = ipRateLimiter(rateLimitConfig, rateLimitConfig.githubOAuthMax, 'github-oauth');
+  const reposUrlLimiter = ipRateLimiter(rateLimitConfig, rateLimitConfig.reposUrlMax, 'repos-url');
 
   app.use((req, res, next) => {
     if (req.path === '/api/events' || req.path.startsWith('/api/events')) {
       return next();
     }
-    if (req.path === '/health' || isGithubOAuthPath(req.path)) {
+    if (PROBE_PATHS.has(req.path) || isGithubOAuthPath(req.path)) {
+      return next();
+    }
+    // W03a attempt callbacks are capability-authenticated and limited per
+    // attempt inside their router; a busy run shares the user's IP.
+    if (req.path.startsWith('/api/executions/attempts/')) {
       return next();
     }
     return defaultLimiter(req, res, next);
@@ -192,6 +185,11 @@ export function createApp(): Application {
     return authLimiter(req, res, next);
   });
   app.use('/api/repos/url', reposUrlLimiter);
+
+  // W03a execution control. Mounted before the app-wide JSON parser: its
+  // routes parse their own bodies after authentication (the attempt log
+  // snapshot is larger than 256 KB).
+  app.use('/api/executions', executionsRouter);
 
   app.use(express.json({ limit: '256kb' }));
 
@@ -206,6 +204,20 @@ export function createApp(): Application {
   app.use('/api/pats', requireInteractiveSession, patsRouter);
   app.use('/api/teams', teamsRouter);
   app.use('/api/projects', projectsRouter);
+  app.use('/api/projects', projectPlansRouter);
+  app.use('/api/plans', plansRouter);
+  app.use('/api/projects', projectSchedulesRouter);
+  app.use('/api/schedules', schedulesRouter);
+  // W15b insights (project and workspace).
+  app.use('/api/projects', projectInsightsRouter);
+  app.use('/api/workspaces', workspaceInsightsRouter);
+  // W19b / FE-13 project knowledge.
+  app.use('/api/projects', projectKnowledgeRouter);
+  // FE-14 outbound webhooks (project and workspace endpoints).
+  app.use('/api/projects', projectWebhooksRouter);
+  app.use('/api/workspaces', workspaceWebhooksRouter);
+  app.use('/api/webhooks', webhooksRouter);
+  app.use('/api/knowledge', knowledgeRouter);
   app.use('/api/workspaces', workspacesRouter);
   app.use('/api/inbox', inboxRouter);
   app.use('/api', commentsRouter);
@@ -225,6 +237,8 @@ export function createApp(): Application {
   app.use('/uploads', uploadsRouter);
   app.use('/api/events', eventsRouter);
   app.use('/api/users', usersRouter);
+  // W10a: GitHub App installation discovery for workspace admins.
+  app.use('/api/github-app', githubAppRouter);
   app.use('/api/invitations', requireAuth, invitationsRouter);
 app.use('/api/members', requireAuth, membersRouter);
   app.use('/api', ssoRouter);
@@ -236,20 +250,35 @@ app.use('/api/members', requireAuth, membersRouter);
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
   });
 
+  // Readiness gates traffic (Container Apps readiness probe, deploy
+  // verification): the database answers and every migration shipped in this
+  // build is applied. 503 uses the standard error envelope.
   app.get('/readyz', async (req: Request, res: Response) => {
-    try {
-      await prisma.$queryRaw`SELECT 1`;
+    const timestamp = new Date().toISOString();
+    const result = await checkReadiness();
+    if (result.ready) {
       res.json({
         status: 'ok',
-        timestamp: new Date().toISOString(),
+        timestamp,
         clients: clients.size,
         database: 'ok',
+        migrations: result.migrations.state,
         secrets: secretsAreConfigured() ? 'ok' : 'misconfigured',
       });
-    } catch (err) {
-      req.log?.warn({ err }, '[Health] readiness check failed');
-      res.status(503).json({ status: 'degraded', database: 'unavailable' });
+      return;
     }
+    if (result.reason === 'database') {
+      req.log?.warn({ err: result.error }, '[Health] readiness check failed: database');
+      res.status(503).json(buildErrorEnvelope('DATABASE_UNAVAILABLE', 'Database is unreachable', {
+        extras: { status: 'unavailable', timestamp, database: 'unavailable' },
+      }));
+      return;
+    }
+    req.log?.warn({ missing: result.migrations.missing }, '[Health] readiness check failed: migrations pending');
+    res.status(503).json(buildErrorEnvelope('MIGRATIONS_PENDING', 'Database schema is behind this build', {
+      details: { missing: result.migrations.missing, expected: result.migrations.expected },
+      extras: { status: 'unavailable', timestamp, database: 'ok', migrations: 'pending' },
+    }));
   });
 
   app.get('/health', async (req: Request, res: Response) => {

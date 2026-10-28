@@ -22,7 +22,7 @@ export const navigation: NavSection[] = [
     items: [
       { title: 'Claude Desktop', href: '/clients/claude-desktop' },
       { title: 'OpenCode', href: '/clients/opencode' },
-      { title: 'Cursor & Others', href: '/clients/other' },
+      { title: 'Claude Code, Codex & others', href: '/clients/other' },
     ],
   },
   {
@@ -34,8 +34,12 @@ export const navigation: NavSection[] = [
       { title: 'Teams', href: '/tools/teams' },
       { title: 'Labels', href: '/tools/labels' },
       { title: 'Phases', href: '/tools/phases' },
-      { title: 'Issues', href: '/tools/issues' },
+      { title: 'Issues & search', href: '/tools/issues' },
       { title: 'Bulk Create Plan', href: '/tools/bulk-create-plan' },
+      { title: 'Reviewable plans', href: '/tools/plans' },
+      { title: 'Recurring issues', href: '/tools/schedules' },
+      { title: 'Project knowledge', href: '/tools/knowledge' },
+      { title: 'Insights', href: '/tools/insights' },
     ],
   },
   {

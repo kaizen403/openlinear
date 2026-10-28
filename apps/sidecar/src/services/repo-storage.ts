@@ -1,4 +1,4 @@
-import { lstatSync, mkdirSync, realpathSync } from 'fs';
+import { lstatSync, mkdirSync, realpathSync, type Stats } from 'fs';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'path';
 import { homedir } from 'os';
 
@@ -58,7 +58,7 @@ function realpathOrNearestAncestor(targetPath: string): string {
 }
 
 function ensureReposDirIsSafe(dir: string): void {
-  let stat;
+  let stat: Stats;
   try {
     stat = lstatSync(dir);
   } catch (err) {
@@ -78,11 +78,22 @@ function ensureReposDirIsSafe(dir: string): void {
   }
 }
 
-// Refuse a symlinked or other-owned repo storage directory at import time,
-// creating it privately (0700) if it doesn't exist yet. See C6a F9.
-ensureReposDirIsSafe(REPOS_DIR);
+let resolvedReposDirReal: string | null = null;
 
-const resolvedReposDirReal = realpathOrNearestAncestor(REPOS_DIR);
+/**
+ * Refuses a symlinked or other-owned repo storage directory, creating it
+ * privately (0700) if it doesn't exist yet (C6a F9), and returns its real
+ * path. Runs on first use rather than at import, so importing this module
+ * (tests, evals, tooling) never creates the per-user app-data directory; the
+ * sidecar calls it at boot so a bad directory still fails fast.
+ */
+export function assertReposDirSafe(): string {
+  if (resolvedReposDirReal === null) {
+    ensureReposDirIsSafe(REPOS_DIR);
+    resolvedReposDirReal = realpathOrNearestAncestor(REPOS_DIR);
+  }
+  return resolvedReposDirReal;
+}
 
 export interface AssertPathInsideReposDirOptions {
   description?: string;
@@ -104,7 +115,7 @@ export function assertPathInsideReposDir(
     typeof options === 'string' ? { description: options } : options;
 
   const resolvedTarget = realpathOrNearestAncestor(targetPath);
-  const rel = relative(resolvedReposDirReal, resolvedTarget);
+  const rel = relative(assertReposDirSafe(), resolvedTarget);
   const isRoot = rel === '';
   const isInside = !isRoot && !rel.startsWith('..') && !isAbsolute(rel);
 

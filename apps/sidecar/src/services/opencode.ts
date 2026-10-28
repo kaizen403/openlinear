@@ -1,10 +1,17 @@
 import { spawn, ChildProcess } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import { existsSync } from 'node:fs';
 import { createOpencodeClient } from '@opencode-ai/sdk';
 import type { OpencodeClient, Config as OpenCodeServerConfig } from '@opencode-ai/sdk';
-import { broadcastToAll } from '@openlinear/api/sse';
-import { logger } from '@openlinear/api/logger';
+import { publishGlobalEvent as broadcastToAll } from '../events/publisher';
+import { logger } from '../lib/logger';
+import type {
+  AttemptServerManager,
+  LaunchSpec,
+  LaunchedServer,
+  SandboxRunMetadata,
+} from '../sandbox/opencode-attempts';
 
 // OpenCode treats port 0 as "try 4096, then fall back to any free port".
 // Using it by default avoids crashing when a user's own opencode server is already running.
@@ -21,7 +28,17 @@ interface ServerHandle {
   close(): Promise<void>;
 }
 
-let serverHandle: ServerHandle | null = null;
+/**
+ * The shared (management / trusted-host) server runs unsandboxed and can run
+ * commands as the user, so like the per-attempt servers it requires a
+ * per-launch random password: other local processes — including a check or
+ * setup step tunnelled through an egress proxy — cannot drive it.
+ */
+interface SharedServerHandle extends ServerHandle {
+  authorization: string;
+}
+
+let serverHandle: SharedServerHandle | null = null;
 let restartAttempts = 0;
 let restarting = false;
 let shuttingDown = false;
@@ -79,9 +96,12 @@ export function buildAgentEnv(sourceEnv: NodeJS.ProcessEnv = process.env): NodeJ
 // `"*": "allow"` except `doom_loop: "ask"`, `external_directory: {"*": "ask", ...}`,
 // and `read: {"*.env": "ask", "*.env.*": "ask"}` (verified against
 // packages/opencode/src/agent/agent.ts in the upstream source, per R1 §3.9 —
-// this is NOT fully reflected in the pinned @opencode-ai/sdk@1.2.5 `Config`
-// type, whose `permission` field only models `edit`/`bash`/`webfetch`/
-// `doom_loop`/`external_directory`, no `read`). `Permission.ask` blocks on a
+// this is NOT fully reflected in the v1 `Config` type exported by
+// `@opencode-ai/sdk` (1.18.30 installed, `^1.18.23` in package.json; checked
+// 2026-10-26), whose `permission` field only models `edit`/`bash`/`webfetch`/
+// `doom_loop`/`external_directory`, no `read`. The SDK's `/v2` types do model
+// `permission.read` and `compaction`; this file still uses the v1 client).
+// `Permission.ask` blocks on a
 // Deferred with no timeout (R1 §3.9), so a headless run that trips any of
 // these hangs forever. We deny them outright instead: `Permission.evaluate`
 // is last-match-wins, so setting `doom_loop`/`external_directory` here (as
@@ -90,7 +110,7 @@ export function buildAgentEnv(sourceEnv: NodeJS.ProcessEnv = process.env): NodeJ
 // `read` overrides just those two entries while leaving the default `read: "*":
 // "allow"` untouched for everything else.
 //
-// `compaction` is likewise absent from the pinned SDK's `Config` type but is
+// `compaction` is likewise absent from the v1 SDK `Config` type but is
 // a real, documented `opencode.json` field (packages/opencode/src/session/
 // compaction.ts, R1 §3.4) — the SDK's generated `Config` type appears to only
 // cover the subset accepted by `PUT /config`, not the full config-file schema
@@ -107,24 +127,26 @@ type AgentOpenCodeConfig = OpenCodeServerConfig & {
     tail_turns?: number;
     preserve_recent_tokens?: number;
   };
-  plugin?: string[];
 };
 
-function buildAgentConfig(): AgentOpenCodeConfig {
+// W09a: the config used to list `plugin: ['opencode-openlinear']`. No such
+// package exists in this repo or on npm under that name; OpenCode would try to
+// install it at startup (network) and fail. Removed rather than shipped as a
+// phantom dependency of every server launch.
+export function buildAgentConfig(): AgentOpenCodeConfig {
   return {
     autoupdate: false,
     share: 'disabled',
-      permission: {
-        doom_loop: 'deny',
-        external_directory: 'deny',
-        read: {
-          '*.env': 'deny',
-          '*.env.*': 'deny',
-          '*.env.example': 'allow',
-        },
+    permission: {
+      doom_loop: 'deny',
+      external_directory: 'deny',
+      read: {
+        '*.env': 'deny',
+        '*.env.*': 'deny',
+        '*.env.example': 'allow',
       },
-      compaction: { auto: true, prune: true },
-      plugin: ['opencode-openlinear'],
+    },
+    compaction: { auto: true, prune: true },
   };
 }
 
@@ -208,18 +230,39 @@ function spawnOpencodeServer(
   hostname: string,
   port: number,
   timeout: number,
-): Promise<ServerHandle> {
+): Promise<SharedServerHandle> {
   const args = ['serve', `--hostname=${hostname}`, `--port=${port}`];
+  const password = randomBytes(24).toString('base64url');
   const proc = spawn(bin, args, {
     env: {
       ...buildAgentEnv(),
       OPENCODE_CONFIG_CONTENT: JSON.stringify(buildAgentConfig()),
+      OPENCODE_SERVER_PASSWORD: password,
     },
     // Own process group so shutdown can signal OpenCode *and* every bash/tool
     // child it spawned, instead of leaving them reparented to init (C-05/T12).
     detached: true,
   });
+  return awaitServerListening(proc, timeout, { authorization: `Basic ${Buffer.from(`opencode:${password}`).toString('base64')}` });
+}
 
+/**
+ * W09a launch path for per-attempt servers: the spec is already wrapped by
+ * the sandbox provider (sandbox-exec / bwrap argv, the policy's complete
+ * environment, and any extra fds such as the seccomp program). Nothing from
+ * the sidecar's environment is added here.
+ */
+export function launchSandboxedServer(spec: LaunchSpec, timeout: number): Promise<LaunchedServer> {
+  const proc = spawn(spec.command, spec.args, {
+    cwd: spec.cwd,
+    env: spec.env,
+    detached: true,
+    stdio: ['ignore', 'pipe', 'pipe', ...spec.extraFds],
+  });
+  return awaitServerListening(proc, timeout, {});
+}
+
+function awaitServerListening<T extends object>(proc: ChildProcess, timeout: number, extra: T): Promise<ServerHandle & T> {
   return new Promise((resolve, reject) => {
     const id = setTimeout(() => {
       void killProcess(proc);
@@ -243,6 +286,7 @@ function spawnOpencodeServer(
           clearTimeout(id);
           resolved = true;
           resolve({
+            ...extra,
             url: match[1],
             proc,
             close: () => killProcess(proc),
@@ -283,7 +327,7 @@ function canRetryWithDynamicPort(err: unknown, port: number): boolean {
   );
 }
 
-async function startOpencodeServer(bin: string): Promise<ServerHandle> {
+async function startOpencodeServer(bin: string): Promise<SharedServerHandle> {
   try {
     return await spawnOpencodeServer(bin, OPENCODE_HOST, OPENCODE_PORT, OPENCODE_TIMEOUT);
   } catch (err) {
@@ -296,7 +340,7 @@ async function startOpencodeServer(bin: string): Promise<ServerHandle> {
   }
 }
 
-function attachExitWatcher(handle: ServerHandle) {
+function attachExitWatcher(handle: SharedServerHandle) {
   handle.proc.once('exit', (code, signal) => {
     if (shuttingDown) return;
     /* v8 ignore start -- stale-handle guard for overlapping crash/restart races. */
@@ -346,19 +390,86 @@ async function scheduleRestart() {
   /* v8 ignore stop */
 }
 
+let attemptManager: AttemptServerManager<OpencodeClient> | null = null;
+let attemptManagerPromise: Promise<AttemptServerManager<OpencodeClient>> | null = null;
+
+/**
+ * W09a — directory-scoped clients (an attempt's worktree) are served by that
+ * attempt's own sandboxed OpenCode server. Loaded lazily so the management
+ * path (provider auth/config, no directory) has no sandbox dependency.
+ */
+function getAttemptManager(): Promise<AttemptServerManager<OpencodeClient>> {
+  if (attemptManager) return Promise.resolve(attemptManager);
+  if (!attemptManagerPromise) {
+    attemptManagerPromise = import('../sandbox/opencode-attempts').then(({ AttemptServerManager: Manager }) => {
+      attemptManager = new Manager<OpencodeClient>({
+        launch: launchSandboxedServer,
+        resolveBinary: resolveOpencodeBinary,
+        createClient: (config) => createOpencodeClient(config),
+        agentConfig: () => ({ ...buildAgentConfig() }),
+        managementConfig: async () => {
+          if (!serverHandle) return null;
+          const result = await createOpencodeClient({ baseUrl: serverHandle.url, headers: { authorization: serverHandle.authorization } }).config.get();
+          return (result.data ?? null) as Record<string, unknown> | null;
+        },
+        onEvent: (event, payload) => broadcastToAll(event, payload),
+      });
+      return attemptManager;
+    });
+  }
+  return attemptManagerPromise;
+}
+
 export async function getClientForUser(userId: string, directory?: string): Promise<OpencodeClient> {
+  if (directory) {
+    // Enforce mode: a per-attempt server under the verified sandbox, or a
+    // SANDBOX_UNAVAILABLE error with nothing spawned. Trusted-host (explicit,
+    // logged grant) falls through to the legacy shared server below.
+    const route = await (await getAttemptManager()).route(userId, directory);
+    if (route.kind === 'attempt') return route.client;
+  }
+
   if (!serverHandle) {
     throw new Error('OpenCode server is not running. Call initOpenCode() first.');
   }
 
-  // userId is accepted for future per-user isolation (see docs/limitations.md).
-  // Today it is recorded only for log correlation; the client targets the shared server.
+  // userId is recorded only for log correlation on the shared server.
   void userId;
 
   return createOpencodeClient({
     baseUrl: serverHandle.url,
+    headers: { authorization: serverHandle.authorization },
     ...(directory ? { directory } : {}),
   });
+}
+
+/**
+ * FE-04: whether the next session on `directory` asks before edits, shell
+ * commands and fetches. Only per-attempt (sandboxed) servers can: the
+ * shared trusted-host server keeps its policy.
+ */
+export async function setAttemptApprovalMode(directory: string, mode: 'policy' | 'ask'): Promise<void> {
+  (await getAttemptManager()).setApprovalMode(directory, mode);
+}
+
+/** FE-04: the approval mode of the running attempt server for `directory` (null = none, e.g. trusted-host). */
+export function getAttemptApprovalMode(directory: string): 'policy' | 'ask' | null {
+  return attemptManager?.approvalModeOf(directory) ?? null;
+}
+
+/** Sandbox mode/provider/policy-hash/grant for the attempt at `directory`. */
+export function getSandboxRunMetadata(directory: string): SandboxRunMetadata | null {
+  return attemptManager?.metadataFor(directory) ?? null;
+}
+
+/** Stops the per-attempt server for `directory` (call when a worktree is released). False when this process runs none for it. */
+export async function releaseAttemptServer(directory: string): Promise<boolean> {
+  return (await attemptManager?.release(directory)) ?? false;
+}
+
+/** W12a: identity of this process's attempt server for `directory` (journaled for orphan stopping). */
+export function getAttemptServerProcess(directory: string): { pid: number | null; launchedAt: number; spawnedBy: number } | null {
+  return attemptManager?.processFor(directory) ?? null;
 }
 
 export interface OpenCodeStatus {
@@ -450,6 +561,10 @@ export function shutdownOpenCode(): Promise<void> {
   // index.ts's competing exit path.
   shutdownPromise = (async () => {
     try {
+      const attempts = attemptManager;
+      attemptManager = null;
+      attemptManagerPromise = null;
+      await attempts?.shutdownAll();
       if (handle) {
         await handle.close();
         if (serverHandle === handle) {
