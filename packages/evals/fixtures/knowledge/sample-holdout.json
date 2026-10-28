@@ -1,0 +1,44 @@
+{
+  "schemaVersion": "openlinear.eval.knowledge/v1",
+  "id": "sample-holdout",
+  "holdout": "openlinear-sample-holdout",
+  "description": "Synthetic project knowledge for the five sample tasks (W19b ablation smoke). General conventions plus two entries learned from development tasks; nothing comes from validation or sealed tasks. Pipeline check only.",
+  "entries": [
+    {
+      "kind": "convention",
+      "title": "Run the visible test before you finish",
+      "body": "Every library here has a node:test file under test/. Run it with `node --test <file>` and make it pass before you stop. Never edit a test to make it pass.",
+      "provenance": { "author": "eval maintainers (synthetic)", "derivedFrom": [] }
+    },
+    {
+      "kind": "convention",
+      "title": "Ranges are inclusive and order-free",
+      "body": "Range helpers treat both ends as inclusive and accept the bounds in either order: normalise with Math.min / Math.max before looping.",
+      "provenance": { "author": "eval maintainers (synthetic)", "derivedFrom": ["sum-range-inclusive"] }
+    },
+    {
+      "kind": "convention",
+      "title": "Slugs collapse separators",
+      "body": "Slug and identifier helpers collapse every run of non-alphanumeric characters into one dash and trim dashes at both ends.",
+      "provenance": { "author": "eval maintainers (synthetic)", "derivedFrom": ["slugify-collapse"] }
+    },
+    {
+      "kind": "convention",
+      "title": "A cache read is a use",
+      "body": "In our caches, reading a key counts as using it: a hit moves the key to the most recent position, and a miss changes nothing.",
+      "provenance": { "author": "eval maintainers (synthetic)", "derivedFrom": [] }
+    },
+    {
+      "kind": "procedure",
+      "title": "Parsers validate the whole input first",
+      "body": "Before reading values out of a string, check that the entire input matches the grammar (anchor the pattern with ^ and $, allow repetition) and throw on anything else, including the empty string.",
+      "provenance": { "author": "eval maintainers (synthetic)", "derivedFrom": [] }
+    },
+    {
+      "kind": "note",
+      "title": "Libraries are plain ESM",
+      "body": "Packages are ESM (\"type\": \"module\") with no build step and no dependencies. Keep it that way.",
+      "provenance": { "author": "eval maintainers (synthetic)", "derivedFrom": [] }
+    }
+  ]
+}

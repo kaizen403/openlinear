@@ -1,0 +1,124 @@
+{
+ "dataset_package": "terminal-bench/terminal-bench",
+ "image_count": 157,
+ "image_repository": "harborframework/terminal-bench",
+ "release_tag": "v4.0.0",
+ "schema_version": 1,
+ "task_count": 66,
+ "tasks": [
+  {
+   "dataset_package": "terminal-bench/terminal-bench",
+   "image_repository": "harborframework/terminal-bench",
+   "images": [
+    {
+     "compose_services": [],
+     "context": "environment",
+     "digest": "sha256:2879e29fdb7a997c4dd32e12b026a9f95f17670e4b5619b52c62b3cdbb5a71de",
+     "dockerfile": "environment/Dockerfile",
+     "kind": "environment",
+     "pinned_ref": "harborframework/terminal-bench:atrx-vep-crispr-environment-942b2c3a7def0a2e@sha256:2879e29fdb7a997c4dd32e12b026a9f95f17670e4b5619b52c62b3cdbb5a71de",
+     "ref": "harborframework/terminal-bench:atrx-vep-crispr-environment-942b2c3a7def0a2e",
+     "release_ref": "harborframework/terminal-bench:atrx-vep-crispr-environment-v4.0.0",
+     "role": "environment",
+     "status": "built",
+     "task": "atrx-vep-crispr"
+    },
+    {
+     "compose_services": [],
+     "context": "tests",
+     "digest": "sha256:935ef7ba68b484c20b48857a4b086e10076897b003819c2c3356fae2f28a46f3",
+     "dockerfile": "tests/Dockerfile",
+     "kind": "verifier",
+     "pinned_ref": "harborframework/terminal-bench:atrx-vep-crispr-verifier-4727aa67ef5af0f2@sha256:935ef7ba68b484c20b48857a4b086e10076897b003819c2c3356fae2f28a46f3",
+     "ref": "harborframework/terminal-bench:atrx-vep-crispr-verifier-4727aa67ef5af0f2",
+     "release_ref": "harborframework/terminal-bench:atrx-vep-crispr-verifier-v4.0.0",
+     "role": "verifier",
+     "status": "built",
+     "task": "atrx-vep-crispr"
+    }
+   ],
+   "release_tag": "v4.0.0",
+   "schema_version": 1,
+   "source_repository": "https://github.com/harbor-framework/terminal-bench",
+   "source_sha": "452bf305c6daa62fc59061d22133a7cbc7c1572e",
+   "task": "atrx-vep-crispr",
+   "task_package": "terminal-bench/atrx-vep-crispr"
+  },
+  {
+   "dataset_package": "terminal-bench/terminal-bench",
+   "image_repository": "harborframework/terminal-bench",
+   "images": [
+    {
+     "compose_services": [],
+     "context": "environment",
+     "digest": "sha256:73e931f5311398037c2230a4aa1a179fde8619942ecdaa9d98f4fdea548dba47",
+     "dockerfile": "environment/Dockerfile",
+     "kind": "environment",
+     "pinned_ref": "harborframework/terminal-bench:batched-eval-parity-environment-00a2f89ac64b1a55@sha256:73e931f5311398037c2230a4aa1a179fde8619942ecdaa9d98f4fdea548dba47",
+     "ref": "harborframework/terminal-bench:batched-eval-parity-environment-00a2f89ac64b1a55",
+     "release_ref": "harborframework/terminal-bench:batched-eval-parity-environment-v4.0.0",
+     "role": "environment",
+     "status": "built",
+     "task": "batched-eval-parity"
+    },
+    {
+     "compose_services": [],
+     "context": "tests",
+     "digest": "sha256:ed22ecd4714d6f9455421cca5278b43a1421a2a35e5479d8d663671a5b1c84b3",
+     "dockerfile": "tests/Dockerfile",
+     "kind": "verifier",
+     "pinned_ref": "harborframework/terminal-bench:batched-eval-parity-verifier-4ec557b03f34f592@sha256:ed22ecd4714d6f9455421cca5278b43a1421a2a35e5479d8d663671a5b1c84b3",
+     "ref": "harborframework/terminal-bench:batched-eval-parity-verifier-4ec557b03f34f592",
+     "release_ref": "harborframework/terminal-bench:batched-eval-parity-verifier-v4.0.0",
+     "role": "verifier",
+     "status": "built",
+     "task": "batched-eval-parity"
+    }
+   ],
+   "release_tag": "v4.0.0",
+   "schema_version": 1,
+   "source_repository": "https://github.com/harbor-framework/terminal-bench",
+   "source_sha": "452bf305c6daa62fc59061d22133a7cbc7c1572e",
+   "task": "batched-eval-parity",
+   "task_package": "terminal-bench/batched-eval-parity"
+  },
+  {
+   "dataset_package": "terminal-bench/terminal-bench",
+   "image_repository": "harborframework/terminal-bench",
+   "images": [
+    {
+     "compose_services": [],
+     "context": "environment",
+     "digest": "sha256:ad16a57e6a031a5937dc77e9e7cc3c7aada8159ccf192731f5de783fa7667624",
+     "dockerfile": "environment/Dockerfile",
+     "kind": "environment",
+     "pinned_ref": "harborframework/terminal-bench:biped-contact-dynamics-environment-3d0b2d5b2223e011@sha256:ad16a57e6a031a5937dc77e9e7cc3c7aada8159ccf192731f5de783fa7667624",
+     "ref": "harborframework/terminal-bench:biped-contact-dynamics-environment-3d0b2d5b2223e011",
+     "release_ref": "harborframework/terminal-bench:biped-contact-dynamics-environment-v4.0.0",
+     "role": "environment",
+     "status": "built",
+     "task": "biped-contact-dynamics"
+    },
+    {
+     "compose_services": [],
+     "context": "tests",
+     "digest": "sha256:333df062b1a4b04d0b0777aaedc61715714bb5f8f749d0a4ac0669a24842bfb3",
+     "dockerfile": "tests/Dockerfile",
+     "kind": "verifier",
+     "pinned_ref": "harborframework/terminal-bench:biped-contact-dynamics-verifier-c9389decdbd82efc@sha256:333df062b1a4b04d0b0777aaedc61715714bb5f8f749d0a4ac0669a24842bfb3",
+     "ref": "harborframework/terminal-bench:biped-contact-dynamics-verifier-c9389decdbd82efc",
+     "release_ref": "harborframework/terminal-bench:biped-contact-dynamics-verifier-v4.0.0",
+     "role": "verifier",
+     "status": "built",
+     "task": "biped-contact-dynamics"
+    }
+   ],
+   "release_tag": "v4.0.0",
+   "schema_version": 1,
+   "source_repository": "https://github.com/harbor-framework/terminal-bench",
+   "source_sha": "452bf305c6daa62fc59061d22133a7cbc7c1572e",
+   "task": "biped-contact-dynamics",
+   "task_package": "terminal-bench/biped-contact-dynamics"
+  }
+ ]
+}
