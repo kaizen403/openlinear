@@ -1,7 +1,8 @@
 import { prisma } from '@openlinear/db';
-import { logger } from '@openlinear/api/logger';
-import { assertTaskOwned } from '@openlinear/api/ownership';
-import { broadcastToTask } from '@openlinear/api/sse';
+import { logger } from '../../lib/logger';
+import { authorizeTaskAccess } from '../../auth/task-access';
+import { publishTaskEvent } from '../../events/publisher';
+import { batchCredentials } from './registry';
 import {
   batchActivityId, completionKey, formatExecutionMode, hasQueuedOrRunningBatchTasks,
 } from '@openlinear/execution-core';
@@ -73,7 +74,7 @@ async function commitWorktree(batch: BatchState, worktreePath: string | null, ti
   assertActive(batch, task);
   if (!staged) throw new Error('Agent finished without committable code changes');
   await execGit(['-C', worktreePath, 'commit', '-m', `feat: ${title.toLowerCase().replace(/[^a-z0-9\s]/g, '').slice(0, 50)}`], {
-    env: { ...process.env, ...getGitIdentityEnv() },
+    env: getGitIdentityEnv(),
   });
   assertActive(batch, task);
 }
@@ -224,7 +225,7 @@ export async function finalizeBatch(batchId: string): Promise<void> {
       || repository.fullName !== batch.repository.fullName)) throw new Error('Repository settings changed before publication');
     if (!batch.userId) throw new Error('The batch has no authenticated owner');
     await Promise.all(completed.map(async (task) => {
-      const authority = await assertTaskOwned(task.taskId, batch.userId!);
+      const authority = await authorizeTaskAccess(batchCredentials.get(batch.id), task.taskId, 'write');
       const expectedProject = batch.taskProjectIds?.[task.taskId];
       if (expectedProject !== undefined && authority.projectId !== expectedProject) throw new Error('Task access scope changed before publication');
     }));
@@ -293,7 +294,7 @@ export async function finalizeBatch(batchId: string): Promise<void> {
       logger.warn({ err: receiptError, batchId }, '[Batch] Publication and DB completion confirmed; retaining workspace because receipt update failed');
     }
     for (const task of updated) {
-      try { broadcastToTask('task:updated', { ...task, labels: task.labels.map((relation) => relation.label) }); }
+      try { publishTaskEvent(task.id, 'task:updated', { ...task, labels: task.labels.map((relation) => relation.label) }); }
       catch (broadcastError) { logger.warn({ err: broadcastError }, '[Batch] Completed task broadcast failed'); }
     }
     for (const task of completed) {

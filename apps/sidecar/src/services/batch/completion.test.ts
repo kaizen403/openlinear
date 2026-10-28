@@ -71,15 +71,26 @@ vi.mock('@openlinear/db', () => ({
     $transaction: mocks.transaction,
   },
 }));
-vi.mock('@openlinear/api/logger', () => ({
+vi.mock('../../lib/logger', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
-vi.mock('@openlinear/api/sse', () => ({
-  broadcastToTask: mocks.broadcastToTask,
-  broadcastToTaskById: mocks.broadcastToTaskById,
-  broadcastToUser: mocks.broadcastToUser,
+// W03a: the sidecar publisher replaces the cloud API SSE module; the
+// stand-in keeps the previous call shapes for the assertions below.
+vi.mock('../../events/publisher', () => ({
+  publishTaskEvent: (taskId: string, event: string, payload: unknown) => (event === 'task:updated'
+    ? mocks.broadcastToTask(event, payload)
+    : mocks.broadcastToTaskById(taskId, event, payload)),
+  publishUserEvent: mocks.broadcastToUser,
+  publishGlobalEvent: vi.fn(),
+  registerTaskOwnerResolver: vi.fn(),
+  attachAttemptRelay: vi.fn(),
+  detachAttemptRelay: vi.fn(),
 }));
-vi.mock('@openlinear/api/ownership', () => ({ assertTaskOwned: mocks.assertTaskOwned }));
+// Publication re-authorization is the control plane's decision.
+vi.mock('../../auth/task-access', () => ({
+  authorizeTaskAccess: (credential: { principal?: { userId?: string } } | null, taskId: string) =>
+    mocks.assertTaskOwned(taskId, credential?.principal?.userId ?? null),
+}));
 vi.mock('../repo-storage', () => ({
   REPOS_DIR: '/owned/repos',
   buildReposPath: (...segments: string[]) => ['/owned/repos', ...segments].join('/'),
