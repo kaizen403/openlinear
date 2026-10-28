@@ -8,6 +8,8 @@ vi.mock('../../services/opencode', () => ({
 }));
 
 import { OpenCodeRunner } from './index';
+import { getClientForUser } from '../../services/opencode';
+import { SandboxUnavailableError } from '../../sandbox/errors';
 
 type RunnerClient = Awaited<ReturnType<NonNullable<ConstructorParameters<typeof OpenCodeRunner>[0]>>>;
 
@@ -114,10 +116,12 @@ describe('OpenCodeRunner session isolation', () => {
       messageId: 'a-message',
     });
     expect(JSON.stringify(outA)).not.toContain('B ');
+    // W07: an error is followed by exactly one terminal turn.finished(error).
     expect(outB.map((event) => event.t)).toEqual([
-      'session.started', 'message.delta', 'tool.finished', 'usage', 'error',
+      'session.started', 'message.delta', 'tool.finished', 'usage', 'error', 'turn.finished',
     ]);
-    expect(outB.at(-1)).toMatchObject({ t: 'error', message: 'B private error' });
+    expect(outB.at(-2)).toMatchObject({ t: 'error', message: 'B private error' });
+    expect(outB.at(-1)).toEqual({ t: 'turn.finished', turn: 0, reason: 'error' });
     expect(JSON.stringify(outB)).not.toContain('A ');
     expect(a.subscribe.mock.invocationCallOrder[0]).toBeLessThan(a.promptAsync.mock.invocationCallOrder[0]);
   });
@@ -197,7 +201,12 @@ describe('OpenCodeRunner session isolation', () => {
     ];
     const { runner } = makeRunner('session-a', events);
     const out = await collect(await runner.start(startInput('run-a')));
-    expect(out.map((event) => event.t)).toEqual(['session.started', 'message.delta', 'turn.finished']);
+    // W07: malformed events are reported (without their content), never decoded.
+    expect(out.filter((event) => event.t !== 'diagnostic').map((event) => event.t)).toEqual(['session.started', 'message.delta', 'turn.finished']);
+    expect(out.filter((event) => event.t === 'diagnostic')).toEqual(
+      Array.from({ length: 4 }, () => ({ t: 'diagnostic', code: 'malformed_line', message: 'Ignored a malformed OpenCode event' })),
+    );
+    expect(JSON.stringify(out)).not.toMatch(/conflicting|empty id|invalid id|bad event/);
   });
 
   it('allows only explicit connection liveness without a session id', async () => {
@@ -270,6 +279,160 @@ describe('OpenCodeRunner session isolation', () => {
     expect(out.slice(1)).toEqual([
       { t: 'permission.requested', id: 'own-request', tool: 'bash', detail: 'own permission' },
       { t: 'error', code: 'session', message: 'own error', retryable: false },
+      { t: 'turn.finished', turn: 0, reason: 'error' },
     ]);
+  });
+});
+
+describe('FE-04 — OpenCode 1.x permission requests (`permission.asked`) and replies', () => {
+  it('decodes the bundled server\'s permission.asked with everything it covers (secrets scrubbed); foreign sessions ignored', async () => {
+    const { runner } = makeRunner('session-a', [
+      { type: 'permission.asked', properties: { id: 'per_foreign', sessionID: 'session-b', permission: 'bash', patterns: ['rm -rf /'] } },
+      { type: 'permission.asked', properties: { id: 'per_1', sessionID: 'session-a', permission: 'bash', patterns: ['pnpm test --filter api'], metadata: { command: 'OPENAI_API_KEY=sk-proj-abcdefghijklmnopqrstuvwxyz0123456789 pnpm test --filter api' } } },
+      idle('session-a'),
+    ]);
+    const out = await collect(await runner.start(startInput('run-perm')));
+    const requests = out.filter((event) => event.t === 'permission.requested');
+    expect(requests).toHaveLength(1);
+    expect(requests[0]).toMatchObject({ t: 'permission.requested', id: 'per_1', tool: 'bash' });
+    const detail = requests[0]?.t === 'permission.requested' ? requests[0].detail : '';
+    expect(detail).toContain('pnpm test --filter api');
+    expect(detail).not.toContain('sk-proj-abcdefghijklmnopqrstuvwxyz0123456789');
+    expect(out.some((event) => event.t === 'diagnostic' && event.code === 'unknown_event')).toBe(false);
+  });
+
+  it('replies through the session permission route (once / always / reject) and fails loudly without one', async () => {
+    const reply = vi.fn(async (_args: unknown) => ({ data: true }));
+    const subscribe = vi.fn(async () => ({ stream: { async *[Symbol.asyncIterator]() { yield idle('session-a'); } } }));
+    const client = {
+      session: { create: vi.fn(async () => ({ data: { id: 'session-a' } })), promptAsync: vi.fn(async () => ({})) },
+      event: { subscribe },
+      postSessionIdPermissionsPermissionId: reply,
+    };
+    const session = await new OpenCodeRunner(async () => client as unknown as RunnerClient).start(startInput('run-reply'));
+    await session.replyPermission('per_1', 'allow', 'once');
+    await session.replyPermission('per_2', 'allow', 'session');
+    await session.replyPermission('per_3', 'deny', 'session');
+    expect(reply.mock.calls.map(([args]) => args)).toEqual([
+      { path: { id: 'session-a', permissionID: 'per_1' }, body: { response: 'once' } },
+      { path: { id: 'session-a', permissionID: 'per_2' }, body: { response: 'always' } },
+      { path: { id: 'session-a', permissionID: 'per_3' }, body: { response: 'reject' } },
+    ]);
+
+    const bare = { session: client.session, event: { subscribe } };
+    const silent = await new OpenCodeRunner(async () => bare as unknown as RunnerClient).start(startInput('run-bare'));
+    await expect(silent.replyPermission('per_4', 'allow', 'once')).rejects.toThrow('cannot answer permission requests');
+  });
+});
+
+describe('W09a — sandbox refusal is never bypassed', () => {
+  it('propagates SANDBOX_UNAVAILABLE instead of falling back to an ambient OpenCode server', async () => {
+    const refusal = new SandboxUnavailableError('No verified sandbox', ['fake blocker']);
+    vi.mocked(getClientForUser).mockRejectedValueOnce(refusal);
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    try {
+      await expect(new OpenCodeRunner().start(startInput('run-sandbox'))).rejects.toBe(refusal);
+      expect(fetchSpy).not.toHaveBeenCalled();
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+});
+
+describe('W07a — OpenCodeSession.abort() needs a positive server receipt', () => {
+  function hangingRunner(answers: unknown[]) {
+    const abort = vi.fn(async (): Promise<unknown> => (answers.length > 1 ? answers.shift() : answers[0]));
+    const client = {
+      session: {
+        create: vi.fn(async () => ({ data: { id: 'ses-abort' } })),
+        promptAsync: vi.fn(async () => ({})),
+        abort,
+      },
+      event: {
+        subscribe: vi.fn(async () => ({
+          stream: {
+            async *[Symbol.asyncIterator]() {
+              yield legacyText('ses-abort', 'working');
+              await new Promise<void>(() => undefined);
+            },
+          },
+        })),
+      },
+    };
+    return { runner: new OpenCodeRunner(async () => client as unknown as RunnerClient), abort };
+  }
+
+  async function startedSession(runner: OpenCodeRunner) {
+    const session = await runner.start(startInput('run-abort'));
+    const iterator = session.events[Symbol.asyncIterator]();
+    const seen: AgentEvent[] = [];
+    for (;;) {
+      const next = await iterator.next();
+      if (next.done) break;
+      seen.push(next.value);
+      if (next.value.t === 'message.delta') break;
+    }
+    return { session, iterator, seen };
+  }
+
+  async function drain(iterator: AsyncIterator<AgentEvent>, seen: AgentEvent[]) {
+    for (;;) {
+      const next = await iterator.next();
+      if (next.done) return seen;
+      seen.push(next.value);
+    }
+  }
+
+  it('rejects when OpenCode answers false, ends the stream unconfirmed, and retries on the next abort', async () => {
+    const { runner, abort } = hangingRunner([{ data: false }, { data: true }]);
+    const { session, iterator, seen } = await startedSession(runner);
+    await expect(session.abort()).rejects.toThrow('OpenCode did not confirm the abort request');
+    await drain(iterator, seen);
+    expect(seen.slice(-2)).toEqual([
+      { t: 'error', code: 'cancel_unconfirmed', message: 'OpenCode did not acknowledge the abort request', retryable: false },
+      { t: 'turn.finished', turn: 0, reason: 'error' },
+    ]);
+    expect(seen.some((event) => event.t === 'cancel.receipt')).toBe(false);
+    // A later explicit abort sends a fresh request; its positive answer is the receipt.
+    await expect(session.abort()).resolves.toBeUndefined();
+    expect(abort).toHaveBeenCalledTimes(2);
+  });
+
+  it('treats an error body or a transport failure as unconfirmed', async () => {
+    const errorBody = hangingRunner([{ error: { name: 'NotFoundError' }, data: undefined }]);
+    const first = await startedSession(errorBody.runner);
+    await expect(first.session.abort()).rejects.toThrow('did not confirm');
+
+    const thrown = hangingRunner([undefined]);
+    thrown.abort.mockImplementation(async () => {
+      throw new Error('ECONNREFUSED');
+    });
+    const second = await startedSession(thrown.runner);
+    await expect(second.session.abort()).rejects.toThrow('did not confirm');
+  });
+
+  it('resolves with a server-ack receipt when OpenCode answers true (one request, single flight)', async () => {
+    const { runner, abort } = hangingRunner([{ data: true }]);
+    const { session, iterator, seen } = await startedSession(runner);
+    await Promise.all([session.interrupt(), session.abort()]);
+    await drain(iterator, seen);
+    expect(seen.slice(-2)).toEqual([
+      { t: 'cancel.receipt', via: 'interrupt', confirmedBy: 'server-ack' },
+      { t: 'turn.finished', turn: 0, reason: 'interrupted' },
+    ]);
+    expect(abort).toHaveBeenCalledTimes(1);
+  });
+
+  it('is a no-op after the server reported the turn over', async () => {
+    const abort = vi.fn(async () => ({ data: false }));
+    const client = {
+      session: { create: vi.fn(async () => ({ data: { id: 'ses-done' } })), promptAsync: vi.fn(async () => ({})), abort },
+      event: { subscribe: vi.fn(async () => ({ stream: { async *[Symbol.asyncIterator]() { yield idle('ses-done'); } } })) },
+    };
+    const session = await new OpenCodeRunner(async () => client as unknown as RunnerClient).start(startInput('run-done'));
+    const events = await collect(session);
+    expect(events.at(-1)).toEqual({ t: 'turn.finished', turn: 0, reason: 'idle' });
+    await expect(session.abort()).resolves.toBeUndefined();
+    expect(abort).not.toHaveBeenCalled();
   });
 });
