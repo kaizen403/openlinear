@@ -1,0 +1,72 @@
+name: Sandbox
+
+# W09a: runs the agent-sandbox acceptance corpus against a real Linux
+# bubblewrap boundary (fabricated HOME, fake secrets, loopback canaries only).
+# A missing or non-enforcing sandbox is a failure here, not a skip.
+
+on:
+  pull_request:
+    paths:
+      - 'apps/sidecar/src/sandbox/**'
+      - 'apps/sidecar/src/services/opencode.ts'
+      - 'apps/sidecar/src/services/git-credentials.ts'
+      - '.github/workflows/sandbox.yml'
+  push:
+    branches: [dev, main]
+    paths:
+      - 'apps/sidecar/src/sandbox/**'
+      - 'apps/sidecar/src/services/opencode.ts'
+      - 'apps/sidecar/src/services/git-credentials.ts'
+      - '.github/workflows/sandbox.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sandbox-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  TURBO_TELEMETRY_DISABLED: 1
+
+jobs:
+  linux-bubblewrap:
+    name: Linux bubblewrap corpus
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install bubblewrap
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends bubblewrap procps
+          bwrap --version
+
+      - name: Allow unprivileged user namespaces (Ubuntu 24.04 AppArmor default)
+        run: |
+          if [ -f /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+          bwrap --unshare-all --ro-bind / / /bin/true
+
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Generate Prisma client
+        run: pnpm --filter @openlinear/db db:generate
+
+      - name: Typecheck sidecar
+        run: pnpm --filter @openlinear/sidecar typecheck
+
+      - name: Sandbox corpus (real bubblewrap), git hardening (real git), verification checks under the enforced sandbox
+        env:
+          OPENLINEAR_SANDBOX_CORPUS_REQUIRED: '1'
+        run: pnpm --filter @openlinear/sidecar exec vitest run src/sandbox/ src/run/verification/verification.realsandbox.test.ts
