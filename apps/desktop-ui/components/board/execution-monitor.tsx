@@ -17,13 +17,13 @@ interface ExecutionMonitorProps {
 }
 
 const statusConfig = {
-  cloning: { icon: GitBranch, label: 'Cloning repository', color: 'text-linear-accent' },
-  executing: { icon: Code, label: 'Running OpenCode', color: 'text-linear-accent' },
-  committing: { icon: GitBranch, label: 'Committing changes', color: 'text-yellow-400' },
-  creating_pr: { icon: GitPullRequest, label: 'Creating PR', color: 'text-purple-400' },
-  done: { icon: Check, label: 'Complete', color: 'text-green-400' },
-  cancelled: { icon: X, label: 'Cancelled', color: 'text-gray-400' },
-  error: { icon: X, label: 'Error', color: 'text-red-400' },
+  cloning: { icon: GitBranch, label: 'Cloning repository', color: 'text-status-in-progress' },
+  executing: { icon: Code, label: 'Running OpenCode', color: 'text-status-in-progress' },
+  committing: { icon: GitBranch, label: 'Committing changes', color: 'text-status-committing' },
+  creating_pr: { icon: GitPullRequest, label: 'Creating PR', color: 'text-status-publishing' },
+  done: { icon: Check, label: 'Complete', color: 'text-status-done' },
+  cancelled: { icon: X, label: 'Cancelled', color: 'text-status-cancelled' },
+  error: { icon: X, label: 'Error', color: 'text-status-error' },
 };
 
 export function ExecutionMonitor({ taskId, progress }: ExecutionMonitorProps) {
