@@ -1,6 +1,7 @@
 import { Router, Response } from 'express';
 import { prisma } from '@openlinear/db';
-import { broadcastToUser } from '../sse';
+import { transactionWithEvents } from '../events/outbox';
+import { appendToTarget, userTarget } from '../events/targets';
 import { requireAuth, AuthRequest } from '../middleware/auth';
 import { validateBody, ValidatedRequest } from '../middleware/validate';
 import { updateSettingsBodySchema, UpdateSettingsBody } from '../schemas/settings';
@@ -28,13 +29,16 @@ router.patch(
 
     const userId = req.userId!;
     const data = req.validBody!;
-    const settings = await prisma.settings.upsert({
-      where: { userId },
-      update: data,
-      create: { userId, ...data },
+    // W04b: the settings row and `settings:updated` commit together.
+    const settings = await transactionWithEvents(async (tx) => {
+      const row = await tx.settings.upsert({
+        where: { userId },
+        update: data,
+        create: { userId, ...data },
+      });
+      await appendToTarget(tx, userTarget(userId), 'settings:updated', row, userId);
+      return row;
     });
-
-    broadcastToUser(userId, 'settings:updated', settings);
     res.json(settings);
     
   },

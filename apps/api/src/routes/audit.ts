@@ -2,6 +2,7 @@ import { Router, Response } from 'express';
 import { requireAuth, AuthRequest } from '../middleware/auth';
 import { prisma } from '@openlinear/db';
 import { buildErrorEnvelope } from '../lib/http';
+import { workspaceRestrictionFor } from '../tenancy/context';
 
 const router: Router = Router();
 
@@ -9,9 +10,12 @@ router.get('/:workspaceId/audit-log', requireAuth, async (req: AuthRequest, res:
   const workspaceId = req.params.workspaceId as string;
   const userId = req.userId!;
 
-  const membership = await prisma.workspaceMember.findUnique({
-    where: { workspaceId_userId: { userId, workspaceId } },
-  });
+  const restriction = workspaceRestrictionFor(userId);
+  const membership = restriction && restriction !== workspaceId
+    ? null
+    : await prisma.workspaceMember.findUnique({
+        where: { workspaceId_userId: { userId, workspaceId } },
+      });
 
   if (!membership || (membership.role !== 'owner' && membership.role !== 'admin')) {
     res.status(403).json(buildErrorEnvelope('FORBIDDEN', 'Owner or admin role required'));

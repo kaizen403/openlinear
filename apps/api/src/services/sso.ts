@@ -1,7 +1,8 @@
 import crypto from 'node:crypto';
 import * as client from 'openid-client';
-import { prisma } from '@openlinear/db';
+import { decryptToken, encryptToken, isEncryptedToken, prisma } from '@openlinear/db';
 import { getJwtSecret } from '../lib/secrets';
+import { logger } from '../logger';
 
 // --- Encryption helpers (AES-256-GCM, key derived from JWT_SECRET) ---
 
@@ -103,13 +104,24 @@ export function ssoTxtRecord(token: string): string {
   return `openlinear-sso=${token}`;
 }
 
+function dnsVerificationSkipped(): boolean {
+  if (process.env.NODE_ENV === 'test') return true;
+  // Never in production: the bypass would let any owner claim any domain.
+  return process.env.OPENLINEAR_SSO_SKIP_DNS === '1' && process.env.NODE_ENV !== 'production';
+}
+
+/**
+ * Domain ownership check for SSO. Every allowed domain must publish the TXT
+ * record: one verified domain used to mark the whole configuration (all its
+ * domains) as verified.
+ */
 export async function verifyWorkspaceDomain(workspaceId: string): Promise<{ verified: boolean; record: string }> {
   const config = await prisma.sSOConfig.findUnique({ where: { workspaceId } });
   if (!config?.verificationToken || config.allowedDomains.length === 0) {
     return { verified: false, record: '' };
   }
   const record = ssoTxtRecord(config.verificationToken);
-  if (process.env.OPENLINEAR_SSO_SKIP_DNS === '1' || process.env.NODE_ENV === 'test') {
+  if (dnsVerificationSkipped()) {
     await prisma.sSOConfig.update({
       where: { workspaceId },
       data: { domainVerifiedAt: new Date() },
@@ -122,48 +134,162 @@ export async function verifyWorkspaceDomain(workspaceId: string): Promise<{ veri
     try {
       const chunks = await resolveTxt(domain);
       const values = chunks.map((row) => row.join(''));
-      if (values.includes(record)) {
-        await prisma.sSOConfig.update({
-          where: { workspaceId },
-          data: { domainVerifiedAt: new Date() },
-        });
-        return { verified: true, record };
-      }
+      if (!values.includes(record)) return { verified: false, record };
     } catch {
-      // try next domain
+      return { verified: false, record };
     }
   }
-  return { verified: false, record };
+  await prisma.sSOConfig.update({
+    where: { workspaceId },
+    data: { domainVerifiedAt: new Date() },
+  });
+  return { verified: true, record };
 }
 
-export interface SsoStatePayload {
+// --- Login state (W02b) ---
+//
+// The previous implementation put `{ workspaceId, codeVerifier, nonce, ts }`
+// into the OAuth `state` as base64url JSON plus an HMAC: signed, not
+// encrypted. The PKCE verifier therefore travelled in the authorization URL
+// and the redirect back (defeating PKCE: anyone who saw the URL also had the
+// verifier), the state was not bound to the browser that started the flow,
+// and it could be replayed for ten minutes.
+//
+// Now the browser carries only an opaque random `state`. The verifier
+// (encrypted at rest), the nonce, the workspace and the redirect URI are
+// stored server-side, keyed by the state's hash; the row is single-use and
+// expires after ten minutes. Starting a flow also sets an HttpOnly,
+// SameSite=Lax cookie with a random binding secret whose hash is stored on
+// the row: the callback is honoured only in the browser that started it.
+
+export const SSO_STATE_TTL_MS = 10 * 60 * 1000;
+/** Cookie carrying the browser-binding secret of an SSO flow in progress. */
+export const SSO_BINDING_COOKIE = 'ol_sso_binding';
+/** Cookie path: sent to `/api/auth/sso/*` only. */
+export const SSO_BINDING_COOKIE_PATH = '/api/auth/sso';
+const SSO_STATE_RETENTION_MS = 60 * 60 * 1000;
+
+function sha256Hex(value: string): string {
+  return crypto.createHash('sha256').update(value).digest('hex');
+}
+
+function hashesEqual(a: string, b: string): boolean {
+  const left = Buffer.from(a, 'hex');
+  const right = Buffer.from(b, 'hex');
+  return left.length === right.length && left.length > 0 && crypto.timingSafeEqual(left, right);
+}
+
+export interface SsoConfigForLogin {
+  id: string;
   workspaceId: string;
+  issuerUrl: string;
+  clientId: string;
+  clientSecretEncrypted: string;
+}
+
+export interface StartedSsoLogin {
+  authUrl: string;
+  /** Value for the HttpOnly binding cookie. Never put it in a URL. */
+  bindingSecret: string;
+  expiresAt: Date;
+}
+
+export async function startSsoLogin(config: SsoConfigForLogin, redirectUri: string): Promise<StartedSsoLogin> {
+  const codeVerifier = client.randomPKCECodeVerifier();
+  const codeChallenge = await client.calculatePKCECodeChallenge(codeVerifier);
+  const nonce = client.randomNonce();
+  const state = crypto.randomBytes(32).toString('base64url');
+  const bindingSecret = crypto.randomBytes(32).toString('base64url');
+  const expiresAt = new Date(Date.now() + SSO_STATE_TTL_MS);
+
+  // Discovery first: no row is written for a provider that cannot be reached.
+  const authUrl = await buildOIDCAuthUrl(config, state, redirectUri, { codeChallenge, nonce });
+
+  await prisma.ssoAuthState.create({
+    data: {
+      stateHash: sha256Hex(state),
+      browserBindingHash: sha256Hex(bindingSecret),
+      workspaceId: config.workspaceId,
+      ssoConfigId: config.id,
+      issuerUrl: config.issuerUrl,
+      clientId: config.clientId,
+      codeVerifierEncrypted: encryptToken(codeVerifier),
+      nonce,
+      redirectUri,
+      expiresAt,
+    },
+  });
+
+  void prisma.ssoAuthState
+    .deleteMany({ where: { expiresAt: { lt: new Date(Date.now() - SSO_STATE_RETENTION_MS) } } })
+    .catch((err: unknown) => {
+      logger.warn({ err }, '[sso] failed to prune expired login states');
+    });
+
+  return { authUrl, bindingSecret, expiresAt };
+}
+
+export type SsoStateRejection = 'missing' | 'unknown' | 'replayed' | 'expired' | 'browser-mismatch';
+
+export interface SsoLoginState {
+  workspaceId: string;
+  ssoConfigId: string;
+  issuerUrl: string;
+  clientId: string;
   codeVerifier: string;
   nonce: string;
-  ts: number;
+  redirectUri: string;
 }
 
-export function signSsoState(payload: SsoStatePayload): string {
-  const body = Buffer.from(JSON.stringify(payload)).toString('base64url');
-  const sig = crypto.createHmac('sha256', getJwtSecret()).update(body).digest('base64url');
-  return `${body}.${sig}`;
-}
+export type ConsumedSsoState =
+  | { ok: true; login: SsoLoginState }
+  | { ok: false; reason: SsoStateRejection };
 
-export function verifySsoState(state: string): SsoStatePayload | null {
-  const [body, sig] = state.split('.');
-  if (!body || !sig) return null;
-  const expected = crypto.createHmac('sha256', getJwtSecret()).update(body).digest('base64url');
-  const a = Buffer.from(sig);
-  const b = Buffer.from(expected);
-  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
-  try {
-    const payload = JSON.parse(Buffer.from(body, 'base64url').toString()) as SsoStatePayload;
-    if (!payload.workspaceId || !payload.codeVerifier || !payload.nonce || !payload.ts) return null;
-    if (Date.now() - payload.ts > 10 * 60 * 1000) return null;
-    return payload;
-  } catch {
-    return null;
+/**
+ * Claim an SSO login state exactly once, from the browser that started it.
+ *
+ * A foreign browser (no or another binding cookie) is refused without
+ * consuming the state, so observing a callback URL is not enough to burn or
+ * use someone else's login. Of concurrent callbacks with the right cookie,
+ * exactly one claims the row (conditional UPDATE).
+ */
+export async function consumeSsoState(
+  state: string | undefined,
+  bindingSecret: string | undefined,
+): Promise<ConsumedSsoState> {
+  if (!state) return { ok: false, reason: 'missing' };
+  const row = await prisma.ssoAuthState.findUnique({ where: { stateHash: sha256Hex(state) } });
+  if (!row) return { ok: false, reason: 'unknown' };
+  if (row.consumedAt) return { ok: false, reason: 'replayed' };
+  const now = new Date();
+  if (row.expiresAt <= now) return { ok: false, reason: 'expired' };
+  if (!bindingSecret || !hashesEqual(sha256Hex(bindingSecret), row.browserBindingHash)) {
+    return { ok: false, reason: 'browser-mismatch' };
   }
+
+  const claimed = await prisma.ssoAuthState.updateMany({
+    where: { id: row.id, consumedAt: null, expiresAt: { gt: now } },
+    data: { consumedAt: now },
+  });
+  if (claimed.count !== 1) return { ok: false, reason: 'replayed' };
+
+  // Refuse anything that is not our ciphertext (no plaintext fallback).
+  if (!isEncryptedToken(row.codeVerifierEncrypted)) return { ok: false, reason: 'unknown' };
+  const codeVerifier = decryptToken(row.codeVerifierEncrypted);
+  if (!codeVerifier) return { ok: false, reason: 'unknown' };
+
+  return {
+    ok: true,
+    login: {
+      workspaceId: row.workspaceId,
+      ssoConfigId: row.ssoConfigId,
+      issuerUrl: row.issuerUrl,
+      clientId: row.clientId,
+      codeVerifier,
+      nonce: row.nonce,
+      redirectUri: row.redirectUri,
+    },
+  };
 }
 
 // --- OIDC Flow ---
@@ -265,4 +391,3 @@ export async function provisionSSOUser(input: {
 
   return user;
 }
-

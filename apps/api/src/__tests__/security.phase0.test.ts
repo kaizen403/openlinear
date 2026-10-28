@@ -1,5 +1,4 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import request from 'supertest';
 import jwt from 'jsonwebtoken';
 import { createApp } from '../app';
 import { prisma } from '@openlinear/db';
@@ -7,6 +6,7 @@ import { getJwtSecret, SecretConfigurationError } from '../lib/secrets';
 import { gitHttpsUrlSchema, gitRefSchema, localRepoPathSchema } from '../schemas/git';
 import { hashToken } from '../services/sessions';
 import { testJwtSecret } from './test-env';
+import { useTestServer } from './http';
 
 /**
  * Regression tests for the Phase 0 security fixes. Each `it` maps to a finding
@@ -14,6 +14,7 @@ import { testJwtSecret } from './test-env';
  */
 describe('Phase 0 security regressions', () => {
   const app = createApp();
+  const http = useTestServer(() => app);
   let userId: string;
   let otherUserId: string;
   let authToken: string;
@@ -74,7 +75,7 @@ describe('Phase 0 security regressions', () => {
   describe('two-factor bypass (F-002)', () => {
     it('refuses a 2FA-pending token as a bearer credential', async () => {
       const pending = sign({ userId, username: 'sec-phase0', twoFactorPending: true });
-      const res = await request(app)
+      const res = await http()
         .get('/api/auth/me')
         .set('Authorization', `Bearer ${pending}`);
       expect(res.status).toBe(401);
@@ -82,11 +83,11 @@ describe('Phase 0 security regressions', () => {
 
     it('refuses a 2FA-pending token on the SSE stream', async () => {
       const pending = sign({ userId, username: 'sec-phase0', twoFactorPending: true });
-      const query = await request(app).get(`/api/events?token=${pending}`);
+      const query = await http().get(`/api/events?token=${pending}`);
       expect(query.status).toBe(400);
       expect(query.body.code).toBe('SSE_TOKEN_QUERY_REMOVED');
 
-      const header = await request(app)
+      const header = await http()
         .get('/api/events')
         .set('Authorization', `Bearer ${pending}`);
       expect(header.status).toBe(401);
@@ -100,7 +101,7 @@ describe('Phase 0 security regressions', () => {
         data: { totpSecret: 'SECRETVALUE', backupCodes: ['hashed-code'], totpEnabled: true },
       });
 
-      const res = await request(app)
+      const res = await http()
         .get('/api/auth/me')
         .set('Authorization', `Bearer ${authToken}`);
 
@@ -123,7 +124,7 @@ describe('Phase 0 security regressions', () => {
         data: { title: 'orphan', creatorId: otherUserId },
       });
 
-      const res = await request(app)
+      const res = await http()
         .get(`/api/tasks/${orphan.id}`)
         .set('Authorization', `Bearer ${authToken}`);
 
@@ -133,7 +134,7 @@ describe('Phase 0 security regressions', () => {
 
   describe('email change chain (F-004)', () => {
     it('does not allow self-service email changes', async () => {
-      const res = await request(app)
+      const res = await http()
         .patch('/api/auth/me')
         .set('Authorization', `Bearer ${authToken}`)
         .send({ email: 'someone-elses-address@example.com' });
@@ -143,7 +144,7 @@ describe('Phase 0 security regressions', () => {
 
   describe('SSO takeover (F-003)', () => {
     it('does not advertise SSO for an unknown domain', async () => {
-      const res = await request(app).get('/api/auth/sso/check?email=someone@example.com');
+      const res = await http().get('/api/auth/sso/check?email=someone@example.com');
       expect(res.status).toBe(200);
       expect(res.body.ssoEnabled).toBe(false);
     });
@@ -154,7 +155,7 @@ describe('Phase 0 security regressions', () => {
       const previous = process.env.OPENLINEAR_ENABLE_GITHUB_OAUTH;
       delete process.env.OPENLINEAR_ENABLE_GITHUB_OAUTH;
       try {
-        const res = await request(app).get('/api/auth/github').redirects(0);
+        const res = await http().get('/api/auth/github').redirects(0);
         expect(res.status).toBe(503);
         expect(res.body.error?.code ?? res.body.code).toBe('GITHUB_OAUTH_DISABLED');
       } finally {
@@ -169,7 +170,7 @@ describe('Phase 0 security regressions', () => {
 
   describe('attachment serving (F-031 / C6a F14)', () => {
     it('requires authentication to download an upload', async () => {
-      const res = await request(app).get('/uploads/anything.png');
+      const res = await http().get('/uploads/anything.png');
       expect(res.status).toBe(401);
     });
   });

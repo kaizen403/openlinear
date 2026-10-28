@@ -1,14 +1,35 @@
 import { Router, Response } from 'express';
-import { prisma } from '@openlinear/db';
+import { prisma, type Prisma } from '@openlinear/db';
 import { z } from 'zod';
+import { filterUsersWithTaskAccess } from '../services/ownership';
+import { resolvePrincipalForUser } from '../tenancy/context';
+import { scopedTaskWhere } from '../tenancy/scopes';
 import { requireAuth, AuthRequest } from '../middleware/auth';
-import { broadcastToUser } from '../sse';
+import { transactionWithEvents } from '../events/outbox';
+import { appendToTarget, userTarget } from '../events/targets';
 import { paginationQuerySchema, paginated, paginationSkipTake } from '../schemas/pagination';
 import { HttpError, ValidationError } from '../errors';
 import { getPreferences, updatePreference, shouldNotify } from '../services/notification-preferences';
-import { PRISMA_TX_OPTIONS } from '../lib/constants';
+import { notificationCounts } from '../services/task-aggregates';
+import type { TenancyContext } from '../tenancy/types';
 
 const router: Router = Router();
+
+/**
+ * The caller's notifications, minus rows about tasks they can no longer read
+ * (explicit project deny, removed membership, or outside a PAT's workspace).
+ */
+function visibleNotificationWhereFor(userId: string, principal: TenancyContext): Prisma.NotificationWhereInput {
+  return {
+    userId,
+    OR: [{ taskId: null }, { task: scopedTaskWhere(principal) }],
+  };
+}
+
+async function visibleNotificationWhere(req: AuthRequest): Promise<Prisma.NotificationWhereInput> {
+  const principal = req.tenancy ?? await resolvePrincipalForUser(req.userId!);
+  return visibleNotificationWhereFor(req.userId!, principal);
+}
 
 const listQuerySchema = paginationQuerySchema.extend({
   unreadOnly: z
@@ -25,32 +46,28 @@ router.get('/', requireAuth, async (req: AuthRequest, res: Response) => {
   }
   const { page, pageSize, unreadOnly } = parsed.data;
 
-  const where = {
-    userId: req.userId!,
-    ...(unreadOnly ? { readAt: null } : {}),
+  const principal = req.tenancy ?? await resolvePrincipalForUser(req.userId!);
+  const visible = visibleNotificationWhereFor(req.userId!, principal);
+  const where: Prisma.NotificationWhereInput = {
+    AND: [visible, unreadOnly ? { readAt: null } : {}],
   };
 
-  const [notifications, total, unreadCount] = await prisma.$transaction(
-    async (tx) => {
-      const items = await tx.notification.findMany({
-        where,
-        orderBy: { createdAt: 'desc' },
-        ...paginationSkipTake(page, pageSize),
-        include: {
-          actor: { select: { id: true, username: true, avatarUrl: true } },
-        },
-      });
-      const count = await tx.notification.count({ where });
-      const unread = await tx.notification.count({
-        where: { userId: req.userId!, readAt: null },
-      });
-      return [items, count, unread] as const;
-    },
-    PRISMA_TX_OPTIONS,
-  );
+  // The page and both counts run concurrently; the counts are one statement
+  // (services/task-aggregates.ts). They used to be three sequential
+  // statements in a READ COMMITTED transaction, which gave no shared snapshot.
+  const [notifications, counts] = await Promise.all([
+    prisma.notification.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      ...paginationSkipTake(page, pageSize),
+      include: {
+        actor: { select: { id: true, username: true, avatarUrl: true } },
+      },
+    }),
+    notificationCounts(principal, { unreadOnly }),
+  ]);
 
-  res.json({ ...paginated(notifications, total, page, pageSize), unreadCount });
-  
+  res.json({ ...paginated(notifications, counts.total, page, pageSize), unreadCount: counts.unread });
 });
 
 router.patch(
@@ -59,8 +76,8 @@ router.patch(
   async (req: AuthRequest, res: Response) => {
 
     const id = req.params.id as string;
-    const existing = await prisma.notification.findUnique({
-      where: { id },
+    const existing = await prisma.notification.findFirst({
+      where: { AND: [{ id }, await visibleNotificationWhere(req)] },
       select: { id: true, userId: true, readAt: true },
     });
     if (!existing || existing.userId !== req.userId) {
@@ -114,7 +131,8 @@ export default router;
 
 export interface CreateNotificationInput {
   recipientUserId: string;
-  actorUserId: string;
+  /** null: no person did it (e.g. an agent run finished a blocker). */
+  actorUserId: string | null;
   type: 'mention' | 'assignment' | 'status_change' | 'comment';
   taskId?: string | null;
   commentId?: string | null;
@@ -124,7 +142,7 @@ export interface CreateNotificationInput {
 export async function createNotification(
   input: CreateNotificationInput,
 ): Promise<void> {
-  if (input.recipientUserId === input.actorUserId) return;
+  if (input.actorUserId !== null && input.recipientUserId === input.actorUserId) return;
 
   const typeToEvent: Record<string, string> = {
     mention: 'mentioned',
@@ -143,20 +161,29 @@ export async function createNotification(
   }
 
   try {
-    const row = await prisma.notification.create({
-      data: {
-        userId: input.recipientUserId,
-        actorUserId: input.actorUserId,
-        type: input.type,
-        taskId: input.taskId ?? null,
-        commentId: input.commentId ?? null,
-        body: input.body,
-      },
-      include: {
-        actor: { select: { id: true, username: true, avatarUrl: true } },
-      },
+    // Notification bodies quote task titles and comments. A recipient who can
+    // no longer read the task (explicit deny, removed membership) gets none.
+    if (input.taskId) {
+      const visible = await filterUsersWithTaskAccess(input.taskId, [input.recipientUserId]);
+      if (visible.length === 0) return;
+    }
+    // W04b: the row and its event commit together.
+    await transactionWithEvents(async (tx) => {
+      const row = await tx.notification.create({
+        data: {
+          userId: input.recipientUserId,
+          actorUserId: input.actorUserId,
+          type: input.type,
+          taskId: input.taskId ?? null,
+          commentId: input.commentId ?? null,
+          body: input.body,
+        },
+        include: {
+          actor: { select: { id: true, username: true, avatarUrl: true } },
+        },
+      });
+      await appendToTarget(tx, userTarget(input.recipientUserId), 'notification:created', row, input.actorUserId);
     });
-    broadcastToUser(input.recipientUserId, 'notification:created', row);
   } catch {
     // best-effort: never break the calling mutation
   }

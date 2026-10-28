@@ -1,10 +1,10 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import request from 'supertest';
 import jwt from 'jsonwebtoken';
 import { createApp } from '../app';
 import { prisma } from '@openlinear/db';
 import { testJwtSecret } from './test-env';
 import { ROUTE_REGISTRY, assertRegistryComplete } from '../registry';
+import { useTestServer } from './http';
 
 const JWT_SECRET = testJwtSecret();
 const suffix = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
@@ -22,6 +22,7 @@ describe('Route registry', () => {
 
 describe('Authorization matrix (F-020 / F-023 / F-026)', () => {
   const app = createApp();
+  const http = useTestServer(() => app);
   const ids = {
     owner: '',
     member: '',
@@ -108,18 +109,18 @@ describe('Authorization matrix (F-020 / F-023 / F-026)', () => {
   });
 
   it('lets a workspace member read labels but not create them', async () => {
-    const list = await request(app)
+    const list = await http()
       .get(`/api/labels?projectId=${ids.project}`)
       .set('Authorization', `Bearer ${memberToken}`);
     expect(list.status).toBe(200);
 
-    const created = await request(app)
+    const created = await http()
       .post('/api/labels')
       .set('Authorization', `Bearer ${memberToken}`)
       .send({ projectId: ids.project, name: 'Nope', color: '#ff0000' });
     expect(created.status).toBe(403);
 
-    const ownerCreated = await request(app)
+    const ownerCreated = await http()
       .post('/api/labels')
       .set('Authorization', `Bearer ${ownerToken}`)
       .send({ projectId: ids.project, name: 'Phase', color: '#00aa00' });
@@ -127,7 +128,7 @@ describe('Authorization matrix (F-020 / F-023 / F-026)', () => {
   });
 
   it('does not let a workspace member wipe archived tasks they cannot write', async () => {
-    const wipe = await request(app)
+    const wipe = await http()
       .delete('/api/tasks/archived')
       .set('Authorization', `Bearer ${memberToken}`);
     expect(wipe.status).toBe(204);
@@ -151,7 +152,7 @@ describe('Authorization matrix (F-020 / F-023 / F-026)', () => {
       data: { teamId: ids.team, userId: extra.id, role: 'member' },
     });
 
-    const removed = await request(app)
+    const removed = await http()
       .delete(`/api/workspaces/${ids.workspace}/members/${extra.id}`)
       .set('Authorization', `Bearer ${ownerToken}`);
     expect(removed.status).toBe(204);

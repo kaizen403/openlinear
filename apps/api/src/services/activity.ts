@@ -1,6 +1,7 @@
-import { prisma, type ActivityAction, type Prisma } from '@openlinear/db';
+import type { ActivityAction, Prisma } from '@openlinear/db';
 import { logger } from '../logger';
-import { broadcastToTeam, broadcastToUser } from '../sse';
+import { transactionWithEvents } from '../events/outbox';
+import { appendToTarget, teamTarget, userTarget } from '../events/targets';
 
 export interface LogActivityInput {
   taskId?: string | null;
@@ -16,26 +17,29 @@ export interface LogActivityInput {
  * swallowed so they cannot break the calling mutation handler. Also emits
  * an `activity:created` SSE event scoped to the most specific recipient
  * (team if known, otherwise the user themselves).
+ *
+ * W04b: the row and its event commit in one transaction (no row without
+ * its event, no event for a row that rolled back). Callers still log after
+ * their own mutation commits, so the activity row itself is not atomic with
+ * the mutation.
  */
 export async function logActivity(input: LogActivityInput): Promise<void> {
   try {
-    const row = await prisma.activityLog.create({
-      data: {
-        taskId: input.taskId ?? null,
-        projectId: input.projectId ?? null,
-        teamId: input.teamId ?? null,
-        userId: input.userId,
-        action: input.action,
-        payload: input.payload,
-      },
+    await transactionWithEvents(async (tx) => {
+      const row = await tx.activityLog.create({
+        data: {
+          taskId: input.taskId ?? null,
+          projectId: input.projectId ?? null,
+          teamId: input.teamId ?? null,
+          userId: input.userId,
+          action: input.action,
+          payload: input.payload,
+        },
+      });
+      // Team scope when known; else the actor.
+      const target = input.teamId ? await teamTarget(tx, input.teamId) : userTarget(input.userId);
+      await appendToTarget(tx, target, 'activity:created', row, input.userId);
     });
-
-    // Emit to the team scope when we know it; fall back to the actor.
-    if (input.teamId) {
-      broadcastToTeam(input.teamId, 'activity:created', row);
-    } else {
-      broadcastToUser(input.userId, 'activity:created', row);
-    }
   } catch (err) {
     logger.warn(
       {

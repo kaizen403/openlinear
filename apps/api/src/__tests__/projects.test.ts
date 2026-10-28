@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import request from 'supertest';
 import jwt from 'jsonwebtoken';
 import { createApp } from '../app';
 import { prisma } from '@openlinear/db';
 import { testJwtSecret } from './test-env';
+import { useTestServer } from './http';
 
 const JWT_SECRET = testJwtSecret();
 
@@ -13,6 +13,7 @@ function generateToken(userId: string, username: string = 'testuser') {
 
 describe('Projects API', () => {
   const app = createApp();
+  const http = useTestServer(() => app);
   let testUserId: string;
   let authToken: string;
 
@@ -60,7 +61,7 @@ describe('Projects API', () => {
 
   describe('GET /api/projects', () => {
     it('returns empty array without auth', async () => {
-      const res = await request(app).get('/api/projects');
+      const res = await http().get('/api/projects');
       expect(res.status).toBe(200);
       expect(res.body).toEqual([]);
     });
@@ -80,7 +81,7 @@ describe('Projects API', () => {
         data: { teamId: team.id, userId: testUserId, role: 'member' },
       });
 
-      const res = await request(app)
+      const res = await http()
         .get('/api/projects')
         .set('Authorization', `Bearer ${authToken}`);
       expect(res.status).toBe(200);
@@ -94,7 +95,7 @@ describe('Projects API', () => {
 
   describe('POST /api/projects', () => {
     it('creates project with 201', async () => {
-      const res = await request(app)
+      const res = await http()
         .post('/api/projects')
         .set('Authorization', `Bearer ${authToken}`)
         .send({ name: 'New Project' });
@@ -118,7 +119,7 @@ describe('Projects API', () => {
     it.skip('creates project with teamIds — obsolete in 1:M team-to-project model', async () => {});
 
     it('creates project access for the creator', async () => {
-      const res = await request(app)
+      const res = await http()
         .post('/api/projects')
         .set('Authorization', `Bearer ${authToken}`)
         .send({ name: 'ACL Project' });
@@ -149,7 +150,7 @@ describe('Projects API', () => {
         data: { workspaceId: workspace.id, userId: viewer.id, role: 'viewer' },
       });
 
-      const res = await request(app)
+      const res = await http()
         .post('/api/projects')
         .set('Authorization', `Bearer ${viewerToken}`)
         .send({ name: 'Viewer Created Project' });
@@ -176,7 +177,7 @@ describe('Projects API', () => {
         },
       });
 
-      const res = await request(app)
+      const res = await http()
         .post('/api/projects')
         .set('Authorization', `Bearer ${authToken}`)
         .send({ name: 'Imported Repo Project', repositoryId: repo.id, defaultBranch: 'develop' });
@@ -188,7 +189,7 @@ describe('Projects API', () => {
     });
 
     it('accepts SSH clone URLs without fetching public repository metadata', async () => {
-      const res = await request(app)
+      const res = await http()
         .post('/api/projects')
         .set('Authorization', `Bearer ${authToken}`)
         .send({
@@ -205,7 +206,7 @@ describe('Projects API', () => {
     });
 
     it('validates status enum', async () => {
-      const res = await request(app)
+      const res = await http()
         .post('/api/projects')
         .set('Authorization', `Bearer ${authToken}`)
         .send({ name: 'Bad Status', status: 'invalid_status' });
@@ -215,7 +216,7 @@ describe('Projects API', () => {
     });
 
     it('returns 401 without auth', async () => {
-      const res = await request(app)
+      const res = await http()
         .post('/api/projects')
         .send({ name: 'No Auth' });
 
@@ -231,7 +232,7 @@ describe('Projects API', () => {
       const team = await prisma.team.create({ data: { name: 'GetByIdTeam', key: 'GBI', projectId: project.id } });
       await prisma.teamMember.create({ data: { teamId: team.id, userId: testUserId, role: 'member' } });
 
-      const res = await request(app)
+      const res = await http()
         .get(`/api/projects/${project.id}`)
         .set('Authorization', `Bearer ${authToken}`);
       expect(res.status).toBe(200);
@@ -241,14 +242,14 @@ describe('Projects API', () => {
     });
 
     it('returns 404 for non-existent project', async () => {
-      const res = await request(app)
+      const res = await http()
         .get('/api/projects/00000000-0000-0000-0000-000000000000')
         .set('Authorization', `Bearer ${authToken}`);
       expect(res.status).toBe(404);
     });
 
     it('returns 401 without auth', async () => {
-      const res = await request(app).get('/api/projects/00000000-0000-0000-0000-000000000000');
+      const res = await http().get('/api/projects/00000000-0000-0000-0000-000000000000');
       expect(res.status).toBe(401);
     });
   });
@@ -281,7 +282,7 @@ describe('Projects API', () => {
         data: { projectId: project.id, userId: testUserId, permission: 'full' },
       });
 
-      const update = await request(app)
+      const update = await http()
         .post(`/api/projects/${project.id}/access`)
         .set('Authorization', `Bearer ${authToken}`)
         .send({ userId: secondUser.id, permission: 'view' });
@@ -289,7 +290,7 @@ describe('Projects API', () => {
       expect(update.status).toBe(201);
       expect(update.body.permission).toBe('view');
 
-      const list = await request(app)
+      const list = await http()
         .get(`/api/projects/${project.id}/access`)
         .set('Authorization', `Bearer ${authToken}`);
 
@@ -327,7 +328,7 @@ describe('Projects API', () => {
         where: { workspaceId_userId: { workspaceId: workspace.id, userId: removedUser.id } },
       });
 
-      const res = await request(app)
+      const res = await http()
         .get(`/api/projects/${project.id}`)
         .set('Authorization', `Bearer ${removedUserToken}`);
 
@@ -343,7 +344,7 @@ describe('Projects API', () => {
       const team = await prisma.team.create({ data: { name: 'PatchTeam', key: 'PCH', projectId: project.id } });
       await prisma.teamMember.create({ data: { teamId: team.id, userId: testUserId, role: 'member' } });
 
-      const res = await request(app)
+      const res = await http()
         .patch(`/api/projects/${project.id}`)
         .set('Authorization', `Bearer ${authToken}`)
         .send({ name: 'New Name', status: 'in_progress' });
@@ -364,7 +365,7 @@ describe('Projects API', () => {
         data: { name: 'Stable Key Project', workspaceId: workspace.id, key: 'KEEP' },
       });
 
-      const res = await request(app)
+      const res = await http()
         .patch(`/api/projects/${project.id}`)
         .set('Authorization', `Bearer ${authToken}`)
         .send({ name: 'Renamed Stable Key Project' });
@@ -414,7 +415,7 @@ describe('Projects API', () => {
         ],
       });
 
-      const res = await request(app)
+      const res = await http()
         .patch(`/api/projects/${project.id}`)
         .set('Authorization', `Bearer ${authToken}`)
         .send({ workspaceId: newWorkspace.id });
@@ -425,14 +426,14 @@ describe('Projects API', () => {
         prisma.projectAccess.findMany({ where: { projectId: project.id } }),
       ).resolves.toEqual([]);
 
-      const staleAccess = await request(app)
+      const staleAccess = await http()
         .get(`/api/projects/${project.id}`)
         .set('Authorization', `Bearer ${oldMemberToken}`);
       expect(staleAccess.status).toBe(403);
     });
 
     it('returns 404 for non-existent project', async () => {
-      const res = await request(app)
+      const res = await http()
         .patch('/api/projects/00000000-0000-0000-0000-000000000000')
         .set('Authorization', `Bearer ${authToken}`)
         .send({ name: 'Nope' });
@@ -453,7 +454,7 @@ describe('Projects API', () => {
         data: { title: 'Project Task', priority: 'medium', projectId: project.id },
       });
 
-      const res = await request(app)
+      const res = await http()
         .delete(`/api/projects/${project.id}`)
         .set('Authorization', `Bearer ${authToken}`);
 
@@ -467,7 +468,7 @@ describe('Projects API', () => {
     });
 
     it('returns 404 for non-existent project', async () => {
-      const res = await request(app)
+      const res = await http()
         .delete('/api/projects/00000000-0000-0000-0000-000000000000')
         .set('Authorization', `Bearer ${authToken}`);
 

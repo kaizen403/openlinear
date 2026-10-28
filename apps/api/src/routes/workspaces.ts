@@ -1,20 +1,16 @@
 import { Router, Response } from 'express';
+import { z } from 'zod';
 import { requireAuth, AuthRequest } from '../middleware/auth';
 import { validateBody, ValidatedRequest } from '../middleware/validate';
-import {
-  getIdempotencyRecord,
-  parseFields,
-  parsePagination,
-  pickFields,
-  replayIdempotencyRecord,
-  storeIdempotencyRecord,
-} from '../lib/http';
+import { parseFields, parsePagination, pickFields } from '../lib/http';
 import { makeEtag } from '../lib/etag';
-import { ensureDefaultWorkspaceForUser } from '../services/workspaces';
+import { ValidationError } from '../errors';
+import { respondIdempotently } from '../services/idempotency';
 import {
-  addWorkspaceMember,
-  bulkAddWorkspaceMembers,
-  createWorkspaceRoute,
+  WORKSPACE_STRUCTURE_VIEWS,
+  authorizeAddWorkspaceMember,
+  authorizeBulkAddWorkspaceMembers,
+  authorizeCreateWorkspace,
   deleteWorkspaceRoute,
   getWorkspaceStructure,
   listWorkspaceMembers,
@@ -55,27 +51,45 @@ function memberToRecord(member: Record<string, unknown>): Record<string, unknown
 }
 
 router.get('/', requireAuth, async (req: AuthRequest, res: Response) => {
-  await ensureDefaultWorkspaceForUser(req.userId!);
   res.setHeader('Cache-Control', 'private, max-age=0, must-revalidate');
   const fields = parseFields(req.query.fields, workspaceListFields);
+  // Ensures the default workspace itself when the caller has none.
   const workspaces = await listWorkspacesForUser(req.userId!);
   res.json(workspaces.map((w) => pickFields(w as unknown as Record<string, unknown>, fields)));
 });
 
 router.post('/', requireAuth, validateBody(createWorkspaceBodySchema),
   async (req: AuthRequest & ValidatedRequest<CreateWorkspaceBody>, res: Response) => {
-    const replay = await getIdempotencyRecord(req, req.userId!, 'POST /api/workspaces');
-    if (replay) { replayIdempotencyRecord(res, replay); return; }
-    const detail = await createWorkspaceRoute({ userId: req.userId!, name: req.validBody!.name });
-    await storeIdempotencyRecord(req, req.userId!, 'POST /api/workspaces', 201, detail);
-    res.status(201).json(detail);
+    // Optional `Idempotency-Key` (W04b; contract as POST /api/tasks).
+    const body = req.validBody!;
+    await respondIdempotently(req, res, {
+      operation: 'workspaces.create',
+      args: { body },
+      authorize: () => authorizeCreateWorkspace({ userId: req.userId!, name: body.name }),
+    });
   },
 );
 
+const structureQuerySchema = z.object({
+  /** `full` (default, unchanged shape) or `summary` (counts instead of member lists). */
+  view: z.enum(WORKSPACE_STRUCTURE_VIEWS).default('full'),
+});
+
+const workspaceStructureFields = [
+  'id', 'name', 'slug', 'plan', 'createdAt', 'updatedAt', '_count', 'members', 'projects', 'role', 'currentMember', 'view',
+] as const;
+
 router.get('/:id/structure', requireAuth, async (req: AuthRequest, res: Response) => {
-  const result = await getWorkspaceStructure({ workspaceId: req.params.id as string, userId: req.userId! });
+  const parsed = structureQuerySchema.safeParse({ view: req.query.view });
+  if (!parsed.success) throw ValidationError.fromZod(parsed.error);
+  const fields = parseFields(req.query.fields, workspaceStructureFields);
+  const result = await getWorkspaceStructure({
+    workspaceId: req.params.id as string,
+    userId: req.userId!,
+    view: parsed.data.view,
+  });
   res.setHeader('Cache-Control', 'private, max-age=0, must-revalidate');
-  res.json(result);
+  res.json(pickFields(result as unknown as Record<string, unknown>, fields));
 });
 
 router.get('/:id/members', requireAuth, async (req: AuthRequest, res: Response) => {
@@ -92,24 +106,26 @@ router.get('/:id/members', requireAuth, async (req: AuthRequest, res: Response) 
 router.post('/:id/members', requireAuth, validateBody(addWorkspaceMemberBodySchema),
   async (req: AuthRequest & ValidatedRequest<AddWorkspaceMemberBody>, res: Response) => {
     const id = req.params.id as string;
-    const replay = await getIdempotencyRecord(req, req.userId!, `POST /api/workspaces/${id}/members`);
-    if (replay) { replayIdempotencyRecord(res, replay); return; }
-    const { username, role } = req.validBody!;
-    const { member, isNew } = await addWorkspaceMember({ workspaceId: id, actorUserId: req.userId!, username, role });
-    const status = isNew ? 201 : 200;
-    await storeIdempotencyRecord(req, req.userId!, `POST /api/workspaces/${id}/members`, status, member);
-    res.status(status).json(member);
+    const body = req.validBody!;
+    await respondIdempotently(req, res, {
+      operation: 'workspaces.members.add',
+      args: { body, params: { id } },
+      authorize: () => authorizeAddWorkspaceMember({
+        workspaceId: id, actorUserId: req.userId!, username: body.username, role: body.role,
+      }),
+    });
   },
 );
 
 router.post('/:id/members/bulk', requireAuth, validateBody(bulkWorkspaceMembersBodySchema),
   async (req: AuthRequest & ValidatedRequest<BulkWorkspaceMembersBody>, res: Response) => {
     const id = req.params.id as string;
-    const replay = await getIdempotencyRecord(req, req.userId!, `POST /api/workspaces/${id}/members/bulk`);
-    if (replay) { replayIdempotencyRecord(res, replay); return; }
-    const result = await bulkAddWorkspaceMembers({ workspaceId: id, actorUserId: req.userId!, invites: req.validBody!.invites });
-    await storeIdempotencyRecord(req, req.userId!, `POST /api/workspaces/${id}/members/bulk`, 201, result);
-    res.status(201).json(result);
+    const body = req.validBody!;
+    await respondIdempotently(req, res, {
+      operation: 'workspaces.members.bulk_add',
+      args: { body, params: { id } },
+      authorize: () => authorizeBulkAddWorkspaceMembers({ workspaceId: id, actorUserId: req.userId!, invites: body.invites }),
+    });
   },
 );
 

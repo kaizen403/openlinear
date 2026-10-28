@@ -1,5 +1,4 @@
-import { Request, Response } from 'express';
-import { prisma, Prisma } from '@openlinear/db';
+import { Request } from 'express';
 import { HttpError } from '../errors';
 
 export { parseFields, pickFields, buildSelect } from './field-select';
@@ -59,50 +58,5 @@ export function parsePagination(
   };
 }
 
-const IDEMPOTENCY_TTL_MS = 60 * 60 * 1000;
-
-export async function getIdempotencyRecord(
-  req: Request,
-  userId: string,
-  routeKey: string,
-): Promise<{ status: number; body: unknown } | null> {
-  const header = req.header('Idempotency-Key');
-  if (!header) return null;
-  const row = await prisma.idempotencyKey.findUnique({
-    where: { userId_routeKey_key: { userId, routeKey, key: header } },
-  });
-  if (!row || row.expiresAt <= new Date()) return null;
-  return { status: row.status, body: row.body };
-}
-
-export async function storeIdempotencyRecord(
-  req: Request,
-  userId: string,
-  routeKey: string,
-  status: number,
-  body: unknown,
-): Promise<void> {
-  const header = req.header('Idempotency-Key');
-  if (!header) return;
-  await prisma.idempotencyKey.upsert({
-    where: { userId_routeKey_key: { userId, routeKey, key: header } },
-    create: {
-      userId,
-      routeKey,
-      key: header,
-      status,
-      body: body as Prisma.InputJsonValue,
-      expiresAt: new Date(Date.now() + IDEMPOTENCY_TTL_MS),
-    },
-    update: {
-      status,
-      body: body as Prisma.InputJsonValue,
-      expiresAt: new Date(Date.now() + IDEMPOTENCY_TTL_MS),
-    },
-  });
-}
-
-export function replayIdempotencyRecord(res: Response, record: { status: number; body: unknown }): void {
-  res.setHeader('Idempotency-Replayed', 'true');
-  res.status(record.status).json(record.body);
-}
+// The legacy read-then-write `Idempotency-Key` cache (audit A09) was removed in
+// W04b: every keyed route uses `respondIdempotently` (services/idempotency.ts).

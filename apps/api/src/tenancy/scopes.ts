@@ -1,7 +1,12 @@
 import type { Prisma } from '@openlinear/db';
+import { workspaceRestrictionFor } from './context';
 import type { TenancyContext } from './types';
 
 export type ProjectAccessPermission = 'view' | 'full';
+
+function restrictionOf(ctx: TenancyContext): string | null {
+  return ctx.workspaceRestriction ?? workspaceRestrictionFor(ctx.userId);
+}
 
 /**
  * Correlated project visibility. Same rules as the previous
@@ -15,11 +20,27 @@ export type ProjectAccessPermission = 'view' | 'full';
  *
  * `full` additionally requires a write-tier workspace role (or an explicit
  * `full` grant) and treats an explicit `view` grant as read-only.
+ *
+ * A workspace-bound principal (PAT) additionally only sees projects in its
+ * workspace. When the caller does not pass the restriction explicitly it is
+ * read from the request-bound principal, so every list built from this
+ * function inherits the PAT binding.
  */
 export function projectAccessWhere(
   userId: string,
   teamIds: readonly string[] = [],
   permission: ProjectAccessPermission = 'view',
+  workspaceRestriction: string | null = workspaceRestrictionFor(userId),
+): Prisma.ProjectWhereInput {
+  const base = unrestrictedProjectAccessWhere(userId, teamIds, permission);
+  if (!workspaceRestriction) return base;
+  return { AND: [base, { workspaceId: workspaceRestriction }] };
+}
+
+function unrestrictedProjectAccessWhere(
+  userId: string,
+  teamIds: readonly string[],
+  permission: ProjectAccessPermission,
 ): Prisma.ProjectWhereInput {
   if (permission === 'full') {
     const legacyTeamAccessWhere: Prisma.ProjectWhereInput[] = teamIds.length > 0
@@ -79,11 +100,35 @@ export function projectAccessWhere(
   };
 }
 
+/**
+ * Extra project predicate for services that build their own project filter
+ * (for example "projects of workspace X"): narrows to the bound PAT's
+ * workspace, or matches everything for unrestricted principals.
+ */
+export function principalProjectScope(userId: string): Prisma.ProjectWhereInput {
+  const restriction = workspaceRestrictionFor(userId);
+  return restriction ? { workspaceId: restriction } : {};
+}
+
 export function scopedProjectWhere(
   ctx: TenancyContext,
   permission: ProjectAccessPermission = 'view',
 ): Prisma.ProjectWhereInput {
-  return projectAccessWhere(ctx.userId, [...ctx.teams], permission);
+  return projectAccessWhere(ctx.userId, [...ctx.teams], permission, restrictionOf(ctx));
+}
+
+/**
+ * Team rows reachable through a team-only task/activity: the team's project
+ * must not deny the caller, and must sit in the principal's workspace when
+ * the principal is workspace-bound.
+ */
+function teamProjectWhere(userId: string, restriction: string | null): Prisma.TeamWhereInput {
+  return {
+    project: {
+      NOT: { access: { some: { userId, permission: 'deny' } } },
+      ...(restriction ? { workspaceId: restriction } : {}),
+    },
+  };
 }
 
 /**
@@ -92,8 +137,10 @@ export function scopedProjectWhere(
  *
  * A task is visible when:
  *   - it belongs to an accessible project, or
- *   - it has no project, is on a team the user belongs to, or
- *   - it is an orphan (no project, no team) created by the caller.
+ *   - it has no project, is on a team the user belongs to, and that team's
+ *     project does not deny the user, or
+ *   - it is an orphan (no project, no team) created by the caller. Orphans
+ *     belong to no workspace, so workspace-bound principals never see them.
  */
 export function scopedTaskWhere(
   ctx: TenancyContext,
@@ -101,21 +148,25 @@ export function scopedTaskWhere(
   permission: ProjectAccessPermission = 'view',
 ): Prisma.TaskWhereInput {
   const teamIds = [...ctx.teams];
+  const restriction = restrictionOf(ctx);
   const visibility: Prisma.TaskWhereInput[] = [
     {
       projectId: { not: null },
-      project: projectAccessWhere(ctx.userId, teamIds, permission),
+      project: projectAccessWhere(ctx.userId, teamIds, permission, restriction),
     },
-    {
+  ];
+  if (!restriction) {
+    visibility.push({
       projectId: null,
       teamId: null,
       creatorId: ctx.userId,
-    },
-  ];
+    });
+  }
   if (teamIds.length > 0) {
     visibility.push({
       projectId: null,
       teamId: { in: teamIds },
+      team: teamProjectWhere(ctx.userId, restriction),
     });
   }
 
@@ -127,6 +178,7 @@ export function scopedTaskWhere(
 }
 
 export function scopedTeamWhere(ctx: TenancyContext): Prisma.TeamWhereInput {
+  const restriction = restrictionOf(ctx);
   return {
     members: { some: { userId: ctx.userId } },
     NOT: {
@@ -134,6 +186,7 @@ export function scopedTeamWhere(ctx: TenancyContext): Prisma.TeamWhereInput {
         access: { some: { userId: ctx.userId, permission: 'deny' } },
       },
     },
+    ...(restriction ? { project: { workspaceId: restriction } } : {}),
   };
 }
 
@@ -144,12 +197,19 @@ export function scopedTeamWhere(ctx: TenancyContext): Prisma.TeamWhereInput {
  */
 export function scopedActivityWhere(ctx: TenancyContext): Prisma.ActivityLogWhereInput {
   const teamIds = [...ctx.teams];
+  const restriction = restrictionOf(ctx);
   const or: Prisma.ActivityLogWhereInput[] = [
-    { project: projectAccessWhere(ctx.userId, teamIds, 'view') },
-    { projectId: null, teamId: null, userId: ctx.userId },
+    { project: projectAccessWhere(ctx.userId, teamIds, 'view', restriction) },
   ];
+  if (!restriction) {
+    or.push({ projectId: null, teamId: null, userId: ctx.userId });
+  }
   if (teamIds.length > 0) {
-    or.push({ projectId: null, teamId: { in: teamIds } });
+    or.push({
+      projectId: null,
+      teamId: { in: teamIds },
+      team: teamProjectWhere(ctx.userId, restriction),
+    });
   }
   return { OR: or };
 }

@@ -1,6 +1,7 @@
 import { Router, Response } from 'express';
 import { prisma } from '@openlinear/db';
 import { requireAuth, AuthRequest } from '../middleware/auth';
+import { workspaceRestrictionFor } from '../tenancy/context';
 
 const router: Router = Router();
 
@@ -13,6 +14,13 @@ router.get(
 
     if (!workspaceId) {
       res.status(400).json({ error: 'workspaceId is required', code: 'MISSING_WORKSPACE_ID' });
+      return;
+    }
+
+    // A workspace-bound PAT cannot search another workspace's members.
+    const restriction = workspaceRestrictionFor(req.userId!);
+    if (restriction && restriction !== workspaceId) {
+      res.status(403).json({ error: 'Not a member of this workspace', code: 'FORBIDDEN' });
       return;
     }
 

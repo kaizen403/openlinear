@@ -1,17 +1,9 @@
 import { Router, Response } from 'express';
 import { requireAuth, AuthRequest } from '../middleware/auth';
-import { listActiveSessions, revokeSession, revokeAllOtherSessions, hashToken } from '../services/sessions';
+import { listActiveSessions, revokeSession, revokeAllOtherSessions } from '../services/sessions';
 import { buildErrorEnvelope } from '../lib/http';
 
 const router: Router = Router();
-
-function getCurrentSessionId(req: AuthRequest): string | null {
-  const authHeader = req.headers.authorization;
-  if (!authHeader?.startsWith('Bearer ')) return null;
-  const token = authHeader.substring(7);
-  if (token.startsWith('ol_pat_')) return null;
-  return hashToken(token);
-}
 
 router.get('/', requireAuth, async (req: AuthRequest, res: Response) => {
   const sessions = await listActiveSessions(req.userId!);
@@ -29,7 +21,9 @@ router.delete('/:id', requireAuth, async (req: AuthRequest, res: Response) => {
 });
 
 router.post('/revoke-others', requireAuth, async (req: AuthRequest, res: Response) => {
-  const currentSessionId = getCurrentSessionId(req);
+  // The session the request was authenticated with (set by the auth
+  // middleware from the bearer token's Session row).
+  const currentSessionId = req.sessionId;
   if (!currentSessionId) {
     res.status(400).json(buildErrorEnvelope('INVALID_INPUT', 'Cannot identify current session'));
     return;

@@ -1,12 +1,25 @@
 import { Router, Response } from 'express';
 import rateLimit from 'express-rate-limit';
+import { z } from 'zod';
 import { requireInteractiveSession, AuthRequest } from '../middleware/auth';
 import { prisma, encryptToken } from '@openlinear/db';
 import { buildErrorEnvelope } from '../lib/http';
-import { generateTOTPSecret, verifyTOTP, generateBackupCodes, verifyBackupCode, resolveTotpSecret } from '../services/totp';
+import {
+  consumeBackupCode,
+  consumeTotpCode,
+  generateBackupCodes,
+  generateTOTPSecret,
+  resolveTotpSecret,
+} from '../services/totp';
 import { issueSession, verifyTwoFactorPendingToken } from '../lib/auth-tokens';
 
 const router: Router = Router();
+
+const codeBodySchema = z.object({ code: z.string().trim().min(1).max(64) });
+const validateBodySchema = z.object({
+  code: z.string().trim().min(1).max(64),
+  tempToken: z.string().min(1).max(256),
+});
 
 router.post('/setup', requireInteractiveSession, async (req: AuthRequest, res: Response) => {
   try {
@@ -22,17 +35,12 @@ router.post('/setup', requireInteractiveSession, async (req: AuthRequest, res: R
     }
 
     const { secret, uri } = generateTOTPSecret(user.username);
-
-    await prisma.user.update({
-      where: { id: user.id },
-      data: { totpSecret: encryptToken(secret) },
-    });
-
     const { plain, hashed } = generateBackupCodes();
 
+    // One write: a new secret starts with no accepted step.
     await prisma.user.update({
       where: { id: user.id },
-      data: { backupCodes: hashed },
+      data: { totpSecret: encryptToken(secret), backupCodes: hashed, totpLastUsedStep: null },
     });
 
     res.json({ secret, uri, backupCodes: plain });
@@ -43,8 +51,8 @@ router.post('/setup', requireInteractiveSession, async (req: AuthRequest, res: R
 
 router.post('/verify', requireInteractiveSession, async (req: AuthRequest, res: Response) => {
   try {
-    const { code } = req.body;
-    if (!code || typeof code !== 'string') {
+    const parsed = codeBodySchema.safeParse(req.body);
+    if (!parsed.success) {
       res.status(400).json(buildErrorEnvelope('CODE_REQUIRED', 'Verification code is required'));
       return;
     }
@@ -65,8 +73,8 @@ router.post('/verify', requireInteractiveSession, async (req: AuthRequest, res: 
       return;
     }
 
-    const valid = verifyTOTP(totpSecret, code);
-    if (!valid) {
+    const result = await consumeTotpCode(user.id, totpSecret, parsed.data.code);
+    if (result !== 'accepted') {
       res.status(400).json(buildErrorEnvelope('INVALID_CODE', 'Invalid verification code'));
       return;
     }
@@ -84,8 +92,8 @@ router.post('/verify', requireInteractiveSession, async (req: AuthRequest, res: 
 
 router.post('/disable', requireInteractiveSession, async (req: AuthRequest, res: Response) => {
   try {
-    const { code } = req.body;
-    if (!code || typeof code !== 'string') {
+    const parsed = codeBodySchema.safeParse(req.body);
+    if (!parsed.success) {
       res.status(400).json(buildErrorEnvelope('CODE_REQUIRED', 'Verification code is required'));
       return;
     }
@@ -97,15 +105,15 @@ router.post('/disable', requireInteractiveSession, async (req: AuthRequest, res:
       return;
     }
 
-    const valid = verifyTOTP(totpSecret, code);
-    if (!valid) {
+    const result = await consumeTotpCode(user.id, totpSecret, parsed.data.code);
+    if (result !== 'accepted') {
       res.status(400).json(buildErrorEnvelope('INVALID_CODE', 'Invalid verification code'));
       return;
     }
 
     await prisma.user.update({
       where: { id: user.id },
-      data: { totpSecret: null, totpEnabled: false, backupCodes: [] },
+      data: { totpSecret: null, totpEnabled: false, backupCodes: [], totpLastUsedStep: null },
     });
 
     res.json({ success: true });
@@ -119,19 +127,22 @@ const validateLimiter = rateLimit({
   max: 10, // limit each IP to 10 requests per minute
   standardHeaders: true,
   legacyHeaders: false,
+  skip: () => process.env.NODE_ENV === 'test',
   message: buildErrorEnvelope('RATE_LIMITED', 'Too many 2FA validation attempts. Try again in a minute.'),
 });
 
 router.post('/validate', validateLimiter, async (req: AuthRequest, res: Response) => {
   try {
-    const { code, tempToken } = req.body;
-    if (!code || typeof code !== 'string' || !tempToken || typeof tempToken !== 'string') {
+    const parsed = validateBodySchema.safeParse(req.body);
+    if (!parsed.success) {
       res.status(400).json(buildErrorEnvelope('INVALID_REQUEST', 'code and tempToken are required'));
       return;
     }
+    const { code, tempToken } = parsed.data;
 
-    // Only a token carrying `twoFactorPending` is accepted here, so a full
-    // session token cannot be replayed to satisfy the second factor.
+    // Only an opaque, single-use 2FA challenge is accepted here (claimed
+    // atomically), so a full session token cannot be replayed to satisfy the
+    // second factor and one challenge cannot be spent twice.
     const pending = await verifyTwoFactorPendingToken(tempToken);
     if (!pending) {
       res.status(401).json(buildErrorEnvelope('INVALID_TOKEN', 'Invalid or expired temp token'));
@@ -145,20 +156,10 @@ router.post('/validate', validateLimiter, async (req: AuthRequest, res: Response
       return;
     }
 
-    let valid = verifyTOTP(totpSecret, code);
-
-    if (!valid) {
-      const backupIndex = verifyBackupCode(user.backupCodes, code);
-      if (backupIndex >= 0) {
-        valid = true;
-        const updatedCodes = [...user.backupCodes];
-        updatedCodes.splice(backupIndex, 1);
-        await prisma.user.update({
-          where: { id: user.id },
-          data: { backupCodes: updatedCodes },
-        });
-      }
-    }
+    // A TOTP code is accepted once per time step; a backup code exactly once.
+    const totp = await consumeTotpCode(user.id, totpSecret, code);
+    const valid = totp === 'accepted'
+      || (totp === 'invalid' && await consumeBackupCode(user.id, user.backupCodes, code));
 
     if (!valid) {
       res.status(401).json(buildErrorEnvelope('INVALID_CODE', 'Invalid 2FA code'));

@@ -10,7 +10,7 @@ import {
   getPersonalAccessTokenPrefix,
   hashPersonalAccessToken,
 } from '../services/pats';
-import { logAudit } from '../services/audit';
+import { logAccountAudit } from '../services/account-audit';
 
 const createPatBodySchema = z.object({
   name: z.string().trim().min(1).max(100),
@@ -41,6 +41,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       expiresAt: true,
       createdAt: true,
       revokedAt: true,
+      workspaceId: true,
     },
     orderBy: { createdAt: 'desc' },
   });
@@ -54,8 +55,9 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     expiresAt: token.expiresAt,
     createdAt: token.createdAt,
     revokedAt: token.revokedAt,
+    workspaceId: token.workspaceId,
   })));
-  
+
 });
 
 router.post(
@@ -80,37 +82,55 @@ router.post(
     }
 
     const token = generatePersonalAccessToken();
-    const created = await prisma.personalAccessToken.create({
-      data: {
+    // Token row and audit trail commit together. Every PAT is recorded in the
+    // owner's account audit log (account-wide tokens were previously not
+    // audited anywhere: `audit_logs` requires a workspace); bound tokens are
+    // also recorded in their workspace's audit log.
+    const created = await prisma.$transaction(async (tx) => {
+      const row = await tx.personalAccessToken.create({
+        data: {
+          userId: req.userId!,
+          name,
+          tokenHash: hashPersonalAccessToken(token),
+          tokenPrefix: getPersonalAccessTokenPrefix(token),
+          scopes,
+          expiresAt: expiresAtDate,
+          workspaceId: workspaceId ?? null,
+        },
+        select: {
+          id: true,
+          name: true,
+          tokenPrefix: true,
+          scopes: true,
+          expiresAt: true,
+          createdAt: true,
+          workspaceId: true,
+        },
+      });
+      await logAccountAudit({
         userId: req.userId!,
-        name,
-        tokenHash: hashPersonalAccessToken(token),
-        tokenPrefix: getPersonalAccessTokenPrefix(token),
-        scopes,
-        expiresAt: expiresAtDate,
-        workspaceId: workspaceId ?? null,
-      },
-      select: {
-        id: true,
-        name: true,
-        tokenPrefix: true,
-        scopes: true,
-        expiresAt: true,
-        createdAt: true,
-      },
-    });
-
-    if (workspaceId) {
-      await logAudit({
-        workspaceId,
         actorId: req.userId!,
         action: 'pat.created',
         resourceType: 'personal_access_token',
-        resourceId: created.id,
-        metadata: { scopes },
-        ipAddress: req.ip,
-      });
-    }
+        resourceId: row.id,
+        metadata: { scopes, workspaceId: workspaceId ?? null, expiresAt: expiresAtDate?.toISOString() ?? null },
+        ipAddress: req.ip ?? null,
+      }, tx);
+      if (workspaceId) {
+        await tx.auditLog.create({
+          data: {
+            workspaceId,
+            actorId: req.userId!,
+            action: 'pat.created',
+            resourceType: 'personal_access_token',
+            resourceId: row.id,
+            metadata: { scopes },
+            ipAddress: req.ip,
+          },
+        });
+      }
+      return row;
+    });
 
     res.status(201).json({
       id: created.id,
@@ -120,8 +140,9 @@ router.post(
       scopes: created.scopes,
       expiresAt: created.expiresAt,
       createdAt: created.createdAt,
+      workspaceId: created.workspaceId,
     });
-    
+
   },
 );
 
@@ -141,24 +162,36 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
     throw new HttpError(404, 'PAT_NOT_FOUND', 'Personal access token not found');
   }
 
-  await prisma.personalAccessToken.update({
-    where: { id: existing.id },
-    data: { revokedAt: new Date() },
-  });
-
-  if (existing.workspaceId) {
-    await logAudit({
-      workspaceId: existing.workspaceId,
+  await prisma.$transaction(async (tx) => {
+    await tx.personalAccessToken.updateMany({
+      where: { id: existing.id, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+    await logAccountAudit({
+      userId: req.userId!,
       actorId: req.userId!,
       action: 'pat.revoked',
       resourceType: 'personal_access_token',
       resourceId: existing.id,
-      ipAddress: req.ip,
-    });
-  }
+      metadata: { workspaceId: existing.workspaceId },
+      ipAddress: req.ip ?? null,
+    }, tx);
+    if (existing.workspaceId) {
+      await tx.auditLog.create({
+        data: {
+          workspaceId: existing.workspaceId,
+          actorId: req.userId!,
+          action: 'pat.revoked',
+          resourceType: 'personal_access_token',
+          resourceId: existing.id,
+          ipAddress: req.ip,
+        },
+      });
+    }
+  });
 
   res.status(204).send();
-  
+
 });
 
 export default router;

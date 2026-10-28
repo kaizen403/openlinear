@@ -1,6 +1,5 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import request from 'supertest';
 import jwt from 'jsonwebtoken';
 import { prisma } from '@openlinear/db';
 import { createApp } from '../app';
@@ -10,9 +9,11 @@ import { ValidationError } from '../errors';
 import { OwnershipError } from '../services/ownership';
 import type { JsonObject } from '../services/chat-tools/types';
 import { testJwtSecret } from './test-env';
+import { useTestServer } from './http';
 
 describe('Archive selector safety', () => {
   const app = createApp();
+  const http = useTestServer(() => app);
   const fixtureId = randomUUID();
   let userId: string;
   let deniedUserId: string;
@@ -101,7 +102,7 @@ describe('Archive selector safety', () => {
   ];
 
   it.each(invalidSelectors)('rejects $name without changing issues through chat or REST', async ({ selectors }) => {
-    const response = await request(app).post('/api/tasks/bulk-archive')
+    const response = await http().post('/api/tasks/bulk-archive')
       .set('Authorization', `Bearer ${token}`)
       .send({ projectId, ...selectors });
     expect(response.status).toBe(400);

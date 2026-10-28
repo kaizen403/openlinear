@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import request from 'supertest';
 import jwt from 'jsonwebtoken';
 import { prisma } from '@openlinear/db';
 import { createApp } from '../app';
 import { testJwtSecret } from './test-env';
+import { useTestServer } from './http';
 
 const JWT_SECRET = testJwtSecret();
 const suffix = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
@@ -14,6 +14,7 @@ function sign(userId: string, username: string) {
 
 describe('Repository IDOR (F-011 / F-012 / F-018)', () => {
   const app = createApp();
+  const http = useTestServer(() => app);
 
   afterEach(async () => {
     await prisma.repository.deleteMany({
@@ -48,13 +49,13 @@ describe('Repository IDOR (F-011 / F-012 / F-018)', () => {
       },
     });
 
-    const res = await request(app)
+    const res = await http()
       .post(`/api/repos/${repo.id}/activate`)
       .set('Authorization', `Bearer ${sign(attacker.id, attacker.username)}`);
 
     expect(res.status).toBe(404);
 
-    const publicActivate = await request(app)
+    const publicActivate = await http()
       .post(`/api/repos/${repo.id}/activate/public`)
       .set('Authorization', `Bearer ${sign(attacker.id, attacker.username)}`);
     expect(publicActivate.status).toBe(404);

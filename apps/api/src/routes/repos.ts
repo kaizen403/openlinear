@@ -2,6 +2,7 @@ import { Router, Response, NextFunction } from 'express';
 import { prisma } from '@openlinear/db';
 import { requireAuth, AuthRequest } from '../middleware/auth';
 import { validateBody, ValidatedRequest } from '../middleware/validate';
+import { scopedProjectWhere } from '../tenancy/scopes';
 import { HttpError } from '../errors';
 import {
   repoUrlBodySchema,
@@ -223,8 +224,17 @@ router.patch(
 
 router.get('/:id', requireAuth, async (req: AuthRequest, res: Response, next: NextFunction) => {
   const id = req.params.id as string;
+  // Repositories are account-level. A workspace-bound PAT may read one only
+  // when it backs a project it can view inside its workspace (W02b); every
+  // other repository route refuses bound PATs (registry: 'refused').
+  const principal = req.tenancy;
+  const bound = principal?.workspaceRestriction ? principal : null;
   const repo = await prisma.repository.findFirst({
-    where: { id, userId: req.userId! },
+    where: {
+      id,
+      userId: req.userId!,
+      ...(bound ? { projects: { some: scopedProjectWhere(bound) } } : {}),
+    },
   });
   if (!repo) {
     return next(new HttpError(404, 'REPOSITORY_NOT_FOUND', 'Repository not found'));

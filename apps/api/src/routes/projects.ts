@@ -1,24 +1,20 @@
 import { Router, Request, Response } from 'express';
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { Prisma } from '@openlinear/db';
 import { requireAuth, optionalAuth, AuthRequest } from '../middleware/auth';
 import { validateBody, validateQuery, ValidatedRequest } from '../middleware/validate';
 import { HttpError } from '../errors';
 import { makeEtag } from '../lib/etag';
-import {
-  getIdempotencyRecord,
-  parseFields,
-  pickFields,
-  replayIdempotencyRecord,
-  storeIdempotencyRecord,
-} from '../lib/http';
+import { buildErrorEnvelope, parseFields } from '../lib/http';
 import { buildSelect } from '../lib/field-select';
+import { respondIdempotently } from '../services/idempotency';
 import {
+  authorizeCreateProjectFull,
+  authorizeGrantProjectAccess,
+  authorizeGrantProjectAccessBulk,
   buildAccessibleProjectsWhere,
-  createProjectFull,
   deleteProject,
   getProject,
-  grantProjectAccess,
-  grantProjectAccessBulk,
   listProjectAccess,
   projectInclude,
   revokeProjectAccess,
@@ -31,17 +27,32 @@ import {
   updateProjectBodySchema,
   listProjectsQuerySchema,
   projectAccessBodySchema,
+  projectVerificationSettingsBodySchema,
   BulkProjectAccessBody,
   CreateProjectBody,
   UpdateProjectBody,
   ListProjectsQuery,
   ProjectAccessBody,
+  ProjectVerificationSettingsBody,
 } from '../schemas/projects';
 import { prisma } from '@openlinear/db';
+import { getProjectVerificationSettings, updateProjectVerificationSettings } from '../services/execution-verification';
+import { exportFileName, exportProject } from '../services/project-export';
 
 const router: Router = Router();
 
-function isDesktopClient(req: Request): boolean {
+/**
+ * May this request set or change `localPath` (a directory on the caller's
+ * machine the local sidecar runs agents in)?
+ *
+ * Only an interactive session may (W02b). The `x-openlinear-client: desktop`
+ * header used to be the whole decision, but any HTTP client can send it, so a
+ * personal access token (MCP, scripts, a leaked key) could point execution at
+ * an arbitrary local directory. The header is kept as a client hint (the web
+ * UI does not send it); it no longer authorizes anything on its own.
+ */
+function isDesktopClient(req: AuthRequest): boolean {
+  if (req.authSource !== 'jwt') return false;
   const header = req.header('x-openlinear-client');
   return typeof header === 'string' && header.toLowerCase() === 'desktop';
 }
@@ -93,19 +104,23 @@ router.get('/', optionalAuth, validateQuery(listProjectsQuerySchema),
 
 // ─── POST / ──────────────────────────────────────────────────────────────────
 
+// The three creates below honour an optional `Idempotency-Key` (W04b, same
+// contract as POST /api/tasks): equal retries replay, a different request
+// with the same key gets 409 IDEMPOTENCY_CONFLICT.
 router.post('/', requireAuth, validateBody(createProjectBodySchema),
   async (req: AuthRequest & ValidatedRequest<CreateProjectBody>, res: Response) => {
-    const replay = await getIdempotencyRecord(req, req.userId!, 'POST /api/projects');
-    if (replay) { replayIdempotencyRecord(res, replay); return; }
-
-    const { workspaceId, key, teamIds, startDate, targetDate, repoUrl, repositoryId, defaultBranch, localPath, ...rest } = req.validBody!;
-    const project = await createProjectFull({
-      userId: req.userId!, isDesktopClient: isDesktopClient(req),
-      workspaceId, key, teamIds, startDate, targetDate, repoUrl, repositoryId, defaultBranch, localPath, ...rest,
+    const body = req.validBody!;
+    const desktop = isDesktopClient(req);
+    const { workspaceId, key, teamIds, startDate, targetDate, repoUrl, repositoryId, defaultBranch, localPath, ...rest } = body;
+    await respondIdempotently(req, res, {
+      operation: 'projects.create',
+      // The desktop flag changes what the request may do (localPath).
+      args: { body, params: { client: desktop ? 'desktop' : 'web' } },
+      authorize: () => authorizeCreateProjectFull({
+        userId: req.userId!, isDesktopClient: desktop,
+        workspaceId, key, teamIds, startDate, targetDate, repoUrl, repositoryId, defaultBranch, localPath, ...rest,
+      }),
     });
-
-    await storeIdempotencyRecord(req, req.userId!, 'POST /api/projects', 201, project);
-    res.status(201).json(project);
   },
 );
 
@@ -141,6 +156,44 @@ router.delete('/:id', requireAuth, async (req: AuthRequest, res: Response) => {
   res.status(204).send();
 });
 
+// ─── GET/PUT /:id/verification-settings (W11a) ───────────────────────────────
+
+router.get('/:id/verification-settings', requireAuth, async (req: AuthRequest, res: Response) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.json(await getProjectVerificationSettings({ projectId: req.params.id as string, userId: req.userId! }));
+});
+
+router.put('/:id/verification-settings', requireAuth, validateBody(projectVerificationSettingsBodySchema),
+  async (req: AuthRequest & ValidatedRequest<ProjectVerificationSettingsBody>, res: Response) => {
+    res.json(await updateProjectVerificationSettings({ projectId: req.params.id as string, userId: req.userId!, body: req.validBody! }));
+  },
+);
+
+// ─── GET /:id/export (FE-16) ────────────────────────────────────────────────
+
+/** The export is built in memory (bounded, services/project-export.ts): a few per minute per person. */
+const exportLimiter = rateLimit({
+  windowMs: 60_000,
+  limit: 2,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  skip: () => process.env.NODE_ENV === 'test',
+  keyGenerator: (req) => (req as AuthRequest).userId ?? ipKeyGenerator(req.ip ?? '', 56),
+  handler: (_req, res) => {
+    res.status(429).json(buildErrorEnvelope('RATE_LIMITED', 'Too many exports; try again in a minute', {
+      details: { scope: 'project-export', retryAfterSeconds: 60 },
+      extras: { scope: 'project-export', retryAfterSeconds: 60 },
+    }));
+  },
+});
+
+router.get('/:id/export', requireAuth, exportLimiter, async (req: AuthRequest, res: Response) => {
+  const bundle = await exportProject({ projectId: req.params.id as string, userId: req.userId! });
+  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('Content-Disposition', `attachment; filename="${exportFileName(bundle.project.key, bundle.project.name, new Date(bundle.exportedAt))}"`);
+  res.json(bundle);
+});
+
 // ─── GET /:id/access ─────────────────────────────────────────────────────────
 
 router.get('/:id/access', requireAuth, async (req: AuthRequest, res: Response) => {
@@ -153,14 +206,14 @@ router.get('/:id/access', requireAuth, async (req: AuthRequest, res: Response) =
 router.post('/:id/access', requireAuth, validateBody(projectAccessBodySchema),
   async (req: AuthRequest & ValidatedRequest<ProjectAccessBody>, res: Response) => {
     const id = req.params.id as string;
-    const replay = await getIdempotencyRecord(req, req.userId!, `POST /api/projects/${id}/access`);
-    if (replay) { replayIdempotencyRecord(res, replay); return; }
-
-    const { userId, permission } = req.validBody!;
-    const { access, isNew } = await grantProjectAccess({ projectId: id, actorUserId: req.userId!, userId, permission });
-    const status = isNew ? 201 : 200;
-    await storeIdempotencyRecord(req, req.userId!, `POST /api/projects/${id}/access`, status, access);
-    res.status(status).json(access);
+    const body = req.validBody!;
+    await respondIdempotently(req, res, {
+      operation: 'projects.access.grant',
+      args: { body, params: { id } },
+      authorize: () => authorizeGrantProjectAccess({
+        projectId: id, actorUserId: req.userId!, userId: body.userId, permission: body.permission,
+      }),
+    });
   },
 );
 
@@ -169,12 +222,12 @@ router.post('/:id/access', requireAuth, validateBody(projectAccessBodySchema),
 router.post('/:id/access/bulk', requireAuth, validateBody(bulkProjectAccessBodySchema),
   async (req: AuthRequest & ValidatedRequest<BulkProjectAccessBody>, res: Response) => {
     const id = req.params.id as string;
-    const replay = await getIdempotencyRecord(req, req.userId!, `POST /api/projects/${id}/access/bulk`);
-    if (replay) { replayIdempotencyRecord(res, replay); return; }
-
-    const result = await grantProjectAccessBulk({ projectId: id, actorUserId: req.userId!, grants: req.validBody!.grants });
-    await storeIdempotencyRecord(req, req.userId!, `POST /api/projects/${id}/access/bulk`, 200, result);
-    res.json(result);
+    const body = req.validBody!;
+    await respondIdempotently(req, res, {
+      operation: 'projects.access.bulk_grant',
+      args: { body, params: { id } },
+      authorize: () => authorizeGrantProjectAccessBulk({ projectId: id, actorUserId: req.userId!, grants: body.grants }),
+    });
   },
 );
 

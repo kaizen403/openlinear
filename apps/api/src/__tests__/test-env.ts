@@ -22,6 +22,13 @@ export function applyTestEnv(): void {
   // Tokens minted directly by tests have no `Session` row, and session
   // revocation now fails closed. Tests that exercise revocation override this.
   process.env.OPENLINEAR_ALLOW_SESSIONLESS_JWT ??= '1';
+
+  // A GitHub App configured in a developer `.env` would make every execution
+  // test mint real installation tokens against api.github.com. Tests that
+  // exercise the App set these themselves, against a loopback fake.
+  for (const key of ['GITHUB_APP_ID', 'GITHUB_APP_PRIVATE_KEY', 'GITHUB_APP_SLUG', 'GITHUB_APP_WEBHOOK_SECRET', 'OPENLINEAR_GITHUB_API_URL', 'OPENLINEAR_GIT_CREDENTIAL_FALLBACK']) {
+    delete process.env[key];
+  }
 }
 
 /** The secret tests should sign with. Always read this, never a literal. */

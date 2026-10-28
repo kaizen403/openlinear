@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { gitRefSchema, localRepoPathSchema } from './git';
+import { runnerIdSchema } from './runner';
 
 // Re-exported from ./git so the option-injection guard (no leading `-`) is
 // applied everywhere a branch name can reach a positional git argument.
@@ -62,7 +63,7 @@ export const updateProjectBodySchema = z.object({
   teamIds: z.array(z.string().uuid()).max(1).optional(),
   repoUrl: z.string().nullable().optional(),
   localPath: localRepoPathSchema.nullable().optional(),
-  defaultAgent: z.string().min(1).nullable().optional(),
+  defaultAgent: runnerIdSchema.nullable().optional(),
 });
 
 export const listProjectsQuerySchema = z.object({
@@ -92,3 +93,11 @@ export type UpdateProjectBody = z.infer<typeof updateProjectBodySchema>;
 export type ListProjectsQuery = z.infer<typeof listProjectsQuerySchema>;
 export type ProjectAccessBody = z.infer<typeof projectAccessBodySchema>;
 export type BulkProjectAccessBody = z.infer<typeof bulkProjectAccessBodySchema>;
+
+/**
+ * W11a: `PUT /api/projects/:id/verification-settings`. The shape is checked
+ * strictly by execution-core `parseProjectVerificationSettings` (shared with
+ * the sidecar, which re-validates the sealed copy); here only "an object".
+ */
+export const projectVerificationSettingsBodySchema = z.record(z.string(), z.unknown());
+export type ProjectVerificationSettingsBody = z.infer<typeof projectVerificationSettingsBodySchema>;

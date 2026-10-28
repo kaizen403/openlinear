@@ -1,6 +1,6 @@
 import { prisma, type WorkspaceRole } from '@openlinear/db';
 import { assertWorkspaceRole } from './workspaces';
-import { OwnershipError } from './ownership';
+import { OwnershipError, assertPrincipalMayEnterWorkspace, assertPrincipalWorkspace } from './ownership';
 import { HttpError } from '../errors';
 
 const INVITATION_EXPIRY_DAYS = 7;
@@ -121,6 +121,10 @@ export async function acceptInvitation(input: {
     throw new OwnershipError('workspace', input.invitationId, 'not_found');
   }
 
+  // Joining a workspace widens the account; a PAT bound to a different
+  // workspace must not do it.
+  assertPrincipalMayEnterWorkspace(input.userId, invitation.workspaceId);
+
   if (invitation.expiresAt < new Date()) {
     await prisma.invitation.update({
       where: { id: invitation.id },
@@ -167,6 +171,8 @@ export async function revokeInvitation(input: {
   if (!invitation) {
     throw new OwnershipError('workspace', input.invitationId, 'not_found');
   }
+
+  assertPrincipalWorkspace(input.userId, invitation.workspaceId, 'workspace', invitation.workspaceId);
 
   if (invitation.status !== 'pending') {
     throw new HttpError(409, 'INVITATION_NOT_PENDING', 'Invitation is not pending', { status: invitation.status });

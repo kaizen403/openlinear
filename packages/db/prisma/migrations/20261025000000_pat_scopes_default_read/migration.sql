@@ -1,0 +1,12 @@
+-- Align the personal_access_tokens.scopes column default with schema.prisma.
+--
+-- Commit 4862dc7 changed the Prisma default from ["*"] to ["read"] (least
+-- privilege) without a migration, so databases built from the migration history
+-- still default to full access when an insert omits scopes. The CI drift check
+-- (`prisma migrate diff --from-migrations ... --to-schema ... --exit-code`)
+-- reports exactly this difference.
+--
+-- Metadata-only change: existing rows keep their scopes, no table rewrite and
+-- no index build. The API always sends explicit scopes, so live token creation
+-- is unaffected; this only closes the full-access fallback.
+ALTER TABLE "personal_access_tokens" ALTER COLUMN "scopes" SET DEFAULT ARRAY['read']::TEXT[];

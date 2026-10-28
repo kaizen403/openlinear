@@ -1,5 +1,5 @@
 import { Router, Response } from 'express';
-import { prisma, Prisma } from '@openlinear/db';
+import type { Prisma } from '@openlinear/db';
 import { z } from 'zod';
 import { requireAuth, AuthRequest } from '../middleware/auth';
 import {
@@ -7,10 +7,9 @@ import {
   assertProjectAccess,
   assertTeamRole,
 } from '../services/ownership';
-import { PRISMA_TX_OPTIONS } from '../lib/constants';
-import { paginated, paginationSkipTake } from '../schemas/pagination';
+import { ACTIVITY_COUNT_MODES, decodeActivityCursor, listActivityPage } from '../services/activity-feed';
 import { ValidationError } from '../errors';
-import { resolveTenancyContext } from '../tenancy/context';
+import { resolvePrincipalForUser } from '../tenancy/context';
 import { scopedActivityWhere } from '../tenancy/scopes';
 
 const router: Router = Router();
@@ -21,6 +20,22 @@ const querySchema = z.object({
   teamId: z.string().uuid().optional(),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(200).default(50),
+  /** Opaque keyset cursor from a previous page's `nextCursor`; overrides `page`. */
+  cursor: z
+    .string()
+    .max(200)
+    .optional()
+    .transform((raw, ctx) => {
+      if (raw === undefined) return null;
+      const decoded = decodeActivityCursor(raw);
+      if (!decoded) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Invalid cursor' });
+        return z.NEVER;
+      }
+      return decoded;
+    }),
+  /** `exact` computes the exact total (a full count of visible activity). */
+  count: z.enum(ACTIVITY_COUNT_MODES).default('none'),
 });
 
 router.get('/', requireAuth, async (req: AuthRequest, res: Response) => {
@@ -29,7 +44,7 @@ router.get('/', requireAuth, async (req: AuthRequest, res: Response) => {
   if (!parsed.success) {
     throw ValidationError.fromZod(parsed.error);
   }
-  const { taskId, projectId, teamId, page, pageSize } = parsed.data;
+  const { taskId, projectId, teamId, page, pageSize, cursor, count } = parsed.data;
 
   if (taskId) await assertTaskAccess(taskId, req.userId!, 'view');
   if (projectId) await assertProjectAccess(projectId, req.userId!, 'view');
@@ -44,32 +59,13 @@ router.get('/', requireAuth, async (req: AuthRequest, res: Response) => {
       ...(teamId ? { teamId } : {}),
     };
   } else {
-    const ctx = req.tenancy ?? await resolveTenancyContext({
-      userId: req.userId!,
-      authSource: req.authSource ?? 'jwt',
-      scopes: req.patScopes ?? [],
-    });
+    const ctx = req.tenancy ?? await resolvePrincipalForUser(req.userId!);
     where = scopedActivityWhere(ctx);
   }
 
-  const [activities, total] = await prisma.$transaction(
-    async (tx) => {
-      const items = await tx.activityLog.findMany({
-        where,
-        orderBy: { createdAt: 'desc' },
-        ...paginationSkipTake(page, pageSize),
-        include: {
-          user: { select: { id: true, username: true, avatarUrl: true } },
-        },
-      });
-      const count = await tx.activityLog.count({ where });
-      return [items, count] as const;
-    },
-    PRISMA_TX_OPTIONS,
-  );
-
-  res.json(paginated(activities, total, page, pageSize));
-  
+  // Same `{ items, total, page, pageSize, hasMore }` envelope as before, plus
+  // `nextCursor` and `totalExact` (see services/activity-feed.ts).
+  res.json(await listActivityPage({ where, page, pageSize, cursor, count }));
 });
 
 export default router;

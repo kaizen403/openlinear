@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import request from 'supertest';
 import jwt from 'jsonwebtoken';
 import { createApp } from '../app';
 import { prisma } from '@openlinear/db';
 import { testJwtSecret } from './test-env';
+import { useTestServer } from './http';
 
 const JWT_SECRET = testJwtSecret();
 
@@ -58,6 +58,7 @@ async function createWorkspace(ownerId: string, name: string) {
 
 describe('Workspace member management', () => {
   const app = createApp();
+  const http = useTestServer(() => app);
   let owner: Awaited<ReturnType<typeof createUser>>;
   let admin: Awaited<ReturnType<typeof createUser>>;
   let member: Awaited<ReturnType<typeof createUser>>;
@@ -84,7 +85,7 @@ describe('Workspace member management', () => {
   it('invites a workspace member by username', async () => {
     const workspace = await createWorkspace(owner.id, 'Invite Happy Path');
 
-    const res = await request(app)
+    const res = await http()
       .post(`/api/workspaces/${workspace.id}/members`)
       .set('Authorization', `Bearer ${ownerToken}`)
       .send({ username: member.username, role: 'member' });
@@ -97,12 +98,12 @@ describe('Workspace member management', () => {
 
   it('returns an existing member on duplicate invite', async () => {
     const workspace = await createWorkspace(owner.id, 'Duplicate Invite');
-    const first = await request(app)
+    const first = await http()
       .post(`/api/workspaces/${workspace.id}/members`)
       .set('Authorization', `Bearer ${ownerToken}`)
       .send({ username: member.username, role: 'viewer' });
 
-    const second = await request(app)
+    const second = await http()
       .post(`/api/workspaces/${workspace.id}/members`)
       .set('Authorization', `Bearer ${ownerToken}`)
       .send({ username: member.username, role: 'member' });
@@ -119,7 +120,7 @@ describe('Workspace member management', () => {
       data: { workspaceId: workspace.id, userId: member.id, role: 'member' },
     });
 
-    const res = await request(app)
+    const res = await http()
       .patch(`/api/workspaces/${workspace.id}/members/${member.id}`)
       .set('Authorization', `Bearer ${ownerToken}`)
       .send({ role: 'admin' });
@@ -132,12 +133,12 @@ describe('Workspace member management', () => {
   it('protects the last owner from demotion and removal', async () => {
     const workspace = await createWorkspace(owner.id, 'Last Owner');
 
-    const demote = await request(app)
+    const demote = await http()
       .patch(`/api/workspaces/${workspace.id}/members/${owner.id}`)
       .set('Authorization', `Bearer ${ownerToken}`)
       .send({ role: 'admin' });
 
-    const remove = await request(app)
+    const remove = await http()
       .delete(`/api/workspaces/${workspace.id}/members/${owner.id}`)
       .set('Authorization', `Bearer ${ownerToken}`);
 
@@ -156,7 +157,7 @@ describe('Workspace member management', () => {
       data: { workspaceId: workspace.id, userId: viewer.id, role: 'viewer' },
     });
 
-    const res = await request(app)
+    const res = await http()
       .patch(`/api/workspaces/${workspace.id}/members/${viewer.id}`)
       .set('Authorization', `Bearer ${memberToken}`)
       .send({ role: 'admin' });
@@ -177,7 +178,7 @@ describe('Workspace member management', () => {
       data: { projectId: project.id, userId: member.id, permission: 'view' },
     });
 
-    const res = await request(app)
+    const res = await http()
       .delete(`/api/workspaces/${workspace.id}/members/${member.id}`)
       .set('Authorization', `Bearer ${memberToken}`);
 
@@ -200,7 +201,7 @@ describe('Workspace member management', () => {
       data: { workspaceId: workspace.id, name: 'Still Here', key: 'STIL' },
     });
 
-    const res = await request(app)
+    const res = await http()
       .delete(`/api/workspaces/${workspace.id}`)
       .set('Authorization', `Bearer ${ownerToken}`);
 
@@ -212,7 +213,7 @@ describe('Workspace member management', () => {
   it('deletes an empty workspace', async () => {
     const workspace = await createWorkspace(owner.id, 'Empty Delete');
 
-    const res = await request(app)
+    const res = await http()
       .delete(`/api/workspaces/${workspace.id}`)
       .set('Authorization', `Bearer ${ownerToken}`);
 
@@ -223,12 +224,12 @@ describe('Workspace member management', () => {
   it('returns 304 for matching workspace ETag', async () => {
     const workspace = await createWorkspace(owner.id, 'ETag Workspace');
 
-    const first = await request(app)
+    const first = await http()
       .get(`/api/workspaces/${workspace.id}`)
       .set('Authorization', `Bearer ${ownerToken}`);
     const etag = first.headers.etag;
 
-    const second = await request(app)
+    const second = await http()
       .get(`/api/workspaces/${workspace.id}`)
       .set('Authorization', `Bearer ${ownerToken}`)
       .set('If-None-Match', etag);
@@ -242,7 +243,7 @@ describe('Workspace member management', () => {
   it('returns only requested workspace list fields', async () => {
     await createWorkspace(owner.id, 'Selected Fields');
 
-    const res = await request(app)
+    const res = await http()
       .get('/api/workspaces?fields=id,name,role')
       .set('Authorization', `Bearer ${ownerToken}`);
 
@@ -261,10 +262,10 @@ describe('Workspace member management', () => {
       ],
     });
 
-    const first = await request(app)
+    const first = await http()
       .get(`/api/workspaces/${workspace.id}/members?limit=2`)
       .set('Authorization', `Bearer ${ownerToken}`);
-    const second = await request(app)
+    const second = await http()
       .get(`/api/workspaces/${workspace.id}/members?limit=2&cursor=${first.body.nextCursor}`)
       .set('Authorization', `Bearer ${ownerToken}`);
 
@@ -282,7 +283,7 @@ describe('Workspace member management', () => {
       data: { workspaceId: workspace.id, userId: admin.id, role: 'admin' },
     });
 
-    const res = await request(app)
+    const res = await http()
       .post(`/api/workspaces/${workspace.id}/members/bulk`)
       .set('Authorization', `Bearer ${ownerToken}`)
       .send({
@@ -310,7 +311,7 @@ describe('Workspace member management', () => {
       data: { workspaceId: workspace.id, userId: admin.id, role: 'admin' },
     });
 
-    const res = await request(app)
+    const res = await http()
       .post(`/api/workspaces/${workspace.id}/members`)
       .set('Authorization', `Bearer ${adminToken}`)
       .send({ username: member.username, role: 'viewer' });

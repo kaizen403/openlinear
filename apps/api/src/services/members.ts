@@ -1,6 +1,7 @@
 import { prisma, type Prisma, type WorkspaceRole } from '@openlinear/db';
 import { HttpError } from '../errors';
-import { broadcastToUser, broadcastToWorkspace } from '../sse';
+import { transactionWithEvents } from '../events/outbox';
+import { appendToTarget, userTarget, workspaceTarget } from '../events/targets';
 import { OwnershipError } from './ownership';
 import { assertWorkspaceRole } from './workspaces';
 import { invalidateTenancyCache } from '../tenancy/context';
@@ -60,13 +61,13 @@ export async function listWorkspaceMembers(input: {
   };
 }
 
-async function loadWorkspaceForUser(workspaceId: string, userId: string) {
-  const membership = await prisma.workspaceMember.findUnique({
+async function loadWorkspaceForUser(workspaceId: string, userId: string, db: Prisma.TransactionClient | typeof prisma = prisma) {
+  const membership = await db.workspaceMember.findUnique({
     where: { workspaceId_userId: { workspaceId, userId } },
     select: { id: true },
   });
   if (!membership) return null;
-  return prisma.workspace.findUnique({
+  return db.workspace.findUnique({
     where: { id: workspaceId },
     include: {
       _count: { select: { members: true, projects: true } },
@@ -130,20 +131,22 @@ export async function inviteWorkspaceMember(input: {
   });
   if (existing) return existing;
 
-  const member = await prisma.workspaceMember.create({
-    data: {
-      workspaceId: input.workspaceId,
-      userId: user.id,
-      role: input.role,
-      joinedAt: new Date(),
-    },
-    include: workspaceMemberInclude,
+  const member = await transactionWithEvents(async (tx) => {
+    const created = await tx.workspaceMember.create({
+      data: {
+        workspaceId: input.workspaceId,
+        userId: user.id,
+        role: input.role,
+        joinedAt: new Date(),
+      },
+      include: workspaceMemberInclude,
+    });
+    const workspace = await loadWorkspaceForUser(input.workspaceId, user.id, tx);
+    if (workspace) await appendToTarget(tx, userTarget(user.id), 'workspace:joined', workspace, input.actorUserId);
+    await appendToTarget(tx, workspaceTarget(input.workspaceId), 'workspace:member-added', created, input.actorUserId);
+    return created;
   });
-
   invalidateTenancyCache(user.id);
-  const workspace = await loadWorkspaceForUser(input.workspaceId, user.id);
-  if (workspace) broadcastToUser(user.id, 'workspace:joined', workspace);
-  broadcastToWorkspace(input.workspaceId, 'workspace:member-added', member);
   return member;
 }
 
@@ -156,12 +159,13 @@ export async function changeWorkspaceMemberRole(input: {
   await assertWorkspaceRole(input.workspaceId, input.actorUserId, ['owner']);
   await ensureNotLastWorkspaceOwner(input.workspaceId, input.targetUserId, input.role);
 
-  const member = await prisma.workspaceMember.update({
-    where: { workspaceId_userId: { workspaceId: input.workspaceId, userId: input.targetUserId } },
-    data: { role: input.role },
-    include: workspaceMemberInclude,
+  return transactionWithEvents(async (tx) => {
+    const member = await tx.workspaceMember.update({
+      where: { workspaceId_userId: { workspaceId: input.workspaceId, userId: input.targetUserId } },
+      data: { role: input.role },
+      include: workspaceMemberInclude,
+    });
+    await appendToTarget(tx, workspaceTarget(input.workspaceId), 'workspace:member-updated', member, input.actorUserId);
+    return member;
   });
-
-  broadcastToWorkspace(input.workspaceId, 'workspace:member-updated', member);
-  return member;
 }

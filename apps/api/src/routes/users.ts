@@ -7,6 +7,7 @@ import { updateUserBodySchema, UpdateUserBody } from '../schemas/users';
 import { z } from 'zod';
 import { hashToken } from '../services/sessions';
 import { logger } from '../logger';
+import { buildErrorEnvelope } from '../lib/http';
 
 const router: Router = Router();
 const EMAIL_CHANGE_TTL_MS = 60 * 60 * 1000;
@@ -109,19 +110,22 @@ router.post(
   requireInteractiveSession,
   validateBody(confirmEmailChangeSchema),
   async (req: AuthRequest & ValidatedRequest<{ token: string }>, res: Response) => {
-    const row = await prisma.emailChangeRequest.findUnique({
-      where: { tokenHash: hashToken(req.validBody!.token) },
-    });
-    if (!row || row.userId !== req.userId || row.consumedAt || row.expiresAt <= new Date()) {
-      res.status(400).json({ error: 'Invalid or expired confirmation token', code: 'INVALID_TOKEN' });
-      return;
-    }
-
+    const tokenHash = hashToken(req.validBody!.token);
+    // Single use under concurrency (W02b): the request row is claimed with a
+    // conditional UPDATE inside the transaction that changes the email, so
+    // of N parallel confirmations exactly one applies.
     const user = await prisma.$transaction(async (tx) => {
-      await tx.emailChangeRequest.update({
-        where: { id: row.id },
-        data: { consumedAt: new Date() },
+      const now = new Date();
+      const claimed = await tx.emailChangeRequest.updateMany({
+        where: { tokenHash, userId: req.userId!, consumedAt: null, expiresAt: { gt: now } },
+        data: { consumedAt: now },
       });
+      if (claimed.count !== 1) return null;
+      const row = await tx.emailChangeRequest.findUnique({
+        where: { tokenHash },
+        select: { newEmail: true },
+      });
+      if (!row) return null;
       return tx.user.update({
         where: { id: req.userId! },
         data: { email: row.newEmail },
@@ -129,11 +133,27 @@ router.post(
       });
     });
 
+    if (!user) {
+      res.status(400).json({ error: 'Invalid or expired confirmation token', code: 'INVALID_TOKEN' });
+      return;
+    }
+
     res.json(user);
   },
 );
 
-router.get('/me/scm-token', requireAuth(['write']), async (req: AuthRequest, res: Response) => {
+// PAT policy (admin scope, refused for workspace-bound PATs) comes from the
+// route registry; the check below is defence in depth.
+router.get('/me/scm-token', requireAuth, async (req: AuthRequest, res: Response) => {
+  // The GitHub token is account-wide. A PAT bound to one workspace must not
+  // be able to exchange itself for a credential that reaches every repository.
+  if (req.authSource === 'pat' && req.patWorkspaceId) {
+    res.status(403).json(buildErrorEnvelope(
+      'PAT_WORKSPACE_RESTRICTED',
+      'Account-wide credentials are not available to a workspace-bound personal access token',
+    ));
+    return;
+  }
   const user = await prisma.user.findUnique({
     where: { id: req.userId! },
     select: { accessToken: true },

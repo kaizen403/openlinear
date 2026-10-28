@@ -1,19 +1,17 @@
 import { Router, Response } from 'express';
 import { prisma } from '@openlinear/db';
 import { requireAuth, AuthRequest } from '../middleware/auth';
-import { scopedProjectWhere, scopedTaskWhere } from '../tenancy/scopes';
-import { resolveTenancyContext } from '../tenancy/context';
+import { logger } from '../logger';
+import { dashboardTaskStats, type DashboardTaskStats } from '../services/task-aggregates';
+import { scopedProjectWhere } from '../tenancy/scopes';
+import { resolvePrincipalForUser } from '../tenancy/context';
 import type { TenancyContext } from '../tenancy/types';
 
 const router: Router = Router();
 
 async function dashboardTenancy(req: AuthRequest): Promise<TenancyContext> {
   if (req.tenancy) return req.tenancy;
-  return resolveTenancyContext({
-    userId: req.userId!,
-    authSource: req.authSource ?? 'jwt',
-    scopes: req.patScopes ?? [],
-  });
+  return resolvePrincipalForUser(req.userId!);
 }
 
 router.get(
@@ -21,69 +19,23 @@ router.get(
   requireAuth,
   async (req: AuthRequest, res: Response) => {
     const ctx = await dashboardTenancy(req);
-    const where = scopedTaskWhere(ctx, { archived: false });
-
-    const results = await Promise.allSettled([
-      prisma.task.groupBy({
-        by: ['status'],
-        where,
-        _count: { _all: true },
-      }),
-      prisma.task.groupBy({
-        by: ['priority'],
-        where,
-        _count: { _all: true },
-      }),
-      prisma.task.count({
-        where: scopedTaskWhere(ctx, {
-          archived: false,
-          status: { not: 'done' },
-          dueDate: { lt: new Date() },
-        }),
-      }),
-      prisma.task.count({
-        where: scopedTaskWhere(ctx, {
-          archived: false,
-          status: { not: 'done' },
-          assigneeId: null,
-        }),
-      }),
-      prisma.task.count({ where }),
-      prisma.task.count({
-        where: scopedTaskWhere(ctx, {
-          archived: false,
-          createdAt: { gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) },
-        }),
-      }),
-    ]);
-
-    const statusCounts = results[0].status === 'fulfilled' ? results[0].value : [];
-    const priorityCounts = results[1].status === 'fulfilled' ? results[1].value : [];
-    const overdue = results[2].status === 'fulfilled' ? results[2].value : 0;
-    const unassigned = results[3].status === 'fulfilled' ? results[3].value : 0;
-    const total = results[4].status === 'fulfilled' ? results[4].value : 0;
-    const recent = results[5].status === 'fulfilled' ? results[5].value : 0;
-
-    const statusMap = Object.fromEntries(statusCounts.map((s) => [s.status, s._count._all]));
-    const priorityMap = Object.fromEntries(priorityCounts.map((p) => [p.priority, p._count._all]));
-
-    res.json({
-      total,
-      recent,
-      overdue,
-      unassigned,
-      byStatus: {
-        todo: statusMap.todo ?? 0,
-        in_progress: statusMap.in_progress ?? 0,
-        done: statusMap.done ?? 0,
-        cancelled: statusMap.cancelled ?? 0,
-      },
-      byPriority: {
-        low: priorityMap.low ?? 0,
-        medium: priorityMap.medium ?? 0,
-        high: priorityMap.high ?? 0,
-      },
-    });
+    // One FILTERed aggregate instead of six scans (services/task-aggregates.ts).
+    // As before, a failed read degrades to zeros rather than failing the card.
+    let stats: DashboardTaskStats;
+    try {
+      stats = await dashboardTaskStats(ctx);
+    } catch (err) {
+      logger.warn({ err }, '[dashboard] task stats failed; returning zeros');
+      stats = {
+        total: 0,
+        recent: 0,
+        overdue: 0,
+        unassigned: 0,
+        byStatus: { todo: 0, in_progress: 0, done: 0, cancelled: 0 },
+        byPriority: { low: 0, medium: 0, high: 0 },
+      };
+    }
+    res.json(stats);
   },
 );
 

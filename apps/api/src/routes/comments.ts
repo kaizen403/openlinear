@@ -1,14 +1,14 @@
 import { Router, Response } from 'express';
 import { prisma } from '@openlinear/db';
-import { broadcastToTeam, broadcastToUser } from '../sse';
+import { transactionWithEvents } from '../events/outbox';
+import { appendToTarget, teamOrUserTarget, userTarget } from '../events/targets';
 import { requireAuth, AuthRequest } from '../middleware/auth';
 import { validateBody, validateQuery, ValidatedRequest } from '../middleware/validate';
 import {
   assertTaskOwned,
   assertTaskAccess,
-  assertCommentOwned,
-  assertTeamRole,
-  OwnershipError,
+  assertCommentAccess,
+  filterUsersWithTaskAccess,
 } from '../services/ownership';
 import { logActivity } from '../services/activity';
 import {
@@ -99,13 +99,18 @@ router.post(
       }
     }
 
-    const recipientIds = Array.from(
-      new Set(
-        mentionedUsers.map((u) => u.id).filter((id) => id !== req.userId),
+    // A mention must not deliver the comment body to someone who cannot read the task.
+    const recipientIds = await filterUsersWithTaskAccess(
+      taskId,
+      Array.from(
+        new Set(
+          mentionedUsers.map((u) => u.id).filter((id) => id !== req.userId),
+        ),
       ),
     );
 
-    const result = await prisma.$transaction(async (tx) => {
+    // W04b: the comment, mentions, notifications and their events commit together.
+    const result = await transactionWithEvents(async (tx) => {
       const comment = await tx.comment.create({
         data: {
           taskId,
@@ -144,24 +149,19 @@ router.post(
             )
           : [];
 
+      await appendToTarget(
+        tx,
+        await teamOrUserTarget(tx, task.teamId, req.userId!),
+        'comment:created',
+        { taskId, comment },
+        req.userId!,
+      );
+      for (const notification of notifications) {
+        await appendToTarget(tx, userTarget(notification.userId), 'notification:created', notification, req.userId!);
+      }
+
       return { comment, notifications };
     });
-
-    if (task.teamId) {
-      broadcastToTeam(task.teamId, 'comment:created', {
-        taskId,
-        comment: result.comment,
-      });
-    } else {
-      broadcastToUser(req.userId!, 'comment:created', {
-        taskId,
-        comment: result.comment,
-      });
-    }
-
-    for (const notification of result.notifications) {
-      broadcastToUser(notification.userId, 'notification:created', notification);
-    }
 
     await logActivity({
       taskId,
@@ -191,21 +191,8 @@ router.patch(
     const id = req.params.id as string;
     const body = req.validBody!.body;
 
-    const existing = await prisma.comment.findUnique({
-      where: { id },
-      select: {
-        id: true,
-        userId: true,
-        taskId: true,
-        task: { select: { teamId: true } },
-      },
-    });
-    if (!existing) {
-      throw new OwnershipError('comment', id, 'not_found');
-    }
-    if (existing.userId !== req.userId) {
-      throw new OwnershipError('comment', id, 'forbidden');
-    }
+    // Author only, and only while the author still has full task access.
+    const existing = await assertCommentAccess(id, req.userId!, 'update');
 
     const usernames = extractMentionedUsernames(body);
     let mentionedUsers: { id: string; username: string }[] = [];
@@ -215,29 +202,30 @@ router.patch(
         select: { id: true, username: true },
       });
     }
-    const recipientIds = Array.from(
-      new Set(
-        mentionedUsers.map((u) => u.id).filter((id) => id !== req.userId),
+    const recipientIds = await filterUsersWithTaskAccess(
+      existing.taskId,
+      Array.from(
+        new Set(
+          mentionedUsers.map((u) => u.id).filter((id) => id !== req.userId),
+        ),
       ),
     );
 
-    const updated = await prisma.comment.update({
-      where: { id },
-      data: { body, mentions: recipientIds },
-      include: { user: { select: COMMENT_AUTHOR_SELECT } },
+    const updated = await transactionWithEvents(async (tx) => {
+      const comment = await tx.comment.update({
+        where: { id },
+        data: { body, mentions: recipientIds },
+        include: { user: { select: COMMENT_AUTHOR_SELECT } },
+      });
+      await appendToTarget(
+        tx,
+        await teamOrUserTarget(tx, existing.task.teamId, req.userId!),
+        'comment:updated',
+        { taskId: existing.taskId, comment },
+        req.userId!,
+      );
+      return comment;
     });
-
-    if (existing.task?.teamId) {
-      broadcastToTeam(existing.task.teamId, 'comment:updated', {
-        taskId: existing.taskId,
-        comment: updated,
-      });
-    } else {
-      broadcastToUser(req.userId!, 'comment:updated', {
-        taskId: existing.taskId,
-        comment: updated,
-      });
-    }
     res.json(updated);
     
   },
@@ -250,33 +238,20 @@ router.delete(
 
     const id = req.params.id as string;
 
-    const owned = await assertCommentOwned(id, req.userId!);
+    // Current full task access, then author or team owner/admin.
+    const owned = await assertCommentAccess(id, req.userId!, 'delete');
+    const task = owned.task;
 
-    const task = await prisma.task.findUnique({
-      where: { id: owned.taskId },
-      select: { teamId: true },
+    await transactionWithEvents(async (tx) => {
+      await tx.comment.delete({ where: { id } });
+      await appendToTarget(
+        tx,
+        await teamOrUserTarget(tx, task.teamId, req.userId!),
+        'comment:deleted',
+        { id, taskId: owned.taskId },
+        req.userId!,
+      );
     });
-
-    if (owned.userId !== req.userId) {
-      if (!task?.teamId) {
-        throw new OwnershipError('comment', id, 'forbidden');
-      }
-      await assertTeamRole(task.teamId, req.userId!, ['owner', 'admin']);
-    }
-
-    await prisma.comment.delete({ where: { id } });
-
-    if (task?.teamId) {
-      broadcastToTeam(task.teamId, 'comment:deleted', {
-        id,
-        taskId: owned.taskId,
-      });
-    } else {
-      broadcastToUser(req.userId!, 'comment:deleted', {
-        id,
-        taskId: owned.taskId,
-      });
-    }
     res.status(204).send();
     
   },

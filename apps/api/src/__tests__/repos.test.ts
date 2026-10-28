@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import request from 'supertest';
 import jwt from 'jsonwebtoken';
 import { encryptToken, prisma } from '@openlinear/db';
 import { createApp } from '../app';
 import { exchangeCodeForToken, getGitHubBranches, getGitHubRepos } from '../services/github';
 import { testJwtSecret } from './test-env';
+import { useTestServer } from './http';
 
 const JWT_SECRET = testJwtSecret();
 
@@ -18,20 +18,21 @@ afterEach(() => {
 
 describe('Repos API auth', () => {
   const app = createApp();
+  const http = useTestServer(() => app);
 
   it('requires auth for public repository reads', async () => {
-    const publicRes = await request(app).get('/api/repos/public');
-    const activeRes = await request(app).get('/api/repos/active/public');
+    const publicRes = await http().get('/api/repos/public');
+    const activeRes = await http().get('/api/repos/active/public');
 
     expect(publicRes.status).toBe(401);
     expect(activeRes.status).toBe(401);
   });
 
   it('requires auth for public repository writes', async () => {
-    const addRes = await request(app)
+    const addRes = await http()
       .post('/api/repos/url')
       .send({ url: 'https://github.com/openai/openai-node' });
-    const activateRes = await request(app).post('/api/repos/repo-id/activate/public');
+    const activateRes = await http().post('/api/repos/repo-id/activate/public');
 
     expect(addRes.status).toBe(401);
     expect(activateRes.status).toBe(401);
@@ -40,6 +41,7 @@ describe('Repos API auth', () => {
 
 describe('GitHub branch route', () => {
   const app = createApp();
+  const http = useTestServer(() => app);
 
   it('returns branches for the authenticated user repository', async () => {
     const user = await prisma.user.upsert({
@@ -63,7 +65,7 @@ describe('GitHub branch route', () => {
     );
     vi.stubGlobal('fetch', fetchMock);
 
-    const res = await request(app)
+    const res = await http()
       .get('/api/repos/github/octo/app/branches')
       .set('Authorization', `Bearer ${generateToken(user.id, user.username)}`);
 

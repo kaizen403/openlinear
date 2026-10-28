@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import request from 'supertest';
 import jwt from 'jsonwebtoken';
 import { createApp } from '../app';
 import { prisma } from '@openlinear/db';
 import { testJwtSecret } from './test-env';
+import { useTestServer } from './http';
 
 const JWT_SECRET = testJwtSecret();
 
@@ -13,6 +13,7 @@ function generateToken(userId: string, username: string = 'testuser') {
 
 describe('Tasks API', () => {
   const app = createApp();
+  const http = useTestServer(() => app);
   let testUserId: string;
   let authToken: string;
   let testTeamId: string;
@@ -82,7 +83,7 @@ describe('Tasks API', () => {
 
   describe('GET /api/tasks', () => {
     it('returns 401 without auth', async () => {
-      const res = await request(app).get('/api/tasks');
+      const res = await http().get('/api/tasks');
       expect(res.status).toBe(401);
     });
 
@@ -95,7 +96,7 @@ describe('Tasks API', () => {
         },
       });
 
-      const res = await request(app)
+      const res = await http()
         .get('/api/tasks')
         .set('Authorization', `Bearer ${authToken}`);
 
@@ -113,7 +114,7 @@ describe('Tasks API', () => {
 
       await prisma.task.create({ data: { title: 'Team Task', priority: 'medium', teamId: team.id } });
 
-      const res = await request(app)
+      const res = await http()
         .get(`/api/tasks?teamId=${team.id}`)
         .set('Authorization', `Bearer ${authToken}`);
 
@@ -126,7 +127,7 @@ describe('Tasks API', () => {
             data: { name: 'Other', key: 'OTH', projectId: testProjectId },
           });
 
-      const res = await request(app)
+      const res = await http()
         .get(`/api/tasks?teamId=${otherTeam.id}`)
         .set('Authorization', `Bearer ${authToken}`);
 
@@ -161,7 +162,7 @@ describe('Tasks API', () => {
         },
       });
 
-      const list = await request(app)
+      const list = await http()
         .get('/api/tasks')
         .set('Authorization', `Bearer ${authToken}`);
       expect(list.status).toBe(200);
@@ -169,7 +170,7 @@ describe('Tasks API', () => {
         list.body.items.some((task: { title: string }) => task.title === 'Hidden Denied Project Task'),
       ).toBe(false);
 
-      const filtered = await request(app)
+      const filtered = await http()
         .get(`/api/tasks?projectId=${project.id}`)
         .set('Authorization', `Bearer ${authToken}`);
       expect(filtered.status).toBe(403);
@@ -216,7 +217,7 @@ describe('Tasks API', () => {
         ],
       });
 
-      const res = await request(app)
+      const res = await http()
         .get('/api/tasks')
         .set('Authorization', `Bearer ${workspaceOnlyToken}`);
 
@@ -229,12 +230,12 @@ describe('Tasks API', () => {
 
   describe('POST /api/tasks', () => {
     it('returns 401 without auth', async () => {
-      const res = await request(app).post('/api/tasks').send({ title: 'unauth' });
+      const res = await http().post('/api/tasks').send({ title: 'unauth' });
       expect(res.status).toBe(401);
     });
 
     it('rejects creating a task with no team or project', async () => {
-      const res = await request(app)
+      const res = await http()
         .post('/api/tasks')
         .set('Authorization', `Bearer ${authToken}`)
         .send({ title: 'No Team Task' });
@@ -249,7 +250,7 @@ describe('Tasks API', () => {
           });
       await prisma.teamMember.create({ data: { teamId: team.id, userId: testUserId, role: 'owner' } });
 
-      const res = await request(app)
+      const res = await http()
         .post('/api/tasks')
         .set('Authorization', `Bearer ${authToken}`)
         .send({ title: 'Team Task', teamId: team.id });
@@ -268,11 +269,11 @@ describe('Tasks API', () => {
           });
       await prisma.teamMember.create({ data: { teamId: team.id, userId: testUserId, role: 'owner' } });
 
-      const res1 = await request(app)
+      const res1 = await http()
         .post('/api/tasks')
         .set('Authorization', `Bearer ${authToken}`)
         .send({ title: 'First', teamId: team.id });
-      const res2 = await request(app)
+      const res2 = await http()
         .post('/api/tasks')
         .set('Authorization', `Bearer ${authToken}`)
         .send({ title: 'Second', teamId: team.id });
@@ -286,7 +287,7 @@ describe('Tasks API', () => {
             data: { name: 'Foreign', key: 'FRG', projectId: testProjectId },
           });
 
-      const res = await request(app)
+      const res = await http()
         .post('/api/tasks')
         .set('Authorization', `Bearer ${authToken}`)
         .send({ title: 'Forbidden', teamId: otherTeam.id });
@@ -297,7 +298,7 @@ describe('Tasks API', () => {
     });
 
     it('returns 400 for invalid data', async () => {
-      const res = await request(app)
+      const res = await http()
         .post('/api/tasks')
         .set('Authorization', `Bearer ${authToken}`)
         .send({ title: '' });
@@ -317,7 +318,7 @@ describe('Tasks API', () => {
       });
       await prisma.teamMember.create({ data: { teamId: team.id, userId: testUserId, role: 'owner' } });
 
-      const res = await request(app)
+      const res = await http()
         .post('/api/tasks/bulk')
         .set('Authorization', `Bearer ${authToken}`)
         .send({
@@ -351,7 +352,7 @@ describe('Tasks API', () => {
       await prisma.teamMember.create({ data: { teamId: team.id, userId: testUserId, role: 'owner' } });
 
       const before = await prisma.task.count({ where: { projectId: project.id } });
-      const res = await request(app)
+      const res = await http()
         .post('/api/tasks/bulk')
         .set('Authorization', `Bearer ${authToken}`)
         .send({
@@ -366,7 +367,7 @@ describe('Tasks API', () => {
     });
 
     it('returns 404 for an invalid project and 403 for inaccessible projects', async () => {
-      const missing = await request(app)
+      const missing = await http()
         .post('/api/tasks/bulk')
         .set('Authorization', `Bearer ${authToken}`)
         .send({
@@ -393,7 +394,7 @@ describe('Tasks API', () => {
       });
       await prisma.teamMember.create({ data: { teamId: team.id, userId: testUserId, role: 'owner' } });
 
-      const forbidden = await request(app)
+      const forbidden = await http()
         .post('/api/tasks/bulk')
         .set('Authorization', `Bearer ${otherToken}`)
         .send({
@@ -415,7 +416,7 @@ describe('Tasks API', () => {
         data: { name: 'phase:1 - Foundation', color: '#3B82F6', projectId: project.id },
       });
 
-      const res = await request(app)
+      const res = await http()
         .post('/api/tasks/bulk')
         .set('Authorization', `Bearer ${authToken}`)
         .send({
@@ -445,12 +446,12 @@ describe('Tasks API', () => {
         data: { name: 'Bulk PAT Team', key: 'BPT', projectId: project.id },
       });
       await prisma.teamMember.create({ data: { teamId: team.id, userId: testUserId, role: 'owner' } });
-      const pat = await request(app)
+      const pat = await http()
         .post('/api/pats')
         .set('Authorization', `Bearer ${authToken}`)
         .send({ name: 'Bulk writer', scopes: ['tasks:write'] });
 
-      const res = await request(app)
+      const res = await http()
         .post('/api/tasks/bulk')
         .set('Authorization', `Bearer ${pat.body.token}`)
         .send({
@@ -469,7 +470,7 @@ describe('Tasks API', () => {
       const task = await prisma.task.create({
         data: { title: 'NoAuthGet', priority: 'medium', teamId: testTeamId },
       });
-      const res = await request(app).get(`/api/tasks/${task.id}`);
+      const res = await http().get(`/api/tasks/${task.id}`);
       expect(res.status).toBe(401);
     });
 
@@ -478,7 +479,7 @@ describe('Tasks API', () => {
         data: { title: 'Find Me', priority: 'high', teamId: testTeamId },
       });
 
-      const res = await request(app)
+      const res = await http()
         .get(`/api/tasks/${task.id}`)
         .set('Authorization', `Bearer ${authToken}`);
 
@@ -488,7 +489,7 @@ describe('Tasks API', () => {
     });
 
     it('returns 404 for non-existent task', async () => {
-      const res = await request(app)
+      const res = await http()
         .get('/api/tasks/00000000-0000-0000-0000-000000000000')
         .set('Authorization', `Bearer ${authToken}`);
 
@@ -503,7 +504,7 @@ describe('Tasks API', () => {
         data: { title: 'Update Me', priority: 'low', teamId: testTeamId },
       });
 
-      const res = await request(app)
+      const res = await http()
         .patch(`/api/tasks/${task.id}`)
         .set('Authorization', `Bearer ${authToken}`)
         .send({ title: 'Updated Title', status: 'in_progress' });
@@ -529,7 +530,7 @@ describe('Tasks API', () => {
         },
       });
 
-      const res = await request(app)
+      const res = await http()
         .patch(`/api/tasks/${task.id}`)
         .set('Authorization', `Bearer ${authToken}`)
         .send({ status: 'done' });
@@ -545,7 +546,7 @@ describe('Tasks API', () => {
     });
 
     it('returns 404 for non-existent task', async () => {
-      const res = await request(app)
+      const res = await http()
         .patch('/api/tasks/00000000-0000-0000-0000-000000000000')
         .set('Authorization', `Bearer ${authToken}`)
         .send({ title: 'Updated' });
@@ -560,7 +561,7 @@ describe('Tasks API', () => {
         data: { title: 'Delete Me', priority: 'medium', teamId: testTeamId },
       });
 
-      const res = await request(app)
+      const res = await http()
         .delete(`/api/tasks/${task.id}`)
         .set('Authorization', `Bearer ${authToken}`);
 
@@ -576,7 +577,7 @@ describe('Tasks API', () => {
         data: { title: 'Delete Permanently', priority: 'medium', teamId: testTeamId },
       });
 
-      const res = await request(app)
+      const res = await http()
         .delete(`/api/tasks/${task.id}?permanent=true`)
         .set('Authorization', `Bearer ${authToken}`);
 
@@ -585,7 +586,7 @@ describe('Tasks API', () => {
     });
 
     it('returns 404 for non-existent task', async () => {
-      const res = await request(app)
+      const res = await http()
         .delete('/api/tasks/00000000-0000-0000-0000-000000000000')
         .set('Authorization', `Bearer ${authToken}`);
 
@@ -606,7 +607,7 @@ describe('Tasks API', () => {
         data: { title: 'A only', priority: 'medium', teamId: testTeamId },
       });
 
-      const res = await request(app)
+      const res = await http()
         .patch(`/api/tasks/${aTask.id}`)
         .set('Authorization', `Bearer ${tokenB}`)
         .send({ title: 'hijacked' });
@@ -635,7 +636,7 @@ describe('Tasks API', () => {
       const before = await prisma.task.count({ where: { archived: true, teamId: teamB.id } });
       expect(before).toBeGreaterThan(0);
 
-      const del = await request(app)
+      const del = await http()
         .delete('/api/tasks/archived')
         .set('Authorization', `Bearer ${authToken}`);
       expect(del.status).toBe(204);
@@ -687,7 +688,7 @@ describe('Tasks API', () => {
         },
       });
 
-      const res = await request(app)
+      const res = await http()
         .delete('/api/tasks/archived')
         .set('Authorization', `Bearer ${viewerToken}`);
 

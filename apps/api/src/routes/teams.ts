@@ -3,22 +3,18 @@ import { Prisma, prisma } from '@openlinear/db';
 import { requireAuth, optionalAuth, AuthRequest } from '../middleware/auth';
 import { validateBody, ValidatedRequest } from '../middleware/validate';
 import { makeEtag } from '../lib/etag';
-import {
-  getIdempotencyRecord,
-  parseFields,
-  parsePagination,
-  pickFields,
-  replayIdempotencyRecord,
-  storeIdempotencyRecord,
-} from '../lib/http';
+import { parseFields, parsePagination, pickFields } from '../lib/http';
 import { buildSelect } from '../lib/field-select';
+import { resolvePrincipalForUser } from '../tenancy/context';
+import { scopedTeamWhere } from '../tenancy/scopes';
+import { respondIdempotently } from '../services/idempotency';
 import {
-  addTeamMemberRoute,
+  authorizeAddTeamMember,
+  authorizeCreateTeam,
+  authorizeJoinTeam,
   changeTeamMemberRole,
-  createTeam,
   deleteTeamRoute,
   getTeam,
-  joinTeamRoute,
   listTeamMembers,
   removeTeamMemberRoute,
   updateTeam,
@@ -72,10 +68,14 @@ router.get('/', optionalAuth, async (req: AuthRequest, res: Response) => {
   const fields = parseFields(req.query.fields, teamListFields);
   const projectId = req.query.projectId as string | undefined;
   const workspaceId = req.query.workspaceId as string | undefined;
+  // Membership minus explicitly denied projects, narrowed to a PAT's workspace.
+  const principal = req.tenancy ?? await resolvePrincipalForUser(req.userId);
   const where: Prisma.TeamWhereInput = {
-    members: { some: { userId: req.userId } },
-    ...(projectId ? { projectId } : {}),
-    ...(workspaceId ? { project: { workspaceId } } : {}),
+    AND: [
+      scopedTeamWhere(principal),
+      projectId ? { projectId } : {},
+      workspaceId ? { project: { workspaceId } } : {},
+    ],
   };
   const teams = fields
     ? await prisma.team.findMany({ where, select: buildTeamSelect(fields), orderBy: { createdAt: 'asc' } })
@@ -83,23 +83,27 @@ router.get('/', optionalAuth, async (req: AuthRequest, res: Response) => {
   res.json(fields ? teams : teams.map((t) => pickFields({ ...t }, fields)));
 });
 
+// Creates and joins honour an optional `Idempotency-Key` (W04b; contract as
+// POST /api/tasks).
 router.post('/', requireAuth, validateBody(createTeamBodySchema),
   async (req: AuthRequest & ValidatedRequest<CreateTeamBody>, res: Response) => {
-    const replay = await getIdempotencyRecord(req, req.userId!, 'POST /api/teams');
-    if (replay) { replayIdempotencyRecord(res, replay); return; }
-    const team = await createTeam({ userId: req.userId!, ...req.validBody! });
-    await storeIdempotencyRecord(req, req.userId!, 'POST /api/teams', 201, team);
-    res.status(201).json(team);
+    const body = req.validBody!;
+    await respondIdempotently(req, res, {
+      operation: 'teams.create',
+      args: { body },
+      authorize: () => authorizeCreateTeam({ userId: req.userId!, ...body }),
+    });
   },
 );
 
 router.post('/join', requireAuth, validateBody(joinTeamBodySchema),
   async (req: AuthRequest & ValidatedRequest<JoinTeamBody>, res: Response) => {
-    const replay = await getIdempotencyRecord(req, req.userId!, 'POST /api/teams/join');
-    if (replay) { replayIdempotencyRecord(res, replay); return; }
-    const result = await joinTeamRoute({ userId: req.userId!, inviteCode: req.validBody!.inviteCode });
-    await storeIdempotencyRecord(req, req.userId!, 'POST /api/teams/join', 200, result);
-    res.json(result);
+    const body = req.validBody!;
+    await respondIdempotently(req, res, {
+      operation: 'teams.join',
+      args: { body },
+      authorize: () => authorizeJoinTeam({ userId: req.userId!, inviteCode: body.inviteCode }),
+    });
   },
 );
 
@@ -138,12 +142,13 @@ router.get('/:id/members', requireAuth, async (req: AuthRequest, res: Response) 
 router.post('/:id/members', requireAuth, validateBody(addMemberBodySchema),
   async (req: AuthRequest & ValidatedRequest<AddMemberBody>, res: Response) => {
     const id = req.params.id as string;
-    const replay = await getIdempotencyRecord(req, req.userId!, `POST /api/teams/${id}/members`);
-    if (replay) { replayIdempotencyRecord(res, replay); return; }
-    const { email, userId, role } = req.validBody!;
-    const member = await addTeamMemberRoute({ teamId: id, actorUserId: req.userId!, email, userId, role });
-    await storeIdempotencyRecord(req, req.userId!, `POST /api/teams/${id}/members`, 201, member);
-    res.status(201).json(member);
+    const body = req.validBody!;
+    const { email, userId, role } = body;
+    await respondIdempotently(req, res, {
+      operation: 'teams.members.add',
+      args: { body, params: { id } },
+      authorize: () => authorizeAddTeamMember({ teamId: id, actorUserId: req.userId!, email, userId, role }),
+    });
   },
 );
 

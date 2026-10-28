@@ -16,6 +16,7 @@ import {
 } from '../schemas/invitations';
 import { prisma } from '@openlinear/db';
 import { HttpError } from '../errors';
+import { workspaceRestrictionFor } from '../tenancy/context';
 
 const router: Router = Router();
 
@@ -30,7 +31,9 @@ router.get('/pending', requireAuth, async (req: AuthRequest, res: Response) => {
   }
 
   const invitations = await listMyPendingInvitations({ userEmail: user.email });
-  res.json(invitations);
+  // A workspace-bound PAT only sees invitations into its own workspace.
+  const restriction = workspaceRestrictionFor(req.userId!);
+  res.json(restriction ? invitations.filter((invitation) => invitation.workspaceId === restriction) : invitations);
 });
 
 router.get('/', requireAuth, async (req: AuthRequest, res: Response) => {

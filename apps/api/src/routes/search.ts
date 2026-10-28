@@ -49,22 +49,32 @@ router.get(
       limit,
     });
 
+    // W14: hits carry the fields agents need to act without a second lookup
+    // (status, project/team ids); all additive.
     res.json({
       tasks: result.tasks.map((t) => ({
         id: t.id,
         title: t.title,
         identifier: t.identifier,
+        status: t.status,
+        priority: t.priority,
+        projectId: t.projectId,
+        teamId: t.teamId,
         type: 'task' as const,
       })),
       projects: result.projects.map((p) => ({
         id: p.id,
         name: p.name,
+        key: p.key,
+        status: p.status,
+        workspaceId: p.workspaceId,
         type: 'project' as const,
       })),
       teams: result.teams.map((t) => ({
         id: t.id,
         name: t.name,
         key: t.key,
+        projectId: t.projectId,
         type: 'team' as const,
       })),
     });

@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import request from 'supertest';
 import jwt from 'jsonwebtoken';
 import { createApp } from '../app';
 import { prisma } from '@openlinear/db';
 import { testJwtSecret } from './test-env';
+import { useTestServer } from './http';
 
 const JWT_SECRET = testJwtSecret();
 
@@ -13,6 +13,7 @@ function generateToken(userId: string, username: string = 'workspaceuser') {
 
 describe('Workspaces API', () => {
   const app = createApp();
+  const http = useTestServer(() => app);
   let testUserId: string;
   let authToken: string;
 
@@ -45,7 +46,7 @@ describe('Workspaces API', () => {
   }, 30000);
 
   it('creates and lists the caller default workspace', async () => {
-    const res = await request(app)
+    const res = await http()
       .get('/api/workspaces')
       .set('Authorization', `Bearer ${authToken}`);
 
@@ -62,7 +63,7 @@ describe('Workspaces API', () => {
       include: { workspace: true },
     });
 
-    const detail = await request(app)
+    const detail = await http()
       .get(`/api/workspaces/${workspace.workspaceId}`)
       .set('Authorization', `Bearer ${authToken}`);
 
@@ -70,7 +71,7 @@ describe('Workspaces API', () => {
     expect(detail.body.id).toBe(workspace.workspaceId);
     expect(detail.body.currentMember.role).toBe('owner');
 
-    const members = await request(app)
+    const members = await http()
       .get(`/api/workspaces/${workspace.workspaceId}/members`)
       .set('Authorization', `Bearer ${authToken}`);
 
@@ -85,7 +86,7 @@ describe('Workspaces API', () => {
       data: { name: 'Private Workspace', slug: 'private-workspace' },
     });
 
-    const res = await request(app)
+    const res = await http()
       .get(`/api/workspaces/${privateWorkspace.id}`)
       .set('Authorization', `Bearer ${authToken}`);
 

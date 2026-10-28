@@ -4,8 +4,8 @@ import { requireAuth, optionalAuth, AuthRequest } from '../middleware/auth';
 import { validateQuery, ValidatedRequest } from '../middleware/validate';
 import { assertTaskOwned } from '../services/ownership';
 import { paginationQuerySchema, paginated, paginationSkipTake, PaginationQuery } from '../schemas/pagination';
-import { PRISMA_TX_OPTIONS } from '../lib/constants';
-import { resolveTenancyContext } from '../tenancy/context';
+import { inboxCounts } from '../services/task-aggregates';
+import { resolvePrincipalForUser } from '../tenancy/context';
 import { scopedTaskWhere } from '../tenancy/scopes';
 import type { TenancyContext } from '../tenancy/types';
 
@@ -18,11 +18,7 @@ function completedOrCancelled() {
 async function inboxTenancy(req: AuthRequest): Promise<TenancyContext | null> {
   if (req.tenancy) return req.tenancy;
   if (!req.userId) return null;
-  return resolveTenancyContext({
-    userId: req.userId,
-    authSource: req.authSource ?? 'jwt',
-    scopes: req.patScopes ?? [],
-  });
+  return resolvePrincipalForUser(req.userId);
 }
 
 router.get('/count', optionalAuth, async (req: AuthRequest, res: Response) => {
@@ -32,13 +28,8 @@ router.get('/count', optionalAuth, async (req: AuthRequest, res: Response) => {
     return;
   }
 
-  const baseWhere = scopedTaskWhere(ctx, { ...completedOrCancelled(), archived: false });
-
-  const total = await prisma.task.count({ where: baseWhere });
-  const unread = await prisma.task.count({
-    where: scopedTaskWhere(ctx, { ...completedOrCancelled(), archived: false, inboxRead: false }),
-  });
-  res.json({ total, unread });
+  // One FILTERed count instead of two scans (services/task-aggregates.ts).
+  res.json(await inboxCounts(ctx));
 });
 
 router.get(
@@ -55,23 +46,22 @@ router.get(
 
     const where = scopedTaskWhere(ctx, { ...completedOrCancelled(), archived: false });
 
-    const [tasks, total] = await prisma.$transaction(
-      async (tx) => {
-        const items = await tx.task.findMany({
-          where,
-          include: {
-            labels: { include: { label: true } },
-            team: { select: { id: true, name: true, key: true, color: true } },
-            project: { select: { id: true, name: true, status: true, color: true } },
-          },
-          orderBy: { updatedAt: 'desc' },
-          ...paginationSkipTake(page, pageSize),
-        });
-        const count = await tx.task.count({ where });
-        return [items, count] as const;
-      },
-      PRISMA_TX_OPTIONS,
-    );
+    // Page and total run concurrently; the total is the inbox badge's count
+    // (same predicate, one statement). The READ COMMITTED transaction they
+    // used to share gave no common snapshot.
+    const [tasks, total] = await Promise.all([
+      prisma.task.findMany({
+        where,
+        include: {
+          labels: { include: { label: true } },
+          team: { select: { id: true, name: true, key: true, color: true } },
+          project: { select: { id: true, name: true, status: true, color: true } },
+        },
+        orderBy: { updatedAt: 'desc' },
+        ...paginationSkipTake(page, pageSize),
+      }),
+      inboxCounts(ctx).then((counts) => counts.total),
+    ]);
 
     const flatTasks = tasks.map(task => ({
       ...task,

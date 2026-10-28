@@ -1,5 +1,6 @@
 import { prisma, type Prisma } from '@openlinear/db';
-import { resolveTenancyContext } from '../tenancy/context';
+import { likeLiteral } from '../lib/like';
+import { resolvePrincipalForUser } from '../tenancy/context';
 import { scopedProjectWhere, scopedTaskWhere, scopedTeamWhere } from '../tenancy/scopes';
 
 export async function searchWorkspaceData(input: {
@@ -12,11 +13,8 @@ export async function searchWorkspaceData(input: {
   const limit = Math.min(Math.max(input.limit ?? 20, 1), 50);
   const types = input.types?.length ? input.types : ['tasks', 'projects', 'teams'];
   const perType = Math.max(1, Math.ceil(limit / types.length));
-  const ctx = await resolveTenancyContext({
-    userId: input.userId,
-    authSource: 'jwt',
-    scopes: [],
-  });
+  // The request principal, so PAT workspace binding narrows every result type.
+  const ctx = await resolvePrincipalForUser(input.userId);
 
   const projectWhere: Prisma.ProjectWhereInput = {
     AND: [
@@ -37,10 +35,13 @@ export async function searchWorkspaceData(input: {
       ? prisma.task.findMany({
           where: scopedTaskWhere(ctx, {
             archived: false,
+            // Workspace-scoped searches (chat tools) must not return tasks
+            // from the caller's other workspaces; projects/teams already did.
+            ...(input.workspaceId ? { project: { workspaceId: input.workspaceId } } : {}),
             OR: [
-              { title: { contains: input.query, mode: 'insensitive' } },
-              { description: { contains: input.query, mode: 'insensitive' } },
-              { identifier: { contains: input.query, mode: 'insensitive' } },
+              { title: { contains: likeLiteral(input.query), mode: 'insensitive' } },
+              { description: { contains: likeLiteral(input.query), mode: 'insensitive' } },
+              { identifier: { contains: likeLiteral(input.query), mode: 'insensitive' } },
             ],
           }),
           select: { id: true, title: true, identifier: true, status: true, priority: true, projectId: true, teamId: true },
@@ -55,9 +56,9 @@ export async function searchWorkspaceData(input: {
               projectWhere,
               {
                 OR: [
-                  { name: { contains: input.query, mode: 'insensitive' } },
-                  { description: { contains: input.query, mode: 'insensitive' } },
-                  { key: { contains: input.query, mode: 'insensitive' } },
+                  { name: { contains: likeLiteral(input.query), mode: 'insensitive' } },
+                  { description: { contains: likeLiteral(input.query), mode: 'insensitive' } },
+                  { key: { contains: likeLiteral(input.query), mode: 'insensitive' } },
                 ],
               },
             ],
@@ -74,9 +75,9 @@ export async function searchWorkspaceData(input: {
               teamWhere,
               {
                 OR: [
-                  { name: { contains: input.query, mode: 'insensitive' } },
-                  { key: { contains: input.query, mode: 'insensitive' } },
-                  { description: { contains: input.query, mode: 'insensitive' } },
+                  { name: { contains: likeLiteral(input.query), mode: 'insensitive' } },
+                  { key: { contains: likeLiteral(input.query), mode: 'insensitive' } },
+                  { description: { contains: likeLiteral(input.query), mode: 'insensitive' } },
                 ],
               },
             ],

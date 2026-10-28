@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import request from 'supertest';
 import jwt from 'jsonwebtoken';
 import { createApp } from '../app';
 import { prisma } from '@openlinear/db';
 import { testJwtSecret } from './test-env';
+import { useTestServer } from './http';
 
 const JWT_SECRET = testJwtSecret();
 
@@ -13,6 +13,7 @@ function generateToken(userId: string, username: string = 'testuser') {
 
 describe('Teams API', () => {
   const app = createApp();
+  const http = useTestServer(() => app);
   let testUserId: string;
   let authToken: string;
   let testProjectId: string;
@@ -64,7 +65,7 @@ describe('Teams API', () => {
 
   describe('GET /api/teams', () => {
     it('returns array (may be empty initially)', async () => {
-      const res = await request(app).get('/api/teams');
+      const res = await http().get('/api/teams');
       expect(res.status).toBe(200);
       expect(Array.isArray(res.body)).toBe(true);
     });
@@ -72,7 +73,7 @@ describe('Teams API', () => {
 
   describe('POST /api/teams', () => {
     it('creates team with 201', async () => {
-      const res = await request(app)
+      const res = await http()
         .post('/api/teams')
         .set('Authorization', `Bearer ${authToken}`)
         .send({ name: 'Engineering', key: 'ENG', projectId: testProjectId });
@@ -86,7 +87,7 @@ describe('Teams API', () => {
     });
 
     it('validates key format', async () => {
-      const res = await request(app)
+      const res = await http()
         .post('/api/teams')
         .set('Authorization', `Bearer ${authToken}`)
         .send({ name: 'Bad Team', key: 'bad', projectId: testProjectId });
@@ -96,7 +97,7 @@ describe('Teams API', () => {
     });
 
     it('returns 401 without auth', async () => {
-      const res = await request(app)
+      const res = await http()
         .post('/api/teams')
         .send({ name: 'No Auth', key: 'NA', projectId: testProjectId });
 
@@ -106,7 +107,7 @@ describe('Teams API', () => {
 
   describe('GET /api/teams (after creation)', () => {
     it('returns teams including the created one', async () => {
-      const res = await request(app)
+      const res = await http()
         .get('/api/teams')
         .set('Authorization', `Bearer ${authToken}`);
       expect(res.status).toBe(200);
@@ -119,19 +120,19 @@ describe('Teams API', () => {
 
   describe('PATCH /api/teams/:id', () => {
     it('updates team via API', async () => {
-      const createRes = await request(app)
+      const createRes = await http()
         .post('/api/teams')
         .set('Authorization', `Bearer ${authToken}`)
         .send({ name: 'Patch Target', key: 'PAT', projectId: testProjectId });
       expect(createRes.status).toBe(201);
       const teamId = createRes.body.id;
 
-      const getRes = await request(app)
+      const getRes = await http()
         .get(`/api/teams/${teamId}`)
         .set('Authorization', `Bearer ${authToken}`);
       expect(getRes.status).toBe(200);
 
-      const res = await request(app)
+      const res = await http()
         .patch(`/api/teams/${teamId}`)
         .set('Authorization', `Bearer ${authToken}`)
         .send({ name: 'Updated Name' });
@@ -141,7 +142,7 @@ describe('Teams API', () => {
     });
 
     it('returns 404 for non-existent team', async () => {
-      const res = await request(app)
+      const res = await http()
         .patch('/api/teams/00000000-0000-0000-0000-000000000000')
         .set('Authorization', `Bearer ${authToken}`)
         .send({ name: 'Nope' });
@@ -152,19 +153,19 @@ describe('Teams API', () => {
 
   describe('DELETE /api/teams/:id', () => {
     it('deletes team', async () => {
-      const createRes = await request(app)
+      const createRes = await http()
         .post('/api/teams')
         .set('Authorization', `Bearer ${authToken}`)
         .send({ name: 'To Delete', key: 'DEL', projectId: testProjectId });
       expect(createRes.status).toBe(201);
       const teamId = createRes.body.id;
 
-      const getRes = await request(app)
+      const getRes = await http()
         .get(`/api/teams/${teamId}`)
         .set('Authorization', `Bearer ${authToken}`);
       expect(getRes.status).toBe(200);
 
-      const res = await request(app)
+      const res = await http()
         .delete(`/api/teams/${teamId}`)
         .set('Authorization', `Bearer ${authToken}`);
 
@@ -172,7 +173,7 @@ describe('Teams API', () => {
     });
 
     it('rejects deleting a team that still has tasks', async () => {
-      const createRes = await request(app)
+      const createRes = await http()
         .post('/api/teams')
         .set('Authorization', `Bearer ${authToken}`)
         .send({ name: 'Team With Tasks', key: 'TWT', projectId: testProjectId });
@@ -182,7 +183,7 @@ describe('Teams API', () => {
         data: { title: 'Still attached', teamId: createRes.body.id },
       });
 
-      const res = await request(app)
+      const res = await http()
         .delete(`/api/teams/${createRes.body.id}`)
         .set('Authorization', `Bearer ${authToken}`);
 
@@ -194,7 +195,7 @@ describe('Teams API', () => {
     });
 
     it('returns 404 for non-existent team', async () => {
-      const res = await request(app)
+      const res = await http()
         .delete('/api/teams/00000000-0000-0000-0000-000000000000')
         .set('Authorization', `Bearer ${authToken}`);
 
@@ -204,13 +205,13 @@ describe('Teams API', () => {
 
   describe('GET /api/teams/:id', () => {
     it('returns team with members and project', async () => {
-      const createRes = await request(app)
+      const createRes = await http()
         .post('/api/teams')
         .set('Authorization', `Bearer ${authToken}`)
         .send({ name: 'Detail Team', key: 'DTL', projectId: testProjectId });
       expect(createRes.status).toBe(201);
 
-      const res = await request(app)
+      const res = await http()
         .get(`/api/teams/${createRes.body.id}`)
         .set('Authorization', `Bearer ${authToken}`);
       expect(res.status).toBe(200);
@@ -220,12 +221,12 @@ describe('Teams API', () => {
     });
 
     it('returns 401 without auth', async () => {
-      const res = await request(app).get('/api/teams/00000000-0000-0000-0000-000000000000');
+      const res = await http().get('/api/teams/00000000-0000-0000-0000-000000000000');
       expect(res.status).toBe(401);
     });
 
     it('returns 404 for non-existent team', async () => {
-      const res = await request(app)
+      const res = await http()
         .get('/api/teams/00000000-0000-0000-0000-000000000000')
         .set('Authorization', `Bearer ${authToken}`);
       expect(res.status).toBe(404);
@@ -234,13 +235,13 @@ describe('Teams API', () => {
 
   describe('GET /api/teams/:id/members', () => {
     it('returns members for an authenticated team member', async () => {
-      const createRes = await request(app)
+      const createRes = await http()
         .post('/api/teams')
         .set('Authorization', `Bearer ${authToken}`)
         .send({ name: 'Members Detail Team', key: 'MDT', projectId: testProjectId });
       expect(createRes.status).toBe(201);
 
-      const res = await request(app)
+      const res = await http()
         .get(`/api/teams/${createRes.body.id}/members`)
         .set('Authorization', `Bearer ${authToken}`);
 
@@ -251,14 +252,14 @@ describe('Teams API', () => {
     });
 
     it('returns 401 without auth', async () => {
-      const res = await request(app).get('/api/teams/00000000-0000-0000-0000-000000000000/members');
+      const res = await http().get('/api/teams/00000000-0000-0000-0000-000000000000/members');
       expect(res.status).toBe(401);
     });
   });
 
   describe('POST /api/teams/:id/members', () => {
     it('adds member with valid userId', async () => {
-      const createRes = await request(app)
+      const createRes = await http()
         .post('/api/teams')
         .set('Authorization', `Bearer ${authToken}`)
         .send({ name: 'Member Team', key: 'MBR', projectId: testProjectId });
@@ -275,7 +276,7 @@ describe('Teams API', () => {
         },
       });
 
-      const res = await request(app)
+      const res = await http()
         .post(`/api/teams/${createRes.body.id}/members`)
         .set('Authorization', `Bearer ${authToken}`)
         .send({ userId: secondUser.id, role: 'admin' });
@@ -287,13 +288,13 @@ describe('Teams API', () => {
     });
 
     it('returns 404 with unknown email', async () => {
-      const createRes = await request(app)
+      const createRes = await http()
         .post('/api/teams')
         .set('Authorization', `Bearer ${authToken}`)
         .send({ name: 'Email Team', key: 'EML', projectId: testProjectId });
       expect(createRes.status).toBe(201);
 
-      const res = await request(app)
+      const res = await http()
         .post(`/api/teams/${createRes.body.id}/members`)
         .set('Authorization', `Bearer ${authToken}`)
         .send({ email: 'nobody@example.com' });
@@ -303,13 +304,13 @@ describe('Teams API', () => {
     });
 
     it('returns 400 without email or userId', async () => {
-      const createRes = await request(app)
+      const createRes = await http()
         .post('/api/teams')
         .set('Authorization', `Bearer ${authToken}`)
         .send({ name: 'Validate Team', key: 'VAL', projectId: testProjectId });
       expect(createRes.status).toBe(201);
 
-      const res = await request(app)
+      const res = await http()
         .post(`/api/teams/${createRes.body.id}/members`)
         .set('Authorization', `Bearer ${authToken}`)
         .send({ role: 'member' });
@@ -320,7 +321,7 @@ describe('Teams API', () => {
 
   describe('DELETE /api/teams/:id/members/:userId', () => {
     it('removes member when owner', async () => {
-      const createRes = await request(app)
+      const createRes = await http()
         .post('/api/teams')
         .set('Authorization', `Bearer ${authToken}`)
         .send({ name: 'Remove Member Team', key: 'RMV', projectId: testProjectId });
@@ -331,12 +332,12 @@ describe('Teams API', () => {
         update: {},
         create: { githubId: '333333', username: 'rmuser', email: 'rm@example.com' },
       });
-      await request(app)
+      await http()
         .post(`/api/teams/${createRes.body.id}/members`)
         .set('Authorization', `Bearer ${authToken}`)
         .send({ userId: secondUser.id, role: 'member' });
 
-      const res = await request(app)
+      const res = await http()
         .delete(`/api/teams/${createRes.body.id}/members/${secondUser.id}`)
         .set('Authorization', `Bearer ${authToken}`);
 

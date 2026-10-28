@@ -6,3 +6,11 @@ export {
   isEncryptedToken,
   tokensEqual,
 } from "./crypto";
+export {
+  setQueryObserver,
+  resolveSlowQueryThresholdMs,
+  redactSql,
+  fingerprintSql,
+  type QueryObservation,
+  type QueryObserver,
+} from "./query-observer";

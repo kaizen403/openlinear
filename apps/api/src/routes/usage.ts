@@ -1,107 +1,33 @@
 import { Router, Response } from 'express';
 import { z } from 'zod';
-import { Prisma, prisma } from '@openlinear/db';
 import { requireAuth, AuthRequest } from '../middleware/auth';
 import { validateQuery, ValidatedRequest } from '../middleware/validate';
-import { getUserTeamIds } from '../services/team-scope';
+import { chatBudgetStatus } from '../services/chat-budget';
+import { summarizeModelUsage, USAGE_SURFACES } from '../services/model-usage';
+import { usageByTask, usageSummary } from '../services/usage';
+import { assertWorkspaceRole } from '../services/workspaces';
+import { resolvePrincipalForUser } from '../tenancy/context';
+import type { TenancyContext } from '../tenancy/types';
 
 const router: Router = Router();
 
 /**
- * Build the canonical scoping filter for AgentRun queries:
- * - runs whose task is in one of the user's teams, OR
- * - runs the user owns directly (userId match).
- *
- * If the user has no teams, we still allow rows where userId === req.userId.
- * If both lists are empty (no teams) we still pass the userId clause so the
- * query stays correct even for users that aren't on any team yet.
+ * Agent-run usage is scoped to runs the caller started or runs on tasks of
+ * the caller's teams, AND the run's task must be readable by the principal
+ * right now (W02a): historical runs on a task in an explicitly denied
+ * project, a project the user was removed from, or outside a PAT's workspace
+ * no longer contribute cost, counts or task titles. Aggregated in SQL; see
+ * services/usage.ts.
  */
-function buildScopeWhere(userId: string, teamIds: string[]): Prisma.AgentRunWhereInput {
-  const ors: Prisma.AgentRunWhereInput[] = [{ userId }];
-  if (teamIds.length > 0) {
-    ors.push({ task: { teamId: { in: teamIds } } });
-  }
-  return { OR: ors };
-}
-
-function decimalToNumber(d: Prisma.Decimal | null | undefined): number {
-  if (d === null || d === undefined) return 0;
-  // Prisma Decimal has .toNumber(); fall back via toString to be safe.
-  const asUnknown = d as unknown as { toNumber?: () => number };
-  if (typeof asUnknown.toNumber === 'function') return asUnknown.toNumber();
-  return Number(d.toString());
+async function usagePrincipal(req: AuthRequest): Promise<TenancyContext> {
+  return req.tenancy ?? resolvePrincipalForUser(req.userId!);
 }
 
 router.get(
   '/summary',
   requireAuth,
   async (req: AuthRequest, res: Response) => {
-
-    const userId = req.userId!;
-    const teamIds = await getUserTeamIds(userId);
-    const where = buildScopeWhere(userId, teamIds);
-
-    const since = new Date();
-    since.setUTCDate(since.getUTCDate() - 30);
-    since.setUTCHours(0, 0, 0, 0);
-
-    const scopedSince: Prisma.AgentRunWhereInput = {
-      AND: [where, { startedAt: { gte: since } }],
-    };
-
-    const [totals, runs] = await Promise.all([
-      prisma.agentRun.aggregate({
-        where: scopedSince,
-        _sum: { costUsd: true, inputTokens: true, outputTokens: true, cachedInputTokens: true, cacheWriteTokens: true, reasoningTokens: true },
-        _count: { _all: true },
-      }),
-      prisma.agentRun.findMany({
-        where: scopedSince,
-        select: { startedAt: true, costUsd: true },
-        orderBy: { startedAt: 'asc' },
-      }),
-    ]);
-
-    const totalCostUsd = decimalToNumber(totals._sum.costUsd);
-    const totalInputTokens = totals._sum.inputTokens ?? 0;
-    const totalOutputTokens = totals._sum.outputTokens ?? 0;
-    const totalCachedInputTokens = totals._sum.cachedInputTokens ?? 0;
-    const totalCacheWriteTokens = totals._sum.cacheWriteTokens ?? 0;
-    const totalReasoningTokens = totals._sum.reasoningTokens ?? 0;
-    const totalRuns = totals._count._all;
-    const avgCostPerRun = totalRuns > 0 ? totalCostUsd / totalRuns : 0;
-
-    const dailyMap = new Map<string, { costUsd: number; runs: number }>();
-    for (let i = 0; i < 30; i++) {
-      const d = new Date(since);
-      d.setUTCDate(d.getUTCDate() + i);
-      dailyMap.set(d.toISOString().slice(0, 10), { costUsd: 0, runs: 0 });
-    }
-    for (const r of runs) {
-      const key = r.startedAt.toISOString().slice(0, 10);
-      const bucket = dailyMap.get(key);
-      if (!bucket) continue;
-      bucket.costUsd += decimalToNumber(r.costUsd);
-      bucket.runs += 1;
-    }
-    const daily = Array.from(dailyMap.entries()).map(([date, v]) => ({
-      date,
-      costUsd: Number(v.costUsd.toFixed(6)),
-      runs: v.runs,
-    }));
-
-    res.json({
-      totalCostUsd: Number(totalCostUsd.toFixed(6)),
-      totalRuns,
-      totalInputTokens,
-      totalOutputTokens,
-      totalCachedInputTokens,
-      totalCacheWriteTokens,
-      totalReasoningTokens,
-      avgCostPerRun: Number(avgCostPerRun.toFixed(6)),
-      daily,
-    });
-    
+    res.json(await usageSummary(await usagePrincipal(req)));
   },
 );
 
@@ -120,71 +46,58 @@ router.get(
     req: ValidatedRequest<unknown, ByTaskQuery> & AuthRequest,
     res: Response,
   ) => {
-
-    const userId = req.userId!;
     const { page, pageSize, sort } = req.validQuery!;
-    const teamIds = await getUserTeamIds(userId);
-    const where = buildScopeWhere(userId, teamIds);
+    const { items, total } = await usageByTask(await usagePrincipal(req), { page, pageSize, sort });
+    res.json({ items, page, pageSize, total, sort });
+  },
+);
 
-    // Aggregate per task. Sorting on the aggregate is supported by Prisma
-    // via _sum/_count/_max in orderBy.
-    const orderBy =
-      sort === 'cost'
-        ? ({ _sum: { costUsd: 'desc' } } as const)
-        : sort === 'runs'
-          ? ({ _count: { taskId: 'desc' } } as const)
-          : ({ _max: { startedAt: 'desc' } } as const);
+const modelUsageQuerySchema = z.object({
+  days: z.coerce.number().int().min(1).max(90).default(30),
+  workspaceId: z.string().min(1).optional(),
+  surface: z.enum(USAGE_SURFACES).optional(),
+});
+type ModelUsageQuery = z.infer<typeof modelUsageQuerySchema>;
 
-    const groups = await prisma.agentRun.groupBy({
-      by: ['taskId'],
-      where,
-      _sum: { costUsd: true, inputTokens: true, outputTokens: true, cachedInputTokens: true, cacheWriteTokens: true, reasoningTokens: true },
-      _count: { _all: true },
-      _max: { startedAt: true },
-      orderBy,
-      skip: (page - 1) * pageSize,
-      take: pageSize,
-    });
-    const totalGroupsRaw = await prisma.agentRun.groupBy({
-      by: ['taskId'],
-      where,
-      _count: { _all: true },
-    });
+/**
+ * Model invocation usage (W15): Home Chat turns, titles, retries and failed
+ * calls from the `model_usage` ledger, for the caller's own invocations.
+ *
+ * Token totals are null when no call reported them; `cost.knownUsd` sums only
+ * reported/estimated costs and `cost.coverage` says whether any is unknown.
+ * A workspace-bound PAT only sees its workspace.
+ */
+router.get(
+  '/models',
+  requireAuth,
+  validateQuery(modelUsageQuerySchema),
+  async (req: ValidatedRequest<unknown, ModelUsageQuery> & AuthRequest, res: Response) => {
+    const userId = req.userId!;
+    const { days, workspaceId, surface } = req.validQuery!;
+    const principal = await usagePrincipal(req);
+    if (workspaceId) {
+      await assertWorkspaceRole(workspaceId, userId, ['owner', 'admin', 'member', 'viewer']);
+    }
+    const scopedWorkspace = workspaceId ?? principal.workspaceRestriction ?? undefined;
 
-    const taskIds = groups.map((g) => g.taskId);
-    const tasks = taskIds.length
-      ? await prisma.task.findMany({
-          where: { id: { in: taskIds } },
-          select: { id: true, title: true, identifier: true, teamId: true },
-        })
-      : [];
-    const titleMap = new Map(tasks.map((t) => [t.id, t]));
+    const since = new Date();
+    since.setUTCDate(since.getUTCDate() - days);
+    since.setUTCHours(0, 0, 0, 0);
 
-    const items = groups.map((g) => {
-      const t = titleMap.get(g.taskId);
-      return {
-        taskId: g.taskId,
-        taskTitle: t?.title ?? '(deleted task)',
-        taskIdentifier: t?.identifier ?? null,
-        runs: g._count._all,
-        totalCostUsd: Number(decimalToNumber(g._sum.costUsd).toFixed(6)),
-        totalInputTokens: g._sum.inputTokens ?? 0,
-        totalOutputTokens: g._sum.outputTokens ?? 0,
-        totalCachedInputTokens: g._sum.cachedInputTokens ?? 0,
-        totalCacheWriteTokens: g._sum.cacheWriteTokens ?? 0,
-        totalReasoningTokens: g._sum.reasoningTokens ?? 0,
-        lastRunAt: g._max.startedAt,
-      };
-    });
-
+    // W15: the caller's monthly chat budget status for the workspace in scope
+    // (null without a workspace; budgets are per workspace and per member).
+    const [summary, budget] = await Promise.all([
+      summarizeModelUsage({ userId, since, workspaceId: scopedWorkspace, surface }),
+      scopedWorkspace ? chatBudgetStatus(scopedWorkspace, userId) : Promise.resolve(null),
+    ]);
     res.json({
-      items,
-      page,
-      pageSize,
-      total: totalGroupsRaw.length,
-      sort,
+      since: since.toISOString(),
+      days,
+      workspaceId: scopedWorkspace ?? null,
+      surface: surface ?? null,
+      ...summary,
+      budget,
     });
-    
   },
 );
 

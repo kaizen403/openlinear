@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import request from 'supertest';
 import jwt from 'jsonwebtoken';
 import { createApp } from '../app';
 import { prisma } from '@openlinear/db';
 import { testJwtSecret } from './test-env';
+import { useTestServer } from './http';
 
 const JWT_SECRET = testJwtSecret();
 
@@ -56,6 +56,7 @@ async function createTeam(ownerId: string, key: string, projectId: string) {
 
 describe('Team member role management', () => {
   const app = createApp();
+  const http = useTestServer(() => app);
   let owner: Awaited<ReturnType<typeof createUser>>;
   let admin: Awaited<ReturnType<typeof createUser>>;
   let member: Awaited<ReturnType<typeof createUser>>;
@@ -100,7 +101,7 @@ describe('Team member role management', () => {
       data: { teamId: team.id, userId: member.id, role: 'member' },
     });
 
-    const res = await request(app)
+    const res = await http()
       .patch(`/api/teams/${team.id}/members/${member.id}`)
       .set('Authorization', `Bearer ${ownerToken}`)
       .send({ role: 'admin' });
@@ -120,7 +121,7 @@ describe('Team member role management', () => {
       data: { teamId: team.id, userId: member.id, role: 'member' },
     });
 
-    const res = await request(app)
+    const res = await http()
       .patch(`/api/teams/${team.id}/members/${member.id}`)
       .set('Authorization', `Bearer ${adminToken}`)
       .send({ role: 'admin' });
@@ -138,7 +139,7 @@ describe('Team member role management', () => {
       data: { teamId: team.id, userId: member.id, role: 'member' },
     });
 
-    const res = await request(app)
+    const res = await http()
       .patch(`/api/teams/${team.id}/members/${member.id}`)
       .set('Authorization', `Bearer ${adminToken}`)
       .send({ role: 'owner' });
@@ -153,7 +154,7 @@ describe('Team member role management', () => {
       data: { teamId: team.id, userId: member.id, role: 'member' },
     });
 
-    const res = await request(app)
+    const res = await http()
       .patch(`/api/teams/${team.id}/members/${member.id}`)
       .set('Authorization', `Bearer ${ownerToken}`)
       .send({ role: 'owner' });
@@ -165,12 +166,12 @@ describe('Team member role management', () => {
   it('protects the last team owner from demotion and removal', async () => {
     const team = await createTeam(owner.id, 'TMR5', testProjectId);
 
-    const demote = await request(app)
+    const demote = await http()
       .patch(`/api/teams/${team.id}/members/${owner.id}`)
       .set('Authorization', `Bearer ${ownerToken}`)
       .send({ role: 'admin' });
 
-    const remove = await request(app)
+    const remove = await http()
       .delete(`/api/teams/${team.id}/members/${owner.id}`)
       .set('Authorization', `Bearer ${ownerToken}`);
 
@@ -189,7 +190,7 @@ describe('Team member role management', () => {
       data: { teamId: team.id, userId: viewer.id, role: 'member' },
     });
 
-    const res = await request(app)
+    const res = await http()
       .patch(`/api/teams/${team.id}/members/${viewer.id}`)
       .set('Authorization', `Bearer ${memberToken}`)
       .send({ role: 'admin' });

@@ -1,11 +1,11 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import request from 'supertest';
 import jwt from 'jsonwebtoken';
 import { createApp } from '../app';
 import { prisma } from '@openlinear/db';
 import { testJwtSecret } from './test-env';
 import { resolveTenancyContext } from '../tenancy/context';
 import { scopedTaskWhere, scopedProjectWhere, scopedActivityWhere } from '../tenancy/scopes';
+import { useTestServer } from './http';
 
 const JWT_SECRET = testJwtSecret();
 const suffix = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
@@ -16,6 +16,7 @@ function sign(userId: string, username: string) {
 
 describe('Phase 1.1 tenancy (F-010 / F-027 / F-029 / F-032 / F-028 / F-116)', () => {
   const app = createApp();
+  const http = useTestServer(() => app);
   const ids = {
     allowedUser: '',
     deniedUser: '',
@@ -175,7 +176,7 @@ describe('Phase 1.1 tenancy (F-010 / F-027 / F-029 / F-032 / F-028 / F-116)', ()
   });
 
   it('GET /api/search does not return denied-project titles or descriptions (F-010, F-028)', async () => {
-    const res = await request(app)
+    const res = await http()
       .get('/api/search')
       .query({ q: `secret-deny-${suffix}` })
       .set('Authorization', `Bearer ${deniedToken}`);
@@ -186,7 +187,7 @@ describe('Phase 1.1 tenancy (F-010 / F-027 / F-029 / F-032 / F-028 / F-116)', ()
   });
 
   it('GET /api/search still finds tasks the denied user is allowed to see', async () => {
-    const res = await request(app)
+    const res = await http()
       .get('/api/search')
       .query({ q: `visible-ok-${suffix}` })
       .set('Authorization', `Bearer ${deniedToken}`);
@@ -196,18 +197,18 @@ describe('Phase 1.1 tenancy (F-010 / F-027 / F-029 / F-032 / F-028 / F-116)', ()
   });
 
   it('GET /api/inbox and /count omit completed tasks from denied projects (F-027)', async () => {
-    const count = await request(app)
+    const count = await http()
       .get('/api/inbox/count')
       .set('Authorization', `Bearer ${deniedToken}`);
     expect(count.status).toBe(200);
 
-    const list = await request(app)
+    const list = await http()
       .get('/api/inbox')
       .set('Authorization', `Bearer ${deniedToken}`);
     expect(list.status).toBe(200);
     expect(list.body.items.some((t: { id: string }) => t.id === ids.hiddenTask)).toBe(false);
 
-    const asOwner = await request(app)
+    const asOwner = await http()
       .get('/api/inbox')
       .set('Authorization', `Bearer ${allowedToken}`);
     expect(asOwner.status).toBe(200);
@@ -215,18 +216,18 @@ describe('Phase 1.1 tenancy (F-010 / F-027 / F-029 / F-032 / F-028 / F-116)', ()
   });
 
   it('GET /api/dashboard/tasks and /projects omit denied-project work (F-032)', async () => {
-    const tasks = await request(app)
+    const tasks = await http()
       .get('/api/dashboard/tasks')
       .set('Authorization', `Bearer ${deniedToken}`);
     expect(tasks.status).toBe(200);
     expect(tasks.body.total).toBeGreaterThanOrEqual(1);
 
-    const asOwner = await request(app)
+    const asOwner = await http()
       .get('/api/dashboard/tasks')
       .set('Authorization', `Bearer ${allowedToken}`);
     expect(asOwner.body.total).toBeGreaterThan(tasks.body.total);
 
-    const projects = await request(app)
+    const projects = await http()
       .get('/api/dashboard/projects')
       .set('Authorization', `Bearer ${deniedToken}`);
     expect(projects.status).toBe(200);
@@ -244,13 +245,13 @@ describe('Phase 1.1 tenancy (F-010 / F-027 / F-029 / F-032 / F-028 / F-116)', ()
     });
     expect(deniedRows).toHaveLength(0);
 
-    const res = await request(app)
+    const res = await http()
       .get('/api/activity')
       .set('Authorization', `Bearer ${deniedToken}`);
     expect(res.status).toBe(200);
     expect(res.body.items.some((row: { id: string }) => row.id === ids.activity)).toBe(false);
 
-    const asOwner = await request(app)
+    const asOwner = await http()
       .get('/api/activity')
       .set('Authorization', `Bearer ${allowedToken}`);
     expect(asOwner.status).toBe(200);

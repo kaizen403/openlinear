@@ -1,3 +1,5 @@
+import { validateGitHubAppEnv } from './services/github-app-config';
+
 const REQUIRED_PRODUCTION_ENV = [
   'DATABASE_URL',
   'JWT_SECRET',
@@ -13,6 +15,10 @@ export function validateStartupEnv(env: NodeJS.ProcessEnv = process.env): void {
       '[API] OPENLINEAR_TRUST_PROXY_AUTH is no longer supported — remove it from your environment',
     );
   }
+
+  // W10a: the GitHub App is optional, but a half-set or invalid App config
+  // (or an unknown git-credential fallback policy) fails boot in every env.
+  validateGitHubAppEnv(env);
 
   if (env.NODE_ENV !== 'production') {
     return;
