@@ -221,7 +221,7 @@ Phase 1.7 — lint:
 
 ### What was done (apps/api, packages/db)
 
-Implements Phase 0 of `~/Downloads/Open Linear Revamp Plan/03-phases/PHASE-0-stop-the-bleeding.md`.
+Implements Phase 0 of `~/Desktop/Open Linear Revamp Plan/03-phases/PHASE-0-stop-the-bleeding.md` (path corrected 2026-10-26; the plan was never in `~/Downloads`).
 
 - **Test-database guard.** `apps/api/vitest.config.ts` fell back to the ambient `DATABASE_URL` — the repo `.env` points at a live Neon pooler — while the suite runs unscoped `deleteMany({})`. Now refuses any non-loopback host or any database not named `*_test`, before a connection opens. Verified: a production-shaped URL is blocked even with the CI override.
 - **Secrets.** One `lib/secrets.ts`; deleted the hard-coded `openlinear-dev-secret-change-in-production` fallback from all 5 source copies and the `TOKEN_ENCRYPTION_KEY` fallback in `packages/db/src/crypto.ts`. No environment exemption: missing, short (<32 chars) or known-published values throw at startup. `.env`/`.env.dev` currently hold that exact placeholder as `JWT_SECRET` — see the rotation runbook.
@@ -2253,3 +2253,957 @@ The sidecar was likely not running when login was attempted (single-tenant guard
 ### Next steps / blockers
 - Frontend follow-up should investigate browser-fixture startup and repeated frame distributions on CI before changing thresholds. This is deferred to the requested frontend backlog, not included in backend implementation.
 - W02–W21 backend work and its acceptance gates remain pending as recorded in the master plan. Local backend validation remains 928 passes with two existing API skips and all five typechecks passed.
+
+---
+
+## [2026-10-25] — Fix dev/Azure CI, implement W02a authorization and W04a idempotency
+
+**Status:** Done for these slices (uncommitted); backend programme In Progress
+**Agent:** Claude (coordinator + 3 parallel subagents in isolated worktrees)
+
+### What was done
+- **Dev CI (Test job):** `scripts/verify-onboarding-repo-scroll.mjs` hardened. Chromium startup reads the DevTools port from stderr or `DevToolsActivePort`, with a 30 s budget, one relaunch, a stderr tail on failure, and process-group cleanup. Frame thresholds are unchanged (p95 < 40 ms, max < 120 ms, no long tasks). It now runs 3 measured passes, fails if 2 or more breach, and fails at once on any frame of 500 ms or more. `turbo.json` passes `CHROMIUM_BIN` through.
+- **Azure deploy CI (Checks job):** the drift check used Prisma 7-removed flags (`--shadow-database-url`, `--to-schema-datamodel`). It now uses `--to-schema` plus `shadowDatabaseUrl` from `SHADOW_DATABASE_URL` in `prisma.config.ts` and a created `openlinear_shadow` DB. Exit codes now separate real drift (2) from a CLI error.
+- **Real drift found:** `personal_access_tokens.scopes` defaulted to `['*']` in the migrations but `["read"]` in the schema (commit 4862dc7). Fixed by migration `20261025000000_pat_scopes_default_read`, which changes only the default.
+- **W02a:**
+  - Central `PrincipalContext` (PAT token id plus workspace binding), enforced through existing ownership and scope helpers.
+  - PAT workspace binding is now enforced. Before, it was stored but ignored.
+  - Live SSE and replay delivery are checked per stream, using a resource binding on each `DomainEvent` (migration `20261015120000_domain_event_resource_binding`). Revocation applies to open streams.
+  - Comment, notification, usage, search, chat and team deny gaps closed.
+  - `registry.ts` route inventory (136 routes) with a parity test.
+- **W04a:** `Idempotency-Key` on `POST /api/tasks` and `/api/tasks/bulk`. The key reservation, domain writes and stored result share one transaction (`idempotency_records`, migration `20261025120000_w04a_idempotency_records`). A repeated identical request replays the original response; a different request gets 409 `IDEMPOTENCY_CONFLICT`; a concurrent duplicate waits, then replays (or gets `IDEMPOTENCY_IN_PROGRESS` after 5 s).
+- Merged all three diffs here with no conflicts, and added the new API files to the root biome lint list.
+
+### Validation (merged tree, local Postgres 14 on loopback)
+- `prisma migrate deploy` applies all migrations; `migrate diff --exit-code` reports no difference.
+- Root `pnpm typecheck` 11/11 and `pnpm lint` pass.
+- `pnpm test`, uncached:
+  - api: 286 passed, 2 existing skips
+  - sidecar: 661
+  - desktop-ui: 242, plus the fonts check and the scroll check (p95 16.8 ms)
+  - execution-core: 28
+- Sidecar Postgres integration: 26 passed.
+- GitHub Actions were not re-run, because nothing was pushed.
+
+### Files changed
+- CI: `.github/workflows/deploy-azure.yml`, `packages/db/prisma.config.ts`, `scripts/verify-onboarding-repo-scroll.mjs`, `turbo.json`, `package.json` (lint list)
+- W02a: `apps/api/src/{tenancy,events}/*`, `sse.ts`, `middleware/auth.ts`, `registry.ts`, multiple routes and services, 4 new test files. Ledger: `docs/reports/backend-review-2026-10-15/w02a-implementation.md`.
+- W04a: `apps/api/src/services/{idempotency,tasks}.ts`, `schemas/idempotency.ts`, `routes/tasks.ts`, `jobs/index.ts`, `__tests__/idempotency.test.ts`. Ledger: `docs/reports/backend-review-2026-10-15/w04a-implementation.md`.
+- DB: `schema.prisma` plus 3 new migrations. PRD status updated in `tasks/prd-backend-agent-platform.md`.
+
+### Client-visible behavior changes (verify in manual testing)
+- **PATs:**
+  - A PAT created with a `workspaceId` is now confined to that workspace. Outside the binding it gets `403 PAT_WORKSPACE_RESTRICTED` (creating workspaces, joining teams, accepting invitations, fetching the GitHub token).
+  - Deleting a workspace revokes its PATs.
+  - `/api/pats` responses gain a `workspaceId` field.
+- **Visibility:**
+  - Denied users stop getting events for denied projects; chat events go only to the session owner.
+  - View-only authors can no longer edit their own comments.
+  - Notifications about tasks a user can't read are hidden, which changes unread counts.
+- **Task create:** a malformed `Idempotency-Key` on task create gets 400. No client sends the header yet.
+
+### Next steps / blockers
+- Commit or PR these changes, then confirm the Dev and Deploy-Azure workflows on GitHub. Merging the Azure fix to `main` lets the pipeline build and deploy.
+- W03a next (needs W02a): scoped execution snapshot/callback API, and a sidecar with no DB credentials.
+- **W02b:**
+  - SSE tickets aren't tied to their session.
+  - Replay cursor stalls on fully filtered pages.
+  - Sidecar SSE and inventory.
+  - Bound PATs can still reach account-level resources (repos, uploads, settings, models).
+  - Scope tightening.
+  - One-off revocation of PATs that became account-wide before this change.
+- **W04b:**
+  - Execute/cancel idempotency (needs W05).
+  - Migrate projects/teams/workspaces off the legacy idempotency cache.
+  - Durable outbox claim/ack and immutable payloads.
+  - Point `resolveIdempotencyPrincipal` at `PrincipalContext`, if per-token key scoping is wanted.
+- Unchanged: the migration safety review never sees diffs on `dev` pushes or shallow Azure checkouts. Prod secret rotation is still blocked on Azure login.
+
+---
+
+## [2026-10-25] — Audit the Desktop revamp plan against the current code
+
+**Status:** Done (static audit; no code changed)
+**Agent:** Claude (coordinator + 3 read-only audit subagents)
+
+### What was done
+- Inventoried every plan document in and outside the repo, and audited all eight phases of `~/Desktop/Open Linear Revamp Plan/` (note: `ISSUES.md:224` cites the old `~/Downloads/…` path) row by row against the working tree, with `file:line` evidence. Headline findings were re-verified by the coordinator.
+- Result: no phase meets its exit criteria. Phase 0 ≈ 75 % of rows in code; Phase 1 ≈ 40 %; Phase 2 ≈ 65–70 % code but ≈ 25–30 % wired (the v2 engine is 0 % on the production path); Phases 3–7 ≈ 2–10 %.
+- Verified that the product is not runnable outside dev: `api.openlinear.tech` DNS is dead (last successful API deploy 2026-05-24); the API Dockerfile copies a deleted package and omits `execution-core`; no prod migrate step; `worker.ts` is not bundled; the packaged sidecar targets Node 18 but imports `node:sqlite`; the Tauri launcher injects `DATABASE_URL`, which the sidecar boot check refuses; in Tauri the UI routes login/refresh/projects/chat to the sidecar, which no longer serves them; the bundled OpenCode download pins the wrong upstream (`opencode-ai/opencode v0.0.55`); no workflow has a `pull_request` trigger; the migration-safety gate never sees a diff.
+- Recorded new risks no plan covers (git-config code execution with sidecar env, SSO state carrying the PKCE verifier, deep link printing a refresh token, Fireworks as default chat processor, unguarded `bulk_update_issues`, PAT `SetNull`, stuck tasks after crash) and the required plan updates.
+
+### Files changed
+- `docs/reports/revamp-plan-status-2026-10-25.md` — new: plan inventory, per-phase status, verified runtime/packaging state, stale plan statements, new risks, required plan updates.
+
+### Issues encountered
+- `gh` is shell-aliased; use `/opt/homebrew/bin/gh`. Docker is not running; audits were static.
+
+### Next steps / blockers
+- Before any feature work: the "make it runnable" tranche in the report §8.3 (Dockerfile, worker, prod migrate, ACA/DNS, PR triggers, Node 22 sidecar, OpenCode pin, desktop API routing + launcher, deep-link token).
+- Then: W03a per the PRD; FE-01…FE-08 contracts; the forward plan (UI, performance, sandboxing, competitive evaluation) once the owner ratifies the plan updates.
+- Owner-only: prod secret rotation (Azure login), git-history purge decision.
+
+---
+
+## [2026-10-26] — Revamp round 1: make-it-runnable, W02b, W03a, W04b, W09a, AI chat, MCP v2, board/desktop/chat UI
+
+**Status:** Done for these slices (uncommitted, nothing pushed or deployed); revamp programme In Progress
+**Agent:** Claude (coordinator) + 13 parallel subagents in isolated worktrees, patch-based merge
+
+### What was done
+Owner constraint for this session: local work only — no deployment, no Azure. Every slice has a ledger in `docs/reports/revamp-2026-10-26/<id>.md`.
+- **ship** — API Docker image builds again (`turbo prune`; verified with Docker: `/livez`, `/readyz`, `/health`, PAT/upload smoke, SIGTERM). Worker built and run from the same image; `OPENLINEAR_JOBS_RUNNER` makes jobs run exactly once (pg-boss had never started: queues were never created). `/readyz` checks DB + migrations. `dev.yml` runs on PRs to dev/main; migration-safety diffs against the real base; build-only image job. `deploy-azure.yml`/`release.yml` untouched.
+- **desk** — Desktop routing is one route table (`lib/api/routes.ts`): only execution routes go to the sidecar. Desktop GitHub sign-in through the cloud API with a single-use 2-min code + PKCE verifier (no token in URLs; deep-link `println!` removed). Web refresh token only in the HttpOnly cookie. Dual cloud/sidecar event streams with independent cursors. `unsafe-eval` removed from the production CSP.
+- **authz (W02b)** — SSO state opaque + server-side verifier + browser binding + single use. SSE tickets/streams bound to sessions (logout closes streams). Replay cursor advances past filtered rows. Registry enforced for PATs (undeclared → refused; resource-specific scopes; account data refused for bound PATs except justified identity reads). PAT SetNull hole closed by trigger; audited remediation script (dry run by default). Atomic TOTP/backup-code/2FA/refresh-family/ticket consumption. Log redaction extended.
+- **outbox (W04b)** — Event appends in the same transaction as the write; sequencer gives commit-ordered stream ids; leased claim/ack/retry/dead-letter; immutable events (trigger); bounded lossless replay; 9 routes moved off the legacy idempotency cache; keys scoped per credential; relay ownership `OPENLINEAR_OUTBOX_RELAY=api|worker|off`.
+- **sidecar (W03a)** — Sidecar runs with no `DATABASE_URL`, JWT secret or token-encryption key: auth via cloud API, `/api/executions` attempt + run-scoped capability API with all W01 fences server-side, API store, rewritten local SSE (Last-Event-ID, `replay-gap`). E2E test runs the real API + sidecar child process. Batches fail closed (501) in API mode. Tauri no longer injects `DATABASE_URL`; sidecar bundle targets Node 22; OpenCode download → correct upstream; unused `@anthropic-ai/sdk`/`openai` removed.
+- **sandbox (W09a)** — Native macOS Seatbelt + Linux bubblewrap providers; per-attempt OpenCode servers (password, private HOME/TMP, egress proxy allowlist); fail closed with `SANDBOX_UNAVAILABLE` unless an explicit expiring trusted-host grant. 25 canary probes pass on real Seatbelt; found+fixed sandboxed reads of the sidecar's environment. Git hardening blocks 13 code-execution payload classes; env allowlists for git/Codex; phantom `opencode-openlinear` plugin removed. Startup overhead ≈ 0 (p50 433 vs 459 ms).
+- **ai** — Chat tools carry effect classes; `bulk_update_issues`/`archive_issues` require preview → single-use confirmation; tool results keyed per turn; every model call metered into `model_usage` (unknown cost = null); cache-stable prompt prefix; classified retries + overflow trim; provider config validated (default Fireworks/Kimi unchanged — owner decision).
+- **mcp** — Stable `@modelcontextprotocol/server` 2.4.0, 12 → 19 tools with annotations/output schemas, auth on every request, deterministic Idempotency-Keys, actionable error mapping, 78 tests, generated docs catalogue. AGENTS.md MCP section updated.
+- **board / chatui** — One request per bulk action with optimistic rollback; Idempotency-Key on creates; central error-code map; W01 publication outcomes; 2,000-task SSE update 73 s → 44 ms (jsdom). Chat confirmation card (Confirm sends `confirmationTokens`), effect-aware tool rows, per-turn usage ("cost unknown", never $0), incomplete-reply retry.
+- **research** — Competitive analysis (Devin, Conductor, Capy + secondary set) kept outside the public repo: `.context/research/competitive-analysis-2026-10.md`.
+- **Coordinator integration fixes** — merged W02b + W04b replay into one design (W04b storage + W02b hold/cursor with live boundary); relay ownership wiring in `index.ts`/`worker.ts`; registry rows for desktop auth, model usage and `/api/executions` in the enforced format (with written justifications); `SessionDb` transaction parameter kept through the refresh-family rewrite; `verifier` added to log redaction; sandbox imports repointed to sidecar-local logger/errors; e2e sidecar child given an explicit test grant; sidecar ignores database URLs that come from the shared `.env` (explicit ones still refused); `dev.sh`/`dev-web.sh`/`debug.sh`/`dev-live.sh` start API :3001 + sidecar :3003 without `DATABASE_URL`; client handles `batch:progress` and `replay-gap`; stale tests updated with reasons.
+
+### Validation (merged tree, local Postgres 14 on loopback :54330)
+- `pnpm typecheck` 10/10; `pnpm lint` 162 files clean; fresh-DB `prisma migrate deploy` + `migrate diff --exit-code`: no difference.
+- API 601 passed + 2 existing skips; sidecar 763 + 1 opt-in skip; sidecar Postgres integration 26; desktop-ui 704 + 1 opt-in skip; MCP 78; execution-core 28.
+- Known flake (shared machine only): supertest `request(app)` binds the wildcard address, so under heavy local load a request can reach another process on the same port. Fixed for `route-inventory`; a global listen patch breaks supertest (host binds are async) — per-file loopback server helper queued.
+
+### Client-visible behaviour changes (manual test list)
+- PATs: undeclared routes refuse PATs; `write` PATs lost workspace admin/membership/invitations/access grants/SCM token (now `admin`); bound PATs get `PAT_WORKSPACE_RESTRICTED` on account data; logout with a PAT → 403 `SESSION_REQUIRED`.
+- Sidecar: every call needs `Authorization: Bearer <cloud token>`; 503 `CLOUD_API_UNREACHABLE`/`CLOUD_API_NOT_CONFIGURED` = offline; batches 501 in API mode; `SANDBOX_UNAVAILABLE` without a verified sandbox or grant; agents can't `git commit`, can't reach local servers on macOS, repo `opencode.json` ignored, global git config ignored (no LFS smudge).
+- Chat: bulk status/archive are two-step; usage shown per turn. MCP: unknown args rejected; list results wrapped.
+- Desktop sign-in needs `OPENLINEAR_ENABLE_GITHUB_OAUTH=1` + new OAuth app credentials.
+
+### Next steps / blockers
+- Round 2 in flight: P95 Phase 0 baselines (perf), agent-execution UI kit (execui), native Claude Code/Codex runners + conformance (runners).
+- Next: W05a/W06a durable run service + journal with process-kill recovery and dead-sidecar sweeper; agent-facing API contract fixes (task filters/keyset pagination, explicit bulk ids, assignees on create, per-principal rate limit) + remaining ~20 post-commit emit sites; release/packaging (Node 22 sidecar binary in release job, OpenCode checksum, `macos-13` runner retired, AppImage/deb mismatch); per-file loopback test helper; TanStack Query + design tokens after execui lands.
+- Owner decisions: chat default provider (Fireworks/Kimi) and model prices; confirm-button vs code; sandbox loopback access for repo tests; legacy `*` PAT remediation `--apply`; allowing shell model keys through the Tauri launcher.
+- Owner-only (unchanged): production secret rotation and API restore need an Azure login; nothing here was deployed. `sidecar.rs`/`deeplink.rs` changes are uncompiled (no `cargo` on this machine).
+
+---
+
+## [2026-10-26] — Revamp rounds 2–5: durable run engine (default), native runners, review loop, verification groundwork, data layer, tokens, perf, evals, release
+
+**Status:** Done for these slices (uncommitted, nothing pushed or deployed); revamp programme In Progress
+**Agent:** Claude (coordinator) + parallel subagents in isolated worktrees, patch-based merge
+
+### What was done (ledgers in `docs/reports/revamp-2026-10-26/<id>.md`)
+- **runengine (W05a/W06a)** — v2 run service with SQLite journal + effect ledger; durable acceptance; journal-before-dispatch; one terminal state; recovery after SIGKILL reattaches without re-prompting and reconciles commit/push/PR; control-plane lease sweeper releases tasks whose sidecar died (legacy too); `SANDBOX_UNAVAILABLE` → 503.
+- **runners + v2native (W07)** — Claude Code (official `claude` binary, sandboxed, no credential handling) and Codex 0.164.0 adapters; 19-check × 3-runner conformance suite (fixed 5 adapter bugs); Claude/Codex on v2 with honest `recovery_required`; `OpenCodeSession.abort()` requires a positive receipt; `POST /api/tasks/:id/follow-up` continuation (same session/branch/PR); 100-task soak with SIGKILL: 0 leaks, 1 terminal/run, no duplicate prompts/PRs (found + fixed a relay-stuck bug); **`OPENLINEAR_RUN_ENGINE` now defaults to `v2`** (`legacy` selectable).
+- **review** — sidecar `GET /api/tasks/:id/diff` (hardened git, `--no-ext-diff --no-textconv`, refuses planted drivers, bounded); Review tab: file tree, unified/split virtualized diff, inline comments → follow-up, checks panel gating Create PR/Merge (override until verification emits).
+- **apicontract (W14)** — task list filters + keyset pagination + compact view; trigram/list indexes (198k-task bench: unscoped list ≤1.2 s → 3.4 ms, rare search 84 → 2.5 ms); bulk-status requires explicit ids; team-scoped bulk; assignees on create; label project check; per-principal rate limits; remaining event sites transactional; loopback test-server helper across 33 test files.
+- **perf + perf1** — route timing, slow-query observer, 50k seed, benchmarks, EXPLAIN baselines; activity feed 301 → 2.1 ms p95, usage 50 → 27 ms, dashboard 24 → 10 ms, workspace summary 761 KB → 40 KB, access checks 5–6 → 1 statement; tenancy-cache revocation race fixed.
+- **execui / dataui / chatui / tokens** — agent-run timeline kit (bounded DOM at 10k events); TanStack Query data layer + single SSE→cache bridge (project switch 8 → 1 requests, 100-update burst 100 → 0 refetches); chat confirmation card + usage; three-tier contrast-verified tokens (100 failing pairs → 0, brand hue unchanged).
+- **release / hygiene** — packaged sidecar buildable (pkg + `node:sqlite`), bundled OpenCode path, release.yml per-target builds with 4-way OpenCode verification, SHA256SUMS, provenance, conditional signing; CLI installer from the right repo with checksums; CSP hardening; launcher forwards no secrets by default; gitleaks CI job (diff-range, base-commit config); bump-version fixed; XDG app-data on Linux; runbook/record fixes. Rust compiled + 21/21 tests in Docker (Linux).
+- **evals (W21)** — `packages/evals`: pinned manifest schema, OpenLinear + native runners with fake replay, verifier contract, bootstrap CIs, private holdout smoke (`pnpm eval:smoke`, 102 trials in ~8 s), Terminal-Bench 4.0 / SWE-bench Pro V2 dry-run adapters; funded runs require `--confirm-spend`.
+- **Coordinator integration fixes** — W02b/W04b replay merge; relay ownership wiring; registry rows/justifications for new routes; sandbox/runner imports off `@openlinear/api`; index migrations made shadow-replay-safe (plain `IF NOT EXISTS` + `migration-safety: allow` + manual CONCURRENTLY files); statement-budget update for task GET; review colours mapped to verified tone tokens (+ contrast test reads `lib/design`); journal-event guard in the progress store; manual hot-path index file table name fixed.
+
+### Validation (merged tree, local Postgres on loopback :54330)
+- typecheck 11/11; lint 299 files; fresh-DB migrate + `migrate diff --exit-code`: no difference.
+- API 714 passed + 3 skipped; sidecar 1054 + 3; sidecar integration 26; execution-core 52; desktop-ui 924 + 9 skipped (fonts ok, scroll p95 16.7 ms); MCP 78; evals 83 + smoke OK; CLI 9/9; gitleaks tree scan 0 findings.
+
+### Next steps / blockers
+- In flight: W11a verification + journal-aware worktree retention (verify), MCP on new API filters (mcp2), board cursor paging + team bulk (board2), chat turn lock + budgets (chat2), frontend polish (fepolish).
+- Owner (security): two newly found historical leaks — a third GitHub OAuth client secret (`65373df`) and an npm `--otp` hex value in an old `deploy.yml` (`8193d28`, public via release tags): revoke/rotate. Plus the existing rotation list; Azure login still needed to restore the API.
+- Owner decisions: chat provider/prices; subscription-login use of the user's own `claude` binary; sandbox loopback access; legacy `*` PAT remediation; launcher env passthrough; accent change; release secrets/variables (`NEXT_PUBLIC_CLOUD_API_URL`, Apple signing, CLI publish scope); funded benchmark pilot budget.
+
+---
+
+## [2026-10-26] — W10a GitHub App credentials + W11a "done means verified" (finished by the coordinator, no subagents)
+
+**Status:** Done for these slices (uncommitted, nothing pushed or deployed); revamp programme In Progress
+**Agent:** Claude (coordinator, working alone at the owner's request)
+
+### What was done
+- **W10a creds** — per-effect (`fetch`/`push`/`pull_request`) GitHub App installation tokens restricted to the attempt's repository, response-verified (one repo, no extra permission, ≤ 1 h) and revoked at close/release/rejected claim **and now when the lease sweeper fences a lost attempt**; user-OAuth fallback only under `OPENLINEAR_GIT_CREDENTIAL_FALLBACK=user_oauth` (default) and never for workspace-bound PATs; GitHub outages never fall back. Sidecar passes tokens as a URL-scoped `extraHeader` via `GIT_CONFIG_*` env (no argv/URL/config/helper file). Test env strips `GITHUB_APP_*` so a dev `.env` can't mint real tokens. Ledger `docs/reports/revamp-2026-10-26/creds.md`, runbook `docs/runbooks/github-app.md`.
+- **W11a verify** — checks sealed before the prompt (project settings → base-commit `.openlinear/checks.json` → opt-in auto-detect); new `verifying` state runs them against the candidate commit in a pristine sandboxed clone before any push; `require-pass` blocks publication, `warn` (default) publishes and reports; evidence journaled + recorded on the API (`execution_verifications`, idempotent, bound to sealed policy/checks); API refuses `done` without passing evidence under `require-pass`; crash mid-verification re-runs, a recorded result is reused; cancel keeps evidence. Journal-aware worktree retention (7 days, receipts) replaces the 24 h boot GC under v2 — next-day follow-ups work, an expired workspace says `workspace_expired`. Review checks panel reads the full evidence. Ledger `docs/reports/revamp-2026-10-26/verify.md`.
+
+### Files changed (main)
+- `apps/api/src/services/github-app*.ts`, `routes/github-app.ts`, `services/execution-sweeper.ts`, `__tests__/github-app.credentials.test.ts`, `__tests__/test-env.ts`
+- `apps/api/src/services/execution-verification.ts`, `services/execution-control.ts`, `routes/executions.ts`, `routes/projects.ts`, `schemas/{executions,projects}.ts`, `middleware/execution-capability.ts`, `registry.ts`, `__tests__/execution-verification.test.ts`
+- `packages/db/prisma/schema.prisma`, migrations `20261026140000_w10a_git_credential_grants`, `20261026160000_w11a_verification_evidence`
+- `packages/execution-core/src/{verification,run-contract}.ts`, `packages/api-client/src/executions.ts`
+- `apps/sidecar/src/run/{service,index,types,control-plane,workspace,test-support}.ts`, `run/verification/*`, `workspace/{retention,local-worktree}.ts`, `journal/durable.ts`, `services/git-credentials.ts`, `persistence/api-store.ts`, `index.ts` + new tests
+- `apps/desktop-ui/lib/api/review.ts`, `components/review/model/checks.ts` (+ tests)
+
+### Validation (local Postgres on loopback :54330)
+- typecheck 11/11; lint 330 files; fresh-DB migrate + drift: no difference; migration-safety reasoned allow.
+- API 767 + 3 skipped (70 files); sidecar 1083 + 3; sidecar integration 26; execution-core 68; desktop-ui 1022 + 9 skipped; MCP 102; evals 83.
+
+### Next steps / blockers
+- Owner: create the real GitHub App (runbook) and install it on a test repo; consider `OPENLINEAR_GIT_CREDENTIAL_FALLBACK=deny` after rollout.
+- UI: project verification settings editor; surface `GITHUB_APP_REQUIRED` / install URL in the run drawer.
+- Manual: one enforced-sandbox (Seatbelt + bwrap) check run of a real `pnpm test`.
+- Next coordinator work: runui (FE-01/04/06 on the v2 contract), then batches on v2 (W13).
+
+---
+
+## [2026-10-26] — runui: run UI on the v2 contract (FE-01, FE-06; FE-02/FE-04 partial)
+
+**Status:** Done for this slice (uncommitted, nothing pushed or deployed)
+**Agent:** Claude (coordinator, working alone)
+
+### What was done
+- The UI now reads the v2 engine's `runState`/`runId`/`runSeq`: verifying, awaiting approval, compacting, recovery required and abandoned show as themselves (were "Committing"/"Running"/"Failed"); replays and the relayed copy de-duplicate by `(runId, runSeq)`; a reload or reconnect re-reads the sidecar's durable run state.
+- Fixed a crash: a v2 `queued` beat broke the task card. Queued now counts as active (no double start) and can be stopped.
+- Recovery-required / abandoned runs get "Inspect the work" (Review tab) and "Run again"; the header names the actual runner; review gate handles the new phases; copy for 16 v2/W10a/W11a error codes.
+- Sidecar relay sends `runId` with each progress event.
+- Ledger: `docs/reports/revamp-2026-10-26/runui.md`.
+
+### Files changed
+- `apps/desktop-ui/lib/run-model/{types,phase,decode,model,index,runner,fixtures}.ts|mjs` (+ tests), `components/execution/{use-run-model,run-header,run-controls,run-states,run-view,task-run-section}.tsx|ts` (+ tests), `components/task-detail-view.tsx`, `components/board/{task-card.tsx,use-kanban-board.ts}`, `components/review/model/checks.ts`, `lib/api/{errors,review}.ts`, `types/task.ts`
+- `apps/sidecar/src/run/service.ts` (relay `runId`)
+
+### Validation
+- desktop-ui 1037 + 9 skipped; sidecar 1083 + 3; API run-engine e2e 14 + 1; typecheck 11/11; lint 330.
+
+### Next steps / blockers
+- FE-04 approval cards need an approval-intent API (backend); FE-02 runner picker needs a sidecar runner catalogue endpoint.
+- Next coordinator work: W13 batches on the v2 run service.
+
+---
+
+## [2026-10-26] — Project settings: Verification editor + GitHub App status (W11a/W10a UI)
+
+**Status:** Done (uncommitted)
+**Agent:** Claude (coordinator, working alone)
+
+### What was done
+- Project settings → **Verification**: policy (report only / require passing / off), checks list (shell command line, timeout, required, needs package registries; stored argument-list checks round-trip untouched), `.openlinear/checks.json` and auto-detect switches; local validation mirrors the server; server `details.errors` shown; read-only after a 403 (owners/admins only).
+- GitHub App line under it: limited token in use, or "not installed / suspended / missing permissions" with Install/Manage.
+
+### Files changed
+- `apps/desktop-ui/lib/api/verification.ts`, `lib/query/keys.ts`, `components/projects/verification-settings-{model.ts,section.tsx,test.mjs}`, `app/(app)/projects/manage/page.tsx`
+
+### Validation
+- desktop-ui 1043 + 9 skipped; typecheck clean.
+
+---
+
+## [2026-10-26] — W13a: batches on the v2 run service (parallel + queue)
+
+**Status:** Done for this slice (uncommitted); W13b (combined mode) pending
+**Agent:** Claude (coordinator, working alone)
+
+### What was done
+- Batches work again in the desktop default (API persistence + v2 engine): before, every `/api/batches` route returned 501.
+- Each member is an ordinary v2 run (own attempt, lease, sandbox, W11a verification, cancel, recovery) and **opens its own verified PR**. Parallel respects the user's parallel limit; queue advances on approve or auto-approve, honours stop-on-failure; cancel reaches running and waiting members; batches are journaled (schema 3) and survive restarts.
+- `combined` mode is refused on v2 with `BATCH_MODE_UNAVAILABLE` (needs a multi-task attempt — W13b).
+- Ledger: `docs/reports/revamp-2026-10-26/batches.md`.
+
+### Files changed
+- `apps/sidecar/src/run/{batch.ts,batch.test.ts,service.ts,index.ts}`, `journal/durable.ts`, `routes/{batches.ts,batches-v2.ts,batches-v2.test.ts}`, `api-only-mode.test.ts`
+- `apps/desktop-ui/lib/api/{errors.ts,errors.test.mjs}`, root `package.json` (lint list)
+
+### Validation
+- sidecar 1097 + 3 skipped; integration 26; desktop-ui 1043 + 9; typecheck 11/11; lint 334.
+
+### Next steps / blockers
+- **Owner decision:** per-member PRs for parallel/queue batches (legacy merged everything into one batch PR). Combined mode keeps the single-PR option once W13b lands.
+- W13b combined mode; board grouping of v2 batch members.
+
+---
+
+## [2026-10-27] — FE-02 runner selection + W12a run hardening
+
+**Status:** Done for these slices (uncommitted)
+**Agent:** Claude (coordinator, working alone)
+
+### What was done
+- **FE-02:** the desktop app can now choose the agent — task sidebar "Agent" (inherits the project default) and project settings "Default agent". Unrunnable runners are disabled with the reason (not installed / not signed in / sandbox can't reach the login / legacy engine). New sidecar `GET /api/runners` (cached health, versions, features). API refuses unknown runner ids at write time and normalizes aliases (`claude` → `claude-code`, `openai` → `codex`); task create now accepts `agent`.
+- **W12a:** running executions stop when the session that started them is signed out/revoked/expired (refresh rotation keeps them alive); a turn that hits its turn limit is no longer published as success (fails with work kept, follow-up continues); a failed/cancelled follow-up keeps the task done with its PR and says so truthfully.
+- Ledger: `docs/reports/revamp-2026-10-26/runners-w12a.md`.
+
+### Validation
+- API 773 + 3 skipped (72 files); sidecar 1103 + 3; integration 26; execution-core 69; desktop-ui 1048 + 9; typecheck 11/11; lint 341.
+
+### Next steps / blockers
+- Owner: confirm the turn-limit behaviour (fail + keep work) — reversible.
+- Next: W08a isolated checkouts for local-folder projects (today the agent edits the user's own checkout and switches its branch).
+
+---
+
+## [2026-10-27] — W08a: local-folder projects run in an isolated checkout
+
+**Status:** Done (uncommitted)
+**Agent:** Claude (coordinator, working alone)
+
+- Before: a local-folder run switched the user's own checkout to `openlinear/<id>` and the agent edited their working tree. Now the run uses its own clone of the folder's HEAD under app data (same layout as remote runs); the folder is never modified. Uncommitted folder changes are not part of the run (logged). Files: `apps/sidecar/src/workspace/local-worktree.ts`, `run/workspace.ts`, `run/types.ts`, `run/service.ts`, `workspace/local-folder.realgit.test.ts`. Validation: sidecar 1107 + 3, API run-engine e2e 14 + 1, lint 342, typecheck 11/11. Details in `docs/reports/revamp-2026-10-26/runners-w12a.md` §5.
+- Also: mirrors now count toward the worktree disk budget; unused mirrors are removed after 7 days (or first when over budget), under the clone lock, with receipts (`workspace/retention.ts`; sidecar 1110 + 3).
+
+---
+
+## [2026-10-27] — W15a run budgets + W12a orphan stopping
+
+**Status:** Done (uncommitted)
+**Agent:** Claude (coordinator, working alone)
+
+- **W15a:** Settings → AI Execution → Run budgets (max cost per run, max tokens per run). Sealed into each attempt at start and journaled; a run that reaches either stops with its work kept and an outcome naming the budget. New `settings` columns (migration `20261027090000_w15a_run_budgets`, CHECK-constrained).
+- **W12a:** sandboxed OpenCode servers orphaned by a sidecar crash are now stopped (identity-checked, never a recycled pid) when the recovered run settles.
+- Validation: API 776 + 3 skipped; sidecar 1117 + 3; integration 26; desktop-ui 1053 + 9; typecheck 11/11; lint 344; fresh-DB drift 0. Ledger `docs/reports/revamp-2026-10-26/runners-w12a.md` §7–8.
+- MCP (same day): `openlinear_create_issue` / `openlinear_update_issue` take `agent` (runner); `openlinear_get_issue` returns the latest verification evidence (null on older APIs). Tool catalogue regenerated; MCP 104/104. Deploy order unchanged: API before the worker.
+- FE-15 Settings → Agents (runner health, versions, sign-in, sandbox state, re-check) and FE-08 budget usage in the run header ("$0.42 of $2.00"); de-flaked a load-dependent Claude Code runner test. desktop-ui 1059 + 9; sidecar 1117 + 3.
+- FE-16 slice: project export (`GET /api/projects/:id/export` + Project settings → Export): tasks, comments, labels, runs, verification evidence; credentials/logs/audit excluded; free text redacted. API 779 + 3; desktop-ui 1062 + 9. Deletion requests not built (owner decisions on retention).
+
+---
+
+## [2026-10-27] — W17a: task dependencies ("blocked by")
+
+**Status:** Done (uncommitted)
+**Agent:** Claude (coordinator, working alone)
+
+### What was done
+- Issues can be blocked by other issues in the same project (no loops, checked under a per-project lock). A blocker stops blocking once it is done (cancelled still blocks: a failed run ends as cancelled).
+- Running a blocked task is refused (409 `TASK_BLOCKED` with the blockers) unless started anyway; follow-ups are never blocked. Same gate on both sidecar engines.
+- v2 batches order members so blockers run first; a member waits for its in-batch blockers and is skipped if one fails.
+- Desktop: Dependencies panel in the task sidebar (add/remove, search picker), "Blocked" chip on board cards (live), "Run anyway" on the blocked toast, realtime `task:dependencies`.
+- MCP: `openlinear_set_blockers` (20 tools), `get_issue` returns `blockedBy`/`blocking`, `bulk_create_plan` tasks take `key` + `blockedBy`.
+- Fixed an unhandled rejection in the sidebar's Tauri window setup (intermittent desktop test failure; leaked listener).
+
+### Files changed
+- `packages/db/prisma/schema.prisma`, migration `20261027120000_w17a_task_dependencies`
+- `apps/api/src/services/task-dependencies.ts` (new), `services/tasks.ts`, `services/execution-control.ts`, `routes/tasks.ts`, `routes/executions.ts`, `schemas/tasks.ts`, `schemas/executions.ts`, `registry.ts`, `__tests__/task-dependencies.test.ts` (new), `__tests__/perf1-read-paths.test.ts`
+- `packages/api-client/src/index.ts`
+- `apps/sidecar/src/run/{batch,control-plane,service,index,test-support}.ts`, `run/batch.test.ts`, `routes/execution.ts`, `persistence/{api-store,prisma-store,store}.ts`, `services/execution/{lifecycle,state}.ts` + 4 test mocks
+- `apps/desktop-ui`: `components/board/{task-dependencies.tsx,blocked.ts}` (new), `task-card.tsx`, `kanban-board.tsx`, `use-kanban-board.ts`, `task-detail-view.tsx`, `layout/sidebar.tsx`, `lib/api/task-dependencies.ts` (new), `lib/api/errors.ts`, `lib/query/{keys,sse-bridge,task-cache}.ts`, `providers/sse-provider.tsx`, `types/task.ts` + 2 test files
+- `apps/mcp/src/{openlinear/api.ts,mcp/shapes.ts,mcp/server.ts,mcp/tools/issues.ts,mcp/tools/plan.ts}`, tests, `apps/mcp-docs/lib/tool-catalog.json`
+- Ledger `docs/reports/revamp-2026-10-26/deps.md`; AGENTS.md MCP table.
+
+### Validation
+- API 789 + 3 (75 files); sidecar 1124 + 3; integration 26; execution-core 69; evals 83; desktop-ui 1071 + 9 (exit 0); MCP 108; typecheck 11/11; lint 349; fresh-DB drift 0.
+
+### Next steps / blockers
+- Owner: confirm "cancelled still blocks" (reversible).
+- Deploy order when shipped: migration → API → MCP worker.
+- W17 next: TaskSpec/PlanRevision (versioned plans with acceptance criteria).
+- Same day: **fixed board execution in API mode** — the control plane treated the In Progress column as "already running", so card Execute and In-Progress batches got 409 `TASK_ALREADY_RUNNING`. Running now means in progress *with a bound session* (start check, claim fence, prisma store). Regression tests on both sides.
+- **FE-10 slice:** "Run with blockers" (Dependencies panel and the blocked toast): one parallel batch of the task's unfinished blockers (transitively, `GET /api/tasks/:id/dependencies/closure`) plus the task, blockers first. Validation: API 791 + 3; sidecar 1125 + 3; desktop-ui 1075 + 9; integration 26; MCP 108; typecheck 11/11; lint 349. Ledger `deps.md` §8–9.
+
+---
+
+## [2026-10-27] — W17b / FE-09: reviewable plans
+
+**Status:** Done (uncommitted)
+**Agent:** Claude (coordinator, working alone)
+
+### What was done
+- Plans per project with immutable revisions (spec + hash): tasks with acceptance checks, estimates and blockers by key. Duplicate keys, unknown/self blockers and loops are refused before storing; untestable/unestimated tasks are flagged. Revisions are based on the latest (conflict otherwise) and diffed by key.
+- Approving the latest revision (only) creates the issues (acceptance checklist in the description), applies only what the plan changed since the last approval (board edits survive), never recreates deleted issues, and syncs plan blockers — one transaction; a loop with hand-made blockers refuses the whole approval. Re-approval is a no-op. Nothing runs.
+- Desktop: project → Plans (list + review with revision picker, problems, warnings, diff, tasks in blocker order, Approve). MCP: propose/get/revise/approve plan tools (24 tools).
+
+### Files changed
+- `packages/db/prisma/schema.prisma`, migration `20261027150000_w17b_plan_revisions`
+- `apps/api/src/{schemas,services,routes}/plans.ts` (new), `services/tasks.ts` (`insertProjectTasks` shared with bulk create), `services/task-dependencies.ts` (`wouldCreateCycle`, `lockProjectDependencies`), `services/idempotency.ts`, `app.ts`, `registry.ts`, `__tests__/plans.test.ts` (new), `__tests__/route-inventory.test.ts`, `__tests__/task-dependencies.test.ts`
+- `apps/mcp/src/mcp/tools/plan-review.ts` (new), `openlinear/api.ts`, `mcp/server.ts`, tests, fake API, `apps/mcp-docs/lib/tool-catalog.json`
+- `apps/desktop-ui`: `app/(app)/projects/plans/page.tsx`, `components/plans/plan-review.tsx` (+ test), `lib/api/plans.ts`, `lib/query/{keys,sse-bridge}.ts`, `providers/sse-provider.tsx`, `components/layout/sidebar.tsx`
+- Ledger `docs/reports/revamp-2026-10-26/plans.md`; AGENTS.md (models, MCP table)
+
+### Validation
+- API 799 + 3 (76 files); sidecar 1125 + 3; integration 26; desktop-ui 1080 + 9; MCP 110; typecheck 11/11; lint 354; fresh-DB drift 0.
+
+### Next steps / blockers
+- Next: "Save as plan" from Brainstorm; in-app plan edits as revisions.
+- Owner: confirm agents may approve plans when the user asks.
+- Deploy order when shipped: migrations → API → MCP worker.
+- Same day: Home Chat `propose_plan` tool (drafts only; links to the review page). Chat tools 35. Found `quick-capture/brainstorm-panel.tsx` is not mounted anywhere (dead code; not removed). API 800 + 3; desktop-ui 1081 + 9; lint 354; typecheck 11/11.
+- **FE-10 Run plan:** approved plans run their unfinished issues as one batch (blockers first, ≤ 20 per run, closed prefix), after a confirm and a model-setup check; "Open board" to watch. API plan view reports `running`. API 800 + 3; desktop-ui 1084 + 9.
+- **FE-11 slice (duplicate hints):** `GET /api/tasks/similar` (pg_trgm on the existing title index), a "Similar issues" note in the new-issue form, MCP `openlinear_find_similar_issues` (25 tools). Hints only — nothing is merged. API 801 + 3; desktop-ui 1086 + 9; MCP 111. Ledger `deps.md` §11.
+- Self-review fix: Run plan / Run with blockers now respect the user's `maxBatchSize` (API default 3), instead of sending up to 20 tasks the sidecar would refuse. desktop-ui 1086 + 9.
+- Self-review fix: moving a task between projects now takes the dependency lock before dropping its edges (no cross-project edge from a concurrent add). API 801 + 3.
+- **FE-12 slice:** "Make an issue from this comment" in the diff review: a sub-issue with the comment, file/line, commit and quoted code (keyed per comment); the draft is removed. desktop-ui 1089 + 9. Ledger `deps.md` §12.
+- **FE-09 plan editing:** Edit on the latest revision (titles, estimates, acceptance, blockers, add/remove tasks, note) → "Save as revision N+1"; server problems listed inline. desktop-ui 1094 + 9; typecheck 11/11.
+- **New plan form** on the Plans page (shared with Edit; keyed create). desktop-ui 1095 + 9.
+- **Unblocked notifications:** finishing a blocker (any path, including agent runs) notifies the assignee of each task it no longer blocks. API 802 + 3. Ledger `deps.md` §13.
+- **W12 stop and redirect:** "Redirect" while the agent works stops the turn (work kept) and continues with the user's instruction on the same worktree (`POST /api/tasks/:id/redirect`, `RunService.redirect`; 409 `REDIRECT_PENDING` if it hasn't stopped). Sidecar 1128 + 3; desktop-ui 1099 + 9. Ledger `runners-w12a.md` §11.
+- **Enforced-sandbox verification check, automated:** real checks under macOS Seatbelt (and bubblewrap in the sandbox CI job): writes inside the checkout work, writes beside it and network are refused, evidence says enforce. Passed locally. Registry-egress checks still to cover. Ledger `verify.md` addendum.
+- **Plan membership on issues:** task detail (API, sidebar link, MCP `get_issue.plan`). API 802 + 3; desktop-ui 1101 + 9; MCP 111; typecheck 11/11; lint 355.
+- **Board Blocked / Ready filters** (URL `deps=`), and a fix: board filter changes now update the URL once (separate setters could undo each other). desktop-ui 1104 + 9.
+- MCP `openlinear_list_plans` (status, awaiting review, progress) so agents find existing plans before proposing; `get_issue.plan`. 26 tools; MCP 111.
+- Sandbox egress check (opt-in `OPENLINEAR_SANDBOX_NETWORK_TESTS=1`): registry egress through the proxy works under Seatbelt; other hosts refused. Passed locally.
+- Home Chat `list_plans` / `get_plan` / `revise_plan` (approval stays with people). Chat tools 38; chat suites 115/115.
+- Plan task `risk` (low/medium/high) across API, MCP, chat and the review/editor UI.
+- Project export includes dependencies and plans (all revisions; free text redacted).
+- Test isolation fix: the new-issue form test now mocks the duplicate-hint panel (its debounced fetch shared the mocked `apiFetch` and, under load, consumed the test's queued responses). Full gate: API 802 + 3; sidecar 1130 + 4; integration 26; desktop-ui 1104 + 9; MCP 111; typecheck 11/11; lint 355; drift 0.
+- **Independent review fixes (7 findings):** chat moves/project deletion drop cross-project edges; batch cancel during start; stop-on-failure at start; plan views scoped to the plan's project; bulk edge writes in approvals; redirect refused before a worktree exists; plan title validation + deduplicated unblocked notes. Ledger `deps.md` §15. Timing-sensitive under parallel load (pass alone): `run-engine.e2e` b1, `local-worktree` eight acquires.
+- Two background agents started (same working tree, disjoint files): W16a environment setup recipes; FE-03 sandbox trust grants.
+- MCP docs site: new tools grouped and documented (issues: find similar, blockers; new "Reviewable plans" page; nav). FE-04 in progress: `approvalMode` setting (migration `20261027180000_fe04_approval_mode`), sidecar approval broker (digest-bound, deadline, owner-only, deny on cancel; 3 tests), desktop approval cards in the task view, Inbox "Waiting for your approval", settings switch (7 desktop tests). Engine hook + sidecar routes pending (files busy with the W16a agent). Status doc: `docs/reports/revamp-2026-10-26/status-2026-10-27.md`.
+- Board: Blocked chip names its blockers; **Run N ready** with the Ready filter (confirm; priority-first, within batch size). Desktop and MCP-docs production builds pass.
+- Sidebar: Plans link shows how many plans wait for review (fetched only for expanded projects). desktop-ui 1114 + 9.
+
+
+## [2026-10-27] — W16a setup recipes, FE-03 trust grants, FE-04 approvals in the run engine
+
+**Status:** Done (uncommitted, not deployed)
+**Agent:** Claude (coordinator) + two background agents (W16a, FE-03), then two more (W16b repository context, recurring issues — in progress)
+
+### What was done
+- **W16a environment setup recipes (agent):** a project's setup steps (in its verification settings) run in the run's worktree before the agent exists — no session, claim or prompt until they pass; each step sandboxed (registry egress only when asked), journaled start/result, streamed to the timeline; a failing required step fails the run with the worktree kept; optional steps log and continue; a crash never re-runs finished steps. Ledger `setup.md`. Coordinator fixed its two lint errors (assignment in an expression → `localSetupPort()`; template literal in a test).
+- **FE-03 project trust grants (agent):** when the sandbox is unavailable, runs stay refused unless the user creates a grant for one project (reason 10–500 chars, 1 h / 1 day / 7 days, confirmation); grants apply only to the creator's own v2 runs of that project, only while the last sandbox check failed, every use audited (no audit → refused). Settings → Agents card with active grants, revoke and activity. Also fixed `GET /api/runners` missing from the desktop route table (it went to the cloud API). Ledger `trust.md`. Coordinator: query key `queryKeys.sandboxGrants()`, error codes in the required list, lint list.
+- **FE-04 approvals, engine + routes (coordinator):** with Settings → Approvals on ("ask", sealed into the run snapshot), Claude Code and OpenCode sessions start in ask mode (OpenCode via its per-attempt server config `edit/bash/webfetch: ask`; an idle server of the other mode is replaced); each permission request waits for the person who started the run (run state `awaiting_approval`, logged, `approval:changed` to the owner only) and their answer — quoting the operation digest — is what the runner gets, once. No answer in 15 min = deny (the run carries on); cancel/stop/any pump exit denies pending requests. Codex stays policy-only and the log says so; the shared trusted-host OpenCode server can't ask and the log says so. Sidecar routes `GET /api/approvals`, `GET /api/tasks/:id/approvals`, `POST /api/tasks/:id/approvals/:approvalId` (400/403/404/409); desktop route table. Ledger `approvals.md`.
+
+### Files changed
+- Sidecar: `run/service.ts` (broker, `permissionsFor`, `onPermission`, cancel/stop/pump exit, public approval methods, `localSetupPort`), `run/types.ts` (`approvalMode`), `run/control-plane.ts`, `run/runtime.ts` (`approvals` capability), `run/process-runtime.ts`, `run/opencode-runtime.ts`, `run/engine-mode.ts`, `run/test-support.ts`, `sandbox/opencode-attempts.ts` (`setApprovalMode`), `services/opencode.ts` (`setAttemptApprovalMode`), `routes/approvals.ts` (new), `app.ts`; tests `run/approvals.service.test.ts` (new, 7), `routes/approvals.test.ts` (new, 3), `run/opencode-runtime.test.ts`, `sandbox/sandbox.unit.test.ts`, `run/setup/setup.test.ts`
+- Desktop: `lib/api/routes.ts` (+ test), `lib/api/errors.test.mjs`, `lib/query/keys.ts`, `components/settings/sandbox-trust-grants.tsx`
+- Root `package.json` lint list (sandbox-grants route + test, approvals route)
+- Agents' files: see `setup.md` and `trust.md`
+
+### Validation
+- Sidecar `src/run` + `src/routes` + `src/sandbox`: 473 + 4 (37 files); desktop route/error/settings tests pass; typecheck (sidecar, desktop, API) clean; lint 368 files clean. Full gate to be re-run when the two new agents finish.
+
+### Next steps / blockers
+- Agents running: W16b repository context index (+ FE-11 related files), recurring issues (W20 schedules / FE-14).
+- FE-04 follow-ups: ~~per-tool allow list~~ → done as "Allow for this run" (session-scoped runner reply + the run remembers the tool; deny is always once; sidecar 1259 + 4 full suite before it, approvals 14, desktop approvals/inbox/routes 270); still open: a saved per-project allow list, approvals across a sidecar restart.
+
+## [2026-10-27] — W19a / FE-12: independent agent review of a run
+
+**Status:** Done (uncommitted, not deployed)
+**Agent:** Claude (coordinator)
+
+### What was done
+- "Review with agent" in the review panel: a fresh session of the task's runner reviews the newest finished run's commit in a disposable clone (`<repos>/verify/review-<id>`, deleted afterwards), with a deny permission policy, the task and diff fenced as data, one review per task, 10 min, the run's cost budget.
+- Findings (severity, file, lines, quoted code, title, body) are checked against the file at the reviewed commit: verified / relocated (lines corrected) / unverified; paths outside the repo dropped; stable ids per commit. After a later commit, findings whose quote is gone are marked stale.
+- Per finding the user chooses: **Comment** (draft comment for the next follow-up) or **Issue** (sub-issue with file, lines, commit and quote; keyed). Nothing is applied automatically.
+- Sidecar routes `GET|POST /api/tasks/:id/reviews[/:reviewId/cancel]` (owner direct, others via control-plane task access), `review:changed` events, local owner-only store. Ledger `reviewer.md`.
+
+### Files changed
+- Sidecar: `run/reviewer/{contract,store,index}.ts` (new) + `contract.test.ts`, `reviewer.realgit.test.ts`; `run/service.ts` (`reviewSubject`), `run/index.ts` (`getReviewer`), `routes/reviews.ts` (+ test), `app.ts`
+- Desktop: `lib/api/agent-reviews.ts`, `components/review/agent-review.tsx` (+ test), `components/review/model/agent-review.ts`, `components/review/review-panel.tsx`, `lib/api/routes.ts` (+ test), `lib/api/errors.ts` (+ test), `providers/sse-provider.tsx`
+- Root lint list
+
+### Validation
+- Sidecar reviewer 13 + routes 4; desktop agent review 8, review panel 29, routes 263, errors 17; sidecar/desktop typecheck clean; lint 377 files clean.
+
+### Next steps / blockers
+- Ablation (does the reviewer improve follow-ups?) needs funded eval runs (W21). Memory promotion (W19b/FE-13) not started. Reviewer cost not yet metered to the API.
+
+## [2026-10-27] — W20 recurring issues (FE-14), W12 "Continue where it stopped"
+
+**Status:** Done (uncommitted, not deployed)
+**Agent:** background agent (recurring issues) + Claude (coordinator: integration, W12)
+
+### What was done
+- **Recurring issues (agent):** `IssueSchedule` / `IssueScheduleOccurrence` (migration `20261027210000_w20_issue_schedules`); daily / weekdays / weekly / monthly (1–28) at a local time in an IANA zone, DST-correct with `Intl` only; a `schedule-run` job every minute (interval runner or pg-boss, never both) claims due schedules `FOR UPDATE SKIP LOCKED` and creates issue + occurrence + next slot in one transaction (concurrent workers → one issue); after downtime only the latest missed slot is created (skips counted). Quotas 25 active / 50 total per project; run-now idempotent per minute; pause/delete immediate (issues kept). Issues are created as the schedule's owner (creator / last editor / last resumer); an owner who lost access pauses the schedule. 8 registry routes, `schedule:*` events, export + project delete. Desktop "Recurring" page per project; MCP `openlinear_list_schedules` / `openlinear_create_schedule` (28 tools). Ledger `schedules.md`. Running scheduled issues automatically is out of scope (needs an owner approval policy).
+- **Coordinator integration:** sidebar "Recurring" link, SSE `schedule:*` events + bridge invalidation, `queryKeys.schedules`, lint list, AGENTS.md (models, routes, 28 MCP tools).
+- **W12 Continue:** the recovery card of an interrupted run (recovery required / abandoned) offers "Continue where it stopped": a follow-up turn that resumes the runner's saved session (Claude `--resume`, Codex thread, OpenCode session) in the kept worktree with an instruction to check what is already done first. User-initiated only; the engine still never re-prompts on its own.
+
+### Files changed
+- Agent: see `schedules.md` (API services/routes/schemas/tests, migration, desktop schedules page/components/tests, MCP tool + docs page)
+- Coordinator: `apps/desktop-ui/components/layout/sidebar.tsx`, `providers/sse-provider.tsx`, `lib/query/{keys,sse-bridge}.ts`, `components/execution/{run-states,run-view,task-run-section}.tsx`, `components/execution/run-kit.test.mjs`, `components/task-detail-view.tsx`, `lib/api/review.ts`, root `package.json`, `AGENTS.md`
+
+### Validation
+- Agent: API 829 + 3 (79 files) on its own DB, desktop 1190 + 9, MCP 112, typecheck api/desktop/mcp/mcp-docs clean.
+- Coordinator: desktop query/provider/layout/schedules 74, execution kit 25; desktop + API typecheck clean; lint 383 files clean.
+
+### Next steps / blockers
+- Owner: approval policy for running scheduled issues unattended. Note: any edit transfers schedule ownership (issues are then created as the editor).
+- Background agents now: W16b repository context (resumed), W15b insights (new).
+
+## [2026-10-27] — W16b repository context index + FE-11 related files
+
+**Status:** Done (uncommitted, not deployed)
+**Agent:** background agent (index, route, UI, ablation) + Claude (coordinator: engine integration)
+
+### What was done
+- Versioned repository index per commit (`apps/sidecar/src/context/`): built from git objects at the base commit (never the working tree), blob shas as content hashes, unchanged files reused, vendored/lock/secret/binary/large files skipped, symbols for TS/JS/Python/Go/Rust/Java/Kotlin/Ruby + Markdown headings; never lazy-fetches in blobless mirrors. Owner-only on-disk cache keyed by repository + commit (LRU 32 entries / 256 MB, corrupt → rebuilt).
+- Deterministic BM25-style retrieval with reasons and matched words; bounded "Repository context" prompt section inside the untrusted-content envelope (numbered lines, tags neutralised, control/bidi chars stripped, secrets redacted, 6 000-char default). `OPENLINEAR_REPO_CONTEXT=0` turns it off.
+- Engine (coordinator): first runs ask the context port after setup and append the section to the prompt; the receipt is logged ("Repository context: N related files at <sha> …"); follow-ups get none.
+- `GET /api/tasks/:id/related-files` (sidecar) + desktop "Related files" in the task sidebar (path, lines, matched words; hidden when empty; retries while indexing).
+- Offline ablation (18 labelled tasks): P@5 / R@5 / MRR — path only 0.144 / 0.639 / 0.602; + symbols 0.211 / 0.972 / 0.817; full 0.222 / 1.000 / 0.972. Whether agents do better with it needs funded runs (W21). Ledger `context.md`.
+
+### Validation
+- Agent: sidecar full 91 files 1269 + 4; desktop unit 94 files 1203 + 9; typechecks + biome clean. Coordinator: engine context tests 2; sidecar typecheck; biome on run/context/route clean.
+
+## [2026-10-27] — W19b / FE-13: project knowledge (provenance-bearing memory)
+
+**Status:** Done (uncommitted, not deployed); MCP/chat proposal tools next
+**Agent:** Claude (coordinator)
+
+### What was done
+- `KnowledgeEntry` / `KnowledgeVersion` (migration `20261027250000_w19b_project_knowledge`): per-project conventions / procedures / notes with provenance (task, run, review finding, commit, chat), revisions for every change, expiry, retraction with a reason.
+- Trust: signed-in people create (active), edit, approve, retract, restore; PATs (agents, MCP) only propose and edit their proposals (`KNOWLEDGE_PEOPLE_ONLY` otherwise); edits/approvals name the revision they saw (409 otherwise); sealed (`sealed` / `eval:sealed`) tasks can't be a source; 200 per project.
+- Runs: active, unexpired entries (conventions first, ≤ 20 / 8 000 chars) are sealed into the execution snapshot at start, journaled with the run, and given in the first prompt as "## Project knowledge"; the run log names the revisions used.
+- 7 registry routes (`/api/projects/:id/knowledge`, `/api/knowledge/:id[/approve|retract|restore]`), `knowledge:changed` events, project export (with history).
+- Desktop: project → Knowledge page (tabs, approve, edit, retract/reject, restore, history), sidebar link, SSE refresh, error copy; agent review findings → **Remember** (prefilled form, finding as source). Ledger `knowledge.md`.
+
+### Files changed
+- DB: `packages/db/prisma/schema.prisma`, migration above
+- API: `services/knowledge.ts`, `schemas/knowledge.ts`, `routes/knowledge.ts` (new), `__tests__/knowledge.test.ts` (new), `app.ts`, `registry.ts`, `services/idempotency.ts`, `services/execution-control.ts` (snapshot), `services/project-export.ts`, `__tests__/route-inventory.test.ts`; `packages/api-client/src/executions.ts`
+- Sidecar: `run/types.ts`, `run/control-plane.ts`, `run/service.ts` (`projectKnowledgeSection`, log), `run/context.service.test.ts`
+- Desktop: `lib/api/knowledge.ts`, `components/knowledge/{knowledge-form,knowledge-list}.tsx` + test, `app/(app)/projects/knowledge/page.tsx`, `components/review/agent-review.tsx` (+ test), `components/layout/sidebar.tsx`, `providers/sse-provider.tsx`, `lib/query/{keys,sse-bridge}.ts`, `lib/api/errors.ts` (+ test)
+- Root lint list, AGENTS.md
+
+### Validation
+- API full suite 80 files 836 + 3 (fresh `openlinear_knowledge_test`), no drift; sidecar engine tests; desktop knowledge/review/query/layout 87 + agent review 9; typechecks clean; lint 402 files clean.
+
+### Next steps
+- Done same day: Home Chat `list_knowledge` / `propose_knowledge` (always a proposal, chat session as source; chat tools 40: 17 read, 16 write) and a "Review the proposal" link on the tool card. Chat suites 33 + 17.
+- Done same day: MCP `openlinear_list_knowledge` / `openlinear_propose_knowledge` (PAT → proposal; keyed), fake API, catalog regenerated, docs page + nav; 30 tools; MCP 113 tests; mcp-docs typecheck clean.
+- Sidebar: the Knowledge link shows how many proposals wait for approval (fetched only for expanded projects). Owner decision brief: `docs/reports/revamp-2026-10-26/owner-decisions.md`.
+- Run view: "Given N project knowledge entries: Use pnpm (v3), …" for a finished first run (sidecar `describe().knowledge`, desktop `RunKnowledgeNote`), so a run links back to the exact revisions it used.
+
+## [2026-10-27] — W15 slice: run phase timings
+
+**Status:** Done (uncommitted)
+**Agent:** Claude (coordinator)
+
+### What was done
+- Sidecar `run/phases.ts`: time per phase from the run's own journal (state-change events + setup step records): queued, preparing (setup inside), agent (approval wait inside), verifying, publishing, total; live runs count to now. Journal `timingEvents()` reads only state changes and setup records (not logs). `GET /api/tasks/:id/run` (`describe`) returns `phases` (additive).
+- Desktop: `RunPhaseBreakdown` under a finished run (proportional bar + the same numbers as text: "1m 40s total · Preparing 13s (setup 7s) · Agent 1m 5s (waiting for you 10s) · Verifying 15s · Publishing 5s"); `normalizeRunState` decodes phases (null for older sidecars or junk).
+
+### Validation
+- Sidecar phases 4 + route/service 48; desktop execution/review/task-detail 91 + 1; typechecks clean.
+
+### Next steps
+- Relay phase timings with the terminal report so the API (insights) can aggregate them across devices (needs a column on execution attempts).
+
+## [2026-10-27] — W15b insights (projects and workspaces)
+
+**Status:** Done (uncommitted, not deployed)
+**Agent:** background agent (insights) + Claude (coordinator: sidebar link, lint list, AGENTS.md)
+
+### What was done
+- `GET /api/projects/:id/insights` and `GET /api/workspaces/:id/insights` (`?range=7d|30d|90d`): runs by outcome (needs-recovery separate), success / verification / PR rates, median and p90 duration, cost (known USD; unknown-price runs counted, never shown as $0), by runner and model; issues created vs completed (untracked completions counted separately), cycle time, blocked now, plans approved / awaiting review; `notes` explain ambiguous numbers. Three aggregate statements per request on existing indexes (8 statements total, asserted); bench 50k issues: project 18–35 ms, workspace 76–219 ms.
+- Desktop: Project → Insights page; `/usage` gets a "Workspace insights | My usage" switch; CSS-only charts with text summaries, legends, tooltips and "Show as table". Sidebar "Insights" link (coordinator).
+- MCP `openlinear_get_insights` (31 tools) + docs page. Ledger `insights.md` (+ screenshot).
+
+### Validation
+- Agent: API 959 + 3 (83 files, includes other agents' suites), desktop 1228 + 9, MCP 114; typecheck api/desktop/mcp/mcp-docs clean. Coordinator: desktop typecheck, lint 410 files clean.
+
+### Notes
+- The agent left a bench database `openlinear_insights_bench_test` on the loopback cluster (disposable).
+- Limits: counts follow the issue's current project; chat model usage not included; run duration starts at the claim (setup before it excluded).
+
+## [2026-10-27] — W20 operations CLI
+
+**Status:** Done (uncommitted, not published)
+**Agent:** Claude (coordinator)
+
+### What was done
+- `openlinear` gains ops subcommands (the launcher still starts the app for anything else): `issues`, `issue`, `status`, `logs`, `run`, `cancel`, `continue`, `export`, `insights`, `knowledge`, `remember`, `whoami`. Cloud API with `OPENLINEAR_TOKEN` (PAT, header only); runs via the local sidecar. Identifiers like `ENG-12` resolved exactly; `--json`; exit codes 0/1/2/3. Ledger `ops-cli.md`.
+
+### Files changed
+- `packages/openlinear-cli/lib/ops.js` (new), `bin/openlinear.js`, `test/ops.test.js` (new)
+
+### Validation
+- `node --test`: 18 passed (9 new).
+
+## [2026-10-27] — FE-14 outbound webhooks
+
+**Status:** Done (uncommitted, not deployed)
+**Agent:** background agent (webhooks) + Claude (coordinator: SSE, keys, lint list, AGENTS.md)
+
+### What was done
+- Project (and API-level workspace) webhooks: HTTPS endpoint + chosen events (issue created/updated/done/deleted, run succeeded/failed/cancelled, plan approved, recurring issue created, test ping). A fan-out job reads the event stream from its own cursor; one delivery per (endpoint, event) (unique), stable delivery id across retries/redeliveries.
+- Signed `OpenLinear-Signature: v1=<hex HMAC-SHA256(secret, "<timestamp>.<body>")>`; retries 1 m / 5 m / 30 m / 2 h / 12 h then failed; 20 consecutive failures disable the endpoint and notify its owner. SSRF guard: https only, own DNS resolution refusing private/loopback/link-local/metadata (IPv4/IPv6 incl. mapped, NAT64, 6to4), no redirects, 4 KB response cap. Secret encrypted (like GitHub tokens), shown once; rotation keeps the old one for 24 h.
+- Permissions: workspace owners/admins with full project access manage; viewers read (URL origin only); create/edit/rotate need a session. Desktop: Webhooks section in project Settings (secret once, test ping, rotate, deliveries table with Redeliver). Ledger `webhooks.md`.
+- Coordinator: SSE `webhook:*` + invalidation, `queryKeys.webhooks`, lint list, AGENTS.md (models, routes).
+
+### Validation
+- Agent: API 962 + 3 (83 files; 80 SSRF unit + 24 integration tests on a local receiver), desktop 1239 + 9, typecheck clean, no drift. Coordinator: desktop query/provider/webhooks 77, typecheck, lint 418 files.
+
+### Deploy note
+- Migration `20261027265000_fe14_webhooks` before the API (the job starts with it); needs `TOKEN_ENCRYPTION_KEY` (already required).
+
+### Limits
+- First delivery up to a minute with pg-boss (5 s interval runner); no ordering guarantee; events while an endpoint is off are never sent; workspace webhooks have no desktop screen; not in project export.
+
+## [2026-10-27] — Full gate after the second round (W15b, W16b, W19b, W20, FE-14, W12, FE-04 follow-ups)
+
+**Status:** Green (uncommitted, not deployed)
+**Agent:** Claude (coordinator)
+
+- Fresh `openlinear_gate_test`: all migrations apply, `migrate diff` no difference.
+- API 83 files 962 + 3; sidecar 93 files 1276 + 4; sidecar Postgres integration 26; desktop-ui 98 files 1239 + 9; MCP 114; execution-core 76; CLI 18; typecheck 11/11; lint 418 files; desktop and MCP-docs production builds pass (new routes `/projects/{insights,knowledge,schedules}`, `/tools/{insights,knowledge,schedules}`).
+- Independent review of today's work still running; fixes follow.
+
+## [2026-10-27] — Independent review of the second round: fixes
+
+**Status:** Done (uncommitted)
+**Agent:** review agent (findings) + Claude (coordinator: fixes)
+
+### Fixed (high)
+- **H1 OpenCode "ask" approvals did not work:** the bundled OpenCode 1.19 emits `permission.asked` (not `permission.updated`) and the v1 client has no `permission.reply`, so requests never reached the approval inbox and replies were silent no-ops (the run hung until the watchdog). Now `permission.asked` is decoded (permission, patterns, metadata; secrets scrubbed) and replies go through `postSessionIdPermissionsPermissionId` (once/always/reject); a client without a reply route throws instead of no-op. Tests: decode + foreign session ignored, reply bodies, no-route error.
+- **H2 Repository-context tokenizer could freeze the sidecar:** the identifier regex backtracked quadratically on long underscore/capital runs (512 KB ≈ 2 min, synchronous). Bounded to 64-character runs; 200K-character hostile input now tokenizes in well under a second (test).
+
+### Fixed (medium)
+- Claude Code withdrawing a permission request (`control_cancel_request`) now cancels the pending approval (`AgentSession.onPermissionWithdrawn`, broker `withdraw`, log "Withdrawn by the agent"), no reply is sent, the run carries on; a late reply to an unknown request is a logged no-op instead of failing the run.
+- Approval preview/digest now cover the full tool input (Claude: heading + full JSON input; OpenCode: patterns + metadata), cut only above 64K characters and visibly.
+- OpenCode server mode: an attempt server with a live session is never restarted for a mode change (reaper's busy check), and an "ask" session on a server that answers by policy fails closed (`APPROVAL_MODE_UNAVAILABLE`, before any prompt).
+- Recurring issues: a failing schedule backs off (1, 2, 4 … 60 min, left out of the sweep meanwhile) and pauses itself after 5 failures (`creation_failed`, shown in the app) — no more starving other schedules; concurrent edits/resume compute from the row locked in the transaction (no stale hour with a new slot); schedule detail no longer shows an issue moved to another project.
+- Reviewer: a session that ignores Stop/deadline is abandoned after a 5 s grace period (review ends, checkout removed); the retention sweep keeps a running review's checkout; git output over the limit is truncated instead of failing (and errors are logged as messages, not with the whole diff); changed-file names are fenced; quote location is linear; findings that can't be re-checked show stale = unknown.
+- Run phase timings keep every state change (no 2,000-row cap), start from the run's current state, and follow journal order.
+- Repository-context cache: one commit per repository in memory (at most 3 repositories); an index built with missing blobs is used but not persisted.
+- Knowledge: an agent may edit only its own user's agent proposals; a restored rejected proposal is a proposal again (approval stays revision-bound); at most 50 open agent proposals per project (`KNOWLEDGE_PROPOSALS_FULL`).
+
+### Low items fixed afterwards
+- "Allow for this run" is kept by the run engine only; runners are always answered `once` (an OpenCode `always` would have outlived the run into a follow-up on the same session).
+- Agent reviews follow the local diff's rule: when the task has a run on this device only its owner sees or starts reviews (`RUN_PRINCIPAL_MISMATCH`); without a run the control plane decides.
+
+### Not fixed (low, noted)
+- run/review/finding ids in knowledge provenance are recorded as given (device-local, unverifiable by the API); schedule run-now in the same minute as a skipped slot creates nothing; review with no base commit falls back to `HEAD^`; `GIT_NO_LAZY_FETCH` is the only network guard for very old git; repo-context route does not bind a mirror to a user (single-user desktop).
+
+## [2026-10-27] — FE-14 webhook integrations: Slack/Discord formats, daily digest, workspace screen, export; full gate
+
+**Status:** Done (uncommitted, not deployed)
+**Agent:** background agent (integrations) + Claude (coordinator: keys, SSE, lint list, AGENTS.md, gate)
+
+### What was done
+- Per-endpoint `format`: `openlinear` (signed JSON, unchanged), `slack` (`{ text, blocks }`, hooks.slack.com URLs only), `discord` (`{ content, embeds, allowed_mentions: none }`, discord.com webhook URLs only); titles only, escaped (no mentions/links/formatting injection), link back via `FRONTEND_URL`; same delivery ids, retries, history and signatures.
+- `digest.daily`: per endpoint at an hour in an IANA zone (schedule-slots math): issues created/completed/blocked, runs succeeded/failed, plans awaiting review, knowledge proposals waiting; one per local date via a deterministic event id on the existing unique (endpoint, event) key, row-locked claim, next due time moved in the same transaction; after downtime only the latest day.
+- Desktop: Settings → Webhooks (workspace endpoints, workspace picker); the form gains format and digest hour/zone. Project export includes endpoints (URL origin only, never the secret) and the last 20 delivery statuses.
+- **Bug fixed** in the delivery worker: the claim could lease every due row instead of `limit` (small/new table → leases expiring while waiting → duplicate sends); now `WITH due AS MATERIALIZED (…) UPDATE … FROM due` + regression test.
+- Migration `20261027280000_fe14_webhook_formats_digests` (after `…265000_fe14_webhooks`). Ledger `webhooks.md` §11.
+- Coordinator: `queryKeys.webhooks.workspace`, SSE invalidation for workspace endpoints, lint list, AGENTS.md.
+
+### Full gate (fresh `openlinear_gate2_test`, 23 migrations since 2026-10-20, no drift)
+- API 85 files 984 + 3; sidecar 93 files 1286 + 4 (after the review fixes); sidecar Postgres integration 26; desktop-ui 98 files 1243 + 9; MCP 114; execution-core 76; CLI 18; typecheck 11/11; lint 422 files; desktop production build passes.
+
+## [2026-10-27] — Packaged sidecar build check
+
+**Status:** Done
+**Agent:** Claude (coordinator)
+
+- The 2026-10-25 packaging blockers are all fixed in the current tree (API image pruning incl. execution-core, bundled `worker.ts`, sidecar node22 + `node:sqlite`, no `DATABASE_URL` from the launcher, desktop route table, OpenCode pinned to `anomalyco/opencode` with checksums).
+- `SKIP_OPENCODE_DOWNLOAD=1 bash scripts/build-sidecar.sh` builds `apps/desktop/src-tauri/binaries/openlinear-sidecar-aarch64-apple-darwin` (70 MB, gitignored); booted in API mode with a scratch app-data dir: `/health` → `{ ok, persistence: "api" }`, `/api/approvals`, `/api/tasks/:id/reviews`, `/api/tasks/:id/related-files`, `/api/sandbox/grants`, `/api/runners` → 401 without a token; clean SIGTERM shutdown. (OpenCode not present because its download was skipped.)
+- Not done: the Tauri shell build (no Rust toolchain on this machine); the hosted API is still not deployed (out of scope: local only).
+
+## [2026-10-27] — Webhooks security review: fixes
+
+**Status:** Done (uncommitted)
+**Agent:** security review agent (findings, all confirmed by tests/scripts) + Claude (fixes)
+
+- **High:** a long hostile issue title froze the API and stalled all tenants' webhooks (quadratic redaction regex inside the fan-out transaction). Fixed: clip before redact, bounded URL-scheme pattern in `lib/redact-text.ts`, task titles ≤ 500 on create/update, fan-out halves failing batches and skips (logs) a single event that keeps failing while the DB is healthy. Regression test: 240 KB hostile input redacts in well under a second.
+- **Medium:** workspace webhook deliveries bypassed explicit project deny → denied users get 403 `WEBHOOK_WORKSPACE_RESTRICTED` for deliveries list/detail, update and redeliver (test). Lease shorter than a claimed batch → lease = ceil(50/8)×10 s + 60 s, renewed fenced before each POST; lost lease or disabled endpoint → nothing sent.
+- **Low:** no IP in refused-address errors; second rotation inside the grace period → 409 `WEBHOOK_ROTATION_IN_PROGRESS` (test); 168.63.129.16 and 3fff::/20 refused, ports 443/8443 only (tests); DNS via a resolver with a 3 s timeout.
+- **Left (low):** workspace endpoints still checked with `projects:*` PAT scopes; managers' read-only PATs see full URLs.
+- Validation: API full suite 85 files 989 + 3 on `openlinear_gate2_test`; desktop typecheck; lint clean. Ledger `webhooks.md` §12.
+
+## [2026-10-27] — W21 ablation arms (repository context, project knowledge, reviewer)
+
+**Status:** Done offline (funded runs wait for an owner budget)
+**Agent:** background agent (evals) + Claude (coordinator: CI step, docs link)
+
+- Manifest configurations can carry `features` (repository context, knowledge fixture, reviewer + follow-up), validated and part of the manifest digest; an `ablation` track requires the arms to differ only in `features`. Sidecar code is imported (repository context, `projectKnowledgeSection`, reviewer contract), not copied; unsupported runner paths are refused at plan time (never baseline-as-treatment). Reviewer + follow-up cost counts into the treatment. Sealed-task guard on knowledge fixtures (plan, setup, harness).
+- `pnpm eval:cli ablation plan|smoke <repository-context|project-knowledge|reviewer|all>`; fakes whose success depends on what reached the prompt / whether the review caught the planted bug (labelled "plumbing, not benefit").
+- Worst case ($10/task cap, 10 % headroom, 5 repeats): sample holdout $440 / $440 / $880; 40-task holdout $4,400 / $4,400 / $8,800 (reviewer bound counts all three sessions at the cap). Run commands: `docs/reports/revamp-2026-10-26/evals.md` §12.
+- Coordinator: `.github/workflows/eval-smoke.yml` runs `pnpm eval:cli ablation smoke all --quiet`; `docs/eval/README.md` links §12.
+- Validation: evals 12 files 107 tests (24 new); ablation smoke all OK (40 trials each, ~4 s); typecheck 11/11; lint 435 files clean.
+- Optional follow-ups: lazy `REPOS_DIR` mkdir in `apps/sidecar/src/services/repo-storage.ts` (evals points it at a temp dir today); export the reviewer's answer collector so evals don't mirror it.
+
+## [2026-10-27] — Webhooks: workspace PAT scope family, URL only to sessions
+
+**Status:** Done
+**Agent:** Claude
+
+### What was done
+- Closed the two lows left by the webhooks security review. On `/api/webhooks/:id…`, a PAT acting on a **workspace** endpoint now also needs `workspaces:read` (read, deliveries) or `admin` (delete, ping, redeliver). Otherwise: 403 `INSUFFICIENT_SCOPE` with `requiredScopes`.
+- The full webhook `url` goes only to a session that may manage the endpoint. Read and write PATs now get `url: null` plus `urlDisplay`; `canManage` is unchanged. A Slack or Discord URL is a credential.
+
+### Files changed
+- `apps/api/src/services/webhooks.ts`:
+  - `PatScopes`, `assertPatFamily`, `mayRevealUrl`.
+  - `webhookView(row, revealUrl)`.
+  - list/get/delete/ping/deliveries/redeliver take `patScopes`.
+- `apps/api/src/routes/webhooks.ts`: `patScopesOf(req)` is passed to the services.
+- `apps/api/src/registry.ts`: enforcedBy text.
+- `apps/api/src/__tests__/webhooks.test.ts`: new regression test.
+- `docs/reports/revamp-2026-10-26/webhooks.md`: §7 and §12.
+
+### Validation
+- API typecheck clean.
+- `webhooks.test.ts` + `webhooks.integrations.test.ts` + `route-inventory.test.ts`: 48 passed on a fresh loopback DB (`openlinear_whpat_test`).
+- biome clean.
+
+## [2026-10-27] — Sidecar follow-ups: lazy REPOS_DIR check, shared reviewer answer rule
+
+**Status:** Done
+**Agent:** Claude
+
+### What was done
+- `services/repo-storage.ts` no longer creates or checks `REPOS_DIR` when the module is imported. `assertReposDirSafe()` runs on first use, memoized. It still refuses a symlinked or other-owned directory and creates a missing one with mode 0700 (C6a F9).
+  - The sidecar calls it at boot (`index.ts start()`), so a bad directory still fails fast.
+  - Importing the module (tests, evals, tooling) no longer touches the per-user app-data directory.
+- The reviewer's answer-collection rule now lives once in the sidecar: `MAX_REVIEW_ANSWER_CHARS` and `appendReviewAnswer` in `run/reviewer/contract.ts`. The evals harness loads it through `loadSidecarFeatures`, which shape-checks it, instead of mirroring the constant.
+- Fixed a pre-existing implicit-`any` `let` in `repo-storage.ts`.
+
+### Files changed
+- `apps/sidecar/src/services/repo-storage.ts`, `repo-storage.test.mjs` (+2 tests), `apps/sidecar/src/index.ts`
+- `apps/sidecar/src/run/reviewer/{contract,index}.ts`, `contract.test.ts` (+1 test)
+- `packages/evals/src/features/{sidecar,pipeline,reviewer}.ts`
+
+### Validation
+- Sidecar and evals typecheck clean.
+- repo-storage: 11 tests. Reviewer: 15 tests. Evals: 107 tests.
+- `pnpm eval:cli ablation smoke all`: OK.
+- biome clean on touched files (the remaining infos are only `node:` import-protocol style, pre-existing).
+- Full sidecar suite after these changes: 93 files, 1,290 passed, 4 skipped.
+- Full API suite on a fresh loopback DB (`openlinear_gate3_test`): 85 files, 990 passed, 3 skipped.
+
+## [2026-10-27] — Ops CLI security review fixes + exact identifier filter on `GET /api/tasks`
+
+**Status:** Done (uncommitted, not published)
+**Agent:** Claude
+
+Progresses: [2026-10-27] — W20 operations CLI.
+
+### What was done
+- Fixed the 11 reviewer-reproduced findings in the W20 ops CLI (table in `docs/reports/revamp-2026-10-26/ops-cli.md` § "Security review fixes (2026-10-27)"):
+  - HIGH: terminal escape injection. `safe()` / `safeLine()` neutralise C0 / DEL / C1 / bidi controls as `\uXXXX`. Applied to server strings in human output and to all of stderr, including echoed user input. `--json` stays JSON.
+  - MEDIUM:
+    - A token with control characters is refused before any request (exit 3, not echoed). Fetch errors are reported by `cause.code ?? name` only.
+    - `https:` is required except on loopback. URLs with user info, a query or a fragment are refused. `redirect: 'error'`.
+    - Identifier lookup uses the new exact `identifier` filter and cursor paging (5 pages max). It refuses `IDENTIFIER_LOOKUP_INCOMPLETE` when the results run out of pages.
+    - Export writes 0600 via a temp file plus link/rename. An existing target is refused without `--force`. A symlink is replaced, never written through.
+  - LOW:
+    - A non-JSON or empty 2xx answer fails with `BAD_RESPONSE`.
+    - Cancel answered with 202 prints "Cancelling… (still in progress)".
+    - Project ids must be UUIDs.
+    - Requests time out after 60 s / 300 s (export). Response size is capped at 32 MiB / 512 MiB (export).
+    - Options a command doesn't take, extra positionals and empty values are refused. `openlinear --json whoami` works.
+    - The `remember` idempotency key is sha256-derived.
+- API: `GET /api/tasks?identifier=ENG-12` is an exact, case-insensitive match, combined as AND with the caller's visibility.
+
+### Files changed
+- `packages/openlinear-cli/lib/ops.js` — all of the above. Exports `safe`, `safeLine` and `writePrivateFile`.
+- `packages/openlinear-cli/bin/openlinear.js` — `isOpsCommand(args[0], args[1])` (leading `--json`).
+- `packages/openlinear-cli/test/ops.test.js` — UUID project ids, new lookup URL, regression tests for every finding, real-filesystem writer tests.
+- `apps/api/src/schemas/tasks.ts` — `listTasksQuerySchema.identifier`.
+- `apps/api/src/services/tasks.ts` — `TaskListFilters.identifier`, one more conjunct in `buildTaskListWhere`.
+- `apps/api/src/routes/tasks.ts` — passes `identifier`.
+- `apps/api/src/__tests__/tasks.list.test.ts` — identifier test: exact match only, not `-120`, case-insensitive, denied project and other tenant excluded, malformed → 400.
+- `docs/reports/revamp-2026-10-26/ops-cli.md` — security fixes section.
+
+### Validation
+- CLI `node --test test/*.test.js`: 38 passed (29 ops: 20 new, the 9 existing ones updated; plus 9 installer).
+- Spot-checked against Node's real `fetch` and a local server: redirect refused, stalled headers and stalled body → `TIMEOUT`, endless body → `RESPONSE_TOO_LARGE`.
+- API typecheck clean.
+- `tasks.list.test.ts` + `route-inventory.test.ts`: 32 passed on a fresh loopback DB (`openlinear_clifix_test`).
+- biome: no new findings on the touched files. Remaining warnings are pre-existing: `useImportType` on untouched imports in `routes/tasks.ts`, and `noRedundantUseStrict` in ops.js.
+
+### Next steps / blockers
+- Known limit, documented in the ops.js header: the default sidecar URL is loopback http, so the token goes to whatever process listens on that port. The fix is a discovery file written by the app (port + per-launch secret).
+- `docs/features/api-reference.md` still lists only `teamId` / `projectId` for `GET /api/tasks`. It was already outdated (no `q`, `status`, cursor), so it was left alone.
+
+## [2026-10-27] — Security review fixes: trust grants + setup (FE-03 / W16a), Continue (W12)
+
+**Status:** Done
+**Agent:** Claude
+
+### What was done
+- **High: sandboxed setup steps and checks could reach host services through the egress proxy.** A network allow list with `127.0.0.1:4096` reached the unsandboxed, password-less shared OpenCode server. Fixed in three layers:
+  - IP addresses refused in check/setup allow lists (`execution-core` `normalizeNetwork`);
+  - the egress proxy refuses loopback, link-local and metadata IP targets unless `allowLocalTargets` is set (only the sandbox self-test sets it);
+  - the shared OpenCode server gets a per-launch password, and its clients send it.
+  - Proved on real Seatbelt: the test fails with local targets allowed and passes with the fix.
+- **Medium: an ended trust grant didn't stop its runs.**
+  - The store lists the runs that used a grant (from its audit) and notifies listeners on revoke or expiry; the sidecar cancels those still active (`RunService.cancelRuns`).
+  - The store is re-read every 30 s so expiry is caught; the UI copy was updated.
+- **Medium: setup output published as the agent's work.** The worktree's committable changes are fingerprinted before and after setup; any change fails the run before the agent starts, listing the files.
+- **Medium (W12): Continue could prompt into an agent still running.** A follow-up of a `recovery_required` / `abandoned` run probes the old session first. A session that is idle, missing or confirmed stopped continues; otherwise the follow-up gets 409 `AGENT_MAY_BE_RUNNING`, mapped in the desktop.
+- **Lows:**
+  - grants re-checked on read (≤ 168 h, not future-dated, reason ≥ 10 characters, newest 20 per user);
+  - setup answers 503 `SANDBOX_UNAVAILABLE` before accepting;
+  - Continue state no longer leaks to the next task (j/k);
+  - Continue is hidden once the worktree expired.
+- The ops CLI fixes (separate entry) and the MCP identifier fix (in progress) came from the same review round.
+
+### Files changed
+- `packages/execution-core/src/verification.ts` (+ test)
+- `apps/sidecar/src/sandbox/{egress-proxy,preflight,trust-grants}.ts` (+ tests)
+- `apps/sidecar/src/routes/sandbox-grants.ts`
+- `apps/sidecar/src/services/opencode.ts` (+ `opencode.test.mjs`)
+- `apps/sidecar/src/run/{service,test-support}.ts`, `run/setup/index.ts`
+- `run/{setup.service,follow-up,approvals.service}.test.ts`, `run/setup/setup.test.ts`, `run/verification/verification.realsandbox.test.ts`, `sandbox/sandbox.unit.test.ts`
+- `apps/desktop-ui/components/{task-detail-view.tsx,execution/task-run-section.tsx,settings/sandbox-trust-grants.tsx}`, `lib/api/errors.ts` (+ tests)
+- `docs/reports/revamp-2026-10-26/{trust,setup}.md`
+
+### Validation
+- Sidecar typecheck clean; full sidecar suite **93 files, 1,300 passed, 4 skipped**.
+- execution-core verification/setup tests: 24.
+- Desktop typecheck clean; full desktop suite **98 files, 1,243 passed, 9 skipped**.
+- execution-core full suite: 77 passed.
+
+### Next steps / blockers
+- Lows left:
+  - setup HOME installs don't reach the agent (documented);
+  - a setup step's process group isn't journaled across a crash;
+  - runner status reads the global sandbox mode;
+  - Continue doesn't send the on-screen run id (the sidecar uses its latest local run).
+
+## [2026-10-27] — MCP: identifier lookup refuses unread pages, uses the exact `identifier` filter
+
+**Status:** Done (uncommitted, not deployed)
+**Agent:** Claude
+
+Follows: [2026-10-27] — Ops CLI security review fixes + exact identifier filter on `GET /api/tasks` (same bug, fixed there in the CLI).
+
+### What was done
+- Bug: `resolveIssue` (backs `openlinear_get_issue { identifier }`) read at most 3 × 100 `?q=` substring results and accepted a single exact match even when more pages were left. A team in another workspace can share the key, so the other `ENG-12` could sit on an unread page. The agent would then get the wrong issue's taskId and pass it to write tools.
+- The worker's API client sends `identifier` on `GET /api/tasks` (`ListTasksQuery.identifier`). `resolveIssue` sends `identifier` and `q` (an older API ignores `identifier`), keeps `view=compact` and still checks the exact match client-side.
+- A lookup whose pages were not read to the end is now refused, even with one match. The message lists the candidates found so far and says "call again with taskId". `hasMore: true` without `nextCursor` counts as not read to the end (before, it counted as complete). More than one match is still refused as ambiguous.
+- The `identifier` input pattern now matches the API's (`^[A-Za-z][A-Za-z0-9]{0,9}-\d{1,9}$`), so an identifier the API would answer with 400 is refused before any request.
+- Fake API: honours `identifier` (exact, case-insensitive, validated). New `identifierFilterMissing` flag simulates an older API.
+
+### Files changed
+- `apps/mcp/src/openlinear/api.ts` — `ListTasksQuery.identifier`, sent by `listTasks`.
+- `apps/mcp/src/mcp/tools/issues.ts` — `resolveIssue` exhaustion rule and messages, `IDENTIFIER_PATTERN`, `identifier` description.
+- `apps/mcp/test/fake-api.ts` — `identifier` filter and `identifierFilterMissing`.
+- `apps/mcp/test/contract.test.ts` — the existing lookup test now asserts `identifier=` (and `q=`, `view=compact`, a single request). New describe block with 5 tests:
+  - exact match through the filter while 300 issues mention the identifier;
+  - a twin in another workspace is found and the lookup is refused as ambiguous;
+  - an older API (unread pages, 1 match) is refused;
+  - `hasMore` without `nextCursor` is refused;
+  - an over-long key is refused before the API is called.
+- `apps/mcp-docs/lib/tool-catalog.json` — regenerated (one `identifier` description line).
+- `apps/mcp-docs/app/tools/issues/page.tsx` — get_issue paragraph.
+- `AGENTS.md` — MCP test count 114 → 119.
+
+### Validation
+- `pnpm --filter @openlinear/mcp typecheck` clean. `@openlinear/mcp-docs` typecheck clean.
+- `pnpm --filter @openlinear/mcp test`: 7 files, 119 passed. The catalog test is in sync.
+- Mutation check: with the old exhaustion rule and without the `identifier` param, all 4 new lookup tests and the updated existing test fail.
+- `npx biome lint` on the touched files: clean.
+
+### Next steps / blockers
+- `docs/reports/revamp-2026-10-26/mcp.md` §3 still says identifiers resolve through `/api/search`. That has been stale since the `?q=` change. It is outside this task's scope and was left alone.
+- Not deployed (`wrangler deploy` not run). Older APIs work but fall back to the substring search, so a busy identifier is refused there until the API with the `identifier` filter is live.
+
+## [2026-10-27] — Project export: PAT scope, bounded bundle, rate limit (FE-16 review)
+
+**Status:** Done
+**Agent:** Claude
+
+### What was done
+- **High (confirmed by review):** a PAT with only `projects:read` could read every task, comment and run through `GET /api/projects/:id/export`, although each of those needs `tasks:read` on its own route. The registry now requires `tasks:read` and `projects:read`.
+- **Medium:** the export loaded comments, runs, verifications, knowledge versions and plan revisions without bounds and built them in memory.
+  - These are now flat queries, newest first, with project-wide caps: 20,000 comments, 20,000 runs, 20,000 verifications, 5,000 knowledge versions, 2,000 plan revisions.
+  - `truncated` / `truncation` report what was cut.
+  - The route is rate limited to 2 per minute per person.
+
+### Files changed
+- `apps/api/src/services/project-export.ts`, `routes/projects.ts` (limiter), `registry.ts` (scopes)
+- `apps/api/src/__tests__/project-export.test.ts`
+- `docs/reports/revamp-2026-10-26/runners-w12a.md` §10
+
+### Validation
+- API typecheck clean.
+- `project-export` + `route-inventory` + `knowledge` + `schedules` tests: 41 passed on a fresh loopback DB (`openlinear_gate4_test`).
+
+## [2026-10-27] — Insights cost integrity and agent-run PATCH owner check (W15b review)
+
+**Status:** Done
+**Agent:** Claude
+
+### What was done
+- **Low–medium (confirmed by review):** `PATCH /api/agent-runs/:id` accepted any `costUsd`, including 0 and negative values. Any member with full task access could also patch a run someone else started. The reviewer's repro: an admin co-member patched the owner's run to `{costUsd:-1000,status:'failed'}`. Project insights then showed `knownUsd` −993 instead of 9.5, and the success rate dropped from 1 to 0.
+  - `costUsd` must now be a positive finite number ≤ 100,000.
+  - Token counts must be integers ≥ 0 (≤ int4).
+  - Only the run's own user (`agent_runs.userId`) may patch it. Others get 403 `AGENT_RUN_NOT_OWNER`, after the existing `assertTaskAccess('full')`.
+  - There are no in-tree callers of the PATCH: the sidecar finalizes through the attempt run callback, which already stores only cost > 0. `packages/api-client` `updateAgentRun` is unused.
+- **Low:** insights summed `costUsd` over running runs, while the priced/unpriced counts used finished runs only.
+  - The sum now uses the same filter as `runsWithCost`: finished runs with `costUsd > 0`.
+  - A stored 0 or negative value counts as unknown.
+  - Per runner / model / day, `costUsd` is `null` when no finished run in the row recorded a price. It was `0` before.
+  - The desktop page shows "unknown" (or "—" when nothing ran) instead of "$0.00". This applies to the group tables, the known-cost tile and the cost chart's tooltip/table.
+  - The MCP `openlinear_get_insights` decoder and output schema now accept a nullable row `costUsd`.
+
+### Files changed
+- `apps/api/src/routes/agent-runs.ts` — schema bounds, owner check (biome import-type fixes).
+- `apps/api/src/services/insights.ts` — finished/positive cost filter, `knownMoney` (null per-row), types, `unknownCostRuns` note.
+- `apps/api/src/__tests__/agent-runs.test.ts` — new describe block with 4 tests: co-member 403 with insights unchanged, invalid cost/tokens 400, owner 200, 404.
+- `apps/api/src/__tests__/insights.test.ts` — new "Cost" fixture project with 1 new test, plus null-cost assertions on existing tests.
+- `apps/desktop-ui/lib/api/insights.ts` (`costUsd: number | null`, `formatKnownCost`), `components/insights/insights-view.tsx`, `insights-charts.tsx` (`ChartSeries.text`, empty summary mentions unknown-cost runs), `insights.test.mjs` (+2 tests).
+- `apps/mcp/src/mcp/tools/insights.ts`, `apps/mcp/src/openlinear/api.ts` (insights decoder only), `apps/mcp/test/fake-api.ts`, `apps/mcp/test/contract.test.ts`.
+- `docs/reports/revamp-2026-10-26/insights.md` — §3 cost definition and writers, §5, §6, §7, §8, §9.
+
+### Validation
+- Typecheck clean for api, desktop-ui and mcp.
+- API tests on the loopback DB `openlinear_insfix_test`, 142 passed across 9 files:
+  - insights 22, agent-runs 6
+  - route-inventory 14, pat-policy 47, authorization-matrix 4
+  - principal-context 12, deny-surfaces 16, events.access 10, events.policy 11
+- Mutation check: without the fixes, 2 agent-run tests and 5 insights tests fail.
+- Desktop `insights.test.mjs`: 15 passed. MCP: 119 passed.
+- The catalog was regenerated and is byte-identical: the tool description is unchanged, because the protocol test caps descriptions at 450 chars.
+- `npx biome lint` on the touched files: clean.
+
+### Next steps / blockers
+- `apps/api/src/registry.ts` (owned by another engineer): the PATCH row's guard text should mention the run-owner check. Route inventory does not compare it.
+- The owner can still rewrite their own attempt-managed run through the legacy PATCH. Refusing PATCH on runs that have an execution attempt would close this.
+- `services/usage.ts`, `webhook-digest.ts` and `project-export.ts` still sum `costUsd` without the finished/positive filter. This is out of scope here.
+
+## [2026-10-27] — W12 Continue names the run on screen (`parentRunId`, 409 `FOLLOW_UP_RUN_MISMATCH`)
+
+**Status:** Done (uncommitted, not deployed)
+**Agent:** Claude
+
+Resolves the low left by: [2026-10-27] — Security review fixes: trust grants + setup (FE-03 / W16a), Continue (W12) — "Continue doesn't send the on-screen run id (the sidecar uses its latest local run)".
+
+### What was done
+- **Bug:** the follow-up request carried no run id. The sidecar resumed whatever `journal.latestForTask` returned. The desktop showed Continue for any `recovery_required` / `abandoned` run on screen, including a teammate's run from another device that arrived through live updates. Clicking it resumed this device's older run (its session, its branch) with the "previous turn was interrupted" prompt, and published to the old branch.
+- **Sidecar:** the follow-up body takes an optional `parentRunId` (string 1..200, no NUL; strict body). `/redirect` keeps its own body without it. `RunService.followUp` checks it first: when it isn't the latest local run, it answers 409 `FOLLOW_UP_RUN_MISMATCH { expected, latest: runId | null }`. Nothing is probed, aborted or started, and the reservation is released by the existing `finally`. Without `parentRunId`, follow-ups work as before (review panel).
+- **Desktop:** `TaskRunSection` offers Continue only through `continuableRunId(snapshot, localRun)`. The rule: this device's run (`GET /api/tasks/:id/run`) has the same run id as the run on screen, both are `recovery_required` / `abandoned`, and the worktree has not expired. The cached local run is re-read once per on-screen run before Continue is ruled out. `continueRun(runId)` sends `parentRunId`. `FOLLOW_UP_RUN_MISMATCH` is mapped: "This run was started on another device, or a newer run exists here." / "Open the latest run, or start a new one. Nothing was changed."
+- **Found while fixing:** `normalizeRunState` dropped `workspaceExpired`, so the existing "hide Continue once the worktree expired" check never fired. It is decoded now.
+
+### Files changed
+- `apps/sidecar/src/routes/execution.ts` — `parentRunId` in the follow-up body; separate strict redirect body.
+- `apps/sidecar/src/run/service.ts` — `followUp({ ..., parentRunId? })` mismatch check.
+- `apps/sidecar/src/run/follow-up.test.ts` — 2 tests: a mismatch on a stranded run is refused before probe/abort/attempt (also with no local run); a matching id continues; without an id the latest run is continued; a stale id is refused once a newer turn exists.
+- `apps/sidecar/src/routes/execution-v2.test.ts` — invalid `parentRunId` bodies are 400; it is passed through; 409 details; redirect refuses it.
+- `apps/desktop-ui/components/execution/task-run-section.tsx` — `continuableRunId`, recheck, `onContinue(runId)`.
+- `apps/desktop-ui/components/task-detail-view.tsx` — `continueRun(runId)` sends `parentRunId`.
+- `apps/desktop-ui/lib/api/review.ts` — `FollowUpRequest.parentRunId`, error list.
+- `apps/desktop-ui/lib/api/errors.ts` (+ `errors.test.mjs`) — `FOLLOW_UP_RUN_MISMATCH` copy.
+- `apps/desktop-ui/components/review/model/normalize.ts` (+ `model.test.mjs`) — decode `workspaceExpired`.
+- `apps/desktop-ui/components/task-detail-view.test.mjs` — 5 tests:
+  - the rule;
+  - Continue sends the on-screen run id;
+  - a teammate's interrupted run has no Continue;
+  - an expired worktree or no local run has no Continue;
+  - a mismatch toast.
+- `docs/reports/revamp-2026-10-26/status-2026-10-27.md` (W12 row), `v2native.md` §3 (body contract).
+
+### Validation
+- Sidecar typecheck clean. Touched tests: 31 passed. Full sidecar suite: **93 files, 1,304 passed, 4 skipped**.
+- Desktop `tsc --noEmit` clean. Touched desktop tests: 8 files, 377 passed (errors, review model, run kit, task-detail review, review panel, use-run-model, routes, task-detail-view).
+- Mutation checks:
+  - Without the service check, both new sidecar tests fail.
+  - Without the visibility rule, the teammate test and the expired/no-local-run test fail.
+  - Without the `workspaceExpired` decoding, the expired test fails.
+- `npx biome lint` on the touched files: no findings on changed lines. 7 pre-existing findings remain in `task-detail-view.tsx` (import type, effect deps, a11y on untouched JSX).
+
+### Next steps / blockers
+- `RunView` phase timings and knowledge still come from the latest local run even when another device's run is on screen. This predates the change and was left alone.
+
+## [2026-10-27] — Agent runs managed by the execution service are not editable; usage counts positive costs only
+
+**Status:** Done
+**Agent:** Claude
+
+### What was done
+- These are follow-ups to the insights fix (separate entry).
+- `PATCH /api/agent-runs/:id` now refuses runs that have an execution attempt (409 `AGENT_RUN_MANAGED`); the attempt callbacks own their outcome and cost.
+- The registry text describes the owner-only rule.
+- `services/usage.ts` counts and sums only positive costs (a stored 0 is not a price), consistent with insights.
+
+### Files changed
+- `apps/api/src/routes/agent-runs.ts`, `registry.ts`, `services/usage.ts`, `__tests__/agent-runs.test.ts` (+1)
+
+### Validation
+- API typecheck clean; `agent-runs` + `route-inventory` tests: 21 passed. Full API suite on `openlinear_gate5_test`: **85 files, 998 passed, 3 skipped**.
+
+## [2026-10-27] — Run panel: phase timings and knowledge only for the run on screen
+
+**Status:** Done
+**Agent:** Claude
+
+### What was done
+- `TaskRunSection` showed this device's latest local run's phase timings and knowledge note under any finished run, including a teammate's run from another device. Now they show only when the local run is the run on screen (same run id).
+- Test: the teammate-run case asserts no "Run took …" breakdown. A mutation check shows it fails with the old code.
+
+### Files changed
+- `apps/desktop-ui/components/execution/task-run-section.tsx`, `components/task-detail-view.test.mjs`
+
+### Validation
+- Desktop typecheck clean; execution + task-detail tests: 68 passed; `task-detail-view.test.mjs`: 11 passed.

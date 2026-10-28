@@ -1,6 +1,25 @@
 # OpenLinear — Codebase Index
 
 > Auto-generated 2026-05-27. Maps every layer of the monorepo: API, Sidecar, Frontend, Desktop, MCP, Database, Shared packages, and CI/CD.
+>
+> **Partially corrected 2026-10-26.** Re-verified against the code and fixed: the
+> MCP section (§5, 19 tools), counts in the overview and §1, monorepo layout,
+> the sidecar's architecture (§2, W03a), the desktop rows (§4), CI/CD (§9) and
+> production status (§11). Everything else is the 2026-05-27 snapshot and may
+> be stale; line counts and file maps in §2–§3 were not re-checked. For the
+> current state read `AGENTS.md`, `ISSUES.md`, `tasks/prd-backend-agent-platform.md`
+> and the ledgers in `docs/reports/revamp-2026-10-26/`.
+
+### Plans: which one is current
+
+| Plan | Status |
+|---|---|
+| **Desktop revamp plan** (`~/Desktop/Open Linear Revamp Plan/`, off-repo, 2026-09-04; older notes cite `~/Downloads/…`) | **Historical research — do not implement from its phase rows.** Its versions, counts and `file:line` references are stale (see `docs/reports/revamp-plan-status-2026-10-25.md` §6). Backend scope is superseded by the PRD below; Phase 5 by the FE-01…FE-16 frontend backlog; Phase 6 by the cloud-services decision record. |
+| `tasks/prd-backend-agent-platform.md` (W00–W21) | **Current backend roadmap.** |
+| `docs/plans/backend-product-contracts.md` | Contracts for W02–W21. |
+| `docs/reports/revamp-2026-10-26/` | **What was actually built** in the 2026-10-26 revamp rounds: one ledger per slice (evidence, decisions, leftovers). |
+| `docs/reports/revamp-plan-status-2026-10-25.md` | Audit of the revamp plan against the code; required plan updates. |
+| `docs/PERFORMANCE_IMPROVEMENT_PLAN.md` | P95 plan; Phase 0 baselines in `docs/reports/perf-baseline-2026-10-26/`. |
 
 ---
 
@@ -9,7 +28,7 @@
 ```
 ┌──────────────────────────────────────────────────────────────┐
 │  Cloud API (api.openlinear.tech)                            │
-│  Express 5.2.1 · Neon PostgreSQL · 28 route files           │
+│  Express 5.2.1 · Neon PostgreSQL · 31 route files           │
 │  Auth: GitHub OAuth+JWT / PAT (`ol_pat_<32-hex>`)          │
 │  Home Chat: 34 tools, SSE streaming, 16-round tool loop     │
 │  SSE: Real-time events broadcast on every write             │
@@ -21,15 +40,16 @@
 ├──────────────────────────────────────────────────────────────┤
 │  Local Sidecar (apps/sidecar, port 3003)                    │
 │  Express 5.2.1 · OpenCode SDK · git worktrees               │
+│  No DATABASE_URL: persists through the cloud API (W03a)     │
 │  Single-task + batch execution (parallel/queue/combined)    │
-│  Shell injection prevention, path sandboxing, delta buffering│
+│  Seatbelt/bubblewrap sandbox, git hardening (W09a)          │
 ├──────────────────────────────────────────────────────────────┤
 │  Desktop Shell (apps/desktop)                                │
 │  Tauri v2 (Rust) wrapping desktop-ui webview                │
 │  Sidecar auto-spawn, deep-link OAuth, window controls       │
 ├──────────────────────────────────────────────────────────────┤
 │  MCP Server (mcp.openlinear.tech)                           │
-│  Cloudflare Worker · Stateless · 8 tools                    │
+│  Cloudflare Worker · Stateless · 19 tools                   │
 │  `bulk_create_plan`: project + phases + tasks in 1 call     │
 └──────────────────────────────────────────────────────────────┘
 ```
@@ -49,11 +69,15 @@ openlinear/
 │   └── intro-video/             ← Intro video generation app
 ├── packages/
 │   ├── db/                      ← Prisma 7.4.0 + Postgres schema
-│   ├── execution-core/          ← Shared execution logic (batch, state, types)
-│   ├── types/                   ← Shared TypeScript types (minimal)
-│   └── openlinear-cli/          ← CLI package
-├── scripts/deploy.sh            ← VPS deploy script (PM2 + git pull)
-├── .github/workflows/deploy.yml ← CI: typecheck → build → test → SSH deploy
+│   ├── execution-core/          ← Shared execution logic (batch, state, runner contracts)
+│   ├── api-client/              ← Typed HTTP client for apps/api (used by the sidecar)
+│   ├── api-core/                ← API helpers: error envelope, pagination, ETag, scopes, cache, logger
+│   ├── telemetry/               ← In-memory counters/histograms behind api-core telemetry hooks
+│   └── openlinear-cli/          ← npm CLI that installs the Linux AppImage
+│                                  (packages/types was deleted 2026-05-25)
+├── scripts/                     ← dev/build/release scripts (scripts/ci, scripts/release, scripts/perf)
+├── .github/workflows/           ← dev.yml (PR + push CI), deploy-azure.yml, release.yml,
+│                                  sandbox.yml, deploy.yml (legacy VPS)
 ├── docs/                        ← Architecture, ADRs, project context
 └── ISSUES.md                    ← Agent work log
 ```
@@ -62,11 +86,11 @@ openlinear/
 
 | Layer | Files | Key Modules |
 |-------|-------|-------------|
-| **API** | 28 routes, 5 middleware, 12+ services | Tasks (1241 lines), Chat tools (34), SSE, PATs |
-| **Sidecar** | 4 routes, 17 execution files, 5 batch files | Lifecycle (376 lines), Orchestrator (446 lines), Worktrees |
-| **Frontend** | 15 pages, 27 component dirs, 8+ hooks | KanbanBoard, ChatPanel, CommandPalette, AppShell |
-| **Desktop** | 4 Rust source files | Sidecar manager, deeplink handler, lib.rs |
-| **MCP** | 8 tool files, transport layer | plan.ts (126 lines), issues.ts, stateless Worker |
+| **API** | 31 route files, 155 routes in `registry.ts` (2026-10-26), 55 test files | Tasks, Chat tools (34), SSE + outbox, PATs, `/api/executions` |
+| **Sidecar** | 5 routers (`/api/tasks` execution, `/api/opencode`, `/api/batches`, `/api/transcribe`, `/api/events`) | Lifecycle, batch orchestrator, worktrees, sandbox, runners (not re-counted) |
+| **Frontend** | 15 pages, 27 component dirs, 8+ hooks (2026-05 count) | KanbanBoard, ChatPanel, CommandPalette, AppShell |
+| **Desktop** | 5 Rust source files | Sidecar manager, deeplink handler, OpenCode check, lib.rs |
+| **MCP** | 7 tool modules, 19 tools | plan.ts (`bulk_create_plan`), issues.ts, stateless Worker |
 | **Database** | 25+ models, 13 enums, 10+ migrations | Task (team-scoped numbering), PATs, Chat persistence |
 | **Shared** | execution-core (batch types), db (Prisma client) | BatchMode, BatchState, BatchTask |
 
@@ -78,7 +102,7 @@ openlinear/
 | Database | PostgreSQL via Prisma 7.4.0 (Neon in prod) |
 | Web UI | Next.js 16, React 19, Tailwind CSS, shadcn/ui, Framer Motion |
 | Desktop | Tauri v2 (Rust), webview pointing at desktop-ui |
-| MCP Server | Cloudflare Worker + `@modelcontextprotocol/node` |
+| MCP Server | Cloudflare Worker + `@modelcontextprotocol/server` 2.4.0 (web-standard handler, no Express) |
 | Package manager | pnpm 9 (workspaces) |
 | Build | Turborepo |
 
@@ -101,7 +125,7 @@ openlinear/
 | `middleware/validate.ts` | Zod-based body/query validation (`validateBody`, `validateQuery`) |
 | `middleware/permissions.ts` | CASL ability builder from workspace/team/project memberships (`defineAbilityFor`, `requirePermission`) |
 
-### Route Map (28 routes)
+### Route Map (28 of the 31 route files; also `executions.ts` → `/api/executions` (sidecar attempt/capability API, W03a), `models.ts` → `/api/models`, `uploads.ts` → `/uploads`)
 
 | File | Mount | Purpose |
 |------|-------|---------|
@@ -191,7 +215,7 @@ Envelope format: `{ error, code, message, details, requestId }`
 
 ### Tests (`apps/api/src/__tests__/`)
 
-16 test files using **Vitest + supertest**. Each calls `createApp()` for a fresh Express instance, seeds data via Prisma in `beforeAll`, cleans up in `afterAll`.
+55 test files as of 2026-10-26 (16 when this index was generated; the table below lists the original set) using **Vitest + supertest**. Each calls `createApp()` for a fresh Express instance, seeds data via Prisma in `beforeAll`, cleans up in `afterAll`.
 
 | File | Coverage |
 |------|----------|
@@ -211,19 +235,7 @@ Envelope format: `{ error, code, message, details, requestId }`
 
 ### Architecture
 
-The sidecar is an Express 5.2.1 server running alongside the main API (port 3003 via `API_PORT`). It **imports** the API package directly — no HTTP calls between them.
-
-**Imports from `@openlinear/api`:**
-
-| Import | Purpose |
-|--------|---------|
-| `createApp()` | Shared Express factory (helmet, CORS, Pino, rate limiters) |
-| `buildErrorHandler()` | Shared error handler |
-| `optionalAuth`, `requireAuth` | JWT/PAT auth middleware |
-| `assertTaskOwned()` | Authorization check |
-| `broadcastToTask`, `broadcastToUser`, ... | SSE broadcast helpers |
-| `logger` | Pino structured logging |
-| `logActivity()` | Audit logging |
+The sidecar is an Express 5.2.1 server on the user's machine (port 3003 via `API_PORT`). **Since W03a (2026-10-26) it no longer imports `@openlinear/api` and holds no `DATABASE_URL`, JWT secret or token-encryption key.** It authenticates callers and persists through the cloud API over HTTP (`OPENLINEAR_API_URL`, `packages/api-client`, `/api/executions` attempt + run-scoped capability API), keeps a local run journal in `node:sqlite`, and serves its own local SSE stream. The file map, flow and safeguards below are the 2026-05 snapshot and were not re-verified (for example `services/batch/event-handler.ts` no longer exists, and execution now also goes through `runners/` and `sandbox/`). Data lives in `apps/sidecar/src/config/app-data.ts`'s directory: `~/Library/Application Support/OpenLinear` (macOS), `$XDG_DATA_HOME/openlinear` (Linux), `%LOCALAPPDATA%\OpenLinear` (Windows), or `OPENLINEAR_APP_DATA`.
 
 ### File Map
 
@@ -395,8 +407,9 @@ Next.js 16 · React 19 · Tailwind CSS · shadcn/ui (Radix primitives) · Framer
 | File | Purpose |
 |------|---------|
 | `src-tauri/src/lib.rs` | App builder: single-instance, deep-link, sidecar auto-spawn on setup. Invoke commands: `opencode::check_opencode`, `opencode::pick_local_folder`, `deeplink::consume_pending_auth_callback`, `sidecar::start/stop/get_port` |
-| `src-tauri/src/sidecar.rs` | Spawns `openlinear-sidecar` binary. Dynamic port selection, env injection (API_PORT, DATABASE_URL, secrets), stdout/stderr streaming via Tauri events, `sidecar:ready` event with `port`/`api_url`/`health_url` |
-| `src-tauri/src/deeplink.rs` | Handles `openlinear://callback?token=...`. Parses URL, stores in `PendingAuthCallback`, emits `auth:callback` event, focuses window |
+| `src-tauri/src/sidecar.rs` | Spawns `openlinear-sidecar` binary. Dynamic port selection, allowlisted environment (`API_PORT`, `OPENLINEAR_API_URL`, `HOME`, `XDG_*`, proxies, `OPENCODE_BIN`; never `DATABASE_URL`, `JWT_SECRET`, `TOKEN_ENCRYPTION_KEY` — W03a), opt-in secret passthrough (`sidecar_env_passthrough` setting), stdout/stderr streaming via Tauri events, `sidecar:ready` event with `port`/`api_url`/`health_url` |
+| `src-tauri/src/deeplink.rs` | Handles `openlinear://callback?code=…&state=…` (single-use code + PKCE; no token in the URL, nothing printed). Stores in `PendingAuthCallback`, emits `auth:callback` event, focuses window |
+| `src-tauri/src/opencode.rs` | `check_opencode`, `pick_local_folder`; resolves the bundled `opencode` binary |
 | `src-tauri/src/main.rs` | Delegates to `lib.rs` |
 
 ### Tauri Config (`src-tauri/tauri.conf.json`)
@@ -404,9 +417,10 @@ Next.js 16 · React 19 · Tailwind CSS · shadcn/ui (Radix primitives) · Framer
 - **Window**: 1200x800, `decorations: false`, background `#0a0a0a`
 - **Deep-link**: `openlinear://`
 - **External binaries**: `openlinear-sidecar`, `opencode`
-- **CSP**: `tauri: ipc: http://127.0.0.1:* https://openlinear.tech https://api.github.com`
-- **Bundle**: dmg, app, appimage
-- **Shell plugin**: for opening external URLs
+- **CSP**: production CSP in `tauri.conf.json` (`script-src 'self'`, no `unsafe-eval`/`unsafe-inline` scripts since 2026-10-26; see `docs/reports/revamp-2026-10-26/release.md` §5.2)
+- **Bundle**: macOS `dmg`/`app`; Linux `deb` only via `tauri.linux.conf.json`, plus an AppImage from `scripts/build-appimage-workaround.sh` (pinned, checksummed `appimagetool`)
+- **App data**: Tauri's own data (`settings.json`, `sidecar.pid`) in `com.openlinear.app` under `~/Library/Application Support` (macOS) / `$XDG_DATA_HOME` (Linux); the sidecar's data in `OpenLinear`/`openlinear` beside it (see §2)
+- **Shell plugin**: for opening external URLs (`https:`/`mailto:` only)
 
 ---
 
@@ -414,53 +428,56 @@ Next.js 16 · React 19 · Tailwind CSS · shadcn/ui (Radix primitives) · Framer
 
 ### Architecture
 
-**Runtime**: Cloudflare Worker (`cloudflare:node` HTTP modules)  
-**Framework**: Express 5.2.1 with 1MB JSON body limit  
-**Transport**: Stateless `NodeStreamableHTTPServerTransport` — fresh per POST to `/mcp`  
-**Auth**: Bearer token must match `^ol_pat_[a-f0-9]{32}$`  
+*(Re-verified 2026-10-26; full tool table with annotations and schemas: `docs/reports/revamp-2026-10-26/mcp.md` §3; generated reference: `apps/mcp-docs/lib/tool-catalog.json`.)*
+
+**Runtime**: Cloudflare Worker, plain `fetch` handler (`src/index.ts`)  
+**Framework**: `@modelcontextprotocol/server` 2.4.0 — one web-standard handler per request, no Express; serves 2025-era clients (initialize handshake) and the 2026-07-28 protocol revision  
+**Auth**: every request (including `initialize` and `tools/list`) needs a PAT the API accepts; verified tokens cached 60 s, a 401 from the API evicts; missing/invalid tokens get 401 + `WWW-Authenticate` pointing at `/.well-known/oauth-protected-resource`  
+**Retries**: creates send a deterministic `Idempotency-Key` derived from the tool arguments  
 **Deployment**: `mcp.openlinear.tech` via `wrangler.toml`  
-**API URL**: `OPENLINEAR_API_URL=https://api.openlinear.tech`
+**API URL**: `OPENLINEAR_API_URL=https://api.openlinear.tech` (that host is down, see §11, so tools that reach the API fail until it is restored)
 
 ### File Map
 
 | File | Purpose |
 |------|---------|
-| `src/index.ts` | Worker entry point (`cloudflare:node httpServerHandler`) |
-| `src/app.ts` | Express app factory: `/healthz`, MCP route mounting |
-| `src/mcp/transport.ts` | Stateless transport, `sessionIdGenerator: undefined` |
-| `src/mcp/server.ts` | `McpServer` factory, tool registration, auto-logging proxy |
-| `src/auth.ts` | PAT extraction from Bearer header |
-| `src/openlinear/client.ts` | Typed HTTP client calling main API with PAT auth |
+| `src/index.ts` | Worker entry point; builds the worker once per isolate |
+| `src/worker.ts` | Routing, origin validation, auth, protected-resource metadata, body limit (2 MB) |
+| `src/auth.ts` | PAT extraction and verification (`PatVerifier`, 60 s cache) |
+| `src/config.ts`, `src/version.ts` | Environment parsing; server name/version |
+| `src/mcp/server.ts` | Server factory and tool list |
+| `src/mcp/tools/*.ts` | Tool implementations: `workspaces`, `projects`, `teams`, `labels`, `issues`, `search`, `plan` (`bulk_create_plan`) |
+| `src/mcp/{tool,inputs,shapes,errors,idempotency,context}.ts` | Tool helper, strict input/output schemas, error mapping, idempotency keys, request scope |
+| `src/openlinear/client.ts` | The worker's own HTTP client for apps/api (no longer `packages/api-client`) |
 
-### Registered Tools (8)
+### Registered Tools (19)
+
+All carry readOnly/destructive/idempotent/openWorld annotations, strict input schemas and output schemas.
 
 | Tool | Purpose |
 |------|---------|
-| `openlinear_list_workspaces` | List all visible workspaces |
-| `openlinear_list_projects` | List projects, filter by workspaceId/teamId |
-| `openlinear_create_project` | Create project with optional key/workspace/team |
-| `openlinear_get_project` | Fetch one project (includes tasks) |
-| `openlinear_list_teams` | List teams by projectId/workspaceId |
-| `openlinear_create_team` | Create a team inside a project |
-| `openlinear_list_labels` | List project-scoped labels |
-| `openlinear_create_label` | Create a project-scoped label |
-| `openlinear_create_phase` | Create phase label (`phase:N — Name`) with color rotation |
-| `openlinear_create_issue` | Create single task (requires projectId/teamId) |
-| `openlinear_update_issue` | Update task fields |
-| `openlinear_bulk_create_plan` | **Orchestrator**: create project + phases + tasks in one call |
+| `openlinear_list_workspaces` / `openlinear_list_projects` / `openlinear_list_teams` / `openlinear_list_labels` | Read workspaces, projects, teams, labels/phases |
+| `openlinear_get_project` | Project + teams, repository, labels/phases (not tasks) |
+| `openlinear_create_project` / `openlinear_create_team` | Create (keyed, retry-safe) |
+| `openlinear_create_label` / `openlinear_create_phase` | Ensure a label / phase label (`phase:N — Name`) exists |
+| `openlinear_search` | Search tasks/projects |
+| `openlinear_list_issues` / `openlinear_get_issue` | List with filters; get one issue (+ comments, sub-issues, `ENG-12` lookup) |
+| `openlinear_create_issue` / `openlinear_update_issue` | Create (keyed) / update a task |
+| `openlinear_assign_issue` / `openlinear_label_issue` | Assign (`"me"`/uuid/null); add/remove labels |
+| `openlinear_bulk_update_status` | Status change for 1–100 explicit task ids |
+| `openlinear_add_comment` | Comment on a task |
+| `openlinear_bulk_create_plan` | Project + phases + tasks in one call; reports `complete`/`partial`, re-run finishes a partial plan without duplicates |
 
 ### API Integration
 
-The MCP Worker is **stateless** — it calls the main API via `OpenLinearClient`:
+The MCP Worker is **stateless** — it calls the main API with the caller's PAT:
 
 ```
 MCP Client → Authorization: Bearer ol_pat_xxxx
-  → Cloudflare Worker
-    → POST https://api.openlinear.tech/api/... (same PAT header)
-      → API hash-lookups PAT → validates scopes → executes
+  → Cloudflare Worker (verifies the PAT against the API, cached 60 s)
+    → https://api.openlinear.tech/api/... (same PAT header)
+      → API hash-lookups PAT → registry scope check → executes
 ```
-
-Tool calls are auto-logged via `POST /api/mcp/log`.
 
 ### Client Config
 
@@ -547,11 +564,11 @@ pnpm --filter @openlinear/db db:migrate:deploy  # Apply migrations in prod
 
 ### `packages/openlinear-cli/`
 
-CLI launcher and installer (`bin/openlinear.js`).
+CLI launcher and installer (`bin/openlinear.js`, `lib/installer.js`): downloads the Linux AppImage of its own package version from `kaizen403/openlinear` releases and verifies it against `SHA256SUMS`.
 
 ### `packages/types/`
 
-Minimal — mostly empty. Shared types distributed across `execution-core` (batch), `db` (Prisma generated), and `api` (middleware/SSE types).
+Deleted 2026-05-25. Shared types live in `execution-core`, `api-core`, `api-client`, `db` (Prisma generated) and the apps.
 
 ---
 
@@ -567,11 +584,15 @@ Minimal — mostly empty. Shared types distributed across `execution-core` (batc
 
 ## 9. CI/CD
 
-**File:** `.github/workflows/deploy.yml`
+*(Re-verified 2026-10-26.)*
 
-**Pipeline:** typecheck → build (API + Web + Landing) → test (against Postgres 16 service container) → health check (`api.openlinear.tech`) → SSH deploy
-
-**Concurrency:** `deploy-production` group (single deploy at a time)
+| Workflow | Trigger | What it does |
+|---|---|---|
+| `.github/workflows/dev.yml` | push to `dev`, PRs to `dev`/`main`, manual | Lint & typecheck + migration safety review (`scripts/ci/migration-safety.sh`), secret scan (gitleaks on the new commits only, `.gitleaks.toml`), tests (Postgres 16 service), build, API Docker image build + smoke (no push) when its inputs change |
+| `.github/workflows/deploy-azure.yml` | push to `main`, manual | Checks (incl. Prisma drift check) then build/push/deploy the API to Azure Container Apps. Last successful deploy 2026-05-24 |
+| `.github/workflows/release.yml` | `v*` tags, manual (existing tag) | Desktop builds (macOS arm64/x64, Linux deb + AppImage) with the Node 22 sidecar and pinned OpenCode, checksums, provenance, draft release; opt-in CLI publish |
+| `.github/workflows/sandbox.yml` | PRs/pushes touching `apps/sidecar/src/sandbox/**`, `services/opencode.ts`, `services/git-credentials.ts` | Sandbox provider checks (W09a) |
+| `.github/workflows/deploy.yml` | manual only ("Legacy - Disabled") | Old VPS deploy (SSH + PM2) |
 
 ---
 
@@ -609,14 +630,16 @@ Minimal — mostly empty. Shared types distributed across `execution-core` (batc
 
 ## 11. Production URLs
 
+Status as verified by the 2026-10-25 audit (`docs/reports/revamp-plan-status-2026-10-25.md` §2); nothing has been deployed since.
+
 | Service | URL | Status |
 |---------|-----|--------|
-| API | `api.openlinear.tech` (Azure Container Apps) | ✅ Live |
-| Web UI | `openlinear.tech` | ✅ Live |
-| MCP Worker | `mcp.openlinear.tech` (Cloudflare Worker) | ✅ Live |
-| Database | Neon (`ap-southeast-1`) | ✅ Live |
-| MCP Docs | `mcp-docs-one.vercel.app` | ✅ Live |
-| Dashboard | `dash.openlinear.tech` | Built, pending deploy |
+| API | `api.openlinear.tech` (Azure Container Apps) | **Down.** The CNAME target does not resolve; last successful deploy 2026-05-24 |
+| Landing | `openlinear.tech` (Vercel behind Cloudflare) | Up (marketing site, not the app) |
+| MCP Worker | `mcp.openlinear.tech` (Cloudflare Worker) | Up, but tools that call the API fail while the API is down |
+| Database | Neon (`ap-southeast-1`) | Exists; production credential rotation still blocked (see `docs/runbooks/rotate-leaked-secrets.md`) |
+| MCP Docs | `docs.openlinear.tech` (also `mcp-docs-one.vercel.app`) | Up |
+| Desktop | GitHub Releases `kaizen403/openlinear` | Last release v0.1.61 (2026-05-13), pre-Phase-0 code |
 
 ---
 

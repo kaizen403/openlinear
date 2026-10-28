@@ -73,6 +73,7 @@ pnpm --filter @openlinear/mcp typecheck
 
 # Test
 pnpm --filter @openlinear/api test
+pnpm --filter @openlinear/mcp test           # MCP worker, 119 tests (no DB/env needed)
 
 # DB
 pnpm --filter @openlinear/db db:generate   # regenerate Prisma client
@@ -118,6 +119,11 @@ Two auth methods co-exist in `apps/api/src/middleware/auth.ts`:
 | `ChatSession` | `chat_sessions` | Home Chat sessions with project scope |
 | `ChatMessage` | `chat_messages` | Messages within a chat session (user/assistant/tool) |
 | `ChatToolCall` | `chat_tool_calls` | Persisted tool calls from assistant turns |
+| `TaskDependency` | `task_dependencies` | W17a "blocked by" (same project, acyclic, done = resolved) |
+| `Plan` / `PlanRevision` / `PlanTask` | `plans` / `plan_revisions` / `plan_tasks` | W17b reviewable plans: immutable revisions, approval creates tasks by key |
+| `WebhookEndpoint` / `WebhookDelivery` / `WebhookFanoutCursor` | `webhook_endpoints` / `webhook_deliveries` / `webhook_fanout_cursor` | FE-14 outbound webhooks: signed (HMAC) deliveries per endpoint and event (unique), retries with backoff, SSRF-guarded, encrypted secrets; `format` openlinear / slack / discord; `digest.daily` per endpoint (hour + IANA zone, one per local date). Project webhooks in project settings, workspace webhooks in Settings → Webhooks |
+| `KnowledgeEntry` / `KnowledgeVersion` | `knowledge_entries` / `knowledge_versions` | W19b project knowledge: people write/approve, agents (PATs) only propose; every change a revision; active unexpired entries sealed into each run's snapshot |
+| `IssueSchedule` / `IssueScheduleOccurrence` | `issue_schedules` / `issue_schedule_occurrences` | W20 recurring issues: cadence in an IANA time zone; one occurrence per (schedule, slot) keeps creation idempotent |
 
 **No Phase/Sprint/Milestone model exists.** Phases are represented as Labels with the naming convention `phase:N — Name`.
 
@@ -140,6 +146,11 @@ All routes under `/api/` prefix. Auth required unless noted.
 | `/api/brainstorm` | (sidecar) | AI task generation, streams NDJSON |
 | `/api/events` | (app.ts:222) | SSE real-time stream (`?token=<jwt>`) |
 | `/api/inbox` | `inbox.ts` | Done/cancelled task feed |
+| `/api/projects/:id/plans`, `/api/plans` | `plans.ts` | W17b plans: list/create, get, revisions, approve, archive |
+| `/api/projects/:id/webhooks`, `/api/workspaces/:id/webhooks`, `/api/webhooks` | `webhooks.ts` | FE-14 webhooks: endpoints CRUD, rotate secret, test ping, deliveries (keyset), redeliver |
+| `/api/projects/:id/insights`, `/api/workspaces/:id/insights` | `insights.ts` | W15b insights (`?range=7d|30d|90d`): runs, rates, durations, cost, delivery |
+| `/api/projects/:id/knowledge`, `/api/knowledge` | `knowledge.ts` | W19b project knowledge: list/create, get (+ revisions), edit (baseVersion), approve, retract, restore |
+| `/api/projects/:id/schedules`, `/api/schedules` | `schedules.ts` | W20 recurring issues: list/create, get/update/delete, pause/resume/run-now (a job creates due issues every minute) |
 
 ---
 
@@ -147,19 +158,28 @@ All routes under `/api/` prefix. Auth required unless noted.
 
 **Live at:** `https://mcp.openlinear.tech`
 
-Stateless Cloudflare Worker. Creates a fresh `NodeStreamableHTTPServerTransport` per POST request.
+Stateless Cloudflare Worker on `@modelcontextprotocol/server` 2.4.0 (one web-standard handler per request). Serves both 2025-era clients (initialize handshake) and the 2026-07-28 protocol revision. Every request — including `initialize` and `tools/list` — needs a PAT the API accepts (verified tokens cached 60 s; a 401 from the API evicts). Missing/invalid/revoked tokens get 401 + `WWW-Authenticate` pointing at the protected-resource metadata. PATs with only family scopes (`tasks:*`, `projects:*`, `labels:write`) are accepted without an owner lookup (they cannot read `/api/users/me`); tools then need explicit user ids instead of `"me"` for writes. Creates send a deterministic `Idempotency-Key` derived from the tool arguments, kept 24 h by the API (issues, plans, projects, teams), so client retries never duplicate.
 
-**8 registered tools:**
+**31 registered tools** (all carry readOnly/destructive/idempotent/openWorld annotations, strict input schemas and output schemas — full table in `docs/reports/revamp-2026-10-26/mcp.md` §3):
 | Tool | Purpose |
 |---|---|
-| `openlinear_list_workspaces` | List all workspaces for authenticated user |
-| `openlinear_list_projects` | List projects in a workspace |
-| `openlinear_create_project` | Create a new project |
-| `openlinear_get_project` | Get project details + tasks |
-| `openlinear_create_phase` | Create a phase Label (`phase:N — Name`) |
-| `openlinear_create_issue` | Create a single task/issue |
-| `openlinear_update_issue` | Update task status, priority, etc. |
-| `openlinear_bulk_create_plan` | 🚀 Create project + phases + tasks in one call |
+| `openlinear_list_workspaces` / `openlinear_list_projects` / `openlinear_list_teams` / `openlinear_list_labels` | Read workspaces, projects, teams, labels/phases |
+| `openlinear_get_project` | Project + teams, repository, labels/phases (not tasks) |
+| `openlinear_create_project` / `openlinear_create_team` | Create (keyed, retry-safe); `teamIds` moves a movable team into the new project |
+| `openlinear_create_label` / `openlinear_create_phase` | Ensure a label / phase label (`phase:N — Name`) exists |
+| `openlinear_search` | Search tasks/projects |
+| `openlinear_list_issues` / `openlinear_get_issue` | List with server-side filters (status, labels, parent, text, assignee incl. none) and cursor paging (`nextCursor`); get one issue (+ parent, sub-issues, comments, latest verification evidence, exact `ENG-12` lookup) |
+| `openlinear_create_issue` / `openlinear_update_issue` | Create (keyed, + `assigneeIds`) / update a task; `agent` picks the runner (`opencode` / `claude-code` / `codex`) |
+| `openlinear_assign_issue` / `openlinear_label_issue` | Assign (`"me"`/uuid/null); add/remove labels (one attach/detach call per label, no overwrite) |
+| `openlinear_list_plans` / `openlinear_propose_plan` / `openlinear_get_plan` / `openlinear_revise_plan` / `openlinear_approve_plan` | W17b reviewable plans: draft with acceptance checks/estimates/blockers, immutable revisions (diff, `baseRevision` conflicts), approval creates the issues (three-way, idempotent) — only when the user asks |
+| `openlinear_list_schedules` / `openlinear_create_schedule` | W20 recurring issues: list a project's schedules (cadence, next run, paused); create one (keyed). Pause/resume/delete are in the app |
+| `openlinear_get_insights` | W15b project or workspace insights over 7/30/90 days: runs by outcome, success/verification/PR rates, durations, cost (unknown-price runs counted, never $0), by runner/model; created vs done, cycle time, blocked, plans |
+| `openlinear_list_knowledge` / `openlinear_propose_knowledge` | W19b project knowledge: read the conventions/procedures every run is given; propose one (always a proposal — a person approves in the app) |
+| `openlinear_find_similar_issues` | FE-11: likely duplicates (pg_trgm title similarity) in a project, before creating |
+| `openlinear_set_blockers` | W17a: add/remove "blocked by" issues (same project, loops refused); `get_issue` returns `blockedBy`/`blocking`, `bulk_create_plan` takes per-task `key`/`blockedBy` |
+| `openlinear_bulk_update_status` | Status change for 1–100 explicit task ids in one project (`projectId`) or one team's project-less issues (`teamId`); never "whole project" |
+| `openlinear_add_comment` | Comment on a task |
+| `openlinear_bulk_create_plan` | 🚀 Project + phases + tasks in one call (`teamId` moves a movable team in); reports `complete`/`partial`, re-run finishes a partial plan without duplicates |
 
 **Client config:**
 ```json
@@ -174,10 +194,11 @@ Stateless Cloudflare Worker. Creates a fresh `NodeStreamableHTTPServerTransport`
 ```
 
 Key files:
-- `apps/mcp/wrangler.toml` — CF Worker config, `OPENLINEAR_API_URL=https://openlinear.tech`
-- `apps/mcp/src/mcp/transport.ts` — stateless transport setup
-- `apps/mcp/src/mcp/tools/plan.ts` — `bulk_create_plan` implementation
-- `apps/mcp/src/openlinear/client.ts` — typed HTTP client for apps/api
+- `apps/mcp/wrangler.toml` — CF Worker config, `OPENLINEAR_API_URL=https://api.openlinear.tech`
+- `apps/mcp/src/worker.ts` — routing, auth, protected-resource metadata
+- `apps/mcp/src/mcp/server.ts` — tool list; `apps/mcp/src/mcp/tools/*` — tool implementations (`plan.ts` = `bulk_create_plan`)
+- `apps/mcp/src/openlinear/client.ts` — the worker's own HTTP client for apps/api (no longer uses `packages/api-client`)
+- `apps/mcp-docs/lib/tool-catalog.json` — generated tool reference; regenerate with `UPDATE_TOOL_CATALOG=1 pnpm --filter @openlinear/mcp test` after changing any tool
 
 ---
 

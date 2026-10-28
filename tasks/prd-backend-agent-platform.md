@@ -1,6 +1,6 @@
 # OpenLinear backend master plan
 
-Updated: 2026-10-15. Baseline: cloned `dev` at `157de4e`; initial repairs committed in `42a2a55`, W01 legacy execution slice in `ed4d843`, lost-acknowledgement retention in `7bb8330`, admission counting in `ca680b1` and recovery/terminal/cancellation fences in `7d2d610`. Source batch pushed to `dev`. Status: **W00 repairs and the bounded W01 slice implemented and locally validated; full backend integration and acceptance gates remain pending**.
+Updated: 2026-10-26. Baseline: cloned `dev` at `157de4e`; initial repairs committed in `42a2a55`, W01 legacy execution slice in `ed4d843`, lost-acknowledgement retention in `7bb8330`, admission counting in `ca680b1` and recovery/terminal/cancellation fences in `7d2d610`. Source batch pushed to `dev`. W02a central authorization and W04a request idempotency added on 2026-10-25 (uncommitted at time of writing). Revamp round 1 (2026-10-26, uncommitted): W02b, W03a (API-only sidecar), W04b (transactional outbox), W09a (macOS/Linux sandbox, fail closed), chat metering/tool safety (W15/W18a slice), MCP v2, API image/worker/CI, desktop routing and sign-in — ledgers in `docs/reports/revamp-2026-10-26/`. Status: **W00, bounded W01, W02a/b, W03a, W04a/b, W09a implemented and locally validated on the merged tree; W05–W08 (durable run service, native routing, workspace leases) and later gates remain pending**.
 
 This is the backend replacement roadmap for the Desktop “Open Linear Revamp Plan.” Keep that folder as historical research. Use this document, the contracts, the source audits, and the validation ledger as the current execution order. A checked box or an existing class does not establish production integration.
 
@@ -207,7 +207,7 @@ The new offline harness exercises real synthetic Git, worktrees, SQLite and Fake
 
 ## 8. Backend work packages and acceptance
 
-Statuses: W00 repairs and the bounded W01 legacy slice are locally verified. The [W01 implementation ledger](../docs/reports/backend-review-2026-10-15/w01-implementation.md) records the enabled behavior, 928 passing tests, current limitations and component timing repeat. Durable cancellation/recovery and terminal run-state migration remain W05/W06/W12 work; receipts alone do not satisfy those gates. W02–W21 remain pending unless a later ledger records a verified slice. “Depends on” means the acceptance gate, not that all design work must wait. Each package is split into reviewable changes with tests before enabling a new production path.
+Statuses: W00 repairs and the bounded W01 legacy slice are locally verified. The [W01 implementation ledger](../docs/reports/backend-review-2026-10-15/w01-implementation.md) records the enabled behavior, 928 passing tests, current limitations and component timing repeat. Durable cancellation/recovery and terminal run-state migration remain W05/W06/W12 work; receipts alone do not satisfy those gates. The [W02a ledger](../docs/reports/backend-review-2026-10-15/w02a-implementation.md) and [W04a ledger](../docs/reports/backend-review-2026-10-15/w04a-implementation.md) record locally verified slices (combined: API 286 passed + 2 existing skips, sidecar 661, sidecar Postgres integration 26, execution-core 28). W02b, W04b and W03–W21 remain pending unless a later ledger records a verified slice. “Depends on” means the acceptance gate, not that all design work must wait. Each package is split into reviewable changes with tests before enabling a new production path.
 
 | ID | Deliverable and dependencies | Acceptance evidence |
 |---|---|---|
@@ -240,8 +240,8 @@ Additional requirements are not lost in table compression: token/2FA/ticket cons
 
 1. W01a, locally verified: truthful legacy runner selection, explicit repository/task bindings and atomic batch input validation, with negative HTTP/service cases before repository execution.
 2. W01b, locally verified slice: shared confirmed PR publication, batch receipts, artifact retention, cancellation ownership and push/PR/merge/DB failure interleavings. Durable restart reconciliation and unified run results remain pending in W05/W06/W11/W12.
-3. W02a: central PrincipalContext with PAT workspace and resource checks, then migrate replay/live audiences and comments/reporting.
-4. W04a: requestHash idempotency reservation + result state in the same transaction; prove concurrent replay and conflict behavior.
+3. W02a, locally verified slice: central PrincipalContext with PAT workspace and resource checks, then migrate replay/live audiences and comments/reporting.
+4. W04a, locally verified slice (task create/bulk only; execute/cancel deferred to W04b): requestHash idempotency reservation + result state in the same transaction; prove concurrent replay and conflict behavior.
 5. W03a: scoped execution snapshot/callback API and authenticated local bootstrap; run sidecar integration without database credentials.
 6. W05a/W06a: one joint acceptance slice for durable single-attempt start/event/effect/cancel with FakeRunner; define the journal/effect contract first and prove process-kill recovery before real runtime wiring. Neither package is accepted alone as durable execution.
 7. W07a/W08a: integrate one actual native adapter via the run service with isolated workspace leases, behind a backend migration flag. Until W09/W10 pass, native execution is restricted to controlled test fixtures or an explicit audited trusted-host grant; the flag itself grants no execution authority.
