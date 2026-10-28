@@ -1,0 +1,95 @@
+# activity.project: GET /api/activity?pageSize=50&projectId=<uuid>
+# label=phase1-perf1-after status=200 statements: cold=3 warm=3 (+0 after the response) fixture=50000 tasks
+
+## statement 1 (select, 0.82 ms)
+SELECT p."id", p."workspaceId" AS "workspaceId", (SELECT pa."permission"::text
+  FROM "project_access" pa
+  WHERE pa."projectId" = p."id" AND pa."userId" = $1
+  LIMIT 1) AS "explicit", (SELECT wm."role"::text
+  FROM "workspace_members" wm
+  WHERE wm."workspaceId" = p."workspaceId" AND wm."userId" = $2
+  LIMIT 1) AS "workspaceRole", ARRAY(SELECT t."id"
+  FROM "teams" t
+  WHERE t."project_id" = p."id"
+  ORDER BY t."createdAt" ASC, t."id" ASC) AS "teamIds", EXISTS (SELECT 1
+  FROM "team_members" tm JOIN "teams" mt ON mt."id" = tm."teamId"
+  WHERE mt."project_id" = p."id" AND tm."userId" = $3 ) AS "legacyTeamMember"
+  FROM "linear_projects" p
+  WHERE p."id" = $4
+
+Seq Scan on linear_projects p  (cost=0.00..24.23 rows=1 width=171) (actual time=0.314..0.328 rows=1 loops=1)
+  Filter: (id = '7a401267-12dd-57fb-813e-f5b019e83416'::text)
+  Rows Removed by Filter: 99
+  Buffers: shared hit=14
+  SubPlan 1
+    ->  Limit  (cost=0.00..1.11 rows=1 width=32) (actual time=0.003..0.003 rows=0 loops=1)
+          Buffers: shared hit=1
+          ->  Seq Scan on project_access pa  (cost=0.00..1.11 rows=1 width=32) (actual time=0.003..0.003 rows=0 loops=1)
+                Filter: (("projectId" = p.id) AND ("userId" = 'ca7a9726-9ef8-5a44-88c9-059f3d6c53d1'::text))
+                Rows Removed by Filter: 7
+                Buffers: shared hit=1
+  SubPlan 2
+    ->  Limit  (cost=0.00..3.44 rows=1 width=32) (actual time=0.002..0.003 rows=1 loops=1)
+          Buffers: shared hit=1
+          ->  Seq Scan on workspace_members wm  (cost=0.00..3.44 rows=1 width=32) (actual time=0.002..0.002 rows=1 loops=1)
+                Filter: (("workspaceId" = p."workspaceId") AND ("userId" = 'ca7a9726-9ef8-5a44-88c9-059f3d6c53d1'::text))
+                Buffers: shared hit=1
+  SubPlan 3
+    ->  Sort  (cost=4.51..4.51 rows=1 width=45) (actual time=0.025..0.025 rows=2 loops=1)
+          Sort Key: t."createdAt", t.id
+          Sort Method: quicksort  Memory: 25kB
+          Buffers: shared hit=3
+          ->  Seq Scan on teams t  (cost=0.00..4.50 rows=1 width=45) (actual time=0.002..0.021 rows=2 loops=1)
+                Filter: (project_id = p.id)
+                Rows Removed by Filter: 118
+                Buffers: shared hit=3
+  SubPlan 4
+    ->  Nested Loop  (cost=0.28..8.91 rows=1 width=0) (actual time=0.005..0.005 rows=1 loops=1)
+          Buffers: shared hit=4
+          ->  Seq Scan on teams mt  (cost=0.00..4.50 rows=1 width=37) (actual time=0.001..0.001 rows=1 loops=1)
+                Filter: (project_id = p.id)
+                Buffers: shared hit=1
+          ->  Index Only Scan using "team_members_teamId_userId_key" on team_members tm  (cost=0.28..4.30 rows=1 width=37) (actual time=0.003..0.003 rows=1 loops=1)
+                Index Cond: (("teamId" = mt.id) AND ("userId" = 'ca7a9726-9ef8-5a44-88c9-059f3d6c53d1'::text))
+                Heap Fetches: 0
+                Buffers: shared hit=3
+Planning:
+  Buffers: shared hit=20
+Planning Time: 0.377 ms
+Execution Time: 0.342 ms
+
+## statement 2 (select, 1.45 ms)
+SELECT "public"."activity_logs"."id", "public"."activity_logs"."taskId", "public"."activity_logs"."projectId", "public"."activity_logs"."teamId", "public"."activity_logs"."userId", "public"."activity_logs"."action"::text, "public"."activity_logs"."payload", "public"."activity_logs"."createdAt"
+  FROM "public"."activity_logs"
+  WHERE "public"."activity_logs"."projectId" = $1
+  ORDER BY "public"."activity_logs"."createdAt" DESC, "public"."activity_logs"."id" DESC
+  LIMIT $2
+  OFFSET $3
+
+Limit  (cost=1.35..50.46 rows=51 width=275) (actual time=0.093..0.095 rows=51 loops=1)
+  Buffers: shared hit=21
+  ->  Incremental Sort  (cost=1.35..53617.45 rows=55682 width=275) (actual time=0.093..0.093 rows=51 loops=1)
+        Sort Key: "createdAt" DESC, id DESC
+        Presorted Key: "createdAt"
+        Full-sort Groups: 1  Sort Method: quicksort  Average Memory: 58kB  Peak Memory: 58kB
+        Pre-sorted Groups: 1  Sort Method: quicksort  Average Memory: 76kB  Peak Memory: 76kB
+        Buffers: shared hit=21
+        ->  Index Scan Backward using "activity_logs_projectId_createdAt_idx" on activity_logs  (cost=0.42..51117.04 rows=55682 width=275) (actual time=0.014..0.041 rows=101 loops=1)
+              Index Cond: ("projectId" = '7a401267-12dd-57fb-813e-f5b019e83416'::text)
+              Buffers: shared hit=21
+Planning Time: 0.058 ms
+Execution Time: 0.107 ms
+
+## statement 3 (select, 0.99 ms)
+SELECT "public"."users"."id", "public"."users"."username", "public"."users"."avatarUrl"
+  FROM "public"."users"
+  WHERE "public"."users"."id" IN ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42,$43,$44,$45,$46,$47,$48,$49,$50,$51)
+  OFFSET $52
+
+Seq Scan on users  (cost=0.13..3.33 rows=51 width=82) (actual time=0.005..0.009 rows=1 loops=1)
+  Filter: (id = ANY ('{ca7a9726-9ef8-5a44-88c9-059f3d6c53d1,ca7a9726-9ef8-5a44-88c9-059f3d6c53d1,ca7a9726-9ef8-5a44-88c9-059f3d6c53d1,ca7a9726-9ef8-5a44-88c9-059f3d6c53d1,ca7a9726-9ef8-5a44-88c9-059f3d6c53d1,ca7a9726-9ef8-5a44-88c9-059f3d6c53d1,ca7a9726-9ef8-5a44-88c9-059f3d6c53d1,ca7a9726-9ef8-5a44-88c9-059f3d6c53d1,ca7a9726-9ef8-5a44-88c9-059f3d6c53d1,ca7a9726-9ef8-5a44-88c9-059f3d6c53d1,ca7a9726-9ef8-5a44-88c9-059f3d6c53d1,ca7a9726-9ef8-5a44-88c9-059f3d6c53d1,ca7a9726-9ef8-5a44-88c9-059f3d6c53d1,ca7a9726-9ef8-5a44-88c9-059f3d6c53d1,ca7a9726-9ef8-5a44-88c9-059f3d6c53d1,ca7a9726-9ef8-5a44-88c9-059f3d6c53d1,ca7a9726-9ef8-5a44-88c9-059f3d6c53d1,ca7a9726-9ef8-5a44-88c9-059f3d6c53d1,ca7a9726-9ef8-5a44-88c9-059f3d6c53d1,ca7a9726-9ef8-5a44-88c9-059f3d6c53d1,ca7a9726-9ef8-5a44-88c9-059f3d6c53d1,ca7a9726-9ef8-5a44-88c9-059f3d6c53d1,ca7a9726-9ef8-5a44-88c9-059f3d6c53d1,ca7a9726-9ef8-5a44-88c9-059f3d6c53d1,ca7a9726-9ef8-5a44-88c9-059f3d6c53d1,ca7a9726-9ef8-5a44-88c9-059f3d6c53d1,ca7a9726-9ef8-5a44-88c9-059f3d6c53d1,ca7a9726-9ef8-5a44-88c9-059f3d6c53d1,ca7a9726-9ef8-5a44-88c9-059f3d6c53d1,ca7a9726-9ef8-5a44-88c9-059f3d6c53d1,ca7a9726-9ef8-5a44-88c9-059f3d6c53d1,ca7a9726-9ef8-5a44-88c9-059f3d6c53d1,ca7a9726-9ef8-5a44-88c9-059f3d6c53d1,ca7a9726-9ef8-5a44-88c9-059f3d6c53d1,ca7a9726-9ef8-5a44-88c9-059f3d6c53d1,ca7a9726-9ef8-5a44-88c9-059f3d6c53d1,ca7a9726-9ef8-5a44-88c9-059f3d6c53d1,ca7a9726-9ef8-5a44-88c9-059f3d6c53d1,ca7a9726-9ef8-5a44-88c9-059f3d6c53d1,ca7a9726-9ef8-5a44-88c9-059f3d6c53d1,ca7a9726-9ef8-5a44-88c9-059f3d6c53d1,ca7a9726-9ef8-5a44-88c9-059f3d6c53d1,ca7a9726-9ef8-5a44-88c9-059f3d6c53d1,ca7a9726-9ef8-5a44-88c9-059f3d6c53d1,ca7a9726-9ef8-5a44-88c9-059f3d6c53d1,ca7a9726-9ef8-5a44-88c9-059f3d6c53d1,ca7a9726-9ef8-5a44-88c9-059f3d6c53d1,ca7a9726-9ef8-5a44-88c9-059f3d6c53d1,ca7a9726-9ef8-5a44-88c9-059f3d6c53d1,ca7a9726-9ef8-5a44-88c9-059f3d6c53d1,ca7a9726-9ef8-5a44-88c9-059f3d6c53d1}'::text[]))
+  Rows Removed by Filter: 79
+  Buffers: shared hit=2
+Planning Time: 0.038 ms
+Execution Time: 0.012 ms
+

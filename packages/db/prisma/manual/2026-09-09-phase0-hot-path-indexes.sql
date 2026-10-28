@@ -1,3 +1,7 @@
+-- 2026-10-26 measurement note (docs/reports/perf-baseline-2026-10-26/, revamp perf ledger):
+-- on a 50k-task local bench, 9 of the 10 indexes below changed no query plan and no
+-- route improved. Treat this file as superseded by evidence-based Phase 1 indexes;
+-- apply only after re-measuring against current queries.
 -- Phase 0 — hot-path indexes
 --
 -- Apply OUT OF BAND, not through `prisma migrate deploy`.
@@ -53,8 +57,10 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS "tasks_title_trgm_idx"
 CREATE INDEX CONCURRENTLY IF NOT EXISTS "tasks_identifier_trgm_idx"
   ON "tasks" USING gin ("identifier" gin_trgm_ops);
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS "projects_name_trgm_idx"
-  ON "projects" USING gin ("name" gin_trgm_ops);
+-- Corrected 2026-10-26: the Prisma model Project maps to table "linear_projects";
+-- the original "projects" table name made this file fail partway.
+CREATE INDEX CONCURRENTLY IF NOT EXISTS "linear_projects_name_trgm_idx"
+  ON "linear_projects" USING gin ("name" gin_trgm_ops);
 
 CREATE INDEX CONCURRENTLY IF NOT EXISTS "teams_name_trgm_idx"
   ON "teams" USING gin ("name" gin_trgm_ops);

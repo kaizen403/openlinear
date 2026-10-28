@@ -1,0 +1,265 @@
+# usage.by-task: GET /api/usage/by-task?sort=cost&pageSize=25
+# label=phase1-perf1-before status=200 statements: cold=4 warm=4 (+0 after the response) fixture=50000 tasks
+
+## statement 1 (select, 3.16 ms)
+SELECT "public"."team_members"."id", "public"."team_members"."teamId"
+  FROM "public"."team_members"
+  WHERE "public"."team_members"."userId" = $1
+  OFFSET $2
+
+Bitmap Heap Scan on team_members  (cost=4.85..48.65 rows=73 width=74) (actual time=0.020..0.058 rows=73 loops=1)
+  Recheck Cond: ("userId" = 'ca7a9726-9ef8-5a44-88c9-059f3d6c53d1'::text)
+  Heap Blocks: exact=40
+  Buffers: shared hit=42
+  ->  Bitmap Index Scan on "team_members_userId_idx"  (cost=0.00..4.83 rows=73 width=0) (actual time=0.012..0.013 rows=73 loops=1)
+        Index Cond: ("userId" = 'ca7a9726-9ef8-5a44-88c9-059f3d6c53d1'::text)
+        Buffers: shared hit=2
+Planning Time: 0.059 ms
+Execution Time: 0.074 ms
+
+## statement 2 (select, 39.94 ms)
+SELECT SUM("public"."agent_runs"."costUsd") AS "_sum$costUsd", SUM("public"."agent_runs"."inputTokens") AS "_sum$inputTokens", SUM("public"."agent_runs"."outputTokens") AS "_sum$outputTokens", SUM("public"."agent_runs"."cachedInputTokens") AS "_sum$cachedInputTokens", SUM("public"."agent_runs"."cacheWriteTokens") AS "_sum$cacheWriteTokens", SUM("public"."agent_runs"."reasoningTokens") AS "_sum$reasoningTokens", COUNT("public"."agent_runs"."costUsd") AS "_count$costUsd", COUNT(*) AS "_count$_all", MAX("public"."agent_runs"."startedAt") AS "_max$startedAt", "public"."agent_runs"."taskId"
+  FROM "public"."agent_runs"
+  LEFT JOIN "public"."tasks" AS "j0" ON ("j0"."id") = ("public"."agent_runs"."taskId")
+  LEFT JOIN "public"."tasks" AS "j1" ON ("j1"."id") = ("public"."agent_runs"."taskId")
+  LEFT JOIN "public"."linear_projects" AS "j2" ON ("j2"."id") = ("j1"."projectId")
+  LEFT JOIN "public"."workspaces" AS "j4" ON ("j4"."id") = ("j2"."workspaceId")
+  LEFT JOIN "public"."teams" AS "j8" ON ("j8"."id") = ("j1"."teamId")
+  LEFT JOIN "public"."linear_projects" AS "j9" ON ("j9"."id") = ("j8"."project_id")
+  WHERE (("public"."agent_runs"."userId" = $1 OR ("j0"."teamId" IN ($2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42,$43,$44,$45,$46,$47,$48,$49,$50,$51,$52,$53,$54,$55,$56,$57,$58,$59,$60,$61,$62,$63,$64,$65,$66,$67,$68,$69,$70,$71,$72,$73,$74) AND ("j0"."id" IS NOT NULL))) AND ((("j1"."projectId" IS NOT NULL AND ((NOT EXISTS(SELECT "t3"."projectId"
+  FROM "public"."project_access" AS "t3"
+  WHERE ("t3"."userId" = $75 AND "t3"."permission" = CAST($76::text AS "public"."project_permissions") AND ("j2"."id") = ("t3"."projectId") AND "t3"."projectId" IS NOT NULL))) AND ((EXISTS(SELECT "t5"."workspaceId"
+  FROM "public"."workspace_members" AS "t5"
+  WHERE ("t5"."userId" = $77 AND ("j4"."id") = ("t5"."workspaceId") AND "t5"."workspaceId" IS NOT NULL)) AND ("j4"."id" IS NOT NULL)) OR ("j2"."workspaceId" IS NULL AND EXISTS(SELECT "t6"."projectId"
+  FROM "public"."project_access" AS "t6"
+  WHERE ("t6"."userId" = $78 AND "t6"."permission" IN (CAST($79::text AS "public"."project_permissions"),CAST($80::text AS "public"."project_permissions")) AND ("j2"."id") = ("t6"."projectId") AND "t6"."projectId" IS NOT NULL))) OR EXISTS(SELECT "t7"."project_id"
+  FROM "public"."teams" AS "t7"
+  WHERE ("t7"."id" IN ($81,$82,$83,$84,$85,$86,$87,$88,$89,$90,$91,$92,$93,$94,$95,$96,$97,$98,$99,$100,$101,$102,$103,$104,$105,$106,$107,$108,$109,$110,$111,$112,$113,$114,$115,$116,$117,$118,$119,$120,$121,$122,$123,$124,$125,$126,$127,$128,$129,$130,$131,$132,$133,$134,$135,$136,$137,$138,$139,$140,$141,$142,$143,$144,$145,$146,$147,$148,$149,$150,$151,$152,$153) AND ("j2"."id") = ("t7"."project_id") AND "t7"."project_id" IS NOT NULL))) AND ("j2"."id" IS NOT NULL))) OR ("j1"."projectId" IS NULL AND "j1"."teamId" IS NULL AND "j1"."creatorId" = $154) OR ("j1"."projectId" IS NULL AND "j1"."teamId" IN ($155,$156,$157,$158,$159,$160,$161,$162,$163,$164,$165,$166,$167,$168,$169,$170,$171,$172,$173,$174,$175,$176,$177,$178,$179,$180,$181,$182,$183,$184,$185,$186,$187,$188,$189,$190,$191,$192,$193,$194,$195,$196,$197,$198,$199,$200,$201,$202,$203,$204,$205,$206,$207,$208,$209,$210,$211,$212,$213,$214,$215,$216,$217,$218,$219,$220,$221,$222,$223,$224,$225,$226,$227) AND ((NOT EXISTS(SELECT "t10"."projectId"
+  FROM "public"."project_access" AS "t10"
+  WHERE ("t10"."userId" = $228 AND "t10"."permission" = CAST($229::text AS "public"."project_permissions") AND ("j9"."id") = ("t10"."projectId") AND "t10"."projectId" IS NOT NULL))) AND ("j9"."id" IS NOT NULL) AND ("j8"."id" IS NOT NULL)))) AND ("j1"."id" IS NOT NULL)))
+  GROUP BY "public"."agent_runs"."taskId"
+  ORDER BY SUM("public"."agent_runs"."costUsd") DESC
+  LIMIT $230
+  OFFSET $231
+
+Limit  (cost=18624.21..18624.28 rows=25 width=133) (actual time=36.968..37.138 rows=25 loops=1)
+  Buffers: shared hit=10454, temp read=148 written=311
+  ->  Sort  (cost=18624.21..18646.51 rows=8920 width=133) (actual time=36.968..37.136 rows=25 loops=1)
+        Sort Key: (sum(agent_runs."costUsd")) DESC
+        Sort Method: top-N heapsort  Memory: 34kB
+        Buffers: shared hit=10454, temp read=148 written=311
+        ->  HashAggregate  (cost=18261.00..18372.50 rows=8920 width=133) (actual time=31.303..36.068 rows=11842 loops=1)
+              Group Key: agent_runs."taskId"
+              Batches: 5  Memory Usage: 4273kB  Disk Usage: 1616kB
+              Buffers: shared hit=10454, temp read=148 written=311
+              ->  Hash Left Join  (cost=7576.92..18038.00 rows=8920 width=73) (actual time=14.506..25.076 rows=23624 loops=1)
+                    Hash Cond: (j8.project_id = j9.id)
+                    Filter: (((j1."projectId" IS NOT NULL) AND (NOT (hashed SubPlan 2)) AND (((hashed SubPlan 4) AND (j4.id IS NOT NULL)) OR ((j2."workspaceId" IS NULL) AND (hashed SubPlan 6)) OR (hashed SubPlan 8)) AND (j2.id IS NOT NULL)) OR ((j1."projectId" IS NULL) AND (j1."teamId" IS NULL) AND (j1."creatorId" = 'ca7a9726-9ef8-5a44-88c9-059f3d6c53d1'::text)) OR ((j1."projectId" IS NULL) AND (j1."teamId" = ANY ('{640ab33a-6324-5cfc-99a8-b5c054e9d44b,55cdeec3-b42c-5829-8fd2-334566c6ad2f,2fd5c247-16cc-5e54-a86d-3fa26d77bd75,e9bfea73-c337-5efc-9d49-30c400ad8ff6,8bb1d8bc-985d-513d-bee6-e7dc7d68dbf8,fa2ff604-d0b1-512d-8da7-5f0d48aa754a,ba8a70c3-1601-5989-9816-5d90ba01621f,0c2ebb9a-3a0a-5d3c-979f-d7da2e7e07ef,77b2b3f9-bb52-5d98-b676-7a12e19111f4,a8d71fb6-3c0a-5aed-944a-7a7f19616677,57ae8cf2-4809-510c-8b0d-104bbfa3252e,6fb9d12c-3461-5e91-8fd5-810ca899287f,371f9980-4978-53c2-b786-2c1d79701162,6ee0b0a2-e95c-57ae-b1be-64011e796a90,697eaa3d-1646-5f96-a85e-09c11115b72a,acbbe287-7962-52cf-ad07-cf3812995dc1,d0873d88-a864-5651-9c75-3d6b37961336,36c67fde-9562-5085-a7db-7bfd16ff18e9,eae690e2-7d51-51a5-bae7-35d4ce77ee9b,f9e359c7-dc9f-5027-a9af-84c02b975c7d,03ec871e-abdd-5571-9cf2-1f3051996d6d,36c101b9-24ba-5070-bf84-f470fb0db697,9b2e7e16-34f3-5b30-aaf1-01495ead5941,9f8be8e6-cf28-52ef-8ac9-42e4777ab2e0,f89e36ff-04be-5720-b9f8-0c103b8404a7,1fa4b963-832f-547c-af47-bfe3e376688a,eff78c03-1d4d-55d1-82b8-106f0c670fa5,15bdd605-6f07-5523-93a0-96c8548bdd5f,13e4c4df-1d3e-528d-8f83-16320acd18e5,872de959-7b22-54ea-b627-2932f4cb3af7,08f3a61b-8c7c-5933-9fcf-e651a1f941a5,253e6f00-7a65-59b8-b796-cff3ac0f3f24,15c69648-485c-549b-b32c-96cca030d6b3,066911a4-9f0a-557f-8031-bae7bbb47970,00da905c-11db-569b-bd25-84f39f6de849,a32e908f-9228-5e0a-b69d-53e9019846eb,e5a7dd03-e393-579a-9e3f-b7254e94ee18,03d4607b-ba78-562b-b211-44a0b3751b3a,4138497d-bd26-56c2-8782-2ecf444aac2b,500a5ed7-40cc-5c0a-be6b-a447dcb293f3,60f78538-1f67-586b-8e62-f205f903d874,774526e9-ab02-5cc5-94e2-56ee030712de,11b2b46b-1cfc-56da-8407-081db72af17a,5f390542-70f9-5ea5-afd1-679636058681,692056c0-aa1f-5f48-b954-ab58a0286d83,eb9aa63b-5d15-531c-a73b-5e11959916a1,4934ca4a-2975-53af-a760-2f9507628c78,ea6c7f2a-e920-56ac-9b10-2fd5f37c43bd,d6232937-9b5f-5cd3-b379-ff4ca9bf5353,ca33f3a6-2921-5f74-ae58-86122d10ada6,f24e14e8-8b0c-50f6-a38c-1c027feadd08,fb70017a-b8a5-59a5-bad8-3d5897505d93,604e6c0b-2dee-5333-8e13-a89126533aa3,48886b91-a5ae-588c-8bf9-f405a20f07bf,1e3a1e6a-07e2-50ec-bc1b-189b944391dc,0f7d0168-b2e7-59c1-a28d-da7f1119bca5,ff07cb79-0422-53ee-b52d-3b7463ab5628,160c43d8-e8ce-58c3-a986-108dc31e357f,783fb2bc-ab13-5cd1-861a-ca25105a8cfb,f7b9a3a0-255b-5d2d-897a-159a68fc0b56,f5d35193-4870-53ee-a837-49b007db9c63,b0666444-ffff-58b9-b537-fb2267f8294f,ee6488fb-6341-5dfd-b034-91ba9eb27042,3722420f-3c20-57d2-9d05-4fba8d58fb5c,dc5594e0-503d-5cb4-be5a-4939564c97f2,47bdfc0a-1886-58de-853d-1b8518133b89,3415d192-2128-5646-9c4f-a4697dbdd4d0,35be6a3a-c5bd-5389-afd3-acdc692985d8,09330cd8-44e6-59f8-b521-a7d49b2ced2a,df9135ab-45a6-5967-81c7-ac3dd1213407,f3d93fb1-fe53-569c-83ac-932fb8fdb81a,1d59dd99-4991-5807-b296-04ff8ea95dd5,876fa855-fb0b-5279-9a76-63ba3291f45d}'::text[])) AND (NOT (hashed SubPlan 10)) AND (j9.id IS NOT NULL) AND (j8.id IS NOT NULL)))
+                    Buffers: shared hit=10454
+                    ->  Gather  (cost=7569.67..15020.00 rows=23890 width=369) (actual time=14.476..19.116 rows=23624 loops=1)
+                          Workers Planned: 2
+                          Workers Launched: 2
+                          Buffers: shared hit=10445
+                          ->  Hash Left Join  (cost=6569.67..11631.00 rows=9954 width=369) (actual time=11.335..19.549 rows=7875 loops=3)
+                                Hash Cond: (j1."teamId" = j8.id)
+                                Buffers: shared hit=10445
+                                ->  Hash Left Join  (cost=6563.97..11598.25 rows=9954 width=295) (actual time=11.293..18.647 rows=7875 loops=3)
+                                      Hash Cond: (j2."workspaceId" = j4.id)
+                                      Buffers: shared hit=10436
+                                      ->  Hash Left Join  (cost=6562.90..11534.14 rows=9954 width=258) (actual time=11.270..17.804 rows=7875 loops=3)
+                                            Hash Cond: (j1."projectId" = j2.id)
+                                            Buffers: shared hit=10433
+                                            ->  Parallel Hash Join  (cost=6555.65..11499.66 rows=9954 width=184) (actual time=11.189..16.912 rows=7875 loops=3)
+                                                  Hash Cond: (j1.id = agent_runs."taskId")
+                                                  Buffers: shared hit=10418
+                                                  ->  Parallel Seq Scan on tasks j1  (cost=0.00..4807.33 rows=20833 width=148) (actual time=0.004..2.696 rows=16667 loops=3)
+                                                        Filter: (id IS NOT NULL)
+                                                        Buffers: shared hit=4599
+                                                  ->  Parallel Hash  (cost=6379.99..6379.99 rows=14053 width=73) (actual time=11.093..11.094 rows=7875 loops=3)
+                                                        Buckets: 32768  Batches: 1  Memory Usage: 2816kB
+                                                        Buffers: shared hit=5659
+                                                        ->  Parallel Hash Left Join  (cost=5067.93..6379.99 rows=14053 width=73) (actual time=6.079..9.770 rows=7875 loops=3)
+                                                              Hash Cond: (agent_runs."taskId" = j0.id)
+                                                              Filter: ((agent_runs."userId" = 'ca7a9726-9ef8-5a44-88c9-059f3d6c53d1'::text) OR ((j0."teamId" = ANY ('{640ab33a-6324-5cfc-99a8-b5c054e9d44b,55cdeec3-b42c-5829-8fd2-334566c6ad2f,2fd5c247-16cc-5e54-a86d-3fa26d77bd75,e9bfea73-c337-5efc-9d49-30c400ad8ff6,8bb1d8bc-985d-513d-bee6-e7dc7d68dbf8,fa2ff604-d0b1-512d-8da7-5f0d48aa754a,ba8a70c3-1601-5989-9816-5d90ba01621f,0c2ebb9a-3a0a-5d3c-979f-d7da2e7e07ef,77b2b3f9-bb52-5d98-b676-7a12e19111f4,a8d71fb6-3c0a-5aed-944a-7a7f19616677,57ae8cf2-4809-510c-8b0d-104bbfa3252e,6fb9d12c-3461-5e91-8fd5-810ca899287f,371f9980-4978-53c2-b786-2c1d79701162,6ee0b0a2-e95c-57ae-b1be-64011e796a90,697eaa3d-1646-5f96-a85e-09c11115b72a,acbbe287-7962-52cf-ad07-cf3812995dc1,d0873d88-a864-5651-9c75-3d6b37961336,36c67fde-9562-5085-a7db-7bfd16ff18e9,eae690e2-7d51-51a5-bae7-35d4ce77ee9b,f9e359c7-dc9f-5027-a9af-84c02b975c7d,03ec871e-abdd-5571-9cf2-1f3051996d6d,36c101b9-24ba-5070-bf84-f470fb0db697,9b2e7e16-34f3-5b30-aaf1-01495ead5941,9f8be8e6-cf28-52ef-8ac9-42e4777ab2e0,f89e36ff-04be-5720-b9f8-0c103b8404a7,1fa4b963-832f-547c-af47-bfe3e376688a,eff78c03-1d4d-55d1-82b8-106f0c670fa5,15bdd605-6f07-5523-93a0-96c8548bdd5f,13e4c4df-1d3e-528d-8f83-16320acd18e5,872de959-7b22-54ea-b627-2932f4cb3af7,08f3a61b-8c7c-5933-9fcf-e651a1f941a5,253e6f00-7a65-59b8-b796-cff3ac0f3f24,15c69648-485c-549b-b32c-96cca030d6b3,066911a4-9f0a-557f-8031-bae7bbb47970,00da905c-11db-569b-bd25-84f39f6de849,a32e908f-9228-5e0a-b69d-53e9019846eb,e5a7dd03-e393-579a-9e3f-b7254e94ee18,03d4607b-ba78-562b-b211-44a0b3751b3a,4138497d-bd26-56c2-8782-2ecf444aac2b,500a5ed7-40cc-5c0a-be6b-a447dcb293f3,60f78538-1f67-586b-8e62-f205f903d874,774526e9-ab02-5cc5-94e2-56ee030712de,11b2b46b-1cfc-56da-8407-081db72af17a,5f390542-70f9-5ea5-afd1-679636058681,692056c0-aa1f-5f48-b954-ab58a0286d83,eb9aa63b-5d15-531c-a73b-5e11959916a1,4934ca4a-2975-53af-a760-2f9507628c78,ea6c7f2a-e920-56ac-9b10-2fd5f37c43bd,d6232937-9b5f-5cd3-b379-ff4ca9bf5353,ca33f3a6-2921-5f74-ae58-86122d10ada6,f24e14e8-8b0c-50f6-a38c-1c027feadd08,fb70017a-b8a5-59a5-bad8-3d5897505d93,604e6c0b-2dee-5333-8e13-a89126533aa3,48886b91-a5ae-588c-8bf9-f405a20f07bf,1e3a1e6a-07e2-50ec-bc1b-189b944391dc,0f7d0168-b2e7-59c1-a28d-da7f1119bca5,ff07cb79-0422-53ee-b52d-3b7463ab5628,160c43d8-e8ce-58c3-a986-108dc31e357f,783fb2bc-ab13-5cd1-861a-ca25105a8cfb,f7b9a3a0-255b-5d2d-897a-159a68fc0b56,f5d35193-4870-53ee-a837-49b007db9c63,b0666444-ffff-58b9-b537-fb2267f8294f,ee6488fb-6341-5dfd-b034-91ba9eb27042,3722420f-3c20-57d2-9d05-4fba8d58fb5c,dc5594e0-503d-5cb4-be5a-4939564c97f2,47bdfc0a-1886-58de-853d-1b8518133b89,3415d192-2128-5646-9c4f-a4697dbdd4d0,35be6a3a-c5bd-5389-afd3-acdc692985d8,09330cd8-44e6-59f8-b521-a7d49b2ced2a,df9135ab-45a6-5967-81c7-ac3dd1213407,f3d93fb1-fe53-569c-83ac-932fb8fdb81a,1d59dd99-4991-5807-b296-04ff8ea95dd5,876fa855-fb0b-5279-9a76-63ba3291f45d}'::text[])) AND (j0.id IS NOT NULL)))
+                                                              Rows Removed by Filter: 3439
+                                                              Buffers: shared hit=5659
+                                                              ->  Parallel Seq Scan on agent_runs  (cost=0.00..1259.65 rows=19965 width=110) (actual time=0.003..0.636 rows=11314 loops=3)
+                                                                    Buffers: shared hit=1060
+                                                              ->  Parallel Hash  (cost=4807.33..4807.33 rows=20833 width=74) (actual time=6.020..6.020 rows=16667 loops=3)
+                                                                    Buckets: 65536  Batches: 1  Memory Usage: 6048kB
+                                                                    Buffers: shared hit=4599
+                                                                    ->  Parallel Seq Scan on tasks j0  (cost=0.00..4807.33 rows=20833 width=74) (actual time=0.007..3.916 rows=16667 loops=3)
+                                                                          Buffers: shared hit=4599
+                                            ->  Hash  (cost=6.00..6.00 rows=100 width=74) (actual time=0.072..0.072 rows=100 loops=3)
+                                                  Buckets: 1024  Batches: 1  Memory Usage: 19kB
+                                                  Buffers: shared hit=15
+                                                  ->  Seq Scan on linear_projects j2  (cost=0.00..6.00 rows=100 width=74) (actual time=0.048..0.063 rows=100 loops=3)
+                                                        Buffers: shared hit=15
+                                      ->  Hash  (cost=1.03..1.03 rows=3 width=37) (actual time=0.021..0.021 rows=3 loops=3)
+                                            Buckets: 1024  Batches: 1  Memory Usage: 9kB
+                                            Buffers: shared hit=3
+                                            ->  Seq Scan on workspaces j4  (cost=0.00..1.03 rows=3 width=37) (actual time=0.019..0.019 rows=3 loops=3)
+                                                  Buffers: shared hit=3
+                                ->  Hash  (cost=4.20..4.20 rows=120 width=74) (actual time=0.038..0.038 rows=120 loops=3)
+                                      Buckets: 1024  Batches: 1  Memory Usage: 21kB
+                                      Buffers: shared hit=9
+                                      ->  Seq Scan on teams j8  (cost=0.00..4.20 rows=120 width=74) (actual time=0.021..0.030 rows=120 loops=3)
+                                            Buffers: shared hit=9
+                    ->  Hash  (cost=6.00..6.00 rows=100 width=37) (actual time=0.010..0.011 rows=100 loops=1)
+                          Buckets: 1024  Batches: 1  Memory Usage: 15kB
+                          Buffers: shared hit=5
+                          ->  Seq Scan on linear_projects j9  (cost=0.00..6.00 rows=100 width=37) (actual time=0.001..0.004 rows=100 loops=1)
+                                Buffers: shared hit=5
+                    SubPlan 2
+                      ->  Seq Scan on project_access t3  (cost=0.00..1.14 rows=1 width=37) (actual time=0.003..0.003 rows=0 loops=1)
+                            Filter: (("projectId" IS NOT NULL) AND ("userId" = 'ca7a9726-9ef8-5a44-88c9-059f3d6c53d1'::text) AND (permission = ('deny'::cstring)::project_permissions))
+                            Rows Removed by Filter: 7
+                            Buffers: shared hit=1
+                    SubPlan 4
+                      ->  Seq Scan on workspace_members t5  (cost=0.00..3.20 rows=2 width=37) (actual time=0.003..0.007 rows=2 loops=1)
+                            Filter: (("workspaceId" IS NOT NULL) AND ("userId" = 'ca7a9726-9ef8-5a44-88c9-059f3d6c53d1'::text))
+                            Rows Removed by Filter: 94
+                            Buffers: shared hit=2
+                    SubPlan 6
+                      ->  Seq Scan on project_access t6  (cost=0.00..1.18 rows=1 width=37) (never executed)
+                            Filter: (("projectId" IS NOT NULL) AND ("userId" = 'ca7a9726-9ef8-5a44-88c9-059f3d6c53d1'::text) AND (permission = ANY (ARRAY[('full'::cstring)::project_permissions, ('view'::cstring)::project_permissions])))
+                    SubPlan 8
+                      ->  Seq Scan on teams t7  (cost=0.18..4.98 rows=73 width=37) (never executed)
+                            Filter: ((project_id IS NOT NULL) AND (id = ANY ('{640ab33a-6324-5cfc-99a8-b5c054e9d44b,55cdeec3-b42c-5829-8fd2-334566c6ad2f,2fd5c247-16cc-5e54-a86d-3fa26d77bd75,e9bfea73-c337-5efc-9d49-30c400ad8ff6,8bb1d8bc-985d-513d-bee6-e7dc7d68dbf8,fa2ff604-d0b1-512d-8da7-5f0d48aa754a,ba8a70c3-1601-5989-9816-5d90ba01621f,0c2ebb9a-3a0a-5d3c-979f-d7da2e7e07ef,77b2b3f9-bb52-5d98-b676-7a12e19111f4,a8d71fb6-3c0a-5aed-944a-7a7f19616677,57ae8cf2-4809-510c-8b0d-104bbfa3252e,6fb9d12c-3461-5e91-8fd5-810ca899287f,371f9980-4978-53c2-b786-2c1d79701162,6ee0b0a2-e95c-57ae-b1be-64011e796a90,697eaa3d-1646-5f96-a85e-09c11115b72a,acbbe287-7962-52cf-ad07-cf3812995dc1,d0873d88-a864-5651-9c75-3d6b37961336,36c67fde-9562-5085-a7db-7bfd16ff18e9,eae690e2-7d51-51a5-bae7-35d4ce77ee9b,f9e359c7-dc9f-5027-a9af-84c02b975c7d,03ec871e-abdd-5571-9cf2-1f3051996d6d,36c101b9-24ba-5070-bf84-f470fb0db697,9b2e7e16-34f3-5b30-aaf1-01495ead5941,9f8be8e6-cf28-52ef-8ac9-42e4777ab2e0,f89e36ff-04be-5720-b9f8-0c103b8404a7,1fa4b963-832f-547c-af47-bfe3e376688a,eff78c03-1d4d-55d1-82b8-106f0c670fa5,15bdd605-6f07-5523-93a0-96c8548bdd5f,13e4c4df-1d3e-528d-8f83-16320acd18e5,872de959-7b22-54ea-b627-2932f4cb3af7,08f3a61b-8c7c-5933-9fcf-e651a1f941a5,253e6f00-7a65-59b8-b796-cff3ac0f3f24,15c69648-485c-549b-b32c-96cca030d6b3,066911a4-9f0a-557f-8031-bae7bbb47970,00da905c-11db-569b-bd25-84f39f6de849,a32e908f-9228-5e0a-b69d-53e9019846eb,e5a7dd03-e393-579a-9e3f-b7254e94ee18,03d4607b-ba78-562b-b211-44a0b3751b3a,4138497d-bd26-56c2-8782-2ecf444aac2b,500a5ed7-40cc-5c0a-be6b-a447dcb293f3,60f78538-1f67-586b-8e62-f205f903d874,774526e9-ab02-5cc5-94e2-56ee030712de,11b2b46b-1cfc-56da-8407-081db72af17a,5f390542-70f9-5ea5-afd1-679636058681,692056c0-aa1f-5f48-b954-ab58a0286d83,eb9aa63b-5d15-531c-a73b-5e11959916a1,4934ca4a-2975-53af-a760-2f9507628c78,ea6c7f2a-e920-56ac-9b10-2fd5f37c43bd,d6232937-9b5f-5cd3-b379-ff4ca9bf5353,ca33f3a6-2921-5f74-ae58-86122d10ada6,f24e14e8-8b0c-50f6-a38c-1c027feadd08,fb70017a-b8a5-59a5-bad8-3d5897505d93,604e6c0b-2dee-5333-8e13-a89126533aa3,48886b91-a5ae-588c-8bf9-f405a20f07bf,1e3a1e6a-07e2-50ec-bc1b-189b944391dc,0f7d0168-b2e7-59c1-a28d-da7f1119bca5,ff07cb79-0422-53ee-b52d-3b7463ab5628,160c43d8-e8ce-58c3-a986-108dc31e357f,783fb2bc-ab13-5cd1-861a-ca25105a8cfb,f7b9a3a0-255b-5d2d-897a-159a68fc0b56,f5d35193-4870-53ee-a837-49b007db9c63,b0666444-ffff-58b9-b537-fb2267f8294f,ee6488fb-6341-5dfd-b034-91ba9eb27042,3722420f-3c20-57d2-9d05-4fba8d58fb5c,dc5594e0-503d-5cb4-be5a-4939564c97f2,47bdfc0a-1886-58de-853d-1b8518133b89,3415d192-2128-5646-9c4f-a4697dbdd4d0,35be6a3a-c5bd-5389-afd3-acdc692985d8,09330cd8-44e6-59f8-b521-a7d49b2ced2a,df9135ab-45a6-5967-81c7-ac3dd1213407,f3d93fb1-fe53-569c-83ac-932fb8fdb81a,1d59dd99-4991-5807-b296-04ff8ea95dd5,876fa855-fb0b-5279-9a76-63ba3291f45d}'::text[])))
+                    SubPlan 10
+                      ->  Seq Scan on project_access t10  (cost=0.00..1.14 rows=1 width=37) (actual time=0.004..0.004 rows=0 loops=1)
+                            Filter: (("projectId" IS NOT NULL) AND ("userId" = 'ca7a9726-9ef8-5a44-88c9-059f3d6c53d1'::text) AND (permission = ('deny'::cstring)::project_permissions))
+                            Rows Removed by Filter: 7
+                            Buffers: shared hit=1
+Planning:
+  Buffers: shared hit=76
+Planning Time: 2.560 ms
+Execution Time: 37.434 ms
+
+## statement 3 (select, 23.33 ms)
+SELECT COUNT(*) AS "_count$_all", "public"."agent_runs"."taskId"
+  FROM "public"."agent_runs"
+  LEFT JOIN "public"."tasks" AS "j0" ON ("j0"."id") = ("public"."agent_runs"."taskId")
+  LEFT JOIN "public"."tasks" AS "j1" ON ("j1"."id") = ("public"."agent_runs"."taskId")
+  LEFT JOIN "public"."linear_projects" AS "j2" ON ("j2"."id") = ("j1"."projectId")
+  LEFT JOIN "public"."workspaces" AS "j4" ON ("j4"."id") = ("j2"."workspaceId")
+  LEFT JOIN "public"."teams" AS "j8" ON ("j8"."id") = ("j1"."teamId")
+  LEFT JOIN "public"."linear_projects" AS "j9" ON ("j9"."id") = ("j8"."project_id")
+  WHERE (("public"."agent_runs"."userId" = $1 OR ("j0"."teamId" IN ($2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42,$43,$44,$45,$46,$47,$48,$49,$50,$51,$52,$53,$54,$55,$56,$57,$58,$59,$60,$61,$62,$63,$64,$65,$66,$67,$68,$69,$70,$71,$72,$73,$74) AND ("j0"."id" IS NOT NULL))) AND ((("j1"."projectId" IS NOT NULL AND ((NOT EXISTS(SELECT "t3"."projectId"
+  FROM "public"."project_access" AS "t3"
+  WHERE ("t3"."userId" = $75 AND "t3"."permission" = CAST($76::text AS "public"."project_permissions") AND ("j2"."id") = ("t3"."projectId") AND "t3"."projectId" IS NOT NULL))) AND ((EXISTS(SELECT "t5"."workspaceId"
+  FROM "public"."workspace_members" AS "t5"
+  WHERE ("t5"."userId" = $77 AND ("j4"."id") = ("t5"."workspaceId") AND "t5"."workspaceId" IS NOT NULL)) AND ("j4"."id" IS NOT NULL)) OR ("j2"."workspaceId" IS NULL AND EXISTS(SELECT "t6"."projectId"
+  FROM "public"."project_access" AS "t6"
+  WHERE ("t6"."userId" = $78 AND "t6"."permission" IN (CAST($79::text AS "public"."project_permissions"),CAST($80::text AS "public"."project_permissions")) AND ("j2"."id") = ("t6"."projectId") AND "t6"."projectId" IS NOT NULL))) OR EXISTS(SELECT "t7"."project_id"
+  FROM "public"."teams" AS "t7"
+  WHERE ("t7"."id" IN ($81,$82,$83,$84,$85,$86,$87,$88,$89,$90,$91,$92,$93,$94,$95,$96,$97,$98,$99,$100,$101,$102,$103,$104,$105,$106,$107,$108,$109,$110,$111,$112,$113,$114,$115,$116,$117,$118,$119,$120,$121,$122,$123,$124,$125,$126,$127,$128,$129,$130,$131,$132,$133,$134,$135,$136,$137,$138,$139,$140,$141,$142,$143,$144,$145,$146,$147,$148,$149,$150,$151,$152,$153) AND ("j2"."id") = ("t7"."project_id") AND "t7"."project_id" IS NOT NULL))) AND ("j2"."id" IS NOT NULL))) OR ("j1"."projectId" IS NULL AND "j1"."teamId" IS NULL AND "j1"."creatorId" = $154) OR ("j1"."projectId" IS NULL AND "j1"."teamId" IN ($155,$156,$157,$158,$159,$160,$161,$162,$163,$164,$165,$166,$167,$168,$169,$170,$171,$172,$173,$174,$175,$176,$177,$178,$179,$180,$181,$182,$183,$184,$185,$186,$187,$188,$189,$190,$191,$192,$193,$194,$195,$196,$197,$198,$199,$200,$201,$202,$203,$204,$205,$206,$207,$208,$209,$210,$211,$212,$213,$214,$215,$216,$217,$218,$219,$220,$221,$222,$223,$224,$225,$226,$227) AND ((NOT EXISTS(SELECT "t10"."projectId"
+  FROM "public"."project_access" AS "t10"
+  WHERE ("t10"."userId" = $228 AND "t10"."permission" = CAST($229::text AS "public"."project_permissions") AND ("j9"."id") = ("t10"."projectId") AND "t10"."projectId" IS NOT NULL))) AND ("j9"."id" IS NOT NULL) AND ("j8"."id" IS NOT NULL)))) AND ("j1"."id" IS NOT NULL)))
+  GROUP BY "public"."agent_runs"."taskId"
+  OFFSET $230
+
+HashAggregate  (cost=18082.60..18171.80 rows=8920 width=45) (actual time=21.051..21.934 rows=11842 loops=1)
+  Group Key: agent_runs."taskId"
+  Batches: 1  Memory Usage: 1937kB
+  Buffers: shared hit=10454
+  ->  Hash Left Join  (cost=7576.92..18038.00 rows=8920 width=37) (actual time=9.417..19.067 rows=23624 loops=1)
+        Hash Cond: (j8.project_id = j9.id)
+        Filter: (((j1."projectId" IS NOT NULL) AND (NOT (hashed SubPlan 2)) AND (((hashed SubPlan 4) AND (j4.id IS NOT NULL)) OR ((j2."workspaceId" IS NULL) AND (hashed SubPlan 6)) OR (hashed SubPlan 8)) AND (j2.id IS NOT NULL)) OR ((j1."projectId" IS NULL) AND (j1."teamId" IS NULL) AND (j1."creatorId" = 'ca7a9726-9ef8-5a44-88c9-059f3d6c53d1'::text)) OR ((j1."projectId" IS NULL) AND (j1."teamId" = ANY ('{640ab33a-6324-5cfc-99a8-b5c054e9d44b,55cdeec3-b42c-5829-8fd2-334566c6ad2f,2fd5c247-16cc-5e54-a86d-3fa26d77bd75,e9bfea73-c337-5efc-9d49-30c400ad8ff6,8bb1d8bc-985d-513d-bee6-e7dc7d68dbf8,fa2ff604-d0b1-512d-8da7-5f0d48aa754a,ba8a70c3-1601-5989-9816-5d90ba01621f,0c2ebb9a-3a0a-5d3c-979f-d7da2e7e07ef,77b2b3f9-bb52-5d98-b676-7a12e19111f4,a8d71fb6-3c0a-5aed-944a-7a7f19616677,57ae8cf2-4809-510c-8b0d-104bbfa3252e,6fb9d12c-3461-5e91-8fd5-810ca899287f,371f9980-4978-53c2-b786-2c1d79701162,6ee0b0a2-e95c-57ae-b1be-64011e796a90,697eaa3d-1646-5f96-a85e-09c11115b72a,acbbe287-7962-52cf-ad07-cf3812995dc1,d0873d88-a864-5651-9c75-3d6b37961336,36c67fde-9562-5085-a7db-7bfd16ff18e9,eae690e2-7d51-51a5-bae7-35d4ce77ee9b,f9e359c7-dc9f-5027-a9af-84c02b975c7d,03ec871e-abdd-5571-9cf2-1f3051996d6d,36c101b9-24ba-5070-bf84-f470fb0db697,9b2e7e16-34f3-5b30-aaf1-01495ead5941,9f8be8e6-cf28-52ef-8ac9-42e4777ab2e0,f89e36ff-04be-5720-b9f8-0c103b8404a7,1fa4b963-832f-547c-af47-bfe3e376688a,eff78c03-1d4d-55d1-82b8-106f0c670fa5,15bdd605-6f07-5523-93a0-96c8548bdd5f,13e4c4df-1d3e-528d-8f83-16320acd18e5,872de959-7b22-54ea-b627-2932f4cb3af7,08f3a61b-8c7c-5933-9fcf-e651a1f941a5,253e6f00-7a65-59b8-b796-cff3ac0f3f24,15c69648-485c-549b-b32c-96cca030d6b3,066911a4-9f0a-557f-8031-bae7bbb47970,00da905c-11db-569b-bd25-84f39f6de849,a32e908f-9228-5e0a-b69d-53e9019846eb,e5a7dd03-e393-579a-9e3f-b7254e94ee18,03d4607b-ba78-562b-b211-44a0b3751b3a,4138497d-bd26-56c2-8782-2ecf444aac2b,500a5ed7-40cc-5c0a-be6b-a447dcb293f3,60f78538-1f67-586b-8e62-f205f903d874,774526e9-ab02-5cc5-94e2-56ee030712de,11b2b46b-1cfc-56da-8407-081db72af17a,5f390542-70f9-5ea5-afd1-679636058681,692056c0-aa1f-5f48-b954-ab58a0286d83,eb9aa63b-5d15-531c-a73b-5e11959916a1,4934ca4a-2975-53af-a760-2f9507628c78,ea6c7f2a-e920-56ac-9b10-2fd5f37c43bd,d6232937-9b5f-5cd3-b379-ff4ca9bf5353,ca33f3a6-2921-5f74-ae58-86122d10ada6,f24e14e8-8b0c-50f6-a38c-1c027feadd08,fb70017a-b8a5-59a5-bad8-3d5897505d93,604e6c0b-2dee-5333-8e13-a89126533aa3,48886b91-a5ae-588c-8bf9-f405a20f07bf,1e3a1e6a-07e2-50ec-bc1b-189b944391dc,0f7d0168-b2e7-59c1-a28d-da7f1119bca5,ff07cb79-0422-53ee-b52d-3b7463ab5628,160c43d8-e8ce-58c3-a986-108dc31e357f,783fb2bc-ab13-5cd1-861a-ca25105a8cfb,f7b9a3a0-255b-5d2d-897a-159a68fc0b56,f5d35193-4870-53ee-a837-49b007db9c63,b0666444-ffff-58b9-b537-fb2267f8294f,ee6488fb-6341-5dfd-b034-91ba9eb27042,3722420f-3c20-57d2-9d05-4fba8d58fb5c,dc5594e0-503d-5cb4-be5a-4939564c97f2,47bdfc0a-1886-58de-853d-1b8518133b89,3415d192-2128-5646-9c4f-a4697dbdd4d0,35be6a3a-c5bd-5389-afd3-acdc692985d8,09330cd8-44e6-59f8-b521-a7d49b2ced2a,df9135ab-45a6-5967-81c7-ac3dd1213407,f3d93fb1-fe53-569c-83ac-932fb8fdb81a,1d59dd99-4991-5807-b296-04ff8ea95dd5,876fa855-fb0b-5279-9a76-63ba3291f45d}'::text[])) AND (NOT (hashed SubPlan 10)) AND (j9.id IS NOT NULL) AND (j8.id IS NOT NULL)))
+        Buffers: shared hit=10454
+        ->  Gather  (cost=7569.67..15020.00 rows=23890 width=333) (actual time=9.393..14.326 rows=23624 loops=1)
+              Workers Planned: 2
+              Workers Launched: 2
+              Buffers: shared hit=10445
+              ->  Hash Left Join  (cost=6569.67..11631.00 rows=9954 width=333) (actual time=7.456..13.787 rows=7875 loops=3)
+                    Hash Cond: (j1."teamId" = j8.id)
+                    Buffers: shared hit=10445
+                    ->  Hash Left Join  (cost=6563.97..11598.25 rows=9954 width=259) (actual time=7.424..13.117 rows=7875 loops=3)
+                          Hash Cond: (j2."workspaceId" = j4.id)
+                          Buffers: shared hit=10436
+                          ->  Hash Left Join  (cost=6562.90..11534.14 rows=9954 width=222) (actual time=7.404..12.475 rows=7875 loops=3)
+                                Hash Cond: (j1."projectId" = j2.id)
+                                Buffers: shared hit=10433
+                                ->  Parallel Hash Join  (cost=6555.65..11499.66 rows=9954 width=148) (actual time=7.337..11.779 rows=7875 loops=3)
+                                      Hash Cond: (j1.id = agent_runs."taskId")
+                                      Buffers: shared hit=10418
+                                      ->  Parallel Seq Scan on tasks j1  (cost=0.00..4807.33 rows=20833 width=148) (actual time=0.003..2.208 rows=16667 loops=3)
+                                            Filter: (id IS NOT NULL)
+                                            Buffers: shared hit=4599
+                                      ->  Parallel Hash  (cost=6379.99..6379.99 rows=14053 width=37) (actual time=7.266..7.267 rows=7875 loops=3)
+                                            Buckets: 32768  Batches: 1  Memory Usage: 1952kB
+                                            Buffers: shared hit=5659
+                                            ->  Parallel Hash Left Join  (cost=5067.93..6379.99 rows=14053 width=37) (actual time=4.272..6.621 rows=7875 loops=3)
+                                                  Hash Cond: (agent_runs."taskId" = j0.id)
+                                                  Filter: ((agent_runs."userId" = 'ca7a9726-9ef8-5a44-88c9-059f3d6c53d1'::text) OR ((j0."teamId" = ANY ('{640ab33a-6324-5cfc-99a8-b5c054e9d44b,55cdeec3-b42c-5829-8fd2-334566c6ad2f,2fd5c247-16cc-5e54-a86d-3fa26d77bd75,e9bfea73-c337-5efc-9d49-30c400ad8ff6,8bb1d8bc-985d-513d-bee6-e7dc7d68dbf8,fa2ff604-d0b1-512d-8da7-5f0d48aa754a,ba8a70c3-1601-5989-9816-5d90ba01621f,0c2ebb9a-3a0a-5d3c-979f-d7da2e7e07ef,77b2b3f9-bb52-5d98-b676-7a12e19111f4,a8d71fb6-3c0a-5aed-944a-7a7f19616677,57ae8cf2-4809-510c-8b0d-104bbfa3252e,6fb9d12c-3461-5e91-8fd5-810ca899287f,371f9980-4978-53c2-b786-2c1d79701162,6ee0b0a2-e95c-57ae-b1be-64011e796a90,697eaa3d-1646-5f96-a85e-09c11115b72a,acbbe287-7962-52cf-ad07-cf3812995dc1,d0873d88-a864-5651-9c75-3d6b37961336,36c67fde-9562-5085-a7db-7bfd16ff18e9,eae690e2-7d51-51a5-bae7-35d4ce77ee9b,f9e359c7-dc9f-5027-a9af-84c02b975c7d,03ec871e-abdd-5571-9cf2-1f3051996d6d,36c101b9-24ba-5070-bf84-f470fb0db697,9b2e7e16-34f3-5b30-aaf1-01495ead5941,9f8be8e6-cf28-52ef-8ac9-42e4777ab2e0,f89e36ff-04be-5720-b9f8-0c103b8404a7,1fa4b963-832f-547c-af47-bfe3e376688a,eff78c03-1d4d-55d1-82b8-106f0c670fa5,15bdd605-6f07-5523-93a0-96c8548bdd5f,13e4c4df-1d3e-528d-8f83-16320acd18e5,872de959-7b22-54ea-b627-2932f4cb3af7,08f3a61b-8c7c-5933-9fcf-e651a1f941a5,253e6f00-7a65-59b8-b796-cff3ac0f3f24,15c69648-485c-549b-b32c-96cca030d6b3,066911a4-9f0a-557f-8031-bae7bbb47970,00da905c-11db-569b-bd25-84f39f6de849,a32e908f-9228-5e0a-b69d-53e9019846eb,e5a7dd03-e393-579a-9e3f-b7254e94ee18,03d4607b-ba78-562b-b211-44a0b3751b3a,4138497d-bd26-56c2-8782-2ecf444aac2b,500a5ed7-40cc-5c0a-be6b-a447dcb293f3,60f78538-1f67-586b-8e62-f205f903d874,774526e9-ab02-5cc5-94e2-56ee030712de,11b2b46b-1cfc-56da-8407-081db72af17a,5f390542-70f9-5ea5-afd1-679636058681,692056c0-aa1f-5f48-b954-ab58a0286d83,eb9aa63b-5d15-531c-a73b-5e11959916a1,4934ca4a-2975-53af-a760-2f9507628c78,ea6c7f2a-e920-56ac-9b10-2fd5f37c43bd,d6232937-9b5f-5cd3-b379-ff4ca9bf5353,ca33f3a6-2921-5f74-ae58-86122d10ada6,f24e14e8-8b0c-50f6-a38c-1c027feadd08,fb70017a-b8a5-59a5-bad8-3d5897505d93,604e6c0b-2dee-5333-8e13-a89126533aa3,48886b91-a5ae-588c-8bf9-f405a20f07bf,1e3a1e6a-07e2-50ec-bc1b-189b944391dc,0f7d0168-b2e7-59c1-a28d-da7f1119bca5,ff07cb79-0422-53ee-b52d-3b7463ab5628,160c43d8-e8ce-58c3-a986-108dc31e357f,783fb2bc-ab13-5cd1-861a-ca25105a8cfb,f7b9a3a0-255b-5d2d-897a-159a68fc0b56,f5d35193-4870-53ee-a837-49b007db9c63,b0666444-ffff-58b9-b537-fb2267f8294f,ee6488fb-6341-5dfd-b034-91ba9eb27042,3722420f-3c20-57d2-9d05-4fba8d58fb5c,dc5594e0-503d-5cb4-be5a-4939564c97f2,47bdfc0a-1886-58de-853d-1b8518133b89,3415d192-2128-5646-9c4f-a4697dbdd4d0,35be6a3a-c5bd-5389-afd3-acdc692985d8,09330cd8-44e6-59f8-b521-a7d49b2ced2a,df9135ab-45a6-5967-81c7-ac3dd1213407,f3d93fb1-fe53-569c-83ac-932fb8fdb81a,1d59dd99-4991-5807-b296-04ff8ea95dd5,876fa855-fb0b-5279-9a76-63ba3291f45d}'::text[])) AND (j0.id IS NOT NULL)))
+                                                  Rows Removed by Filter: 3439
+                                                  Buffers: shared hit=5659
+                                                  ->  Parallel Seq Scan on agent_runs  (cost=0.00..1259.65 rows=19965 width=74) (actual time=0.002..0.449 rows=11314 loops=3)
+                                                        Buffers: shared hit=1060
+                                                  ->  Parallel Hash  (cost=4807.33..4807.33 rows=20833 width=74) (actual time=4.225..4.226 rows=16667 loops=3)
+                                                        Buckets: 65536  Batches: 1  Memory Usage: 6048kB
+                                                        Buffers: shared hit=4599
+                                                        ->  Parallel Seq Scan on tasks j0  (cost=0.00..4807.33 rows=20833 width=74) (actual time=0.003..2.786 rows=16667 loops=3)
+                                                              Buffers: shared hit=4599
+                                ->  Hash  (cost=6.00..6.00 rows=100 width=74) (actual time=0.056..0.056 rows=100 loops=3)
+                                      Buckets: 1024  Batches: 1  Memory Usage: 19kB
+                                      Buffers: shared hit=15
+                                      ->  Seq Scan on linear_projects j2  (cost=0.00..6.00 rows=100 width=74) (actual time=0.037..0.048 rows=100 loops=3)
+                                            Buffers: shared hit=15
+                          ->  Hash  (cost=1.03..1.03 rows=3 width=37) (actual time=0.017..0.017 rows=3 loops=3)
+                                Buckets: 1024  Batches: 1  Memory Usage: 9kB
+                                Buffers: shared hit=3
+                                ->  Seq Scan on workspaces j4  (cost=0.00..1.03 rows=3 width=37) (actual time=0.016..0.016 rows=3 loops=3)
+                                      Buffers: shared hit=3
+                    ->  Hash  (cost=4.20..4.20 rows=120 width=74) (actual time=0.030..0.030 rows=120 loops=3)
+                          Buckets: 1024  Batches: 1  Memory Usage: 21kB
+                          Buffers: shared hit=9
+                          ->  Seq Scan on teams j8  (cost=0.00..4.20 rows=120 width=74) (actual time=0.015..0.023 rows=120 loops=3)
+                                Buffers: shared hit=9
+        ->  Hash  (cost=6.00..6.00 rows=100 width=37) (actual time=0.008..0.009 rows=100 loops=1)
+              Buckets: 1024  Batches: 1  Memory Usage: 15kB
+              Buffers: shared hit=5
+              ->  Seq Scan on linear_projects j9  (cost=0.00..6.00 rows=100 width=37) (actual time=0.001..0.004 rows=100 loops=1)
+                    Buffers: shared hit=5
+        SubPlan 2
+          ->  Seq Scan on project_access t3  (cost=0.00..1.14 rows=1 width=37) (actual time=0.003..0.003 rows=0 loops=1)
+                Filter: (("projectId" IS NOT NULL) AND ("userId" = 'ca7a9726-9ef8-5a44-88c9-059f3d6c53d1'::text) AND (permission = ('deny'::cstring)::project_permissions))
+                Rows Removed by Filter: 7
+                Buffers: shared hit=1
+        SubPlan 4
+          ->  Seq Scan on workspace_members t5  (cost=0.00..3.20 rows=2 width=37) (actual time=0.002..0.006 rows=2 loops=1)
+                Filter: (("workspaceId" IS NOT NULL) AND ("userId" = 'ca7a9726-9ef8-5a44-88c9-059f3d6c53d1'::text))
+                Rows Removed by Filter: 94
+                Buffers: shared hit=2
+        SubPlan 6
+          ->  Seq Scan on project_access t6  (cost=0.00..1.18 rows=1 width=37) (never executed)
+                Filter: (("projectId" IS NOT NULL) AND ("userId" = 'ca7a9726-9ef8-5a44-88c9-059f3d6c53d1'::text) AND (permission = ANY (ARRAY[('full'::cstring)::project_permissions, ('view'::cstring)::project_permissions])))
+        SubPlan 8
+          ->  Seq Scan on teams t7  (cost=0.18..4.98 rows=73 width=37) (never executed)
+                Filter: ((project_id IS NOT NULL) AND (id = ANY ('{640ab33a-6324-5cfc-99a8-b5c054e9d44b,55cdeec3-b42c-5829-8fd2-334566c6ad2f,2fd5c247-16cc-5e54-a86d-3fa26d77bd75,e9bfea73-c337-5efc-9d49-30c400ad8ff6,8bb1d8bc-985d-513d-bee6-e7dc7d68dbf8,fa2ff604-d0b1-512d-8da7-5f0d48aa754a,ba8a70c3-1601-5989-9816-5d90ba01621f,0c2ebb9a-3a0a-5d3c-979f-d7da2e7e07ef,77b2b3f9-bb52-5d98-b676-7a12e19111f4,a8d71fb6-3c0a-5aed-944a-7a7f19616677,57ae8cf2-4809-510c-8b0d-104bbfa3252e,6fb9d12c-3461-5e91-8fd5-810ca899287f,371f9980-4978-53c2-b786-2c1d79701162,6ee0b0a2-e95c-57ae-b1be-64011e796a90,697eaa3d-1646-5f96-a85e-09c11115b72a,acbbe287-7962-52cf-ad07-cf3812995dc1,d0873d88-a864-5651-9c75-3d6b37961336,36c67fde-9562-5085-a7db-7bfd16ff18e9,eae690e2-7d51-51a5-bae7-35d4ce77ee9b,f9e359c7-dc9f-5027-a9af-84c02b975c7d,03ec871e-abdd-5571-9cf2-1f3051996d6d,36c101b9-24ba-5070-bf84-f470fb0db697,9b2e7e16-34f3-5b30-aaf1-01495ead5941,9f8be8e6-cf28-52ef-8ac9-42e4777ab2e0,f89e36ff-04be-5720-b9f8-0c103b8404a7,1fa4b963-832f-547c-af47-bfe3e376688a,eff78c03-1d4d-55d1-82b8-106f0c670fa5,15bdd605-6f07-5523-93a0-96c8548bdd5f,13e4c4df-1d3e-528d-8f83-16320acd18e5,872de959-7b22-54ea-b627-2932f4cb3af7,08f3a61b-8c7c-5933-9fcf-e651a1f941a5,253e6f00-7a65-59b8-b796-cff3ac0f3f24,15c69648-485c-549b-b32c-96cca030d6b3,066911a4-9f0a-557f-8031-bae7bbb47970,00da905c-11db-569b-bd25-84f39f6de849,a32e908f-9228-5e0a-b69d-53e9019846eb,e5a7dd03-e393-579a-9e3f-b7254e94ee18,03d4607b-ba78-562b-b211-44a0b3751b3a,4138497d-bd26-56c2-8782-2ecf444aac2b,500a5ed7-40cc-5c0a-be6b-a447dcb293f3,60f78538-1f67-586b-8e62-f205f903d874,774526e9-ab02-5cc5-94e2-56ee030712de,11b2b46b-1cfc-56da-8407-081db72af17a,5f390542-70f9-5ea5-afd1-679636058681,692056c0-aa1f-5f48-b954-ab58a0286d83,eb9aa63b-5d15-531c-a73b-5e11959916a1,4934ca4a-2975-53af-a760-2f9507628c78,ea6c7f2a-e920-56ac-9b10-2fd5f37c43bd,d6232937-9b5f-5cd3-b379-ff4ca9bf5353,ca33f3a6-2921-5f74-ae58-86122d10ada6,f24e14e8-8b0c-50f6-a38c-1c027feadd08,fb70017a-b8a5-59a5-bad8-3d5897505d93,604e6c0b-2dee-5333-8e13-a89126533aa3,48886b91-a5ae-588c-8bf9-f405a20f07bf,1e3a1e6a-07e2-50ec-bc1b-189b944391dc,0f7d0168-b2e7-59c1-a28d-da7f1119bca5,ff07cb79-0422-53ee-b52d-3b7463ab5628,160c43d8-e8ce-58c3-a986-108dc31e357f,783fb2bc-ab13-5cd1-861a-ca25105a8cfb,f7b9a3a0-255b-5d2d-897a-159a68fc0b56,f5d35193-4870-53ee-a837-49b007db9c63,b0666444-ffff-58b9-b537-fb2267f8294f,ee6488fb-6341-5dfd-b034-91ba9eb27042,3722420f-3c20-57d2-9d05-4fba8d58fb5c,dc5594e0-503d-5cb4-be5a-4939564c97f2,47bdfc0a-1886-58de-853d-1b8518133b89,3415d192-2128-5646-9c4f-a4697dbdd4d0,35be6a3a-c5bd-5389-afd3-acdc692985d8,09330cd8-44e6-59f8-b521-a7d49b2ced2a,df9135ab-45a6-5967-81c7-ac3dd1213407,f3d93fb1-fe53-569c-83ac-932fb8fdb81a,1d59dd99-4991-5807-b296-04ff8ea95dd5,876fa855-fb0b-5279-9a76-63ba3291f45d}'::text[])))
+        SubPlan 10
+          ->  Seq Scan on project_access t10  (cost=0.00..1.14 rows=1 width=37) (actual time=0.001..0.001 rows=0 loops=1)
+                Filter: (("projectId" IS NOT NULL) AND ("userId" = 'ca7a9726-9ef8-5a44-88c9-059f3d6c53d1'::text) AND (permission = ('deny'::cstring)::project_permissions))
+                Rows Removed by Filter: 7
+                Buffers: shared hit=1
+Planning:
+  Buffers: shared hit=76
+Planning Time: 0.884 ms
+Execution Time: 22.177 ms
+
+## statement 4 (select, 0.42 ms)
+SELECT "public"."tasks"."id", "public"."tasks"."title", "public"."tasks"."identifier", "public"."tasks"."teamId"
+  FROM "public"."tasks"
+  WHERE "public"."tasks"."id" IN ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25)
+  OFFSET $26
+
+Bitmap Heap Scan on tasks  (cost=110.63..205.48 rows=25 width=127) (actual time=0.045..0.057 rows=25 loops=1)
+  Recheck Cond: (id = ANY ('{659a6a3b-319e-5bb0-86f2-7269960abf72,ce21df7e-099a-5268-8a0f-7e2a9a7054b7,5b6043ab-9823-5956-a490-024350f81a18,f1904fdb-5304-5251-89a3-521ad3811229,bbea3577-6b26-56c5-b7b8-37ed566ee08d,5bf8e83a-ba63-52d1-99d5-c0242f894545,80e423a6-b47b-50b3-8d98-fdfc758876e1,62516e39-ac45-5303-bf1a-9e15a2fac959,97d5049e-b271-5388-af2f-95d790dfdb61,8a656f7b-acac-539c-ac62-adf51de3c1ff,5ea59160-1d14-5018-9aca-a8a43e6ec529,52c5fdf7-b889-5586-a9b7-4dfaf0712066,1b7d0bb0-543c-5190-bef4-3d41981623b1,46f95b65-4b05-5100-841c-55744acde991,55d3f600-8a96-5ae3-b1cf-ac2311730134,ebec0e6d-fecc-529b-b0c3-1dc0b853bba7,a1ab3e90-3e83-501d-bdea-b48c63f0e03b,7fdc7306-c45f-5244-8bb4-53e596acd1ce,c9e51a34-f762-5a1b-9312-b9e5e9950384,128f1ea0-7951-5db2-aa05-d5899a752747,15202a60-4c0e-5185-ab75-aa6daab009cc,1cccd6ee-2b2c-50fe-8784-917313329eb6,b7ccfa4c-6e54-580f-aa1b-5dc9acdd8e42,44401be9-b325-5620-a443-cea0776f1f61,2a5264af-24a7-55ae-824a-d079914a3b7b}'::text[]))
+  Heap Blocks: exact=25
+  Buffers: shared hit=100
+  ->  Bitmap Index Scan on tasks_pkey  (cost=0.00..110.56 rows=25 width=0) (actual time=0.042..0.042 rows=25 loops=1)
+        Index Cond: (id = ANY ('{659a6a3b-319e-5bb0-86f2-7269960abf72,ce21df7e-099a-5268-8a0f-7e2a9a7054b7,5b6043ab-9823-5956-a490-024350f81a18,f1904fdb-5304-5251-89a3-521ad3811229,bbea3577-6b26-56c5-b7b8-37ed566ee08d,5bf8e83a-ba63-52d1-99d5-c0242f894545,80e423a6-b47b-50b3-8d98-fdfc758876e1,62516e39-ac45-5303-bf1a-9e15a2fac959,97d5049e-b271-5388-af2f-95d790dfdb61,8a656f7b-acac-539c-ac62-adf51de3c1ff,5ea59160-1d14-5018-9aca-a8a43e6ec529,52c5fdf7-b889-5586-a9b7-4dfaf0712066,1b7d0bb0-543c-5190-bef4-3d41981623b1,46f95b65-4b05-5100-841c-55744acde991,55d3f600-8a96-5ae3-b1cf-ac2311730134,ebec0e6d-fecc-529b-b0c3-1dc0b853bba7,a1ab3e90-3e83-501d-bdea-b48c63f0e03b,7fdc7306-c45f-5244-8bb4-53e596acd1ce,c9e51a34-f762-5a1b-9312-b9e5e9950384,128f1ea0-7951-5db2-aa05-d5899a752747,15202a60-4c0e-5185-ab75-aa6daab009cc,1cccd6ee-2b2c-50fe-8784-917313329eb6,b7ccfa4c-6e54-580f-aa1b-5dc9acdd8e42,44401be9-b325-5620-a443-cea0776f1f61,2a5264af-24a7-55ae-824a-d079914a3b7b}'::text[]))
+        Buffers: shared hit=75
+Planning Time: 0.052 ms
+Execution Time: 0.068 ms
+

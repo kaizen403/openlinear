@@ -1,0 +1,109 @@
+# dashboard.tasks: GET /api/dashboard/tasks
+# label=phase1-perf1-after status=200 statements: cold=1 warm=1 (+0 after the response) fixture=50000 tasks
+
+## statement 1 (select, 11.86 ms)
+SELECT COUNT(*) AS total, COUNT(*) FILTER (WHERE t."createdAt" >= $1::timestamp(3)) AS recent, COUNT(*) FILTER (WHERE t."status" <> 'done' AND t."dueDate" < $2::timestamp(3)) AS overdue, COUNT(*) FILTER (WHERE t."status" <> 'done' AND t."assigneeId" IS NULL) AS unassigned, COUNT(*) FILTER (WHERE t."status" = 'todo') AS todo, COUNT(*) FILTER (WHERE t."status" = 'in_progress') AS in_progress, COUNT(*) FILTER (WHERE t."status" = 'done') AS done, COUNT(*) FILTER (WHERE t."status" = 'cancelled') AS cancelled, COUNT(*) FILTER (WHERE t."priority" = 'low') AS low, COUNT(*) FILTER (WHERE t."priority" = 'medium') AS medium, COUNT(*) FILTER (WHERE t."priority" = 'high') AS high
+  FROM "tasks" t
+  WHERE t."archived" = false AND (t."projectId" IN (SELECT vp."id"
+  FROM "linear_projects" vp
+  WHERE vp."id" IN (SELECT gp."id"
+  FROM "linear_projects" gp JOIN "workspace_members" wm ON wm."workspaceId" = gp."workspaceId"
+  WHERE wm."userId" = $3 UNION ALL SELECT ga."projectId"
+  FROM "project_access" ga JOIN "linear_projects" gap ON gap."id" = ga."projectId"
+  WHERE ga."userId" = $4 AND ga."permission" IN ('full', 'view') AND gap."workspaceId" IS NULL UNION ALL SELECT pt."project_id"
+  FROM "teams" pt
+  WHERE pt."id" = ANY($5::text[])) AND NOT EXISTS (SELECT 1
+  FROM "project_access" pd
+  WHERE pd."projectId" = vp."id" AND pd."userId" = $6 AND pd."permission" = 'deny') ) OR (t."projectId" IS NULL AND t."teamId" IS NULL AND t."creatorId" = $7) OR (t."projectId" IS NULL AND t."teamId" IN ( SELECT vt."id"
+  FROM "teams" vt JOIN "linear_projects" vtp ON vtp."id" = vt."project_id"
+  WHERE vt."id" = ANY($8::text[]) AND NOT EXISTS (SELECT 1
+  FROM "project_access" vtd
+  WHERE vtd."projectId" = vtp."id" AND vtd."userId" = $9 AND vtd."permission" = 'deny') )))
+
+Finalize Aggregate  (cost=6617.99..6618.00 rows=1 width=88) (actual time=11.424..13.109 rows=1 loops=1)
+  Buffers: shared hit=4781
+  ->  Gather  (cost=6617.72..6617.93 rows=2 width=88) (actual time=11.311..13.103 rows=3 loops=1)
+        Workers Planned: 2
+        Workers Launched: 2
+        Buffers: shared hit=4781
+        ->  Partial Aggregate  (cost=5617.72..5617.73 rows=1 width=88) (actual time=7.618..7.622 rows=1 loops=3)
+              Buffers: shared hit=4781
+              ->  Parallel Seq Scan on tasks t  (cost=52.73..5097.26 rows=9463 width=61) (actual time=0.253..6.115 rows=13292 loops=3)
+                    Filter: ((NOT archived) AND ((hashed SubPlan 1) OR (("projectId" IS NULL) AND ("teamId" IS NULL) AND ("creatorId" = 'ca7a9726-9ef8-5a44-88c9-059f3d6c53d1'::text)) OR (("projectId" IS NULL) AND (hashed SubPlan 2))))
+                    Rows Removed by Filter: 3374
+                    Buffers: shared hit=4781
+                    SubPlan 1
+                      ->  Hash Semi Join  (cost=27.01..36.98 rows=99 width=37) (actual time=0.205..0.233 rows=92 loops=3)
+                            Hash Cond: (vp.id = gp.id)
+                            Buffers: shared hit=80
+                            ->  Nested Loop Anti Join  (cost=0.00..8.61 rows=99 width=37) (actual time=0.054..0.070 rows=100 loops=3)
+                                  Join Filter: (pd."projectId" = vp.id)
+                                  Buffers: shared hit=18
+                                  ->  Seq Scan on linear_projects vp  (cost=0.00..6.00 rows=100 width=37) (actual time=0.023..0.027 rows=100 loops=3)
+                                        Buffers: shared hit=15
+                                  ->  Materialize  (cost=0.00..1.11 rows=1 width=37) (actual time=0.000..0.000 rows=0 loops=300)
+                                        Buffers: shared hit=3
+                                        ->  Seq Scan on project_access pd  (cost=0.00..1.10 rows=1 width=37) (actual time=0.027..0.027 rows=0 loops=3)
+                                              Filter: (("userId" = 'ca7a9726-9ef8-5a44-88c9-059f3d6c53d1'::text) AND (permission = 'deny'::project_permissions))
+                                              Rows Removed by Filter: 7
+                                              Buffers: shared hit=3
+                            ->  Hash  (cost=24.73..24.73 rows=182 width=37) (actual time=0.141..0.143 rows=165 loops=3)
+                                  Buckets: 1024  Batches: 1  Memory Usage: 20kB
+                                  Buffers: shared hit=56
+                                  ->  Append  (cost=0.28..24.73 rows=182 width=37) (actual time=0.031..0.127 rows=165 loops=3)
+                                        Buffers: shared hit=56
+                                        ->  Nested Loop  (cost=0.28..9.90 rows=108 width=37) (actual time=0.031..0.073 rows=92 loops=3)
+                                              Buffers: shared hit=38
+                                              ->  Seq Scan on linear_projects gp  (cost=0.00..6.00 rows=100 width=74) (actual time=0.001..0.010 rows=100 loops=3)
+                                                    Buffers: shared hit=15
+                                              ->  Memoize  (cost=0.28..0.46 rows=1 width=37) (actual time=0.000..0.000 rows=1 loops=300)
+                                                    Cache Key: gp."workspaceId"
+                                                    Cache Mode: logical
+                                                    Hits: 97  Misses: 3  Evictions: 0  Overflows: 0  Memory Usage: 1kB
+                                                    Buffers: shared hit=23
+                                                    Worker 0:  Hits: 97  Misses: 3  Evictions: 0  Overflows: 0  Memory Usage: 1kB
+                                                    Worker 1:  Hits: 97  Misses: 3  Evictions: 0  Overflows: 0  Memory Usage: 1kB
+                                                    ->  Index Only Scan using "workspace_members_workspaceId_userId_key" on workspace_members wm  (cost=0.27..0.45 rows=1 width=37) (actual time=0.009..0.009 rows=1 loops=9)
+                                                          Index Cond: (("workspaceId" = gp."workspaceId") AND ("userId" = 'ca7a9726-9ef8-5a44-88c9-059f3d6c53d1'::text))
+                                                          Heap Fetches: 0
+                                                          Buffers: shared hit=23
+                                        ->  Nested Loop  (cost=0.00..7.12 rows=1 width=37) (actual time=0.006..0.007 rows=0 loops=3)
+                                              Join Filter: (ga."projectId" = gap.id)
+                                              Buffers: shared hit=9
+                                              ->  Seq Scan on project_access ga  (cost=0.00..1.10 rows=1 width=37) (actual time=0.006..0.006 rows=0 loops=3)
+                                                    Filter: ((permission = ANY ('{full,view}'::project_permissions[])) AND ("userId" = 'ca7a9726-9ef8-5a44-88c9-059f3d6c53d1'::text))
+                                                    Rows Removed by Filter: 7
+                                                    Buffers: shared hit=9
+                                              ->  Seq Scan on linear_projects gap  (cost=0.00..6.00 rows=1 width=37) (never executed)
+                                                    Filter: ("workspaceId" IS NULL)
+                                        ->  Seq Scan on teams pt  (cost=0.18..4.98 rows=73 width=37) (actual time=0.023..0.040 rows=73 loops=3)
+                                              Filter: (id = ANY ('{640ab33a-6324-5cfc-99a8-b5c054e9d44b,55cdeec3-b42c-5829-8fd2-334566c6ad2f,2fd5c247-16cc-5e54-a86d-3fa26d77bd75,e9bfea73-c337-5efc-9d49-30c400ad8ff6,8bb1d8bc-985d-513d-bee6-e7dc7d68dbf8,fa2ff604-d0b1-512d-8da7-5f0d48aa754a,ba8a70c3-1601-5989-9816-5d90ba01621f,0c2ebb9a-3a0a-5d3c-979f-d7da2e7e07ef,77b2b3f9-bb52-5d98-b676-7a12e19111f4,a8d71fb6-3c0a-5aed-944a-7a7f19616677,57ae8cf2-4809-510c-8b0d-104bbfa3252e,6fb9d12c-3461-5e91-8fd5-810ca899287f,371f9980-4978-53c2-b786-2c1d79701162,6ee0b0a2-e95c-57ae-b1be-64011e796a90,697eaa3d-1646-5f96-a85e-09c11115b72a,acbbe287-7962-52cf-ad07-cf3812995dc1,d0873d88-a864-5651-9c75-3d6b37961336,36c67fde-9562-5085-a7db-7bfd16ff18e9,eae690e2-7d51-51a5-bae7-35d4ce77ee9b,f9e359c7-dc9f-5027-a9af-84c02b975c7d,03ec871e-abdd-5571-9cf2-1f3051996d6d,36c101b9-24ba-5070-bf84-f470fb0db697,9b2e7e16-34f3-5b30-aaf1-01495ead5941,9f8be8e6-cf28-52ef-8ac9-42e4777ab2e0,f89e36ff-04be-5720-b9f8-0c103b8404a7,1fa4b963-832f-547c-af47-bfe3e376688a,eff78c03-1d4d-55d1-82b8-106f0c670fa5,15bdd605-6f07-5523-93a0-96c8548bdd5f,13e4c4df-1d3e-528d-8f83-16320acd18e5,872de959-7b22-54ea-b627-2932f4cb3af7,08f3a61b-8c7c-5933-9fcf-e651a1f941a5,253e6f00-7a65-59b8-b796-cff3ac0f3f24,15c69648-485c-549b-b32c-96cca030d6b3,066911a4-9f0a-557f-8031-bae7bbb47970,00da905c-11db-569b-bd25-84f39f6de849,a32e908f-9228-5e0a-b69d-53e9019846eb,e5a7dd03-e393-579a-9e3f-b7254e94ee18,03d4607b-ba78-562b-b211-44a0b3751b3a,4138497d-bd26-56c2-8782-2ecf444aac2b,500a5ed7-40cc-5c0a-be6b-a447dcb293f3,60f78538-1f67-586b-8e62-f205f903d874,774526e9-ab02-5cc5-94e2-56ee030712de,11b2b46b-1cfc-56da-8407-081db72af17a,5f390542-70f9-5ea5-afd1-679636058681,692056c0-aa1f-5f48-b954-ab58a0286d83,eb9aa63b-5d15-531c-a73b-5e11959916a1,4934ca4a-2975-53af-a760-2f9507628c78,ea6c7f2a-e920-56ac-9b10-2fd5f37c43bd,d6232937-9b5f-5cd3-b379-ff4ca9bf5353,ca33f3a6-2921-5f74-ae58-86122d10ada6,f24e14e8-8b0c-50f6-a38c-1c027feadd08,fb70017a-b8a5-59a5-bad8-3d5897505d93,604e6c0b-2dee-5333-8e13-a89126533aa3,48886b91-a5ae-588c-8bf9-f405a20f07bf,1e3a1e6a-07e2-50ec-bc1b-189b944391dc,0f7d0168-b2e7-59c1-a28d-da7f1119bca5,ff07cb79-0422-53ee-b52d-3b7463ab5628,160c43d8-e8ce-58c3-a986-108dc31e357f,783fb2bc-ab13-5cd1-861a-ca25105a8cfb,f7b9a3a0-255b-5d2d-897a-159a68fc0b56,f5d35193-4870-53ee-a837-49b007db9c63,b0666444-ffff-58b9-b537-fb2267f8294f,ee6488fb-6341-5dfd-b034-91ba9eb27042,3722420f-3c20-57d2-9d05-4fba8d58fb5c,dc5594e0-503d-5cb4-be5a-4939564c97f2,47bdfc0a-1886-58de-853d-1b8518133b89,3415d192-2128-5646-9c4f-a4697dbdd4d0,35be6a3a-c5bd-5389-afd3-acdc692985d8,09330cd8-44e6-59f8-b521-a7d49b2ced2a,df9135ab-45a6-5967-81c7-ac3dd1213407,f3d93fb1-fe53-569c-83ac-932fb8fdb81a,1d59dd99-4991-5807-b296-04ff8ea95dd5,876fa855-fb0b-5279-9a76-63ba3291f45d}'::text[]))
+                                              Rows Removed by Filter: 47
+                                              Buffers: shared hit=9
+                    SubPlan 2
+                      ->  Nested Loop Anti Join  (cost=5.89..15.33 rows=72 width=37) (actual time=0.039..0.065 rows=73 loops=3)
+                            Join Filter: (vtd."projectId" = vtp.id)
+                            Buffers: shared hit=27
+                            ->  Hash Join  (cost=5.89..13.12 rows=73 width=74) (actual time=0.035..0.052 rows=73 loops=3)
+                                  Hash Cond: (vtp.id = vt.project_id)
+                                  Buffers: shared hit=24
+                                  ->  Seq Scan on linear_projects vtp  (cost=0.00..6.00 rows=100 width=37) (actual time=0.002..0.007 rows=100 loops=3)
+                                        Buffers: shared hit=15
+                                  ->  Hash  (cost=4.98..4.98 rows=73 width=74) (actual time=0.027..0.028 rows=73 loops=3)
+                                        Buckets: 1024  Batches: 1  Memory Usage: 16kB
+                                        Buffers: shared hit=9
+                                        ->  Seq Scan on teams vt  (cost=0.18..4.98 rows=73 width=74) (actual time=0.006..0.020 rows=73 loops=3)
+                                              Filter: (id = ANY ('{640ab33a-6324-5cfc-99a8-b5c054e9d44b,55cdeec3-b42c-5829-8fd2-334566c6ad2f,2fd5c247-16cc-5e54-a86d-3fa26d77bd75,e9bfea73-c337-5efc-9d49-30c400ad8ff6,8bb1d8bc-985d-513d-bee6-e7dc7d68dbf8,fa2ff604-d0b1-512d-8da7-5f0d48aa754a,ba8a70c3-1601-5989-9816-5d90ba01621f,0c2ebb9a-3a0a-5d3c-979f-d7da2e7e07ef,77b2b3f9-bb52-5d98-b676-7a12e19111f4,a8d71fb6-3c0a-5aed-944a-7a7f19616677,57ae8cf2-4809-510c-8b0d-104bbfa3252e,6fb9d12c-3461-5e91-8fd5-810ca899287f,371f9980-4978-53c2-b786-2c1d79701162,6ee0b0a2-e95c-57ae-b1be-64011e796a90,697eaa3d-1646-5f96-a85e-09c11115b72a,acbbe287-7962-52cf-ad07-cf3812995dc1,d0873d88-a864-5651-9c75-3d6b37961336,36c67fde-9562-5085-a7db-7bfd16ff18e9,eae690e2-7d51-51a5-bae7-35d4ce77ee9b,f9e359c7-dc9f-5027-a9af-84c02b975c7d,03ec871e-abdd-5571-9cf2-1f3051996d6d,36c101b9-24ba-5070-bf84-f470fb0db697,9b2e7e16-34f3-5b30-aaf1-01495ead5941,9f8be8e6-cf28-52ef-8ac9-42e4777ab2e0,f89e36ff-04be-5720-b9f8-0c103b8404a7,1fa4b963-832f-547c-af47-bfe3e376688a,eff78c03-1d4d-55d1-82b8-106f0c670fa5,15bdd605-6f07-5523-93a0-96c8548bdd5f,13e4c4df-1d3e-528d-8f83-16320acd18e5,872de959-7b22-54ea-b627-2932f4cb3af7,08f3a61b-8c7c-5933-9fcf-e651a1f941a5,253e6f00-7a65-59b8-b796-cff3ac0f3f24,15c69648-485c-549b-b32c-96cca030d6b3,066911a4-9f0a-557f-8031-bae7bbb47970,00da905c-11db-569b-bd25-84f39f6de849,a32e908f-9228-5e0a-b69d-53e9019846eb,e5a7dd03-e393-579a-9e3f-b7254e94ee18,03d4607b-ba78-562b-b211-44a0b3751b3a,4138497d-bd26-56c2-8782-2ecf444aac2b,500a5ed7-40cc-5c0a-be6b-a447dcb293f3,60f78538-1f67-586b-8e62-f205f903d874,774526e9-ab02-5cc5-94e2-56ee030712de,11b2b46b-1cfc-56da-8407-081db72af17a,5f390542-70f9-5ea5-afd1-679636058681,692056c0-aa1f-5f48-b954-ab58a0286d83,eb9aa63b-5d15-531c-a73b-5e11959916a1,4934ca4a-2975-53af-a760-2f9507628c78,ea6c7f2a-e920-56ac-9b10-2fd5f37c43bd,d6232937-9b5f-5cd3-b379-ff4ca9bf5353,ca33f3a6-2921-5f74-ae58-86122d10ada6,f24e14e8-8b0c-50f6-a38c-1c027feadd08,fb70017a-b8a5-59a5-bad8-3d5897505d93,604e6c0b-2dee-5333-8e13-a89126533aa3,48886b91-a5ae-588c-8bf9-f405a20f07bf,1e3a1e6a-07e2-50ec-bc1b-189b944391dc,0f7d0168-b2e7-59c1-a28d-da7f1119bca5,ff07cb79-0422-53ee-b52d-3b7463ab5628,160c43d8-e8ce-58c3-a986-108dc31e357f,783fb2bc-ab13-5cd1-861a-ca25105a8cfb,f7b9a3a0-255b-5d2d-897a-159a68fc0b56,f5d35193-4870-53ee-a837-49b007db9c63,b0666444-ffff-58b9-b537-fb2267f8294f,ee6488fb-6341-5dfd-b034-91ba9eb27042,3722420f-3c20-57d2-9d05-4fba8d58fb5c,dc5594e0-503d-5cb4-be5a-4939564c97f2,47bdfc0a-1886-58de-853d-1b8518133b89,3415d192-2128-5646-9c4f-a4697dbdd4d0,35be6a3a-c5bd-5389-afd3-acdc692985d8,09330cd8-44e6-59f8-b521-a7d49b2ced2a,df9135ab-45a6-5967-81c7-ac3dd1213407,f3d93fb1-fe53-569c-83ac-932fb8fdb81a,1d59dd99-4991-5807-b296-04ff8ea95dd5,876fa855-fb0b-5279-9a76-63ba3291f45d}'::text[]))
+                                              Rows Removed by Filter: 47
+                                              Buffers: shared hit=9
+                            ->  Materialize  (cost=0.00..1.11 rows=1 width=37) (actual time=0.000..0.000 rows=0 loops=219)
+                                  Buffers: shared hit=3
+                                  ->  Seq Scan on project_access vtd  (cost=0.00..1.10 rows=1 width=37) (actual time=0.002..0.002 rows=0 loops=3)
+                                        Filter: (("userId" = 'ca7a9726-9ef8-5a44-88c9-059f3d6c53d1'::text) AND (permission = 'deny'::project_permissions))
+                                        Rows Removed by Filter: 7
+                                        Buffers: shared hit=3
+Planning:
+  Buffers: shared hit=46
+Planning Time: 0.947 ms
+Execution Time: 13.202 ms
+

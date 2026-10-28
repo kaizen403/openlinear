@@ -1,0 +1,277 @@
+# task.patch: PATCH /api/tasks/<uuid>
+# label=baseline status=200 statements: cold=24 warm=19 (+5 after the response) fixture=50000 tasks
+
+## statement 1 (select, 0.73 ms)
+SELECT "public"."tasks"."id", "public"."tasks"."teamId", "public"."tasks"."projectId", "public"."tasks"."creatorId", "public"."tasks"."archived", "public"."tasks"."status"::text
+  FROM "public"."tasks"
+  WHERE ("public"."tasks"."id" = $1 AND 1=1)
+  LIMIT $2
+  OFFSET $3
+
+Limit  (cost=0.41..8.44 rows=1 width=181) (actual time=0.034..0.034 rows=1 loops=1)
+  Buffers: shared hit=6
+  ->  Index Scan using tasks_pkey on tasks  (cost=0.41..8.44 rows=1 width=181) (actual time=0.032..0.032 rows=1 loops=1)
+        Index Cond: (id = 'b23d0f7a-111e-50cf-96a4-3ff783c1e88a'::text)
+        Buffers: shared hit=6
+Planning Time: 0.122 ms
+Execution Time: 0.050 ms
+
+## statement 2 (select, 0.29 ms)
+SELECT "public"."linear_projects"."id", "public"."linear_projects"."workspaceId"
+  FROM "public"."linear_projects"
+  WHERE ("public"."linear_projects"."id" = $1 AND 1=1)
+  LIMIT $2
+  OFFSET $3
+
+Limit  (cost=0.00..6.25 rows=1 width=74) (actual time=0.008..0.009 rows=1 loops=1)
+  Buffers: shared hit=1
+  ->  Seq Scan on linear_projects  (cost=0.00..6.25 rows=1 width=74) (actual time=0.008..0.008 rows=1 loops=1)
+        Filter: (id = '048d04ab-beb1-59af-b381-7196b31ece05'::text)
+        Rows Removed by Filter: 5
+        Buffers: shared hit=1
+Planning Time: 0.039 ms
+Execution Time: 0.013 ms
+
+## statement 3 (select, 0.31 ms)
+SELECT "public"."workspaces"."id"
+  FROM "public"."workspaces"
+  WHERE "public"."workspaces"."id" = $1
+  OFFSET $2
+
+Seq Scan on workspaces  (cost=0.00..1.04 rows=1 width=37) (actual time=0.004..0.004 rows=1 loops=1)
+  Filter: (id = '344e88d7-ee0a-5dac-9bdb-0ae1d040a1fa'::text)
+  Rows Removed by Filter: 2
+  Buffers: shared hit=1
+Planning Time: 0.023 ms
+Execution Time: 0.007 ms
+
+## statement 4 (select, 0.42 ms)
+SELECT "public"."project_access"."id", "public"."project_access"."permission"::text, "public"."project_access"."projectId"
+  FROM "public"."project_access"
+  WHERE ("public"."project_access"."userId" = $1 AND "public"."project_access"."projectId" = $2)
+  ORDER BY "public"."project_access"."id" ASC
+  LIMIT $3
+  OFFSET $4
+
+Limit  (cost=1.12..1.12 rows=1 width=106) (actual time=0.007..0.007 rows=0 loops=1)
+  Buffers: shared hit=1
+  ->  Sort  (cost=1.12..1.12 rows=1 width=106) (actual time=0.007..0.007 rows=0 loops=1)
+        Sort Key: id
+        Sort Method: quicksort  Memory: 25kB
+        Buffers: shared hit=1
+        ->  Seq Scan on project_access  (cost=0.00..1.11 rows=1 width=106) (actual time=0.004..0.004 rows=0 loops=1)
+              Filter: (("userId" = 'ca7a9726-9ef8-5a44-88c9-059f3d6c53d1'::text) AND ("projectId" = '048d04ab-beb1-59af-b381-7196b31ece05'::text))
+              Rows Removed by Filter: 7
+              Buffers: shared hit=1
+Planning:
+  Buffers: shared hit=3
+Planning Time: 0.062 ms
+Execution Time: 0.013 ms
+
+## statement 5 (select, 0.42 ms)
+SELECT "public"."teams"."id", "public"."teams"."project_id"
+  FROM "public"."teams"
+  WHERE "public"."teams"."project_id" = $1
+  OFFSET $2
+
+Seq Scan on teams  (cost=0.00..4.50 rows=2 width=74) (actual time=0.005..0.020 rows=2 loops=1)
+  Filter: (project_id = '048d04ab-beb1-59af-b381-7196b31ece05'::text)
+  Rows Removed by Filter: 118
+  Buffers: shared hit=3
+Planning Time: 0.034 ms
+Execution Time: 0.023 ms
+
+## statement 6 (select, 0.39 ms)
+SELECT "public"."workspace_members"."id", "public"."workspace_members"."role"::text, "public"."workspace_members"."workspaceId"
+  FROM "public"."workspace_members"
+  WHERE ("public"."workspace_members"."userId" = $1 AND "public"."workspace_members"."workspaceId" IN ($2))
+  ORDER BY "public"."workspace_members"."id" ASC
+  OFFSET $3
+
+Sort  (cost=3.45..3.46 rows=1 width=106) (actual time=0.015..0.016 rows=1 loops=1)
+  Sort Key: id
+  Sort Method: quicksort  Memory: 25kB
+  Buffers: shared hit=2
+  ->  Seq Scan on workspace_members  (cost=0.00..3.44 rows=1 width=106) (actual time=0.005..0.013 rows=1 loops=1)
+        Filter: (("userId" = 'ca7a9726-9ef8-5a44-88c9-059f3d6c53d1'::text) AND ("workspaceId" = '344e88d7-ee0a-5dac-9bdb-0ae1d040a1fa'::text))
+        Rows Removed by Filter: 95
+        Buffers: shared hit=2
+Planning Time: 0.035 ms
+Execution Time: 0.019 ms
+
+## statement 7 (select, 0.4 ms)
+SELECT "public"."tasks"."id", "public"."tasks"."assigneeId", "public"."tasks"."creatorId", "public"."tasks"."title"
+  FROM "public"."tasks"
+  WHERE ("public"."tasks"."id" = $1 AND 1=1)
+  LIMIT $2
+  OFFSET $3
+
+Limit  (cost=0.41..8.43 rows=1 width=157) (actual time=0.007..0.007 rows=1 loops=1)
+  Buffers: shared hit=6
+  ->  Index Scan using tasks_pkey on tasks  (cost=0.41..8.43 rows=1 width=157) (actual time=0.007..0.007 rows=1 loops=1)
+        Index Cond: (id = 'b23d0f7a-111e-50cf-96a4-3ff783c1e88a'::text)
+        Buffers: shared hit=6
+Planning Time: 0.027 ms
+Execution Time: 0.011 ms
+
+## statement 8 (write, 0.76 ms)
+UPDATE "public"."tasks" SET "priority" = CAST($1::text AS "public"."Priority"), "updatedAt" = $2
+  WHERE ("public"."tasks"."id" = $3 AND 1=1) RETURNING "public"."tasks"."id", "public"."tasks"."title", "public"."tasks"."description", "public"."tasks"."priority"::text, "public"."tasks"."status"::text, "public"."tasks"."sessionId", "public"."tasks"."createdAt", "public"."tasks"."updatedAt", "public"."tasks"."executionStartedAt", "public"."tasks"."executionPausedAt", "public"."tasks"."executionElapsedMs", "public"."tasks"."executionProgress", "public"."tasks"."prUrl", "public"."tasks"."outcome", "public"."tasks"."executionLogs", "public"."tasks"."archived", "public"."tasks"."inboxRead", "public"."tasks"."batchId", "public"."tasks"."teamId", "public"."tasks"."projectId", "public"."tasks"."workspaceId", "public"."tasks"."number", "public"."tasks"."identifier", "public"."tasks"."dueDate", "public"."tasks"."model", "public"."tasks"."agent", "public"."tasks"."assigneeId", "public"."tasks"."creatorId", "public"."tasks"."parentId"
+
+## statement 9 (select, 0.39 ms)
+SELECT "public"."tasks"."id", "public"."tasks"."title", "public"."tasks"."description", "public"."tasks"."priority"::text, "public"."tasks"."status"::text, "public"."tasks"."sessionId", "public"."tasks"."createdAt", "public"."tasks"."updatedAt", "public"."tasks"."executionStartedAt", "public"."tasks"."executionPausedAt", "public"."tasks"."executionElapsedMs", "public"."tasks"."executionProgress", "public"."tasks"."prUrl", "public"."tasks"."outcome", "public"."tasks"."executionLogs", "public"."tasks"."archived", "public"."tasks"."inboxRead", "public"."tasks"."batchId", "public"."tasks"."teamId", "public"."tasks"."projectId", "public"."tasks"."workspaceId", "public"."tasks"."number", "public"."tasks"."identifier", "public"."tasks"."dueDate", "public"."tasks"."model", "public"."tasks"."agent", "public"."tasks"."assigneeId", "public"."tasks"."creatorId", "public"."tasks"."parentId"
+  FROM "public"."tasks"
+  WHERE "public"."tasks"."id" = $1
+  LIMIT $2
+  OFFSET $3
+
+Limit  (cost=0.41..8.44 rows=1 width=1318) (actual time=0.006..0.006 rows=1 loops=1)
+  Buffers: shared hit=6
+  ->  Index Scan using tasks_pkey on tasks  (cost=0.41..8.44 rows=1 width=1318) (actual time=0.006..0.006 rows=1 loops=1)
+        Index Cond: (id = 'b23d0f7a-111e-50cf-96a4-3ff783c1e88a'::text)
+        Buffers: shared hit=6
+Planning Time: 0.033 ms
+Execution Time: 0.016 ms
+
+## statement 10 (select, 0.41 ms)
+SELECT "public"."task_labels"."taskId", "public"."task_labels"."labelId"
+  FROM "public"."task_labels"
+  WHERE "public"."task_labels"."taskId" = $1
+  OFFSET $2
+
+Index Only Scan using task_labels_pkey on task_labels  (cost=0.41..4.45 rows=2 width=74) (actual time=0.016..0.017 rows=1 loops=1)
+  Index Cond: ("taskId" = 'b23d0f7a-111e-50cf-96a4-3ff783c1e88a'::text)
+  Heap Fetches: 0
+  Buffers: shared hit=4
+Planning Time: 0.029 ms
+Execution Time: 0.022 ms
+
+## statement 11 (select, 0.55 ms)
+SELECT "public"."teams"."id", "public"."teams"."name", "public"."teams"."key", "public"."teams"."color"
+  FROM "public"."teams"
+  WHERE "public"."teams"."id" = $1
+  OFFSET $2
+
+Seq Scan on teams  (cost=0.00..4.50 rows=1 width=56) (actual time=0.005..0.011 rows=1 loops=1)
+  Filter: (id = '6fb9d12c-3461-5e91-8fd5-810ca899287f'::text)
+  Rows Removed by Filter: 119
+  Buffers: shared hit=3
+Planning Time: 0.024 ms
+Execution Time: 0.015 ms
+
+## statement 12 (select, 0.73 ms)
+SELECT "public"."linear_projects"."id", "public"."linear_projects"."name", "public"."linear_projects"."status"::text, "public"."linear_projects"."color"
+  FROM "public"."linear_projects"
+  WHERE "public"."linear_projects"."id" = $1
+  OFFSET $2
+
+Seq Scan on linear_projects  (cost=0.00..6.25 rows=1 width=96) (actual time=0.003..0.036 rows=1 loops=1)
+  Filter: (id = '048d04ab-beb1-59af-b381-7196b31ece05'::text)
+  Rows Removed by Filter: 99
+  Buffers: shared hit=5
+Planning Time: 0.017 ms
+Execution Time: 0.039 ms
+
+## statement 13 (select, 1.18 ms)
+SELECT "public"."users"."id", "public"."users"."username", "public"."users"."avatarUrl"
+  FROM "public"."users"
+  WHERE "public"."users"."id" = $1
+  OFFSET $2
+
+Seq Scan on users  (cost=0.00..3.00 rows=1 width=82) (actual time=0.004..0.009 rows=1 loops=1)
+  Filter: (id = 'a6b87721-af57-5926-91b7-07c87c7e660d'::text)
+  Rows Removed by Filter: 79
+  Buffers: shared hit=2
+Planning Time: 0.029 ms
+Execution Time: 0.012 ms
+
+## statement 14 (select, 1.31 ms)
+SELECT "public"."users"."id", "public"."users"."username", "public"."users"."avatarUrl"
+  FROM "public"."users"
+  WHERE "public"."users"."id" = $1
+  OFFSET $2
+
+Seq Scan on users  (cost=0.00..3.00 rows=1 width=82) (actual time=0.003..0.006 rows=1 loops=1)
+  Filter: (id = '739a4879-af70-5bcc-88d4-83e0178b63e7'::text)
+  Rows Removed by Filter: 79
+  Buffers: shared hit=2
+Planning Time: 0.013 ms
+Execution Time: 0.008 ms
+
+## statement 15 (select, 1.27 ms)
+SELECT "public"."labels"."id", "public"."labels"."name", "public"."labels"."color", "public"."labels"."priority", "public"."labels"."projectId"
+  FROM "public"."labels"
+  WHERE "public"."labels"."id" IN ($1)
+  OFFSET $2
+
+Index Scan using labels_pkey on labels  (cost=0.28..8.29 rows=1 width=95) (actual time=0.010..0.010 rows=1 loops=1)
+  Index Cond: (id = 'a4fcafea-9d1c-5d13-a132-28491ca3aa02'::text)
+  Buffers: shared hit=3
+Planning Time: 0.023 ms
+Execution Time: 0.013 ms
+
+## statement 16 (control, 0.41 ms)
+COMMIT
+
+## statement 17 (select, 0.18 ms)
+SELECT "public"."linear_projects"."id", "public"."linear_projects"."workspaceId"
+  FROM "public"."linear_projects"
+  WHERE ("public"."linear_projects"."id" = $1 AND 1=1)
+  LIMIT $2
+  OFFSET $3
+
+Limit  (cost=0.00..6.25 rows=1 width=74) (actual time=0.002..0.002 rows=1 loops=1)
+  Buffers: shared hit=1
+  ->  Seq Scan on linear_projects  (cost=0.00..6.25 rows=1 width=74) (actual time=0.002..0.002 rows=1 loops=1)
+        Filter: (id = '048d04ab-beb1-59af-b381-7196b31ece05'::text)
+        Rows Removed by Filter: 5
+        Buffers: shared hit=1
+Planning Time: 0.013 ms
+Execution Time: 0.005 ms
+
+## statement 18 (write, 0.7 ms)
+INSERT INTO "public"."activity_logs" ("id","taskId","projectId","teamId","userId","action","payload","createdAt") VALUES ($1,$2,$3,$4,$5,CAST($6::text AS "public"."activity_actions"),$7,$8) RETURNING "public"."activity_logs"."id", "public"."activity_logs"."taskId", "public"."activity_logs"."projectId", "public"."activity_logs"."teamId", "public"."activity_logs"."userId", "public"."activity_logs"."action"::text, "public"."activity_logs"."payload", "public"."activity_logs"."createdAt"
+
+## statement 19 (write, 0.69 ms)
+INSERT INTO "public"."domain_events" ("type","occurred_at","actor_id","workspace_id","payload","user_ids","team_ids","workspace_ids","resource_type","project_id","created_at") VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING "public"."domain_events"."id", "public"."domain_events"."type", "public"."domain_events"."occurred_at", "public"."domain_events"."actor_id", "public"."domain_events"."workspace_id", "public"."domain_events"."payload", "public"."domain_events"."user_ids", "public"."domain_events"."team_ids", "public"."domain_events"."workspace_ids", "public"."domain_events"."resource_type", "public"."domain_events"."project_id", "public"."domain_events"."published_at", "public"."domain_events"."created_at"
+
+## statement 20 (select, 0.63 ms, after the response)
+SELECT "public"."teams"."id", "public"."teams"."project_id"
+  FROM "public"."teams"
+  WHERE ("public"."teams"."id" = $1 AND 1=1)
+  LIMIT $2
+  OFFSET $3
+
+Limit  (cost=0.00..4.50 rows=1 width=74) (actual time=0.003..0.003 rows=1 loops=1)
+  Buffers: shared hit=1
+  ->  Seq Scan on teams  (cost=0.00..4.50 rows=1 width=74) (actual time=0.003..0.003 rows=1 loops=1)
+        Filter: (id = '6fb9d12c-3461-5e91-8fd5-810ca899287f'::text)
+        Rows Removed by Filter: 10
+        Buffers: shared hit=1
+Planning Time: 0.013 ms
+Execution Time: 0.005 ms
+
+## statement 21 (select, 0.2 ms, after the response)
+SELECT "public"."linear_projects"."id", "public"."linear_projects"."workspaceId"
+  FROM "public"."linear_projects"
+  WHERE "public"."linear_projects"."id" = $1
+  OFFSET $2
+
+Seq Scan on linear_projects  (cost=0.00..6.25 rows=1 width=74) (actual time=0.002..0.008 rows=1 loops=1)
+  Filter: (id = '048d04ab-beb1-59af-b381-7196b31ece05'::text)
+  Rows Removed by Filter: 99
+  Buffers: shared hit=5
+Planning Time: 0.010 ms
+Execution Time: 0.010 ms
+
+## statement 22 (write, 0.84 ms, after the response)
+UPDATE "public"."domain_events" SET "published_at" = $1
+  WHERE ("public"."domain_events"."id" = $2 AND 1=1) RETURNING "public"."domain_events"."id", "public"."domain_events"."type", "public"."domain_events"."occurred_at", "public"."domain_events"."actor_id", "public"."domain_events"."workspace_id", "public"."domain_events"."payload", "public"."domain_events"."user_ids", "public"."domain_events"."team_ids", "public"."domain_events"."workspace_ids", "public"."domain_events"."resource_type", "public"."domain_events"."project_id", "public"."domain_events"."published_at", "public"."domain_events"."created_at"
+
+## statement 23 (write, 0.3 ms, after the response)
+INSERT INTO "public"."domain_events" ("type","occurred_at","actor_id","workspace_id","payload","user_ids","team_ids","workspace_ids","resource_type","project_id","created_at") VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING "public"."domain_events"."id", "public"."domain_events"."type", "public"."domain_events"."occurred_at", "public"."domain_events"."actor_id", "public"."domain_events"."workspace_id", "public"."domain_events"."payload", "public"."domain_events"."user_ids", "public"."domain_events"."team_ids", "public"."domain_events"."workspace_ids", "public"."domain_events"."resource_type", "public"."domain_events"."project_id", "public"."domain_events"."published_at", "public"."domain_events"."created_at"
+
+## statement 24 (write, 0.27 ms, after the response)
+UPDATE "public"."domain_events" SET "published_at" = $1
+  WHERE ("public"."domain_events"."id" = $2 AND 1=1) RETURNING "public"."domain_events"."id", "public"."domain_events"."type", "public"."domain_events"."occurred_at", "public"."domain_events"."actor_id", "public"."domain_events"."workspace_id", "public"."domain_events"."payload", "public"."domain_events"."user_ids", "public"."domain_events"."team_ids", "public"."domain_events"."workspace_ids", "public"."domain_events"."resource_type", "public"."domain_events"."project_id", "public"."domain_events"."published_at", "public"."domain_events"."created_at"
+

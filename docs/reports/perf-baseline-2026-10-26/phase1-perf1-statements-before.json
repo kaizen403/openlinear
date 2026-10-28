@@ -1,0 +1,1025 @@
+{
+ "label": "before",
+ "tenancyCache": "on",
+ "generatedAt": "2026-10-26T08:09:14.167Z",
+ "fixture": {
+  "users": 80,
+  "workspaces": 3,
+  "workspace_members": 96,
+  "projects": 100,
+  "teams": 120,
+  "team_members": 2154,
+  "labels": 654,
+  "project_access": 7,
+  "tasks": 50000,
+  "activity_logs": 336648,
+  "comments": 102683,
+  "agent_runs": 33941,
+  "task_labels": 54600,
+  "task_assignees": 11231,
+  "notifications": 12900,
+  "chat_sessions": 191,
+  "chat_messages": 9833,
+  "mcp_tool_calls": 20000,
+  "audit_logs": 5000
+ },
+ "routes": [
+  {
+   "name": "activity.feed",
+   "path": "/api/activity?pageSize=50",
+   "auth": "jwt",
+   "calls": [
+    {
+     "status": 200,
+     "bytes": 22642,
+     "statements": 10,
+     "dbMs": 232.01,
+     "repeats": 1,
+     "list": [
+      "SELECT sessions",
+      "SELECT workspace_members",
+      "SELECT project_access",
+      "SELECT team_members",
+      "UPDATE sessions",
+      "COMMIT",
+      "SELECT activity_logs,linear_projects,workspaces,teams,project_access,workspace_members",
+      "SELECT users",
+      "SELECT activity_logs,linear_projects,workspaces,teams,project_access,workspace_members",
+      "COMMIT"
+     ]
+    },
+    {
+     "status": 200,
+     "bytes": 22642,
+     "statements": 4,
+     "dbMs": 165.81,
+     "repeats": 0,
+     "list": [
+      "SELECT activity_logs,linear_projects,workspaces,teams,project_access,workspace_members",
+      "SELECT users",
+      "SELECT activity_logs,linear_projects,workspaces,teams,project_access,workspace_members",
+      "COMMIT"
+     ]
+    },
+    {
+     "status": 200,
+     "bytes": 22642,
+     "statements": 4,
+     "dbMs": 171.72,
+     "repeats": 0,
+     "list": [
+      "SELECT activity_logs,linear_projects,workspaces,teams,project_access,workspace_members",
+      "SELECT users",
+      "SELECT activity_logs,linear_projects,workspaces,teams,project_access,workspace_members",
+      "COMMIT"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "activity.project",
+   "path": "/api/activity?pageSize=50&projectId=<uuid>",
+   "auth": "jwt",
+   "calls": [
+    {
+     "status": 200,
+     "bytes": 23115,
+     "statements": 9,
+     "dbMs": 6.33,
+     "repeats": 0,
+     "list": [
+      "SELECT linear_projects",
+      "SELECT project_access",
+      "SELECT workspaces",
+      "SELECT teams",
+      "SELECT workspace_members",
+      "SELECT activity_logs",
+      "SELECT users",
+      "SELECT activity_logs",
+      "COMMIT"
+     ]
+    },
+    {
+     "status": 200,
+     "bytes": 23115,
+     "statements": 9,
+     "dbMs": 6.69,
+     "repeats": 0,
+     "list": [
+      "SELECT linear_projects",
+      "SELECT workspaces",
+      "SELECT teams",
+      "SELECT project_access",
+      "SELECT workspace_members",
+      "SELECT activity_logs",
+      "SELECT users",
+      "SELECT activity_logs",
+      "COMMIT"
+     ]
+    },
+    {
+     "status": 200,
+     "bytes": 23115,
+     "statements": 9,
+     "dbMs": 5.48,
+     "repeats": 0,
+     "list": [
+      "SELECT linear_projects",
+      "SELECT workspaces",
+      "SELECT project_access",
+      "SELECT teams",
+      "SELECT workspace_members",
+      "SELECT activity_logs",
+      "SELECT users",
+      "SELECT activity_logs",
+      "COMMIT"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "activity.task",
+   "path": "/api/activity?pageSize=50&taskId=<uuid>",
+   "auth": "jwt",
+   "calls": [
+    {
+     "status": 200,
+     "bytes": 5127,
+     "statements": 10,
+     "dbMs": 15.45,
+     "repeats": 0,
+     "list": [
+      "SELECT tasks",
+      "SELECT linear_projects",
+      "SELECT project_access",
+      "SELECT workspaces",
+      "SELECT teams",
+      "SELECT workspace_members",
+      "SELECT activity_logs",
+      "SELECT users",
+      "SELECT activity_logs",
+      "COMMIT"
+     ]
+    },
+    {
+     "status": 200,
+     "bytes": 5127,
+     "statements": 10,
+     "dbMs": 2.52,
+     "repeats": 0,
+     "list": [
+      "SELECT tasks",
+      "SELECT linear_projects",
+      "SELECT project_access",
+      "SELECT workspaces",
+      "SELECT workspace_members",
+      "SELECT teams",
+      "SELECT activity_logs",
+      "SELECT users",
+      "SELECT activity_logs",
+      "COMMIT"
+     ]
+    },
+    {
+     "status": 200,
+     "bytes": 5127,
+     "statements": 10,
+     "dbMs": 2.09,
+     "repeats": 0,
+     "list": [
+      "SELECT tasks",
+      "SELECT linear_projects",
+      "SELECT project_access",
+      "SELECT workspaces",
+      "SELECT teams",
+      "SELECT workspace_members",
+      "SELECT activity_logs",
+      "SELECT users",
+      "SELECT activity_logs",
+      "COMMIT"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "usage.summary",
+   "path": "/api/usage/summary",
+   "auth": "jwt",
+   "calls": [
+    {
+     "status": 200,
+     "bytes": 2529,
+     "statements": 3,
+     "dbMs": 92.4,
+     "repeats": 0,
+     "list": [
+      "SELECT team_members",
+      "SELECT agent_runs,tasks,linear_projects,workspaces,teams,project_access,workspace_members",
+      "SELECT agent_runs,tasks,linear_projects,workspaces,teams,project_access,workspace_members"
+     ]
+    },
+    {
+     "status": 200,
+     "bytes": 2529,
+     "statements": 3,
+     "dbMs": 74.52,
+     "repeats": 0,
+     "list": [
+      "SELECT team_members",
+      "SELECT agent_runs,tasks,linear_projects,workspaces,teams,project_access,workspace_members",
+      "SELECT agent_runs,tasks,linear_projects,workspaces,teams,project_access,workspace_members"
+     ]
+    },
+    {
+     "status": 200,
+     "bytes": 2529,
+     "statements": 3,
+     "dbMs": 76.57,
+     "repeats": 0,
+     "list": [
+      "SELECT team_members",
+      "SELECT agent_runs,tasks,linear_projects,workspaces,teams,project_access,workspace_members",
+      "SELECT agent_runs,tasks,linear_projects,workspaces,teams,project_access,workspace_members"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "usage.by-task",
+   "path": "/api/usage/by-task?sort=cost&pageSize=25",
+   "auth": "jwt",
+   "calls": [
+    {
+     "status": 200,
+     "bytes": 9257,
+     "statements": 4,
+     "dbMs": 62.66,
+     "repeats": 0,
+     "list": [
+      "SELECT team_members",
+      "SELECT agent_runs,tasks,linear_projects,workspaces,teams,project_access,workspace_members",
+      "SELECT agent_runs,tasks,linear_projects,workspaces,teams,project_access,workspace_members",
+      "SELECT tasks"
+     ]
+    },
+    {
+     "status": 200,
+     "bytes": 9257,
+     "statements": 4,
+     "dbMs": 68.02,
+     "repeats": 0,
+     "list": [
+      "SELECT team_members",
+      "SELECT agent_runs,tasks,linear_projects,workspaces,teams,project_access,workspace_members",
+      "SELECT agent_runs,tasks,linear_projects,workspaces,teams,project_access,workspace_members",
+      "SELECT tasks"
+     ]
+    },
+    {
+     "status": 200,
+     "bytes": 9257,
+     "statements": 4,
+     "dbMs": 64.56,
+     "repeats": 0,
+     "list": [
+      "SELECT team_members",
+      "SELECT agent_runs,tasks,linear_projects,workspaces,teams,project_access,workspace_members",
+      "SELECT agent_runs,tasks,linear_projects,workspaces,teams,project_access,workspace_members",
+      "SELECT tasks"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "dashboard.tasks",
+   "path": "/api/dashboard/tasks",
+   "auth": "jwt",
+   "calls": [
+    {
+     "status": 200,
+     "bytes": 191,
+     "statements": 6,
+     "dbMs": 196.33,
+     "repeats": 0,
+     "list": [
+      "SELECT tasks,linear_projects,workspaces,teams,project_access,workspace_members",
+      "SELECT tasks,linear_projects,workspaces,teams,project_access,workspace_members",
+      "SELECT tasks,linear_projects,workspaces,teams,project_access,workspace_members",
+      "SELECT tasks,linear_projects,workspaces,teams,project_access,workspace_members",
+      "SELECT tasks,linear_projects,workspaces,teams,project_access,workspace_members",
+      "SELECT tasks,linear_projects,workspaces,teams,project_access,workspace_members"
+     ]
+    },
+    {
+     "status": 200,
+     "bytes": 191,
+     "statements": 6,
+     "dbMs": 186.99,
+     "repeats": 0,
+     "list": [
+      "SELECT tasks,linear_projects,workspaces,teams,project_access,workspace_members",
+      "SELECT tasks,linear_projects,workspaces,teams,project_access,workspace_members",
+      "SELECT tasks,linear_projects,workspaces,teams,project_access,workspace_members",
+      "SELECT tasks,linear_projects,workspaces,teams,project_access,workspace_members",
+      "SELECT tasks,linear_projects,workspaces,teams,project_access,workspace_members",
+      "SELECT tasks,linear_projects,workspaces,teams,project_access,workspace_members"
+     ]
+    },
+    {
+     "status": 200,
+     "bytes": 191,
+     "statements": 6,
+     "dbMs": 115.65,
+     "repeats": 0,
+     "list": [
+      "SELECT tasks,linear_projects,workspaces,teams,project_access,workspace_members",
+      "SELECT tasks,linear_projects,workspaces,teams,project_access,workspace_members",
+      "SELECT tasks,linear_projects,workspaces,teams,project_access,workspace_members",
+      "SELECT tasks,linear_projects,workspaces,teams,project_access,workspace_members",
+      "SELECT tasks,linear_projects,workspaces,teams,project_access,workspace_members",
+      "SELECT tasks,linear_projects,workspaces,teams,project_access,workspace_members"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "dashboard.projects",
+   "path": "/api/dashboard/projects",
+   "auth": "jwt",
+   "calls": [
+    {
+     "status": 200,
+     "bytes": 4458,
+     "statements": 4,
+     "dbMs": 91.84,
+     "repeats": 0,
+     "list": [
+      "SELECT linear_projects,workspaces,project_access,workspace_members,teams",
+      "SELECT linear_projects,workspaces,project_access,workspace_members,teams",
+      "SELECT linear_projects,tasks,workspaces,project_access,workspace_members,teams",
+      "SELECT tasks"
+     ]
+    },
+    {
+     "status": 200,
+     "bytes": 4458,
+     "statements": 4,
+     "dbMs": 12.9,
+     "repeats": 0,
+     "list": [
+      "SELECT linear_projects,workspaces,project_access,workspace_members,teams",
+      "SELECT linear_projects,workspaces,project_access,workspace_members,teams",
+      "SELECT linear_projects,tasks,workspaces,project_access,workspace_members,teams",
+      "SELECT tasks"
+     ]
+    },
+    {
+     "status": 200,
+     "bytes": 4458,
+     "statements": 4,
+     "dbMs": 16.17,
+     "repeats": 0,
+     "list": [
+      "SELECT linear_projects,workspaces,project_access,workspace_members,teams",
+      "SELECT linear_projects,workspaces,project_access,workspace_members,teams",
+      "SELECT linear_projects,tasks,workspaces,project_access,workspace_members,teams",
+      "SELECT tasks"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "inbox.list",
+   "path": "/api/inbox?pageSize=50",
+   "auth": "jwt",
+   "calls": [
+    {
+     "status": 200,
+     "bytes": 127262,
+     "statements": 7,
+     "dbMs": 64.15,
+     "repeats": 0,
+     "list": [
+      "SELECT tasks,linear_projects,workspaces,teams,project_access,workspace_members",
+      "SELECT task_labels",
+      "SELECT teams",
+      "SELECT linear_projects",
+      "SELECT labels",
+      "SELECT tasks,linear_projects,workspaces,teams,project_access,workspace_members",
+      "COMMIT"
+     ]
+    },
+    {
+     "status": 200,
+     "bytes": 127262,
+     "statements": 7,
+     "dbMs": 37.57,
+     "repeats": 0,
+     "list": [
+      "SELECT tasks,linear_projects,workspaces,teams,project_access,workspace_members",
+      "SELECT task_labels",
+      "SELECT teams",
+      "SELECT linear_projects",
+      "SELECT labels",
+      "SELECT tasks,linear_projects,workspaces,teams,project_access,workspace_members",
+      "COMMIT"
+     ]
+    },
+    {
+     "status": 200,
+     "bytes": 127262,
+     "statements": 7,
+     "dbMs": 45.01,
+     "repeats": 0,
+     "list": [
+      "SELECT tasks,linear_projects,workspaces,teams,project_access,workspace_members",
+      "SELECT task_labels",
+      "SELECT teams",
+      "SELECT linear_projects",
+      "SELECT labels",
+      "SELECT tasks,linear_projects,workspaces,teams,project_access,workspace_members",
+      "COMMIT"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "inbox.count",
+   "path": "/api/inbox/count",
+   "auth": "jwt",
+   "calls": [
+    {
+     "status": 200,
+     "bytes": 29,
+     "statements": 2,
+     "dbMs": 22.26,
+     "repeats": 0,
+     "list": [
+      "SELECT tasks,linear_projects,workspaces,teams,project_access,workspace_members",
+      "SELECT tasks,linear_projects,workspaces,teams,project_access,workspace_members"
+     ]
+    },
+    {
+     "status": 200,
+     "bytes": 29,
+     "statements": 2,
+     "dbMs": 20.33,
+     "repeats": 0,
+     "list": [
+      "SELECT tasks,linear_projects,workspaces,teams,project_access,workspace_members",
+      "SELECT tasks,linear_projects,workspaces,teams,project_access,workspace_members"
+     ]
+    },
+    {
+     "status": 200,
+     "bytes": 29,
+     "statements": 2,
+     "dbMs": 20.78,
+     "repeats": 0,
+     "list": [
+      "SELECT tasks,linear_projects,workspaces,teams,project_access,workspace_members",
+      "SELECT tasks,linear_projects,workspaces,teams,project_access,workspace_members"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "notifications.page",
+   "path": "/api/notifications?pageSize=100",
+   "auth": "jwt",
+   "calls": [
+    {
+     "status": 200,
+     "bytes": 47267,
+     "statements": 5,
+     "dbMs": 60.36,
+     "repeats": 0,
+     "list": [
+      "SELECT notifications,tasks,linear_projects,workspaces,teams,project_access,workspace_members",
+      "SELECT users",
+      "SELECT notifications,tasks,linear_projects,workspaces,teams,project_access,workspace_members",
+      "SELECT notifications,tasks,linear_projects,workspaces,teams,project_access,workspace_members",
+      "COMMIT"
+     ]
+    },
+    {
+     "status": 200,
+     "bytes": 47267,
+     "statements": 5,
+     "dbMs": 59.23,
+     "repeats": 0,
+     "list": [
+      "SELECT notifications,tasks,linear_projects,workspaces,teams,project_access,workspace_members",
+      "SELECT users",
+      "SELECT notifications,tasks,linear_projects,workspaces,teams,project_access,workspace_members",
+      "SELECT notifications,tasks,linear_projects,workspaces,teams,project_access,workspace_members",
+      "COMMIT"
+     ]
+    },
+    {
+     "status": 200,
+     "bytes": 47267,
+     "statements": 5,
+     "dbMs": 75.7,
+     "repeats": 0,
+     "list": [
+      "SELECT notifications,tasks,linear_projects,workspaces,teams,project_access,workspace_members",
+      "SELECT users",
+      "SELECT notifications,tasks,linear_projects,workspaces,teams,project_access,workspace_members",
+      "SELECT notifications,tasks,linear_projects,workspaces,teams,project_access,workspace_members",
+      "COMMIT"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "workspaces.list",
+   "path": "/api/workspaces",
+   "auth": "jwt",
+   "calls": [
+    {
+     "status": 200,
+     "bytes": 654,
+     "statements": 6,
+     "dbMs": 3.22,
+     "repeats": 2,
+     "list": [
+      "SELECT workspace_members",
+      "SELECT workspaces",
+      "SELECT workspace_members",
+      "SELECT workspaces",
+      "SELECT workspace_members",
+      "SELECT workspaces,workspace_members,linear_projects"
+     ]
+    },
+    {
+     "status": 200,
+     "bytes": 654,
+     "statements": 6,
+     "dbMs": 2.64,
+     "repeats": 2,
+     "list": [
+      "SELECT workspace_members",
+      "SELECT workspaces",
+      "SELECT workspace_members",
+      "SELECT workspaces",
+      "SELECT workspace_members",
+      "SELECT workspaces,workspace_members,linear_projects"
+     ]
+    },
+    {
+     "status": 200,
+     "bytes": 654,
+     "statements": 6,
+     "dbMs": 3.67,
+     "repeats": 2,
+     "list": [
+      "SELECT workspace_members",
+      "SELECT workspaces",
+      "SELECT workspace_members",
+      "SELECT workspaces",
+      "SELECT workspace_members",
+      "SELECT workspaces,workspace_members,linear_projects"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "workspace.structure",
+   "path": "/api/workspaces/<uuid>/structure",
+   "auth": "jwt",
+   "calls": [
+    {
+     "status": 200,
+     "bytes": 760912,
+     "statements": 9,
+     "dbMs": 20.74,
+     "repeats": 0,
+     "list": [
+      "SELECT workspace_members",
+      "SELECT workspaces,workspace_members,linear_projects",
+      "SELECT workspace_members",
+      "SELECT users",
+      "SELECT linear_projects,tasks",
+      "SELECT repositories",
+      "SELECT teams,team_members,tasks",
+      "SELECT team_members",
+      "SELECT users"
+     ]
+    },
+    {
+     "status": 200,
+     "bytes": 760912,
+     "statements": 9,
+     "dbMs": 10.62,
+     "repeats": 0,
+     "list": [
+      "SELECT workspace_members",
+      "SELECT workspaces,workspace_members,linear_projects",
+      "SELECT workspace_members",
+      "SELECT users",
+      "SELECT linear_projects,tasks",
+      "SELECT repositories",
+      "SELECT teams,team_members,tasks",
+      "SELECT team_members",
+      "SELECT users"
+     ]
+    },
+    {
+     "status": 200,
+     "bytes": 760912,
+     "statements": 9,
+     "dbMs": 9.83,
+     "repeats": 0,
+     "list": [
+      "SELECT workspace_members",
+      "SELECT workspaces,workspace_members,linear_projects",
+      "SELECT workspace_members",
+      "SELECT users",
+      "SELECT linear_projects,tasks",
+      "SELECT repositories",
+      "SELECT teams,team_members,tasks",
+      "SELECT team_members",
+      "SELECT users"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "task.get",
+   "path": "/api/tasks/<uuid>",
+   "auth": "jwt",
+   "calls": [
+    {
+     "status": 200,
+     "bytes": 1387,
+     "statements": 13,
+     "dbMs": 14.78,
+     "repeats": 0,
+     "list": [
+      "SELECT tasks",
+      "SELECT linear_projects",
+      "SELECT project_access",
+      "SELECT workspaces",
+      "SELECT teams",
+      "SELECT workspace_members",
+      "SELECT tasks",
+      "SELECT linear_projects",
+      "SELECT teams",
+      "SELECT users",
+      "SELECT task_labels",
+      "SELECT users",
+      "SELECT labels"
+     ]
+    },
+    {
+     "status": 200,
+     "bytes": 1387,
+     "statements": 13,
+     "dbMs": 22.41,
+     "repeats": 0,
+     "list": [
+      "SELECT tasks",
+      "SELECT linear_projects",
+      "SELECT project_access",
+      "SELECT workspaces",
+      "SELECT teams",
+      "SELECT workspace_members",
+      "SELECT tasks",
+      "SELECT linear_projects",
+      "SELECT teams",
+      "SELECT users",
+      "SELECT task_labels",
+      "SELECT users",
+      "SELECT labels"
+     ]
+    },
+    {
+     "status": 200,
+     "bytes": 1387,
+     "statements": 13,
+     "dbMs": 4.52,
+     "repeats": 0,
+     "list": [
+      "SELECT tasks",
+      "SELECT linear_projects",
+      "SELECT project_access",
+      "SELECT teams",
+      "SELECT workspaces",
+      "SELECT workspace_members",
+      "SELECT tasks",
+      "SELECT teams",
+      "SELECT users",
+      "SELECT linear_projects",
+      "SELECT task_labels",
+      "SELECT users",
+      "SELECT labels"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "task.get.pat",
+   "path": "/api/tasks/<uuid>",
+   "auth": "pat",
+   "calls": [
+    {
+     "status": 200,
+     "bytes": 1387,
+     "statements": 19,
+     "dbMs": 33.73,
+     "repeats": 0,
+     "list": [
+      "SELECT personal_access_tokens",
+      "SELECT workspace_members",
+      "SELECT project_access",
+      "SELECT team_members",
+      "UPDATE personal_access_tokens",
+      "SELECT tasks",
+      "COMMIT",
+      "SELECT linear_projects",
+      "SELECT workspaces",
+      "SELECT project_access",
+      "SELECT teams",
+      "SELECT workspace_members",
+      "SELECT tasks",
+      "SELECT users",
+      "SELECT linear_projects",
+      "SELECT teams",
+      "SELECT users",
+      "SELECT task_labels",
+      "SELECT labels"
+     ]
+    },
+    {
+     "status": 200,
+     "bytes": 1387,
+     "statements": 14,
+     "dbMs": 6.09,
+     "repeats": 0,
+     "list": [
+      "SELECT personal_access_tokens",
+      "SELECT tasks",
+      "SELECT linear_projects",
+      "SELECT project_access",
+      "SELECT workspaces",
+      "SELECT teams",
+      "SELECT workspace_members",
+      "SELECT tasks",
+      "SELECT task_labels",
+      "SELECT users",
+      "SELECT teams",
+      "SELECT users",
+      "SELECT linear_projects",
+      "SELECT labels"
+     ]
+    },
+    {
+     "status": 200,
+     "bytes": 1387,
+     "statements": 14,
+     "dbMs": 7.03,
+     "repeats": 0,
+     "list": [
+      "SELECT personal_access_tokens",
+      "SELECT tasks",
+      "SELECT linear_projects",
+      "SELECT workspaces",
+      "SELECT project_access",
+      "SELECT teams",
+      "SELECT workspace_members",
+      "SELECT tasks",
+      "SELECT task_labels",
+      "SELECT teams",
+      "SELECT linear_projects",
+      "SELECT users",
+      "SELECT users",
+      "SELECT labels"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "task.comments",
+   "path": "/api/tasks/<uuid>/comments",
+   "auth": "jwt",
+   "calls": [
+    {
+     "status": 200,
+     "bytes": 4111,
+     "statements": 9,
+     "dbMs": 5.32,
+     "repeats": 0,
+     "list": [
+      "SELECT tasks",
+      "SELECT linear_projects",
+      "SELECT project_access",
+      "SELECT workspaces",
+      "SELECT teams",
+      "SELECT workspace_members",
+      "SELECT comments",
+      "SELECT comments",
+      "SELECT users"
+     ]
+    },
+    {
+     "status": 200,
+     "bytes": 4111,
+     "statements": 9,
+     "dbMs": 2.56,
+     "repeats": 0,
+     "list": [
+      "SELECT tasks",
+      "SELECT linear_projects",
+      "SELECT project_access",
+      "SELECT workspaces",
+      "SELECT teams",
+      "SELECT workspace_members",
+      "SELECT comments",
+      "SELECT comments",
+      "SELECT users"
+     ]
+    },
+    {
+     "status": 200,
+     "bytes": 4111,
+     "statements": 9,
+     "dbMs": 2.55,
+     "repeats": 0,
+     "list": [
+      "SELECT tasks",
+      "SELECT linear_projects",
+      "SELECT project_access",
+      "SELECT workspaces",
+      "SELECT teams",
+      "SELECT workspace_members",
+      "SELECT comments",
+      "SELECT comments",
+      "SELECT users"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "board.project-large",
+   "path": "/api/tasks?pageSize=50&projectId=<uuid>",
+   "auth": "jwt",
+   "calls": [
+    {
+     "status": 200,
+     "bytes": 110469,
+     "statements": 15,
+     "dbMs": 31.85,
+     "repeats": 0,
+     "list": [
+      "SELECT team_members",
+      "SELECT linear_projects",
+      "SELECT project_access",
+      "SELECT workspaces",
+      "SELECT teams",
+      "SELECT workspace_members",
+      "SELECT tasks,linear_projects,workspaces,teams,project_access,workspace_members",
+      "SELECT task_labels",
+      "SELECT teams",
+      "SELECT linear_projects",
+      "SELECT users",
+      "SELECT users",
+      "SELECT labels",
+      "SELECT tasks,linear_projects,workspaces,teams,project_access,workspace_members",
+      "COMMIT"
+     ]
+    },
+    {
+     "status": 200,
+     "bytes": 110469,
+     "statements": 15,
+     "dbMs": 11.11,
+     "repeats": 0,
+     "list": [
+      "SELECT team_members",
+      "SELECT linear_projects",
+      "SELECT project_access",
+      "SELECT workspaces",
+      "SELECT teams",
+      "SELECT workspace_members",
+      "SELECT tasks,linear_projects,workspaces,teams,project_access,workspace_members",
+      "SELECT task_labels",
+      "SELECT teams",
+      "SELECT linear_projects",
+      "SELECT users",
+      "SELECT users",
+      "SELECT labels",
+      "SELECT tasks,linear_projects,workspaces,teams,project_access,workspace_members",
+      "COMMIT"
+     ]
+    },
+    {
+     "status": 200,
+     "bytes": 110469,
+     "statements": 15,
+     "dbMs": 13.14,
+     "repeats": 0,
+     "list": [
+      "SELECT team_members",
+      "SELECT linear_projects",
+      "SELECT project_access",
+      "SELECT workspaces",
+      "SELECT teams",
+      "SELECT workspace_members",
+      "SELECT tasks,linear_projects,workspaces,teams,project_access,workspace_members",
+      "SELECT task_labels",
+      "SELECT teams",
+      "SELECT linear_projects",
+      "SELECT users",
+      "SELECT users",
+      "SELECT labels",
+      "SELECT tasks,linear_projects,workspaces,teams,project_access,workspace_members",
+      "COMMIT"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "board.project-large.pat",
+   "path": "/api/tasks?pageSize=50&projectId=<uuid>",
+   "auth": "pat",
+   "calls": [
+    {
+     "status": 200,
+     "bytes": 110469,
+     "statements": 16,
+     "dbMs": 14.21,
+     "repeats": 0,
+     "list": [
+      "SELECT personal_access_tokens",
+      "SELECT team_members",
+      "SELECT linear_projects",
+      "SELECT workspaces",
+      "SELECT project_access",
+      "SELECT teams",
+      "SELECT workspace_members",
+      "SELECT tasks,linear_projects,workspaces,teams,project_access,workspace_members",
+      "SELECT task_labels",
+      "SELECT teams",
+      "SELECT linear_projects",
+      "SELECT users",
+      "SELECT users",
+      "SELECT labels",
+      "SELECT tasks,linear_projects,workspaces,teams,project_access,workspace_members",
+      "COMMIT"
+     ]
+    },
+    {
+     "status": 200,
+     "bytes": 110469,
+     "statements": 16,
+     "dbMs": 15.95,
+     "repeats": 0,
+     "list": [
+      "SELECT personal_access_tokens",
+      "SELECT team_members",
+      "SELECT linear_projects",
+      "SELECT project_access",
+      "SELECT teams",
+      "SELECT workspaces",
+      "SELECT workspace_members",
+      "SELECT tasks,linear_projects,workspaces,teams,project_access,workspace_members",
+      "SELECT task_labels",
+      "SELECT teams",
+      "SELECT linear_projects",
+      "SELECT users",
+      "SELECT users",
+      "SELECT labels",
+      "SELECT tasks,linear_projects,workspaces,teams,project_access,workspace_members",
+      "COMMIT"
+     ]
+    },
+    {
+     "status": 200,
+     "bytes": 110469,
+     "statements": 16,
+     "dbMs": 10.57,
+     "repeats": 0,
+     "list": [
+      "SELECT personal_access_tokens",
+      "SELECT team_members",
+      "SELECT linear_projects",
+      "SELECT project_access",
+      "SELECT workspaces",
+      "SELECT teams",
+      "SELECT workspace_members",
+      "SELECT tasks,linear_projects,workspaces,teams,project_access,workspace_members",
+      "SELECT task_labels",
+      "SELECT teams",
+      "SELECT linear_projects",
+      "SELECT users",
+      "SELECT users",
+      "SELECT labels",
+      "SELECT tasks,linear_projects,workspaces,teams,project_access,workspace_members",
+      "COMMIT"
+     ]
+    }
+   ]
+  }
+ ]
+}

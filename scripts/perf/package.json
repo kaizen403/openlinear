@@ -1,0 +1,6 @@
+{
+  "name": "openlinear-perf-scripts",
+  "private": true,
+  "type": "module",
+  "description": "Local performance fixtures and benchmarks. Not a workspace package; run through the root perf:* scripts."
+}

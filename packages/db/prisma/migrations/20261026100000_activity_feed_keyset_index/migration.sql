@@ -1,0 +1,23 @@
+-- P95 Phase 1 (perf1): index for the scoped activity feed.
+-- See docs/reports/revamp-2026-10-26/perf1.md.
+--
+-- GET /api/activity orders every visible row by "createdAt" DESC. Without an
+-- index leading with "createdAt" Postgres scans and sorts the whole table
+-- (336k rows, ~30 MB external sort per worker on the 50k-task bench). With
+-- this index the feed walks the index newest-first and stops after one page,
+-- and "id" makes the keyset cursor (createdAt, id) total.
+--
+-- Additive only. IF NOT EXISTS so that operators can pre-build the index
+-- without blocking writes, out of band, with
+--   packages/db/prisma/manual/2026-10-26-phase1-activity-feed-index.sql
+-- (CREATE INDEX CONCURRENTLY), after which this migration is a no-op.
+--
+-- migration-safety: allow
+-- Reason: CREATE INDEX CONCURRENTLY cannot run inside the migration
+-- transaction. On a large "activity_logs" table, run the manual CONCURRENTLY
+-- file first (docs/runbooks/phase1-perf-indexes.md); on small databases the
+-- plain build holds the write lock for well under a second (50k-task bench:
+-- 336k rows, measured in the ledger). No destructive DDL.
+
+-- CreateIndex
+CREATE INDEX IF NOT EXISTS "activity_logs_createdAt_id_idx" ON "activity_logs"("createdAt" DESC, "id" DESC);
