@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, accessSync, constants } from 'fs';
 import { randomUUID } from 'node:crypto';
-import { logger } from '@openlinear/api/logger';
+import { logger } from '../../lib/logger';
 import { PullRequestResult, REPOS_DIR } from './state';
 import { getGitIdentityEnv } from '../git-identity';
 import { assertPathInsideReposDir } from '../repo-storage';
@@ -121,7 +121,7 @@ export async function commitAndPush(
   accessToken: string | null = null
 ): Promise<CommitPushResult> {
   try {
-    const env = { ...process.env, ...getGitIdentityEnv() };
+    const env = getGitIdentityEnv();
 
     logger.info(`[Execution] Checking for changes in ${repoPath}`);
     if (!(await hasCommittableChanges(repoPath))) {
@@ -142,6 +142,9 @@ export async function commitAndPush(
 
     logger.info(`[Execution] Pushing to origin/${branchName}...`);
     const { stdout: originUrl } = await execGit(['-C', repoPath, 'remote', 'get-url', 'origin']);
+    // W09a: origin is read from a repository the agent worked in; never hand
+    // the token to a host other than the allowlisted Git host.
+    assertSafeCloneUrl(originUrl.trim(), 'origin URL');
 
     // `cloneRepository` above only fetches `defaultBranch` (`--depth 1
     // --branch <defaultBranch>`), so the freshly-cloned repo has no
@@ -156,7 +159,9 @@ export async function commitAndPush(
     // instead of either failing outright or dropping force protection.
     let expectedRemoteSha = '';
     try {
-      await execGit(['-C', repoPath, 'fetch', 'origin', branchName]);
+      // Inherited credential helpers are reset by the git hardening, so the
+      // lease probe must carry this run's credential like the push does.
+      await execGitWithCredentials(['-C', repoPath, 'fetch', 'origin', branchName], accessToken, originUrl.trim());
       const { stdout: fetchHead } = await execGit(['-C', repoPath, 'rev-parse', 'FETCH_HEAD']);
       expectedRemoteSha = fetchHead.trim();
     } catch {

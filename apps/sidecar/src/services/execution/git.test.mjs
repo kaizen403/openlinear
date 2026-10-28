@@ -213,7 +213,6 @@ describe('execution git helpers', () => {
       .mockResolvedValueOnce({ stdout: 'src/index.ts\0', stderr: '' }) // diff --cached
       .mockResolvedValueOnce({ stdout: '', stderr: '' }) // commit
       .mockResolvedValueOnce({ stdout: 'https://github.com/acme/repo.git\n', stderr: '' }) // remote get-url
-      .mockResolvedValueOnce({ stdout: '', stderr: '' }) // fetch origin <branch>
       .mockResolvedValueOnce({ stdout: 'abc123\n', stderr: '' }); // rev-parse FETCH_HEAD
     mocks.execGitWithCredentials.mockResolvedValue(undefined);
 
@@ -221,11 +220,20 @@ describe('execution git helpers', () => {
       status: 'pushed',
     });
 
+    // W09a: identity-only env (no process.env spread) for the commit.
     expect(mocks.execGit).toHaveBeenCalledWith(
       ['-C', '/repo', 'commit', '-m', 'feat: fix drag  drop'],
-      expect.objectContaining({ env: expect.objectContaining({ GIT_AUTHOR_NAME: 'OpenLinear' }) }),
+      { env: { GIT_AUTHOR_NAME: 'OpenLinear' } },
     );
-    expect(mocks.execGit).toHaveBeenCalledWith(['-C', '/repo', 'fetch', 'origin', 'openlinear/task-1']);
+    // W09a: the origin URL read back from the agent's repository is checked
+    // before any token is used, and the lease probe carries the run's
+    // credential (inherited credential helpers are reset by the hardening).
+    expect(mocks.assertSafeCloneUrl).toHaveBeenCalledWith('https://github.com/acme/repo.git', 'origin URL');
+    expect(mocks.execGitWithCredentials).toHaveBeenCalledWith(
+      ['-C', '/repo', 'fetch', 'origin', 'openlinear/task-1'],
+      'token',
+      'https://github.com/acme/repo.git',
+    );
     expect(mocks.execGitWithCredentials).toHaveBeenCalledWith(
       [
         '-C',
@@ -250,9 +258,10 @@ describe('execution git helpers', () => {
       .mockResolvedValueOnce({ stdout: '', stderr: '' }) // reset
       .mockResolvedValueOnce({ stdout: 'src/index.ts\0', stderr: '' }) // diff --cached
       .mockResolvedValueOnce({ stdout: '', stderr: '' }) // commit
-      .mockResolvedValueOnce({ stdout: 'https://github.com/acme/repo.git\n', stderr: '' }) // remote get-url
-      .mockRejectedValueOnce(new Error('fatal: couldn\'t find remote ref')); // fetch fails: branch is new
-    mocks.execGitWithCredentials.mockResolvedValue(undefined);
+      .mockResolvedValueOnce({ stdout: 'https://github.com/acme/repo.git\n', stderr: '' }); // remote get-url
+    mocks.execGitWithCredentials
+      .mockRejectedValueOnce(new Error('fatal: couldn\'t find remote ref')) // fetch fails: branch is new
+      .mockResolvedValue(undefined);
 
     await expect(commitAndPush('/repo', 'openlinear/task-2', 'New task', 'token')).resolves.toEqual({
       status: 'pushed',

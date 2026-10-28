@@ -1,5 +1,5 @@
 import type { RunnerId } from '@openlinear/execution-core';
-import { HttpError } from '@openlinear/api/errors';
+import { HttpError } from '../lib/errors';
 
 export function resolveAgentId(input: {
   taskAgent?: string | null;

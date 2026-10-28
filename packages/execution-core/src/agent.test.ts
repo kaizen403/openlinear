@@ -27,6 +27,13 @@ describe('processAgentEvent', () => {
     expect(actions.map((a) => a.type)).toContain('handleSessionComplete');
   });
 
+  it('W12a: a turn that hit the turn limit is not success — it fails with the work kept', () => {
+    const actions = processAgentEvent({ t: 'turn.finished', turn: 3, reason: 'max_turns' }, state());
+    expect(actions.map((a) => a.type)).toEqual(['flushDeltaBuffer', 'failExecution']);
+    expect(actions.map((a) => a.type)).not.toContain('handleSessionComplete');
+    expect(actions[1]).toMatchObject({ message: 'The agent stopped at its turn limit before finishing', details: expect.stringContaining('follow-up') });
+  });
+
   it('ignores completion when cancelled', () => {
     const actions = processAgentEvent(
       { t: 'turn.finished', turn: 1, reason: 'idle' },

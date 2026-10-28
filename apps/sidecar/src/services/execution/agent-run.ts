@@ -1,53 +1,12 @@
-import { Prisma, prisma } from '@openlinear/db';
-import { logger } from '@openlinear/api/logger';
-import { logActivity } from '@openlinear/api/activity';
+import { logger } from '../../lib/logger';
+import { getSidecarStore } from '../../persistence/store';
 
 import type { ExecutionState } from './state';
 
 export type AgentRunFinalStatus = 'succeeded' | 'failed' | 'cancelled';
 
-export async function createAgentRun(params: {
-  taskId: string;
-  userId: string | null;
-  agent: string;
-  model: string;
-}): Promise<string | null> {
-  try {
-    const row = await prisma.agentRun.create({
-      data: {
-        taskId: params.taskId,
-        userId: params.userId,
-        agent: params.agent,
-        model: params.model,
-        status: 'running',
-      },
-      select: { id: true },
-    });
-
-    if (params.userId) {
-      const taskScope = await prisma.task.findUnique({
-        where: { id: params.taskId },
-        select: { teamId: true, projectId: true },
-      });
-      await logActivity({
-        taskId: params.taskId,
-        teamId: taskScope?.teamId ?? null,
-        projectId: taskScope?.projectId ?? null,
-        userId: params.userId,
-        action: 'agent_run_started',
-        payload: { agentRunId: row.id, agent: params.agent, model: params.model },
-      });
-    }
-
-    return row.id;
-  } catch (err) {
-    logger.error(
-      { err, taskId: params.taskId },
-      '[AgentRun] failed to create row — execution will continue without capture',
-    );
-    return null;
-  }
-}
+// W03a: the AgentRun row is created by the attempt claim (lifecycle.ts →
+// SidecarStore.claimAttempt), atomically with the in_progress transition.
 
 /**
  * T8 (H-06) — wired to the `message.updated` event (see
@@ -103,6 +62,21 @@ export function recordMessageUsage(
   state.tokens.cacheWrite = cacheWriteTokens;
 }
 
+/** Usage fields the run finalization carries, mirroring the legacy row write. */
+export function buildRunUsage(state: Pick<ExecutionState, 'cost' | 'tokens' | 'messageUsage'>) {
+  return {
+    ...(state.cost.total > 0 ? { costUsd: Number(state.cost.total.toFixed(6)) } : {}),
+    ...(state.tokens.input > 0 ? { inputTokens: state.tokens.input } : {}),
+    ...(state.tokens.output > 0 ? { outputTokens: state.tokens.output } : {}),
+    ...(state.messageUsage.size > 0 ? {
+      cachedInputTokens: state.tokens.cacheRead,
+      cacheWriteTokens: state.tokens.cacheWrite,
+      reasoningTokens: state.tokens.reasoning,
+      costBasis: 'opencode.message.updated',
+    } : {}),
+  };
+}
+
 export async function finalizeAgentRun(
   state: ExecutionState,
   status: AgentRunFinalStatus,
@@ -110,57 +84,20 @@ export async function finalizeAgentRun(
 ): Promise<void> {
   if (!state.agentRunId) return;
   try {
-    const data: Prisma.AgentRunUpdateInput = {
-      endedAt: new Date(),
+    // Usage snapshot. The store writes the AgentRun row (Prisma mode) or the
+    // attempt's run callback (API mode: `succeeded` requires the confirmed
+    // done projection, `cancelled` a positive stop receipt) and records the
+    // `agent_run_completed` activity, including the reasoning/cache split.
+    const store = await getSidecarStore();
+    await store.finalizeRun(state.attempt ?? null, {
+      taskId: state.taskId,
+      userId: state.userId,
+      agentRunId: state.agentRunId,
       status,
-    };
-    if (state.cost.total > 0) {
-      data.costUsd = new Prisma.Decimal(state.cost.total.toFixed(6));
-    }
-    if (state.tokens.input > 0) data.inputTokens = state.tokens.input;
-    if (state.tokens.output > 0) data.outputTokens = state.tokens.output;
-    if (state.messageUsage.size > 0) {
-      data.cachedInputTokens = state.tokens.cacheRead;
-      data.cacheWriteTokens = state.tokens.cacheWrite;
-      data.reasoningTokens = state.tokens.reasoning;
-      data.costBasis = 'opencode.message.updated';
-    }
-    if (extra.prUrl) data.prUrl = extra.prUrl;
-    if (extra.errorMessage) data.errorMessage = extra.errorMessage.slice(0, 1000);
-
-    await prisma.agentRun.update({
-      where: { id: state.agentRunId },
-      data,
+      usage: buildRunUsage(state),
+      ...(extra.prUrl ? { prUrl: extra.prUrl } : {}),
+      ...(extra.errorMessage ? { errorMessage: extra.errorMessage.slice(0, 1000) } : {}),
     });
-
-    if (state.userId) {
-      const taskScope = await prisma.task.findUnique({
-        where: { id: state.taskId },
-        select: { teamId: true, projectId: true },
-      });
-      // T8 (H-06) — `AgentRun` has no columns for reasoning or cache-split
-      // tokens (only `inputTokens`/`outputTokens`/`costUsd`). Rather than
-      // change the schema (owned by another workstream), record what we
-      // have in the activity log's JSON payload so the data isn't discarded
-      // — the columns to add, when that migration lands, are
-      // `reasoningTokens`, `cacheReadTokens`, `cacheWriteTokens` (all `Int?`).
-      await logActivity({
-        taskId: state.taskId,
-        teamId: taskScope?.teamId ?? null,
-        projectId: taskScope?.projectId ?? null,
-        userId: state.userId,
-        action: 'agent_run_completed',
-        payload: {
-          agentRunId: state.agentRunId,
-          status,
-          ...(extra.prUrl ? { prUrl: extra.prUrl } : {}),
-          ...(extra.errorMessage ? { errorMessage: extra.errorMessage.slice(0, 500) } : {}),
-          ...(state.tokens.reasoning > 0 ? { reasoningTokens: state.tokens.reasoning } : {}),
-          ...(state.tokens.cacheRead > 0 ? { cacheReadTokens: state.tokens.cacheRead } : {}),
-          ...(state.tokens.cacheWrite > 0 ? { cacheWriteTokens: state.tokens.cacheWrite } : {}),
-        },
-      });
-    }
   } catch (err) {
     logger.error(
       { err, taskId: state.taskId, agentRunId: state.agentRunId, status },

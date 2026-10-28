@@ -15,8 +15,8 @@ vi.mock('../services/opencode', () => ({
 // Every other route in this router already used requireAuth before this
 // change; `/status` was the one exception (C6a F15). This stand-in mirrors
 // requireAuth's observable contract: no proof of identity, no response body.
-vi.mock('@openlinear/api/middleware', () => ({
-  requireAuth: (req, res, next) => {
+vi.mock('../auth/principal', () => ({
+  requireSidecarAuth: (req, res, next) => {
     const userId = req.get('x-user-id');
     if (!userId) {
       res.status(401).json({ error: 'Authentication required' });

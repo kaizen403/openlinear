@@ -1,8 +1,8 @@
 import { Router, Response } from 'express';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { AuthRequest, requireAuth } from '@openlinear/api/middleware';
-import { logger } from '@openlinear/api/logger';
+import { type AuthedRequest as AuthRequest, requireSidecarAuth as requireAuth } from '../auth/principal';
+import { logger } from '../lib/logger';
 import {
   getOpenCodeStatus,
   getClientForUser,

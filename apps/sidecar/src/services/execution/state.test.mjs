@@ -24,15 +24,19 @@ vi.mock('@openlinear/db', () => ({
   },
 }));
 
-vi.mock('@openlinear/api/sse', () => ({
-  broadcastToTask: mocks.broadcastToTask,
-  broadcastToTaskById: mocks.broadcastToTaskById,
+// W03a: one publication point (local owner streams + the attempt relay)
+// replaces the cloud API SSE module.
+vi.mock('../../events/publisher', () => ({
+  publishTaskEvent: mocks.broadcastToTask,
+  registerTaskOwnerResolver: vi.fn(),
+  attachAttemptRelay: vi.fn(),
+  detachAttemptRelay: vi.fn(),
 }));
 
 // state.ts has used the structured logger (not console.*) since the 38eb4c4
 // migration; mock it the same way agent-run.test.mjs does rather than
 // spying on console, which the real logger never writes to directly.
-vi.mock('@openlinear/api/logger', () => ({
+vi.mock('../../lib/logger', () => ({
   logger: {
     info: mocks.loggerInfo,
     error: mocks.loggerError,
@@ -115,7 +119,7 @@ describe('execution state helpers', () => {
     expect(state.findTaskBySessionId('missing')).toBeUndefined();
   });
 
-  it('adds logs and broadcasts them via the cached execution routing metadata (T7)', () => {
+  it('adds logs and publishes them without a per-line database lookup (T7, W03a)', () => {
     const execution = makeExecution({ teamId: 'team-9', creatorId: 'user-9' });
     state.activeExecutions.set('task-1', execution);
 
@@ -123,32 +127,34 @@ describe('execution state helpers', () => {
 
     expect(execution.logs).toHaveLength(1);
     expect(execution.logs[0]).toMatchObject({ type: 'info', message: 'Started', details: 'details' });
-    // T7 (H-02): when the execution is cached, broadcast synchronously via
-    // the routing metadata already on hand — no per-log-line DB lookup.
+    // T7 (H-02) / W03a: published synchronously to the run owner's local
+    // streams and the attempt relay — no per-log-line DB lookup.
     expect(mocks.broadcastToTask).toHaveBeenCalledWith(
+      'task-1',
       'execution:log',
-      { id: 'task-1', teamId: 'team-9', creatorId: 'user-9' },
       { taskId: 'task-1', entry: execution.logs[0] },
     );
-    expect(mocks.broadcastToTaskById).not.toHaveBeenCalled();
+    expect(mocks.taskFindUnique).not.toHaveBeenCalled();
+    expect(state.singleExecutionOwner('task-1')).toBe('user-1');
 
     state.addLogEntry('task-1', 'tool', 'Object details', { file: 'src/index.ts' });
 
     expect(execution.logs).toHaveLength(2);
   });
 
-  it('falls back to the DB-lookup broadcast when no execution is cached', () => {
-    // No `activeExecutions.set(...)` — simulates a broadcast for a taskId
-    // the in-memory store doesn't know about.
+  it('publishes progress for an unknown task without a database lookup (no owner, so no local delivery)', () => {
+    // No `activeExecutions.set(...)` — the publisher resolves no owner and
+    // delivers nothing locally (fail closed); there is no DB fallback.
     state.broadcastProgress('task-1', 'executing', 'Running', { percentage: 50 });
 
-    expect(mocks.broadcastToTaskById).toHaveBeenCalledWith('task-1', 'execution:progress', {
+    expect(mocks.broadcastToTask).toHaveBeenCalledWith('task-1', 'execution:progress', {
       taskId: 'task-1',
       status: 'executing',
       message: 'Running',
       percentage: 50,
     });
-    expect(mocks.broadcastToTask).not.toHaveBeenCalled();
+    expect(mocks.taskFindUnique).not.toHaveBeenCalled();
+    expect(state.singleExecutionOwner('task-1')).toBeNull();
   });
 
   it('ignores log entries for missing executions', () => {
@@ -157,7 +163,6 @@ describe('execution state helpers', () => {
     expect(mocks.loggerInfo).toHaveBeenCalledWith(
       '[Execution] Warning: No execution found for task missing- when adding log',
     );
-    expect(mocks.broadcastToTaskById).not.toHaveBeenCalled();
     expect(mocks.broadcastToTask).not.toHaveBeenCalled();
   });
 
@@ -168,7 +173,7 @@ describe('execution state helpers', () => {
   it('broadcasts progress payloads with task id and extra data', () => {
     state.broadcastProgress('task-1', 'executing', 'Running', { percentage: 50 });
 
-    expect(mocks.broadcastToTaskById).toHaveBeenCalledWith('task-1', 'execution:progress', {
+    expect(mocks.broadcastToTask).toHaveBeenCalledWith('task-1', 'execution:progress', {
       taskId: 'task-1',
       status: 'executing',
       message: 'Running',
@@ -176,36 +181,16 @@ describe('execution state helpers', () => {
     });
   });
 
-  it('retries critical progress broadcasts after transient failures', async () => {
-    mocks.broadcastToTaskById
-      .mockRejectedValueOnce(new Error('socket busy'))
-      .mockResolvedValueOnce(undefined);
-
+  it('publishes critical progress exactly once; delivery retries belong to the attempt relay', () => {
+    // W03a: the per-broadcast DB lookup + retry loop is gone. Local delivery
+    // is synchronous; cloud delivery of critical progress is retried with
+    // backoff and kept preferentially by events/relay.ts (relay.test.ts).
     state.broadcastProgress('task-1', 'done', 'Done');
-    await Promise.resolve();
-    vi.advanceTimersByTime(1_000);
-    await Promise.resolve();
-
-    expect(mocks.loggerError).toHaveBeenCalledWith(
-      { err: expect.any(Error), event: 'execution:progress', attempt: 1 },
-      '[Execution] Failed to broadcast execution:progress for task task-1 (attempt 1)',
-    );
-    expect(mocks.broadcastToTaskById).toHaveBeenCalledTimes(2);
-  });
-
-  it('stops retrying critical broadcasts after the maximum attempts', async () => {
-    mocks.broadcastToTaskById.mockRejectedValue(new Error('still down'));
-
     state.broadcastProgress('task-1', 'error', 'Failed');
-    await Promise.resolve();
-    vi.advanceTimersByTime(1_000);
-    await Promise.resolve();
-    vi.advanceTimersByTime(1_000);
-    await Promise.resolve();
-    vi.advanceTimersByTime(1_000);
-    await Promise.resolve();
 
-    expect(mocks.broadcastToTaskById).toHaveBeenCalledTimes(3);
+    expect(mocks.broadcastToTask).toHaveBeenCalledTimes(2);
+    expect(mocks.broadcastToTask).toHaveBeenNthCalledWith(1, 'task-1', 'execution:progress', { taskId: 'task-1', status: 'done', message: 'Done' });
+    expect(mocks.loggerError).not.toHaveBeenCalled();
   });
 
   it('updates task status, flattens labels, and broadcasts task updates', async () => {
@@ -222,11 +207,11 @@ describe('execution state helpers', () => {
       data: { status: 'in_progress', sessionId: 'ses_1', executionProgress: 10 },
       include: { labels: { include: { label: true } } },
     });
-    expect(mocks.broadcastToTask).toHaveBeenCalledWith('task:updated', {
+    expect(mocks.broadcastToTask).toHaveBeenCalledWith('task-1', 'task:updated', {
       id: 'task-1',
       status: 'in_progress',
       labels: [{ id: 'label-1', name: 'bug', color: '#f00' }],
-    });
+    }, { ownerUserId: null });
   });
 
   it('propagates task status update failures after logging', async () => {

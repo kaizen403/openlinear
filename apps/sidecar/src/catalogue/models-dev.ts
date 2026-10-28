@@ -1,16 +1,14 @@
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { homedir } from 'node:os';
 import type { RunnerCapabilities } from '@openlinear/execution-core';
+import { sidecarAppDataDir } from '../config/app-data';
 import { getRunnerRegistry } from '../runners';
 
 const MODELS_DEV_URL = 'https://models.dev/api.json';
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
-function cachePath(): string {
-  const root = process.env.OPENLINEAR_APP_DATA
-    ?? join(homedir(), 'Library', 'Application Support', 'OpenLinear');
-  return join(root, 'cache', 'models.dev.json');
+export function modelsDevCachePath(env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform): string {
+  return join(sidecarAppDataDir(env, platform), 'cache', 'models.dev.json');
 }
 
 export interface ModelCatalogueEntry {
@@ -21,7 +19,7 @@ export interface ModelCatalogueEntry {
 }
 
 export async function loadModelsDevCatalogue(fetchImpl: typeof fetch = fetch): Promise<unknown> {
-  const path = cachePath();
+  const path = modelsDevCachePath();
   if (existsSync(path)) {
     try {
       const raw = JSON.parse(readFileSync(path, 'utf8')) as { fetchedAt: number; payload: unknown };

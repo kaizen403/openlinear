@@ -8,4 +8,6 @@ export * from './agent';
 export * from './process-agent-event';
 export * from './fake-runner';
 export * from './coordinator';
-
+export * from './run-contract';
+export * from './follow-up';
+export * from './verification';

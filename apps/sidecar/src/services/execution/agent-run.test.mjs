@@ -1,10 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+// W03a: AgentRun rows are created by the attempt claim and finalized through
+// the SidecarStore. In test mode the store is the Prisma store, so these
+// cases still observe the row and activity writes — the activity row is now
+// written directly (the cloud API's `logActivity` is no longer imported).
 const mocks = vi.hoisted(() => ({
   agentRunCreate: vi.fn(),
   agentRunUpdate: vi.fn(),
   taskFindUnique: vi.fn(),
-  logActivity: vi.fn(),
+  taskUpdate: vi.fn(),
+  activityLogCreate: vi.fn(),
   loggerError: vi.fn(),
 }));
 
@@ -20,6 +25,7 @@ class DecimalMock {
 
 vi.mock('@openlinear/db', () => ({
   Prisma: { Decimal: DecimalMock },
+  decryptToken: vi.fn(),
   prisma: {
     agentRun: {
       create: mocks.agentRunCreate,
@@ -27,23 +33,18 @@ vi.mock('@openlinear/db', () => ({
     },
     task: {
       findUnique: mocks.taskFindUnique,
+      update: mocks.taskUpdate,
     },
+    activityLog: { create: mocks.activityLogCreate },
   },
 }));
 
-vi.mock('@openlinear/api/logger', () => ({
-  logger: { error: mocks.loggerError },
+vi.mock('../../lib/logger', () => ({
+  logger: { error: mocks.loggerError, warn: vi.fn(), info: vi.fn(), debug: vi.fn() },
 }));
 
-vi.mock('@openlinear/api/activity', () => ({
-  logActivity: mocks.logActivity,
-}));
-
-const {
-  createAgentRun,
-  finalizeAgentRun,
-  recordMessageUsage,
-} = await import('./agent-run');
+const { finalizeAgentRun, recordMessageUsage } = await import('./agent-run');
+const { getSidecarStore } = await import('../../persistence/store');
 
 function makeState(overrides = {}) {
   return {
@@ -57,23 +58,23 @@ function makeState(overrides = {}) {
   };
 }
 
+const attempt = { taskId: 'task-1', userId: 'user-1', attemptId: null, client: null, credential: null };
+const claimInput = { sessionId: 'ses_1', runner: 'opencode', model: 'anthropic/claude', executionStartedAt: new Date('2026-05-22T00:00:00Z') };
+
 describe('execution agent-run helpers', () => {
   beforeEach(() => {
     for (const mock of Object.values(mocks)) {
       if (typeof mock?.mockReset === 'function') mock.mockReset();
     }
+    mocks.taskUpdate.mockResolvedValue({ id: 'task-1', labels: [] });
   });
 
-  it('creates an agent run and records start activity for users', async () => {
+  it('creates an agent run at claim time and records start activity for the initiator', async () => {
     mocks.agentRunCreate.mockResolvedValue({ id: 'run-1' });
     mocks.taskFindUnique.mockResolvedValue({ teamId: 'team-1', projectId: 'project-1' });
 
-    await expect(createAgentRun({
-      taskId: 'task-1',
-      userId: 'user-1',
-      agent: 'opencode',
-      model: 'anthropic/claude',
-    })).resolves.toBe('run-1');
+    const store = await getSidecarStore();
+    await expect(store.claimAttempt(attempt, claimInput)).resolves.toMatchObject({ agentRunId: 'run-1' });
 
     expect(mocks.agentRunCreate).toHaveBeenCalledWith({
       data: {
@@ -85,58 +86,37 @@ describe('execution agent-run helpers', () => {
       },
       select: { id: true },
     });
-    expect(mocks.logActivity).toHaveBeenCalledWith(expect.objectContaining({
-      taskId: 'task-1',
-      teamId: 'team-1',
-      projectId: 'project-1',
-      userId: 'user-1',
-      action: 'agent_run_started',
-    }));
-  });
-
-  it('creates agent runs without activity when no user is attached', async () => {
-    mocks.agentRunCreate.mockResolvedValue({ id: 'run-1' });
-
-    await expect(createAgentRun({
-      taskId: 'task-1',
-      userId: null,
-      agent: 'opencode',
-      model: 'unknown',
-    })).resolves.toBe('run-1');
-
-    expect(mocks.taskFindUnique).not.toHaveBeenCalled();
-    expect(mocks.logActivity).not.toHaveBeenCalled();
+    expect(mocks.activityLogCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        taskId: 'task-1',
+        teamId: 'team-1',
+        projectId: 'project-1',
+        userId: 'user-1',
+        action: 'agent_run_started',
+      }),
+    });
   });
 
   it('records start activity with null scope when the task is missing', async () => {
     mocks.agentRunCreate.mockResolvedValue({ id: 'run-1' });
     mocks.taskFindUnique.mockResolvedValue(null);
 
-    await expect(createAgentRun({
-      taskId: 'task-1',
-      userId: 'user-1',
-      agent: 'opencode',
-      model: 'unknown',
-    })).resolves.toBe('run-1');
+    const store = await getSidecarStore();
+    await expect(store.claimAttempt(attempt, claimInput)).resolves.toMatchObject({ agentRunId: 'run-1' });
 
-    expect(mocks.logActivity).toHaveBeenCalledWith(expect.objectContaining({
-      teamId: null,
-      projectId: null,
-      action: 'agent_run_started',
-    }));
+    expect(mocks.activityLogCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({ teamId: null, projectId: null, action: 'agent_run_started' }),
+    });
   });
 
-  it('returns null and logs when agent run creation fails', async () => {
+  it('continues the claim without capture and logs when agent run creation fails', async () => {
     mocks.agentRunCreate.mockRejectedValue(new Error('db down'));
 
-    await expect(createAgentRun({
-      taskId: 'task-1',
-      userId: null,
-      agent: 'opencode',
-      model: 'unknown',
-    })).resolves.toBeNull();
+    const store = await getSidecarStore();
+    await expect(store.claimAttempt(attempt, claimInput)).resolves.toMatchObject({ agentRunId: null });
 
     expect(mocks.loggerError).toHaveBeenCalled();
+    expect(mocks.taskUpdate).toHaveBeenCalled();
   });
 
   it('records message usage snapshots as totals, not deltas', () => {
@@ -176,14 +156,19 @@ describe('execution agent-run helpers', () => {
         errorMessage: 'x'.repeat(1_000),
       }),
     });
-    expect(mocks.logActivity).toHaveBeenCalledWith(expect.objectContaining({
-      action: 'agent_run_completed',
-      payload: expect.objectContaining({
-        agentRunId: 'run-1',
-        status: 'failed',
-        errorMessage: 'x'.repeat(500),
+    expect(String(mocks.agentRunUpdate.mock.calls[0][0].data.costUsd)).toBe('0.123457');
+    expect(mocks.activityLogCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        action: 'agent_run_completed',
+        teamId: 'team-1',
+        projectId: 'project-1',
+        payload: expect.objectContaining({
+          agentRunId: 'run-1',
+          status: 'failed',
+          errorMessage: 'x'.repeat(500),
+        }),
       }),
-    }));
+    });
   });
 
   it('records completion activity with null task scope when the task is missing', async () => {
@@ -192,12 +177,14 @@ describe('execution agent-run helpers', () => {
 
     await finalizeAgentRun(state, 'cancelled', { errorMessage: 'cancelled' });
 
-    expect(mocks.logActivity).toHaveBeenCalledWith(expect.objectContaining({
-      teamId: null,
-      projectId: null,
-      action: 'agent_run_completed',
-      payload: expect.objectContaining({ errorMessage: 'cancelled' }),
-    }));
+    expect(mocks.activityLogCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        teamId: null,
+        projectId: null,
+        action: 'agent_run_completed',
+        payload: expect.objectContaining({ errorMessage: 'cancelled' }),
+      }),
+    });
   });
 
   it('records successful completion activity without optional payload fields', async () => {
@@ -206,13 +193,15 @@ describe('execution agent-run helpers', () => {
 
     await finalizeAgentRun(state, 'succeeded');
 
-    expect(mocks.logActivity).toHaveBeenCalledWith(expect.objectContaining({
-      action: 'agent_run_completed',
-      payload: {
-        agentRunId: 'run-1',
-        status: 'succeeded',
-      },
-    }));
+    expect(mocks.activityLogCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        action: 'agent_run_completed',
+        payload: {
+          agentRunId: 'run-1',
+          status: 'succeeded',
+        },
+      }),
+    });
   });
 
   it('finalizes rows without optional usage, metadata, or user activity', async () => {
@@ -228,7 +217,23 @@ describe('execution agent-run helpers', () => {
       }),
     });
     expect(mocks.agentRunUpdate.mock.calls[0][0].data).not.toHaveProperty('costUsd');
-    expect(mocks.logActivity).not.toHaveBeenCalled();
+    expect(mocks.activityLogCreate).not.toHaveBeenCalled();
+  });
+
+  it('carries the cache/reasoning split when message usage was captured', async () => {
+    const state = makeState({
+      tokens: { input: 5, output: 6, reasoning: 7, cacheRead: 8, cacheWrite: 9 },
+      messageUsage: new Map([['m', {}]]),
+    });
+
+    await finalizeAgentRun(state, 'succeeded');
+
+    expect(mocks.agentRunUpdate.mock.calls[0][0].data).toMatchObject({
+      cachedInputTokens: 8,
+      cacheWriteTokens: 9,
+      reasoningTokens: 7,
+      costBasis: 'opencode.message.updated',
+    });
   });
 
   it('skips finalization when no agent run was created', async () => {

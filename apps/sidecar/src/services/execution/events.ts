@@ -1,6 +1,5 @@
-import { prisma } from '@openlinear/db';
-import { logger } from '@openlinear/api/logger';
-import { assertTaskOwned } from '@openlinear/api/ownership';
+import { logger } from '../../lib/logger';
+import { getSidecarStore } from '../../persistence/store';
 
 import type { OpencodeClient } from '@opencode-ai/sdk';
 import { appendTextDelta, appendReasoningDelta, flushDeltaBuffer, markThinking } from '../delta-buffer';
@@ -24,6 +23,7 @@ import {
   getTaskTitle,
   findTaskBySessionId,
   estimateProgress,
+  fenceOf,
   MAX_COMPLETED_TOOL_KEYS,
   COMPLETED_TOOL_KEY_SOURCE_LIMIT,
   type ExecutionState,
@@ -374,10 +374,15 @@ async function handleSessionComplete(taskId: string, opts: { alreadyClaimed?: bo
 
   try {
     if (!execution.userId) throw new Error('Execution has no authenticated owner');
-    const authority = await assertTaskOwned(taskId, execution.userId);
-    if (authority.archived || (execution.taskProjectId !== undefined && (
-      authority.projectId !== execution.taskProjectId || authority.teamId !== execution.teamId || authority.creatorId !== execution.creatorId
-    ))) throw new Error('Task access scope changed before publication');
+    // Re-authorize the initiator and the task binding before any publication
+    // effect. API mode: the control plane checks current access and that the
+    // task is still bound to this attempt, and issues the publish credential.
+    const store = await getSidecarStore();
+    execution.accessToken = await store.authorizePublication(execution.attempt ?? null, {
+      taskId,
+      fence: fenceOf(execution),
+      currentToken: execution.accessToken,
+    });
     execution.status = 'committing';
     broadcastProgress(taskId, 'committing', 'Committing changes...');
     addLogEntry(taskId, 'info', 'Agent finished, committing changes...');
@@ -394,35 +399,18 @@ async function handleSessionComplete(taskId: string, opts: { alreadyClaimed?: bo
       broadcastProgress(taskId, 'creating_pr', 'Creating pull request...');
       addLogEntry(taskId, 'info', 'Creating pull request...');
 
-      const repository = await prisma.repository.findUnique({
-        where: { id: execution.projectId },
-      });
-      const task = await prisma.task.findUnique({ where: { id: taskId } });
-
-      let repoInfo = repository
-        ? { fullName: repository.fullName, defaultBranch: repository.defaultBranch }
-        : null;
-
-      if (!repoInfo && task?.projectId) {
-        const project = await prisma.project.findUnique({
-          where: { id: task.projectId },
-          include: { repository: true },
-        });
-        if (project?.repository) {
-          repoInfo = {
-            fullName: project.repository.fullName,
-            defaultBranch: project.repository.defaultBranch,
-          };
-        }
-      }
+      // Repository, title and description come from the immutable start
+      // snapshot: the PR describes what was executed, and no database read
+      // is needed (W03a).
+      const repoInfo = execution.publishRepository ?? null;
 
       if (repoInfo) {
         const result = await createPullRequest(
           repoInfo.fullName,
           execution.branchName,
           repoInfo.defaultBranch,
-          task?.title || 'Task',
-          task?.description || null,
+          execution.taskTitle || 'Task',
+          execution.taskDescription || null,
           execution.accessToken
         );
 

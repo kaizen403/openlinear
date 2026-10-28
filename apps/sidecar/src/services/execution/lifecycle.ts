@@ -1,23 +1,24 @@
-import { logger } from '@openlinear/api/logger';
-import { HttpError, isHttpError } from '@openlinear/api/errors';
-import { assertTaskOwned } from '@openlinear/api/ownership';
+import { logger } from '../../lib/logger';
+import { HttpError, isHttpError } from '../../lib/errors';
+import { isCloudUnavailable } from '../../config/cloud-api';
 import { parseModelOverride, type ModelOverride } from '@openlinear/execution-core';
 import { getClientForUser } from '../opencode';
 import { ensureModelConfigured } from '../opencode-model';
 import { getOrCreateBuffer } from '../delta-buffer';
-import { getExecutionSettings } from '../execution-settings';
 import { requireLegacyRunner } from '../../engine/resolve-agent';
-import { getSidecarStore } from '../../persistence/store';
-import { pendingBatchTasks } from '../batch/shared';
-import { taskHasActiveBatch } from '../batch/admission';
+import { getSidecarStore, type AttemptContext } from '../../persistence/store';
+import { pendingBatchTasks, taskHasActiveBatch } from '../batch/registry';
 import { releaseLocalWorktree, type WorkspaceHandle } from '../../workspace/local-worktree';
+import { attachAttemptRelay, detachAttemptRelay, publishTaskEvent } from '../../events/publisher';
+import { AttemptEventRelay } from '../../events/relay';
 
 import { cloneRepository, createBranch } from './git';
 import { subscribeToSessionEvents, failExecutionFromEventStream, claimFinalize } from './events';
-import { createAgentRun, finalizeAgentRun } from './agent-run';
+import { finalizeAgentRun } from './agent-run';
 import {
   activeExecutions,
   pendingExecutions,
+  pendingExecutionOwners,
   sessionToTask,
   broadcastProgress,
   addLogEntry,
@@ -34,9 +35,23 @@ import {
 
 import type { OpencodeClient } from '@opencode-ai/sdk';
 
+/** Interval of the attempt heartbeat (lease liveness + cloud cancellation). */
+export const ATTEMPT_HEARTBEAT_MS = 30_000;
+
+/** `OPENLINEAR_ATTEMPT_HEARTBEAT_MS`, bounded to [1 s, 5 min]. */
+export function attemptHeartbeatMs(env: NodeJS.ProcessEnv = process.env): number {
+  const raw = Number.parseInt(env.OPENLINEAR_ATTEMPT_HEARTBEAT_MS ?? '', 10);
+  if (!Number.isFinite(raw)) return ATTEMPT_HEARTBEAT_MS;
+  return Math.min(Math.max(raw, 1_000), 300_000);
+}
+
 interface ExecutionInputs {
   taskId: string;
   userId: string;
+  /** W03a: the control-plane attempt (capability in API mode). */
+  attempt: AttemptContext;
+  runnerId?: string;
+  modelLabel?: string;
   accessToken: string | null;
   project: { id: string; name: string; fullName: string; cloneUrl: string; defaultBranch: string } | null;
   useLocalPath: string | null;
@@ -57,43 +72,64 @@ interface ExecutionInputs {
   promptDispatched?: boolean;
 }
 
-async function gatherExecutionInputs({ taskId, userId }: ExecuteTaskParams): Promise<{ inputs?: ExecutionInputs; error?: string }> {
+/**
+ * Authorization and availability failures during admission keep their HTTP
+ * status (401/403/404 from the control plane, 503 when it is unreachable or
+ * unconfigured) instead of becoming the legacy 400 setup error.
+ */
+function isAdmissionDenial(error: unknown): boolean {
+  return isHttpError(error)
+    && (error.statusCode === 401 || error.statusCode === 403 || error.statusCode === 404 || isCloudUnavailable(error)
+      // W17a: keeps its 409 and the blocker list so the UI can offer "run anyway".
+      || error.code === 'TASK_BLOCKED');
+}
+
+async function closeQuietly(attempt: AttemptContext, reason: string): Promise<void> {
+  try {
+    const store = await getSidecarStore();
+    await store.closeAttempt(attempt, reason);
+  } catch (error) {
+    logger.warn({ err: error, taskId: attempt.taskId }, '[Execution] attempt release failed; capability expires on its own');
+  }
+}
+
+async function gatherExecutionInputs({ taskId, userId, credential, allowBlocked }: ExecuteTaskParams): Promise<{ inputs?: ExecutionInputs; error?: string; code?: string }> {
   if (!userId) return { error: 'userId is required for execution' };
-  const settings = await getExecutionSettings(userId);
-  const parallelLimit = settings.parallelLimit;
-
-  // A starting task remains reserved until its prompt acknowledgement settles.
-  const admittedTaskIds = new Set([...activeExecutions.keys(), ...pendingExecutions]);
-  if (admittedTaskIds.size > parallelLimit) {
-    return { error: `Parallel limit reached (${parallelLimit} tasks max)` };
-  }
-
   const store = await getSidecarStore();
+  // Authorization (execute permission), the immutable snapshot and the
+  // attempt come from the store: server-side in API mode.
+  const started = await store.startAttempt({
+    taskId,
+    userId,
+    credential: credential ?? null,
+    allowBlocked: allowBlocked === true,
+    // A starting task remains reserved until its prompt acknowledgement settles.
+    admit: (settings) => {
+      const admittedTaskIds = new Set([...activeExecutions.keys(), ...pendingExecutions]);
+      return admittedTaskIds.size > settings.parallelLimit
+        ? `Parallel limit reached (${settings.parallelLimit} tasks max)`
+        : null;
+    },
+  });
+  if (!started.ok) return { error: started.error, ...(started.code ? { code: started.code } : {}) };
+  const { attempt, task: taskWithProject } = started;
+
+  try {
+    requireLegacyRunner({ taskAgent: taskWithProject.agent, projectDefaultAgent: taskWithProject.project?.defaultAgent });
+  } catch (error) {
+    await closeQuietly(attempt, 'runner_not_supported');
+    throw error;
+  }
+
   let accessToken: string | null = null;
-
-  if (userId) {
-    try {
-      accessToken = await store.getScmToken(userId);
-    } catch (err) {
-      logger.error({ err, userId }, `[Execution] Failed to decrypt access token for user ${userId}`);
-      return { error: 'Failed to decrypt access token' };
-    }
+  try {
+    accessToken = await store.getGitCredential(attempt, 'clone');
+  } catch (err) {
+    await closeQuietly(attempt, 'git_credential_unavailable');
+    if (isAdmissionDenial(err)) throw err;
+    logger.error({ err, userId }, `[Execution] Failed to decrypt access token for user ${userId}`);
+    return { error: 'Failed to decrypt access token' };
   }
-
-  const authority = await assertTaskOwned(taskId, userId);
-  if (authority.archived) throw new HttpError(409, 'TASK_ARCHIVED', 'Archived tasks cannot execute');
-  if (authority.status === 'in_progress') throw new HttpError(409, 'TASK_ALREADY_RUNNING', 'Task is already executing');
-  const taskWithProject = await store.getTask(taskId);
-
-  if (!taskWithProject) {
-    return { error: 'Task not found' };
-  }
-  if (authority.id !== taskWithProject.id
-    || authority.projectId !== (taskWithProject.projectId ?? taskWithProject.project?.id ?? null)
-    || authority.teamId !== taskWithProject.teamId || authority.creatorId !== taskWithProject.creatorId) {
-    throw new HttpError(409, 'TASK_SELECTION_CHANGED', 'Task access scope changed while execution was checked');
-  }
-  requireLegacyRunner({ taskAgent: taskWithProject.agent, projectDefaultAgent: taskWithProject.project?.defaultAgent });
 
   let useLocalPath: string | null = null;
   let project: { id: string; name: string; fullName: string; cloneUrl: string; defaultBranch: string } | null = null;
@@ -105,11 +141,8 @@ async function gatherExecutionInputs({ taskId, userId }: ExecuteTaskParams): Pro
   }
 
   if (!project && !useLocalPath) {
+    await closeQuietly(attempt, 'no_repository');
     return { error: 'No active project selected' };
-  }
-
-  if (!userId) {
-    return { error: 'userId is required for execution' };
   }
 
   const branchName = `openlinear/${taskId.slice(0, 8)}`;
@@ -119,6 +152,7 @@ async function gatherExecutionInputs({ taskId, userId }: ExecuteTaskParams): Pro
     inputs: {
       taskId,
       userId,
+      attempt,
       accessToken,
       project,
       useLocalPath,
@@ -127,6 +161,46 @@ async function gatherExecutionInputs({ taskId, userId }: ExecuteTaskParams): Pro
       repoPath,
     },
   };
+}
+
+/** API mode: relay this attempt's progress/log events to the control plane. */
+function attachRelay(attempt: AttemptContext): AttemptEventRelay | undefined {
+  const client = attempt.client;
+  if (!client) return undefined;
+  const relay = new AttemptEventRelay({
+    send: (events) => client.sendEvents(events),
+    onCancelRequested: () => requestCancellationFromControlPlane(attempt.taskId),
+  });
+  attachAttemptRelay(attempt.taskId, relay);
+  return relay;
+}
+
+/** A cancellation requested through the control plane runs the local cancel path. */
+function requestCancellationFromControlPlane(taskId: string): void {
+  const execution = activeExecutions.get(taskId);
+  if (!execution || execution.cancelled || execution.finalizationPending) return;
+  logger.info(`[Execution] Cancellation requested by the control plane for task ${taskId.slice(0, 8)}`);
+  void cancelTask(taskId).catch((error: unknown) => {
+    logger.error({ err: error, taskId }, '[Execution] control-plane cancellation failed');
+  });
+}
+
+function startHeartbeat(executionState: ExecutionState): void {
+  const attempt = executionState.attempt;
+  if (!attempt?.client) return;
+  const timer = setInterval(() => {
+    void (async () => {
+      try {
+        const store = await getSidecarStore();
+        const beat = await store.heartbeat(attempt);
+        if (beat.cancelRequested) requestCancellationFromControlPlane(attempt.taskId);
+      } catch (error) {
+        logger.debug({ err: error, taskId: attempt.taskId }, '[Execution] attempt heartbeat failed');
+      }
+    })();
+  }, attemptHeartbeatMs());
+  timer.unref?.();
+  executionState.heartbeatTimer = timer;
 }
 
 async function setupRepository(inputs: ExecutionInputs): Promise<void> {
@@ -162,6 +236,13 @@ function initializeExecution(
   }, TASK_TIMEOUT_MS);
 
   return {
+    attempt: inputs.attempt,
+    taskTitle: taskRecord.title,
+    taskDescription: taskRecord.description,
+    publishRepository: taskRecord.project?.repository
+      ? { fullName: taskRecord.project.repository.fullName, defaultBranch: taskRecord.project.repository.defaultBranch }
+      : null,
+    heartbeatTimer: null,
     taskId,
     projectId: project?.id || taskRecord.project?.id || 'local',
     sessionId,
@@ -225,17 +306,29 @@ async function startAgentSession(
   }
   addLogEntry(taskId, 'info', 'OpenCode agent started');
 
-  await updateTaskStatus(taskId, 'in_progress', sessionId, {
-    executionStartedAt: executionState.startedAt,
-    executionPausedAt: null,
-    executionElapsedMs: 0,
-    executionProgress: 0,
-  }, executionState);
-  assertStarting();
-
+  // W03a claim: the fenced in_progress transition (not archived, not already
+  // running, unchanged project/team/creator), bound to this provider session,
+  // with the legacy batch link cleared and the AgentRun created — atomically
+  // server-side in API mode. A rejected claim never owned the task row.
   const store = await getSidecarStore();
-  assertStarting();
-  await store.updateTask(taskId, { batchId: null });
+  let claim: Awaited<ReturnType<typeof store.claimAttempt>>;
+  try {
+    claim = await store.claimAttempt(inputs.attempt, {
+      sessionId,
+      runner: inputs.runnerId ?? 'opencode',
+      model: inputs.modelLabel ?? 'unknown',
+      executionStartedAt: executionState.startedAt,
+    });
+  } catch (error) {
+    executionState.claimRejected = true;
+    throw error;
+  }
+  executionState.agentRunId = claim.agentRunId;
+  executionState.claimed = true;
+  if (claim.task) {
+    publishTaskEvent(taskId, 'task:updated', claim.task, { ownerUserId: executionState.userId });
+  }
+  startHeartbeat(executionState);
   assertStarting();
 
   let prompt = taskRecord.title;
@@ -368,19 +461,24 @@ async function getModelOverride(
   return { override, label: modelStr as string };
 }
 
-export async function executeTask({ taskId, userId }: ExecuteTaskParams): Promise<{ success: boolean; error?: string; code?: string }> {
+export async function executeTask({ taskId, userId, credential, allowBlocked }: ExecuteTaskParams): Promise<{ success: boolean; error?: string; code?: string }> {
   // Reserve before the first await. A duplicate caller never owns or releases
   // the original attempt's reservation.
   if (activeExecutions.has(taskId) || pendingExecutions.has(taskId) || pendingBatchTasks.has(taskId) || taskHasActiveBatch(taskId)) {
     return { success: false, error: 'Task is already running', code: 'TASK_ALREADY_RUNNING' };
   }
   pendingExecutions.add(taskId);
+  if (userId) pendingExecutionOwners.set(taskId, userId);
   let inputs: ExecutionInputs | undefined;
   let executionState: ExecutionState | undefined;
+  let relay: AttemptEventRelay | undefined;
   try {
-    const result = await gatherExecutionInputs({ taskId, userId });
-    if (result.error || !result.inputs) return { success: false, error: result.error };
+    const result = await gatherExecutionInputs({ taskId, userId, credential, allowBlocked });
+    if (result.error || !result.inputs) {
+      return { success: false, error: result.error, ...(result.code ? { code: result.code } : {}) };
+    }
     inputs = result.inputs;
+    relay = attachRelay(inputs.attempt);
 
     if (!inputs.taskRecord.model) {
       try {
@@ -419,24 +517,31 @@ export async function executeTask({ taskId, userId }: ExecuteTaskParams): Promis
     const modelInfo = await getModelOverride(inputs.taskRecord, client);
     const modelLabel = modelInfo?.label || 'unknown';
 
-    const runnerId = requireLegacyRunner({
+    inputs.runnerId = requireLegacyRunner({
       taskAgent: inputs.taskRecord.agent,
       projectDefaultAgent: inputs.taskRecord.project?.defaultAgent,
     });
-    const agentRunId = await createAgentRun({
-      taskId,
-      userId: inputs.userId,
-      agent: runnerId,
-      model: modelLabel,
-    });
+    inputs.modelLabel = modelLabel;
 
-    executionState = initializeExecution(inputs, client, sessionId, agentRunId);
+    executionState = initializeExecution(inputs, client, sessionId, null);
+    executionState.relay = relay;
     await startAgentSession(inputs, executionState, modelInfo);
 
     logger.info(`[Execution] Started for task ${taskId} in ${inputs.repoPath}`);
     return { success: true };
   } catch (error) {
-    if (executionState && !executionState.cancelled && !executionState.finalized && activeExecutions.get(taskId) === executionState) {
+    if (executionState?.claimRejected) {
+      // The claim was refused (another attempt owns the task, it was archived
+      // or its scope changed): nothing was written for this attempt, so there
+      // is no terminal projection to make. Stop the provider session and
+      // release local state.
+      try {
+        await executionState.client.session.abort({ path: { id: executionState.sessionId }, signal: AbortSignal.timeout(5_000) });
+      } catch (abortError) {
+        logger.warn({ err: abortError, taskId }, '[Execution] Abort after a rejected claim failed');
+      }
+      await cleanupExecution(taskId, executionState);
+    } else if (executionState && !executionState.cancelled && !executionState.finalized && activeExecutions.get(taskId) === executionState) {
       try {
         await failExecutionFromEventStream(
           taskId,
@@ -460,9 +565,23 @@ export async function executeTask({ taskId, userId }: ExecuteTaskParams): Promis
     }
     logger.error({ err: error, taskId }, `[Execution] Failed to execute task ${taskId}`);
     broadcastProgress(taskId, 'error', error instanceof Error ? error.message : 'Execution failed');
+    // Authorization and control-plane availability failures before the
+    // claim keep their status (401/403/404/503) for the route.
+    if (!executionState?.claimed && isAdmissionDenial(error)) throw error;
     return { success: false, error: error instanceof Error ? error.message : 'Unknown error', ...(isHttpError(error) ? { code: error.code } : {}) };
   } finally {
     pendingExecutions.delete(taskId);
+    pendingExecutionOwners.delete(taskId);
+    // Until a successful claim hands the attempt to the execution (whose
+    // cleanup closes it), this call owns it: release it and its relay.
+    if (inputs && !executionState?.claimed) {
+      if (relay) {
+        await relay.close(1_000).catch(() => undefined);
+        detachAttemptRelay(taskId, relay);
+        if (executionState && executionState.relay === relay) executionState.relay = undefined;
+      }
+      if (!inputs.attempt.closed) await closeQuietly(inputs.attempt, 'setup_failed');
+    }
   }
 }
 
@@ -508,6 +627,9 @@ async function cancelExecution(taskId: string, execution: ExecutionState): Promi
       const result = await execution.client.session.abort({ path: { id: execution.sessionId }, signal: AbortSignal.timeout(5_000) });
       if (result.error || result.data !== true) throw new Error('Provider did not confirm abort');
       if (persistenceError) throw persistenceError;
+      // Positive stop receipt to the control plane before the run may be
+      // finalized as cancelled (W03a cancellation acknowledgement).
+      if (execution.attempt) await (await getSidecarStore()).acknowledgeCancellation(execution.attempt);
       await finalizeAgentRun(execution, 'cancelled', { errorMessage: 'cancelled by user' });
       await persistLogs(taskId, execution);
     } catch (error) {

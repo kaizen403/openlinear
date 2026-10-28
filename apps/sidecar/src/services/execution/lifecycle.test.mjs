@@ -36,15 +36,26 @@ vi.mock('@openlinear/db', () => ({
       update: mocks.taskUpdate,
     },
     repository: { findFirst: mocks.repositoryFindFirst },
+    // W17a: no blockers.
+    taskDependency: { findMany: async () => [] },
+    agentRun: { create: mocks.createAgentRun },
+    activityLog: { create: vi.fn() },
     $executeRaw: mocks.executeRaw,
   },
 }));
 
-vi.mock('@openlinear/api/ownership', () => ({ assertTaskOwned: mocks.assertTaskOwned }));
+// W03a: execute authorization is decided by the control plane; in Prisma
+// (test) mode the store asks `auth/task-access`, stubbed with the previous
+// ownership contract.
+vi.mock('../../auth/task-access', () => ({
+  authorizeTaskAccess: (credential, taskId) => mocks.assertTaskOwned(taskId, credential?.principal?.userId ?? 'user-1'),
+}));
 
-vi.mock('@openlinear/api/sse', () => ({
-  broadcastToTask: mocks.broadcastToTask,
-  broadcastToTaskById: mocks.broadcastToTaskById,
+vi.mock('../../events/publisher', () => ({
+  publishTaskEvent: mocks.broadcastToTask,
+  registerTaskOwnerResolver: vi.fn(),
+  attachAttemptRelay: vi.fn(),
+  detachAttemptRelay: vi.fn(),
 }));
 
 vi.mock('../opencode', () => ({ getClientForUser: mocks.getClientForUser }));
@@ -71,7 +82,6 @@ vi.mock('./events', () => ({
   claimFinalize: mocks.claimFinalize,
 }));
 vi.mock('./agent-run', () => ({
-  createAgentRun: mocks.createAgentRun,
   finalizeAgentRun: mocks.finalizeAgentRun,
 }));
 
@@ -204,7 +214,7 @@ describe('execution lifecycle', () => {
     });
     mocks.releaseLocalWorktree.mockResolvedValue(undefined);
     mocks.createBranch.mockResolvedValue(undefined);
-    mocks.createAgentRun.mockResolvedValue('run-1');
+    mocks.createAgentRun.mockResolvedValue({ id: 'run-1' });
     // Default: a model is already configured, so the T9 preflight never
     // blocks a run unless a test explicitly wants to exercise that path.
     mocks.ensureModelConfigured.mockResolvedValue({ model: 'openai/gpt-5', autoDetected: false, hasProvider: true });
@@ -327,11 +337,17 @@ describe('execution lifecycle', () => {
       body: { title: 'Fix execution' },
       query: { directory: '/owned/worktrees/attempt-1' },
     });
+    // W03a: the AgentRun row is created by the claim, together with the
+    // in_progress transition bound to the provider session.
     expect(mocks.createAgentRun).toHaveBeenCalledWith({
-      taskId: 'task-12345678',
-      userId: 'user-1',
-      agent: 'opencode',
-      model: 'anthropic/claude-sonnet',
+      data: {
+        taskId: 'task-12345678',
+        userId: 'user-1',
+        agent: 'opencode',
+        model: 'anthropic/claude-sonnet',
+        status: 'running',
+      },
+      select: { id: true },
     });
     expect(state.activeExecutions.get('task-12345678')).toMatchObject({
       taskId: 'task-12345678',
@@ -439,7 +455,7 @@ describe('execution lifecycle', () => {
 
     expect(mocks.cloneRepository).not.toHaveBeenCalled();
     expect(mocks.createBranch).toHaveBeenCalledWith('/local/repo', 'openlinear/task-123');
-    expect(mocks.createAgentRun).toHaveBeenCalledWith(expect.objectContaining({ model: 'unknown' }));
+    expect(mocks.createAgentRun).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ model: 'unknown' }) }));
   });
 
   it('uses the local project id fallback when localPath projects have no id', async () => {
@@ -470,7 +486,7 @@ describe('execution lifecycle', () => {
       success: true,
     });
 
-    expect(mocks.createAgentRun).toHaveBeenCalledWith(expect.objectContaining({ model: 'unknown' }));
+    expect(mocks.createAgentRun).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ model: 'unknown' }) }));
   });
 
   it('builds prompts without optional description, labels, or model override', async () => {

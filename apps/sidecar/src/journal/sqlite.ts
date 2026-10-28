@@ -1,10 +1,10 @@
 import { mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { homedir } from 'node:os';
 import { DatabaseSync } from 'node:sqlite';
 import type { AgentEvent, JournalRun, JournalRunStatus } from '@openlinear/execution-core';
 import { executionSseId } from '@openlinear/execution-core';
 import type { OpenLinearClient } from '@openlinear/api-client';
+import { sidecarAppDataDir } from '../config/app-data';
 
 export interface JournalAppendResult {
   seq: number;
@@ -53,10 +53,8 @@ export class RunJournal {
     `);
   }
 
-  static defaultPath(): string {
-    const root = process.env.OPENLINEAR_APP_DATA
-      ?? join(homedir(), 'Library', 'Application Support', 'OpenLinear');
-    return join(root, 'journal', 'runs.sqlite');
+  static defaultPath(env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform): string {
+    return join(sidecarAppDataDir(env, platform), 'journal', 'runs.sqlite');
   }
 
   startRun(run: Omit<JournalRun, 'heartbeatAt' | 'finishedAt' | 'startedAt'> & { startedAt?: number }): void {

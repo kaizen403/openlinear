@@ -28,33 +28,48 @@ vi.mock('@openlinear/db', () => ({
       update: mocks.taskUpdate,
       updateMany: mocks.taskUpdateMany,
     },
+    // W17a: no blockers.
+    taskDependency: { findMany: async () => [] },
     $queryRaw: mocks.queryRaw,
   },
 }));
 
-vi.mock('@openlinear/api/sse', () => ({
-  broadcastToTask: mocks.broadcastToTask,
+// W03a: the route publishes through the sidecar's local event publisher.
+vi.mock('../events/publisher', () => ({
+  publishTaskEvent: (taskId, event, payload) => mocks.broadcastToTask(event, payload),
+  publishUserEvent: vi.fn(),
+  publishGlobalEvent: vi.fn(),
+  registerTaskOwnerResolver: vi.fn(),
+  attachAttemptRelay: vi.fn(),
+  detachAttemptRelay: vi.fn(),
 }));
 
-// Mirrors requireAuth's observable contract for this router: a request
+// Mirrors the sidecar authentication contract for this router: a request
 // without proof of identity (here, a stand-in `x-user-id` header) never
-// reaches the handler at all. This is the fix for C6a F4 — previously this
-// router used `optionalAuth`, which let an unauthenticated caller through
-// with `req.userId` simply left undefined.
-vi.mock('@openlinear/api/middleware', () => ({
-  requireAuth: (req, res, next) => {
+// reaches the handler at all (C6a F4). W03a: the principal is validated by
+// the control plane; this stand-in attaches the same credential shape.
+vi.mock('../auth/principal', () => ({
+  requireSidecarAuth: (req, res, next) => {
     const userId = req.get('x-user-id');
     if (!userId) {
       res.status(401).json({ error: 'Authentication required' });
       return;
     }
     req.userId = userId;
+    req.credential = { principal: { userId, authSource: 'session', scopes: [], workspaceRestriction: null, tokenHash: 'h' }, token: `token-${userId}` };
+    req.principal = req.credential.principal;
     next();
+  },
+  credentialOf: (req) => {
+    if (!req.credential) throw new Error('unauthenticated');
+    return req.credential;
   },
 }));
 
-vi.mock('@openlinear/api/ownership', () => ({
-  assertTaskOwned: mocks.assertTaskOwned,
+// Authorization is decided by the control plane (W03a); the stand-in keeps
+// the previous ownership contract observable.
+vi.mock('../auth/task-access', () => ({
+  authorizeTaskAccess: (credential, taskId) => mocks.assertTaskOwned(taskId, credential?.principal.userId),
 }));
 
 vi.mock('../services/execution', () => ({
@@ -64,8 +79,9 @@ vi.mock('../services/execution', () => ({
   getExecutionLogs: mocks.getExecutionLogs,
 }));
 
-vi.mock('../services/batch', () => ({
+vi.mock('../services/batch/registry', () => ({
   getBatchExecutionLogs: mocks.getBatchExecutionLogs,
+  batchOwnerOf: () => null,
 }));
 
 vi.mock('../services/opencode-model', () => ({
@@ -175,8 +191,14 @@ describe('execution routes', () => {
       status: 200,
       body: { message: 'Task execution started' },
     });
-    expect(mocks.assertTaskOwned).toHaveBeenCalledWith('task-1', 'user-1');
-    expect(mocks.executeTask).toHaveBeenCalledWith({ taskId: 'task-1', userId: 'user-1' });
+    // W03a: execute authorization is the control plane's attempt start
+    // (inside executeTask), so the route forwards the request credential.
+    expect(mocks.executeTask).toHaveBeenCalledWith({
+      taskId: 'task-1',
+      userId: 'user-1',
+      credential: expect.objectContaining({ token: 'token-user-1', principal: expect.objectContaining({ userId: 'user-1' }) }),
+      allowBlocked: false,
+    });
 
     mocks.executeTask.mockResolvedValueOnce({ success: false, error: 'No active project selected' });
     await expect(request(app, 'POST', '/task-1/execute', { headers: AUTH_HEADERS })).resolves.toEqual({
@@ -191,14 +213,15 @@ describe('execution routes', () => {
     });
   });
 
-  it('propagates ownership failures for execute as a 500 via next(error)', async () => {
-    mocks.assertTaskOwned.mockRejectedValueOnce(new Error('not yours'));
+  it('propagates ownership failures for execute through next(error), not as a 400', async () => {
+    // W03a: the attempt start denies (403/404/503) and executeTask rethrows.
+    mocks.executeTask.mockRejectedValueOnce(new Error('not yours'));
 
     await expect(request(app, 'POST', '/task-1/execute', { headers: AUTH_HEADERS })).resolves.toEqual({
       status: 500,
       body: { error: 'not yours' },
     });
-    expect(mocks.executeTask).not.toHaveBeenCalled();
+    expect(mocks.assertTaskOwned).not.toHaveBeenCalled();
   });
 
   it('skips pre-flight when ensureModelConfigured throws and still proceeds', async () => {
@@ -351,7 +374,8 @@ describe('execution routes', () => {
     });
 
     expect(mocks.fetch).toHaveBeenCalledWith(
-      'https://api.github.com/repos/acme/repo/pulls?head=acme:openlinear/task-1&state=all&per_page=1',
+      // W03a: query values are now URL-encoded (C6a noted raw interpolation).
+      'https://api.github.com/repos/acme/repo/pulls?head=acme%3Aopenlinear%2Ftask-1&state=all&per_page=1',
       expect.objectContaining({
         headers: expect.objectContaining({ Authorization: 'Bearer decrypted:secret' }),
       }),
@@ -398,7 +422,7 @@ describe('execution routes', () => {
     mocks.taskFindUnique.mockResolvedValueOnce(null);
     await expect(request(app, 'POST', '/missing/refresh-pr', { headers: AUTH_HEADERS })).resolves.toEqual({
       status: 404,
-      body: { error: 'Task not found' },
+      body: { error: 'Task not found', code: 'TASK_NOT_FOUND', message: 'Task not found' },
     });
 
     mocks.taskFindUnique.mockResolvedValueOnce({ prUrl: 'https://github.com/acme/repo/pull/1', batchId: null });
@@ -420,7 +444,7 @@ describe('execution routes', () => {
     mocks.userFindUnique.mockResolvedValueOnce({ accessToken: null });
     await expect(request(app, 'POST', '/task-1/refresh-pr', { headers: AUTH_HEADERS })).resolves.toEqual({
       status: 400,
-      body: { error: 'GitHub authentication required to refresh PR status' },
+      body: { error: 'GitHub authentication required to refresh PR status', code: 'GITHUB_NOT_LINKED', message: 'GitHub authentication required to refresh PR status' },
     });
 
     mocks.taskFindUnique.mockResolvedValueOnce({
@@ -435,7 +459,7 @@ describe('execution routes', () => {
       headers: AUTH_HEADERS,
     })).resolves.toEqual({
       status: 400,
-      body: { error: 'GitHub authentication required to refresh PR status' },
+      body: { error: 'GitHub authentication required to refresh PR status', code: 'GITHUB_NOT_LINKED', message: 'GitHub authentication required to refresh PR status' },
     });
 
     mocks.taskFindUnique.mockResolvedValueOnce({
@@ -448,7 +472,7 @@ describe('execution routes', () => {
       headers: AUTH_HEADERS,
     })).resolves.toEqual({
       status: 502,
-      body: { error: 'GitHub API request failed' },
+      body: { error: 'GitHub API request failed', code: 'GITHUB_REQUEST_FAILED', message: 'GitHub API request failed' },
     });
 
     mocks.taskFindUnique.mockResolvedValueOnce({

@@ -128,6 +128,14 @@ export function processAgentEvent(event: AgentEvent, state: EventProcessorState)
       if (event.reason === 'interrupted') {
         return [{ type: 'failExecution', message: 'Run interrupted' }];
       }
+      if (event.reason === 'max_turns') {
+        // W12a: running out of turns is not finishing the task. Never published
+        // as success; the work stays in the worktree for a follow-up turn.
+        return [
+          { type: 'flushDeltaBuffer' },
+          { type: 'failExecution', message: 'The agent stopped at its turn limit before finishing', details: 'Its work was kept. Send a follow-up to let it continue.' },
+        ];
+      }
       return [
         { type: 'flushDeltaBuffer' },
         { type: 'log', level: 'success', message: 'Agent completed work' },

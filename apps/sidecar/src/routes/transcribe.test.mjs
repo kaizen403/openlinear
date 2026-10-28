@@ -4,8 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mirrors requireAuth's observable contract: no proof of identity, no
 // response at all (the fix for C6a F13 — this route previously had no auth).
-vi.mock('@openlinear/api/middleware', () => ({
-  requireAuth: (req, res, next) => {
+vi.mock('../auth/principal', () => ({
+  requireSidecarAuth: (req, res, next) => {
     const userId = req.get('x-user-id');
     if (!userId) {
       res.status(401).json({ error: 'Authentication required' });
@@ -167,7 +167,20 @@ describe('POST /api/transcribe', () => {
 
     await expect(postAudio(app, { headers: AUTH_HEADERS, contentType, body: buf })).resolves.toEqual({
       status: 200,
-      body: { text: 'hello world' },
+      body: {
+        text: 'hello world',
+        usage: {
+          surface: 'transcription',
+          provider: 'cartesia',
+          model: 'ink-whisper',
+          status: 'succeeded',
+          audioBytes: buf.length,
+          audioSeconds: null,
+          latencyMs: expect.any(Number),
+          costUsd: null,
+          costBasis: 'unknown',
+        },
+      },
     });
 
     expect(fetchMock).toHaveBeenCalledWith(
@@ -178,6 +191,19 @@ describe('POST /api/transcribe', () => {
         signal: expect.any(AbortSignal),
       }),
     );
+  });
+
+  it('reports the audio duration Cartesia returns, and an unknown (null) cost', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ text: 'hi', duration: 3.25 }),
+    });
+    const app = makeApp();
+
+    const result = await postAudio(app, { headers: AUTH_HEADERS, contentType: 'audio/webm', body: WEBM_MAGIC });
+
+    expect(result.status).toBe(200);
+    expect(result.body.usage).toMatchObject({ audioSeconds: 3.25, audioBytes: WEBM_MAGIC.length, costUsd: null, costBasis: 'unknown' });
   });
 
   it('returns a generic 502 and never leaks upstream error detail when Cartesia rejects the request', async () => {

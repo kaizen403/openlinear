@@ -12,6 +12,8 @@ const mocks = vi.hoisted(() => ({
   abort: vi.fn(),
   taskUpdate: vi.fn(),
   failExecution: vi.fn(),
+  closeAttempt: vi.fn(),
+  claimAttempt: vi.fn(),
 }));
 
 vi.mock('@openlinear/db', () => ({
@@ -20,28 +22,44 @@ vi.mock('@openlinear/db', () => ({
     $executeRaw: vi.fn(async () => 1),
   },
 }));
-vi.mock('@openlinear/api/ownership', () => ({ assertTaskOwned: async (id: string) => {
-  const task = await mocks.getTask(id);
-  return { id, projectId: task?.project?.id ?? null, teamId: task?.teamId ?? null, creatorId: task?.creatorId ?? null, archived: false, status: 'todo' };
-} }));
-vi.mock('@openlinear/api/sse', () => ({
-  broadcastToTask: vi.fn(),
-  broadcastToTaskById: vi.fn(async () => undefined),
+vi.mock('../../events/publisher', () => ({
+  publishTaskEvent: vi.fn(),
+  registerTaskOwnerResolver: vi.fn(),
+  attachAttemptRelay: vi.fn(),
+  detachAttemptRelay: vi.fn(),
 }));
 vi.mock('../opencode', () => ({ getClientForUser: mocks.getClientForUser }));
 vi.mock('../opencode-model', () => ({ ensureModelConfigured: vi.fn() }));
 vi.mock('../execution-settings', () => ({
   getExecutionSettings: vi.fn(async () => ({ parallelLimit: 3 })),
 }));
+// W03a store stand-in: the attempt start snapshots the task; only the
+// persistence/agent boundaries are faked, real Git does the rest.
 vi.mock('../../persistence/store', () => ({
   getSidecarStore: vi.fn(async () => ({
-    getTask: mocks.getTask,
-    getScmToken: async () => null,
-    updateTask: async () => undefined,
+    mode: 'prisma',
+    startAttempt: async (input: { taskId: string; userId: string; admit: (settings: { parallelLimit: number }) => string | null }) => {
+      const task = await mocks.getTask(input.taskId);
+      const settings = { parallelLimit: 3, maxBatchSize: 3, queueAutoApprove: false, stopOnFailure: false, conflictBehavior: 'skip' };
+      const rejected = input.admit(settings);
+      if (rejected) return { ok: false, error: rejected };
+      return {
+        ok: true,
+        attempt: { taskId: input.taskId, userId: input.userId, attemptId: null, client: null, credential: null },
+        task,
+        authority: { id: task.id, projectId: task.project?.id ?? null, teamId: task.teamId, creatorId: task.creatorId, archived: false, status: 'todo' },
+        settings,
+      };
+    },
+    getGitCredential: async () => null,
+    claimAttempt: mocks.claimAttempt,
+    writeTaskStatus: async () => ({ id: 'task-12345678' }),
+    persistLogs: async () => undefined,
+    finalizeRun: async () => undefined,
+    closeAttempt: mocks.closeAttempt,
   })),
 }));
 vi.mock('./agent-run', () => ({
-  createAgentRun: vi.fn(async () => 'run-integration'),
   finalizeAgentRun: vi.fn(async () => undefined),
 }));
 vi.mock('./events', () => ({
@@ -128,6 +146,8 @@ describe('single-task lifecycle with real worktrees', () => {
     mocks.abort.mockResolvedValue({ data: true });
     mocks.taskUpdate.mockResolvedValue({ id: 'task-12345678', labels: [] });
     mocks.failExecution.mockResolvedValue(undefined);
+    mocks.claimAttempt.mockResolvedValue({ agentRunId: 'run-integration', task: null });
+    mocks.closeAttempt.mockImplementation(async (attempt: { closed?: boolean }) => { attempt.closed = true; });
   });
 
   afterEach(async () => {
@@ -178,6 +198,9 @@ describe('single-task lifecycle with real worktrees', () => {
       expect(state.activeExecutions.has('task-12345678')).toBe(false);
     }
     expect(acquired[0]).not.toBe(acquired[1]);
+    // W03a: each failed setup releases its control-plane attempt.
+    expect(mocks.closeAttempt).toHaveBeenCalledTimes(2);
+    expect(mocks.claimAttempt).not.toHaveBeenCalled();
     const mirror = join(root, 'appdata', 'repos', root.split('/').pop() ?? '', 'origin.git');
     const registered = git(root, ['-C', mirror, 'worktree', 'list', '--porcelain']);
     for (const directory of acquired) expect(registered).not.toContain(directory);

@@ -1,10 +1,11 @@
-import { prisma } from '@openlinear/db';
-import { broadcastToTask, broadcastToTaskById } from '@openlinear/api/sse';
-import { logger } from '@openlinear/api/logger';
+import { logger } from '../../lib/logger';
 
 import type { OpencodeClient } from '@opencode-ai/sdk';
 import { cleanupDeltaBuffer, flushDeltaBuffer } from '../delta-buffer';
 import { assertPathInsideReposDir, buildReposPath, REPOS_DIR } from '../repo-storage';
+import { getSidecarStore, type AttemptContext, type TaskFence } from '../../persistence/store';
+import { detachAttemptRelay, publishTaskEvent, registerTaskOwnerResolver } from '../../events/publisher';
+import type { AttemptEventRelay } from '../../events/relay';
 
 export interface Label {
   id: string;
@@ -21,10 +22,6 @@ export interface TaskLabelRelation {
 export { assertPathInsideReposDir, buildReposPath, REPOS_DIR };
 export const TASK_TIMEOUT_MS = 30 * 60 * 1000;
 
-const BROADCAST_RETRY_DELAY_MS = 1_000;
-const BROADCAST_MAX_ATTEMPTS = 3;
-const criticalProgressStatuses = new Set(['done', 'error', 'cancelled']);
-
 // T11 (H-12) — execution log arrays were unbounded; a chatty two-hour run
 // produces tens of thousands of entries held in memory for the run's full
 // lifetime. Ring-buffer them: once the cap is hit, drop the oldest entries
@@ -39,6 +36,23 @@ export const MAX_COMPLETED_TOOL_KEYS = 500;
 export const COMPLETED_TOOL_KEY_SOURCE_LIMIT = 200;
 
 export interface ExecutionState {
+  /**
+   * W03a: the attempt this execution persists through (API mode: holds the
+   * run-scoped capability client). Absent only in legacy test fixtures.
+   */
+  attempt?: AttemptContext;
+  /** Relay of this attempt's progress/log events to the control plane. */
+  relay?: AttemptEventRelay;
+  heartbeatTimer?: NodeJS.Timeout | null;
+  /** The claim was refused: this execution never owned the task row. */
+  claimRejected?: boolean;
+  /** The claim succeeded: this execution owns the attempt and its cleanup closes it. */
+  claimed?: boolean;
+  /** Immutable snapshot title/description used for commit and PR text. */
+  taskTitle?: string;
+  taskDescription?: string | null;
+  /** Repository the run publishes to, from the immutable snapshot. */
+  publishRepository?: { fullName: string; defaultBranch: string } | null;
   cancelUnconfirmed?: boolean;
   finalizationPending?: boolean;
   taskStatusPersisted?: 'done' | 'cancelled';
@@ -111,6 +125,10 @@ export interface ExecutionLogEntry {
 export interface ExecuteTaskParams {
   taskId: string;
   userId?: string;
+  /** The request principal's credential (W03a). Memory only. */
+  credential?: import('../../auth/principal').PrincipalCredential | null;
+  /** W17a: run although blockers are open (else 409 TASK_BLOCKED). */
+  allowBlocked?: boolean;
 }
 
 export interface PullRequestResult {
@@ -209,6 +227,8 @@ export const executionStore = new ExecutionStateStore();
  * Proxy that delegates Map operations to the ExecutionStateStore singleton.
  */
 export const pendingExecutions = new Set<string>();
+/** Owner (initiating user) of each pending execution, for local event delivery. */
+export const pendingExecutionOwners = new Map<string, string>();
 export const activeExecutions: Map<string, ExecutionState> = new Proxy(new Map<string, ExecutionState>(), {
   get(_target, prop: string | symbol) {
     switch (prop) {
@@ -272,48 +292,25 @@ export function getExecutionStatus(taskId: string): ExecutionState | undefined {
   return executionStore.get(taskId);
 }
 
-function scheduleTaskBroadcast(
-  taskId: string,
-  event: string,
-  payload: unknown,
-  critical = false,
-  attempt = 1,
-): void {
-  // T7 (H-02) — reuse the routing metadata cached on the execution state
-  // instead of a Postgres lookup per log line / progress update. This is the
-  // hot path: a chatty two-hour run can emit thousands of these.
-  const execution = executionStore.get(taskId);
-  if (execution) {
-    broadcastToTask(event, { id: taskId, teamId: execution.teamId, creatorId: execution.creatorId }, payload);
-    return;
-  }
+/** The initiating user of a task's single execution (active or still preparing). */
+export function singleExecutionOwner(taskId: string): string | null {
+  return executionStore.get(taskId)?.userId ?? pendingExecutionOwners.get(taskId) ?? null;
+}
 
-  // Fallback for callers with no cached execution state (e.g. a broadcast
-  // that races cleanup). Keeps the original DB-lookup + retry behavior.
-  broadcastToTaskById(taskId, event, payload).catch((error: unknown) => {
-    logger.error(
-      { err: error, event, attempt },
-      `[Execution] Failed to broadcast ${event} for task ${taskId.slice(0, 8)} (attempt ${attempt})`,
-    );
+registerTaskOwnerResolver(singleExecutionOwner);
 
-    if (!critical || attempt >= BROADCAST_MAX_ATTEMPTS) {
-      return;
-    }
-
-    setTimeout(() => {
-      scheduleTaskBroadcast(taskId, event, payload, critical, attempt + 1);
-    }, BROADCAST_RETRY_DELAY_MS).unref();
-  });
+function scheduleTaskBroadcast(taskId: string, event: string, payload: Record<string, unknown>): void {
+  // W03a — no per-event database or cloud lookup: local streams of the run's
+  // owner get the event synchronously, and the attempt's bounded relay
+  // forwards progress/log events to the control plane (which retries and
+  // re-authorizes every cloud subscriber). Critical progress (done, error,
+  // cancelled) is flushed immediately and kept preferentially by the relay.
+  publishTaskEvent(taskId, event, payload);
 }
 
 export function broadcastProgress(taskId: string, status: string, message: string, data?: Record<string, unknown>) {
   logger.info(`[Execution] ${taskId.slice(0, 8)} → ${status}: ${message}`);
-  scheduleTaskBroadcast(
-    taskId,
-    'execution:progress',
-    { taskId, status, message, ...data },
-    criticalProgressStatuses.has(status),
-  );
+  scheduleTaskBroadcast(taskId, 'execution:progress', { taskId, status, message, ...data });
 }
 
 // --- T10 (M-13) — secret redaction ---
@@ -337,6 +334,9 @@ const SECRET_PATTERNS: RegExp[] = [
   /\bsk-[A-Za-z0-9_-]{10,}\b/g,
   /\bgh[oprsu]_[A-Za-z0-9]{20,}\b/g,
   /\bgithub_pat_[A-Za-z0-9_]{20,}\b/g,
+  // OpenLinear credentials: PATs and W03a attempt capabilities.
+  /\bol_pat_[0-9a-f]{20,}\b/g,
+  /\bolx_[A-Za-z0-9_-]{20,}/g,
   // JWTs (header.payload.signature).
   /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/g,
   // DB connection strings with embedded credentials.
@@ -361,6 +361,11 @@ function scrubSecrets(input: string): string {
     out = out.replace(pattern, REDACTED);
   }
   return out;
+}
+
+/** Stateless redaction of one string (the run journal applies it before persisting agent output). */
+export function redactSecrets(input: string): string {
+  return scrubSecrets(input);
 }
 
 const redactionCarry = new Map<string, string>();
@@ -452,31 +457,38 @@ export async function updateTaskStatus(
     }
     const execution = expectedExecution ?? activeExecutions.get(taskId);
     if (status !== 'in_progress' && execution?.taskStatusPersisted === status) return;
-    const task = await prisma.task.update({
-      where: { id: taskId, ...(status !== 'in_progress' && execution ? {
-        sessionId: execution.sessionId, status: 'in_progress' as const,
-        ...(execution.taskProjectId !== undefined ? { projectId: execution.taskProjectId, teamId: execution.teamId, creatorId: execution.creatorId } : {}),
-      } : {}) },
-      data: { 
-        status, 
-        sessionId,
-        ...executionData,
-      },
-      include: { labels: { include: { label: true } } },
+    // The fence (session + in_progress + captured project/team/creator) is
+    // applied by the store: directly in Prisma mode, server-side against the
+    // attempt's recorded bindings in API mode.
+    const store = await getSidecarStore();
+    const task = await store.writeTaskStatus(execution?.attempt ?? null, {
+      taskId,
+      status,
+      sessionId,
+      executionData,
+      fence: execution ? fenceOf(execution) : null,
     });
     if (execution && status !== 'in_progress') execution.taskStatusPersisted = status;
-    
-    const flatTask = {
-      ...task,
-      labels: task.labels.map((tl: TaskLabelRelation) => tl.label),
-    };
-    
-    try { broadcastToTask('task:updated', flatTask); }
-    catch (error) { logger.warn({ err: error, taskId }, '[Execution] Task status persisted; notification failed'); }
+
+    if (task) {
+      try { publishTaskEvent(taskId, 'task:updated', task, { ownerUserId: execution?.userId ?? null }); }
+      catch (error) { logger.warn({ err: error, taskId }, '[Execution] Task status persisted; notification failed'); }
+    }
   } catch (error) {
     logger.error({ err: error, taskId }, `[Execution] Failed to update task ${taskId}`);
     throw error;
   }
+}
+
+/** The W01 fence of an execution's writes. */
+export function fenceOf(execution: ExecutionState): TaskFence {
+  return {
+    sessionId: execution.sessionId,
+    ...(execution.taskProjectId !== undefined ? { projectId: execution.taskProjectId } : {}),
+    teamId: execution.teamId,
+    creatorId: execution.creatorId,
+    ...(execution.taskStatusPersisted ? { terminalStatus: execution.taskStatusPersisted } : {}),
+  };
 }
 
 export function estimateProgress(execution: ExecutionState): number {
@@ -492,18 +504,36 @@ export async function persistLogs(taskId: string, expectedExecution?: ExecutionS
   if (expectedExecution && executionStore.get(taskId) !== expectedExecution) return;
   if (!execution || execution.logs.length === 0) return;
   try {
-    await prisma.$executeRaw`
-      UPDATE tasks SET "executionLogs" = ${JSON.stringify(execution.logs)}::jsonb WHERE id = ${taskId}
-        AND status = ${execution.taskStatusPersisted ?? 'in_progress'}
-        AND "sessionId" IS NOT DISTINCT FROM ${execution.taskStatusPersisted ? null : execution.sessionId}
-        AND (${execution.taskProjectId === undefined} OR (
-          "projectId" IS NOT DISTINCT FROM ${execution.taskProjectId ?? null}
-          AND "teamId" IS NOT DISTINCT FROM ${execution.teamId}
-          AND "creatorId" IS NOT DISTINCT FROM ${execution.creatorId}
-        ))
-    `;
+    const store = await getSidecarStore();
+    await store.persistLogs(execution.attempt ?? null, { taskId, logs: execution.logs, fence: fenceOf(execution) });
   } catch (error) {
     logger.error({ err: error, taskId }, `[Execution] Failed to persist logs for task ${taskId.slice(0, 8)}`);
+  }
+}
+
+/**
+ * End the attempt's control-plane lifecycle: stop the heartbeat, drain the
+ * event relay (bounded), and revoke the capability. Idempotent; never throws.
+ */
+export async function closeExecutionAttempt(execution: ExecutionState, reason?: string): Promise<void> {
+  if (execution.heartbeatTimer) {
+    clearInterval(execution.heartbeatTimer);
+    execution.heartbeatTimer = null;
+  }
+  const relay = execution.relay;
+  if (relay) {
+    execution.relay = undefined;
+    try { await relay.close(); }
+    catch (error) { logger.warn({ err: error, taskId: execution.taskId }, '[Execution] event relay did not drain'); }
+    detachAttemptRelay(execution.taskId, relay);
+  }
+  const attempt = execution.attempt;
+  if (!attempt || attempt.closed) return;
+  try {
+    const store = await getSidecarStore();
+    await store.closeAttempt(attempt, reason);
+  } catch (error) {
+    logger.warn({ err: error, taskId: execution.taskId }, '[Execution] attempt close failed; capability expires on its own');
   }
 }
 
@@ -534,13 +564,15 @@ export async function cleanupExecution(taskId: string, expectedExecution?: Execu
     }
     if (executionStore.get(taskId) !== execution) return;
     executionStore.remove(taskId);
+    execution.accessToken = null;
+    await closeExecutionAttempt(execution);
     logger.info(`[Execution] Cleaned up task ${taskId.slice(0, 8)}, remaining: ${executionStore.count()}`);
   }
 }
 
+/** Title from the immutable start snapshot (no database read). */
 export async function getTaskTitle(taskId: string): Promise<string> {
-  const task = await prisma.task.findUnique({ where: { id: taskId } });
-  return task?.title || 'Task';
+  return executionStore.get(taskId)?.taskTitle || 'Task';
 }
 
 export function findTaskBySessionId(sessionId: string): string | undefined {

@@ -1,3 +1,6 @@
+import { existsSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import type {
   AgentEvent,
   AgentRunner,
@@ -5,12 +8,25 @@ import type {
   ModelDescriptor,
   ModelRef,
   ResumeInput,
+  RunnerAuthStatus,
   RunnerCapabilities,
+  RunnerFeatures,
+  RunnerHealth,
   StartInput,
   TokenUsage,
 } from '@openlinear/execution-core';
 import { emptyTokenUsage } from '@openlinear/execution-core';
-import type { CodexOptions, Thread, ThreadEvent, ThreadOptions } from '@openai/codex-sdk';
+import type { ThreadEvent } from '@openai/codex-sdk';
+import { buildRunnerProcessEnv } from '../../sandbox/env';
+import { resolveSandboxMode } from '../../sandbox/mode';
+import { runShortCommand } from '../shared/binary';
+import { RESUME_CONTINUATION_PROMPT } from '../shared/continuation';
+import { isRecord } from '../shared/jsonl';
+import type { ExitInfo } from '../shared/process-group';
+import { RunnerAuthUnavailableError, RunnerUnavailableError } from '../shared/errors';
+import { ProcessAgentSession } from '../shared/process-session';
+import { findSessionFile, launchRunnerProcess, runnerRuntimeDir, type RunnerProcess, type RunnerProcessSpec } from '../shared/sandboxed-process';
+import { buildCodexExecArgs, CODEX_SDK_VERSION, resolveCodexBinary, type CodexBinary } from './exec';
 
 const CAPABILITIES: RunnerCapabilities = {
   streamingDeltas: true,
@@ -23,14 +39,30 @@ const CAPABILITIES: RunnerCapabilities = {
   cacheSplitUsage: true,
 };
 
-type CodexThread = Pick<Thread, 'id' | 'runStreamed'>;
-
-type CodexCtor = new (opts?: CodexOptions) => {
-  startThread(opts?: ThreadOptions): CodexThread;
-  resumeThread(id: string, opts?: ThreadOptions): CodexThread;
+const FEATURES: RunnerFeatures = {
+  resume: 'native-session',
+  // `codex exec` has no in-band interrupt; app-server's turn/interrupt is not used.
+  interrupt: 'process-abort',
+  approvals: 'policy-only',
+  models: { discovery: 'none', aliases: [], passthrough: true },
+  maxContextTokens: null,
+  usage: { cost: 'none', cacheSplit: true, reasoning: true, semantics: 'delta-per-turn' },
+  isolation: 'sandbox-provider-process',
 };
 
-interface CodexEventState {
+/** Event types of `ThreadEvent` in @openai/codex-sdk 0.164.0 (unchanged since 0.147.0). */
+const KNOWN_EVENT_TYPES = new Set<string>([
+  'thread.started',
+  'turn.started',
+  'turn.completed',
+  'turn.failed',
+  'item.started',
+  'item.updated',
+  'item.completed',
+  'error',
+]);
+
+export interface CodexEventState {
   externalId?: string;
   textByItem: Map<string, string>;
   startedTools: Set<string>;
@@ -40,7 +72,7 @@ interface CodexEventState {
   terminal: boolean;
 }
 
-function createEventState(): CodexEventState {
+export function createEventState(): CodexEventState {
   return {
     textByItem: new Map(),
     startedTools: new Set(),
@@ -121,6 +153,11 @@ export function decodeCodexEvent(
         }
       }
       if (item.type === 'file_change' && event.type === 'item.completed') {
+        // W07 conformance: every tool.finished follows its tool.started.
+        if (!state.startedTools.has(item.id)) {
+          state.startedTools.add(item.id);
+          out.push({ t: 'tool.started', callId: item.id, name: 'apply_patch', input: { changes: item.changes } });
+        }
         out.push({ t: 'tool.finished', callId: item.id, name: 'apply_patch', ok: item.status === 'completed' });
         if (item.status === 'completed') {
           for (const change of item.changes) {
@@ -132,6 +169,10 @@ export function decodeCodexEvent(
         }
       }
       if (item.type === 'error' && event.type === 'item.completed') {
+        if (!state.startedTools.has(item.id)) {
+          state.startedTools.add(item.id);
+          out.push({ t: 'tool.started', callId: item.id, name: 'codex', input: {} });
+        }
         out.push({ t: 'tool.finished', callId: item.id, name: 'codex', ok: false, summary: item.message });
       }
       if (event.type === 'item.completed') state.completedItems.add(item.id);
@@ -164,145 +205,299 @@ export function decodeCodexEvent(
   return out;
 }
 
-class CodexSession implements AgentSession {
-  private readonly controller = new AbortController();
-  private readonly signal: AbortSignal;
-  private consumed = false;
+/** The SDK backfills `cache_write_input_tokens` for older CLIs; so do we. */
+function normalizeThreadEvent(value: Record<string, unknown>): ThreadEvent {
+  if (value.type === 'turn.completed' && isRecord(value.usage) && value.usage.cache_write_input_tokens === undefined) {
+    return { ...value, usage: { ...value.usage, cache_write_input_tokens: 0 } } as unknown as ThreadEvent;
+  }
+  return value as unknown as ThreadEvent;
+}
+
+export class CodexSession extends ProcessAgentSession {
+  private readonly state = createEventState();
+  private readonly reportedTypes = new Set<string>();
 
   constructor(
-    private readonly thread: CodexThread,
-    private readonly prompt: string,
-    signal: AbortSignal,
     private readonly initialId: string,
-    private readonly model?: ModelRef,
+    private readonly model: ModelRef | undefined,
+    signal: AbortSignal,
+    killGraceMs?: number,
   ) {
-    this.signal = AbortSignal.any([signal, this.controller.signal]);
+    super({ signal, killGraceMs });
   }
 
   get externalId(): string {
-    // New SDK threads receive their resumable ID only while consuming thread.started.
-    return this.thread.id ?? this.initialId;
+    // A new thread receives its resumable id only with thread.started.
+    return this.state.externalId ?? this.initialId;
   }
 
-  get events(): AsyncIterable<AgentEvent> {
-    const self = this;
-    return {
-      async *[Symbol.asyncIterator]() {
-        if (self.consumed) throw new Error('Codex session events can only be consumed once');
-        self.consumed = true;
-        const state = createEventState();
-        try {
-          if (self.signal.aborted) {
-            yield { t: 'turn.finished', turn: state.turn, reason: 'interrupted' };
-            return;
-          }
-          if (self.thread.id) {
-            for (const decoded of decodeCodexEvent({ type: 'thread.started', thread_id: self.thread.id }, state, self.model)) {
-              yield decoded;
-            }
-          }
-          const { events } = await self.thread.runStreamed(self.prompt, { signal: self.signal });
-          for await (const event of events) {
-            if (self.signal.aborted) {
-              yield { t: 'turn.finished', turn: state.turn, reason: 'interrupted' };
-              return;
-            }
-            for (const decoded of decodeCodexEvent(event, state, self.model)) yield decoded;
-            if (state.terminal) return;
-          }
-          if (self.signal.aborted) {
-            yield { t: 'turn.finished', turn: state.turn, reason: 'interrupted' };
-          } else {
-            yield { t: 'error', code: 'codex', message: 'Codex stream closed before the turn ended', retryable: false };
-            yield { t: 'turn.finished', turn: state.turn, reason: 'error' };
-          }
-        } catch (error) {
-          if (state.terminal) return;
-          if (self.signal.aborted) {
-            yield { t: 'turn.finished', turn: state.turn, reason: 'interrupted' };
-          } else {
-            yield { t: 'error', code: 'codex', message: error instanceof Error ? error.message : 'Codex execution failed', retryable: false };
-            yield { t: 'turn.finished', turn: state.turn, reason: 'error' };
-          }
-        } finally {
-          // Closing the SDK iterator cleans up its CLI child; abort also covers early consumers.
-          self.controller.abort();
-        }
-      },
-    };
+  /** The sandbox the CLI runs under (W09a metadata), once started. */
+  get sandbox() {
+    return this.proc?.metadata ?? null;
   }
 
-  async interrupt(): Promise<void> {
-    // The SDK exposes signal-driven cancellation, not app-server's graceful interrupt RPC.
-    this.controller.abort();
+  /**
+   * W07a: the process is attached now; the prompt goes to stdin (then EOF)
+   * when the event stream is first consumed, so nothing is submitted before
+   * the consumer is ready to journal it.
+   */
+  begin(proc: RunnerProcess, prompt: string, resumedThreadId: string | null): void {
+    this.attach(proc);
+    if (resumedThreadId) this.dispatch({ type: 'thread.started', thread_id: resumedThreadId });
+    this.deferUntilConsumed(() => {
+      proc.stdin.write(prompt);
+      this.closeStdin();
+    });
   }
 
-  async abort(): Promise<void> {
-    this.controller.abort();
+  notStarted(): void {
+    this.finishNotStarted('signal');
   }
 
-  async replyPermission(): Promise<void> {
-    throw new Error('Codex SDK does not support interactive permission replies');
+  protected onMessage(value: unknown): void {
+    if (!isRecord(value) || typeof value.type !== 'string') {
+      this.reportLine('unknown_event', 'Ignored a Codex line without an event type');
+      return;
+    }
+    if (!KNOWN_EVENT_TYPES.has(value.type)) {
+      if (!this.reportedTypes.has(value.type)) {
+        this.reportedTypes.add(value.type);
+        this.emit({ t: 'diagnostic', code: 'unknown_event', message: `Ignored unknown Codex event type ${value.type}` });
+      }
+      return;
+    }
+    this.dispatch(normalizeThreadEvent(value));
   }
+
+  private dispatch(event: ThreadEvent): void {
+    const decoded = decodeCodexEvent(event, this.state, this.model);
+    this.turn = this.state.turn;
+    const terminalIndex = decoded.findIndex((item) => item.t === 'turn.finished');
+    if (terminalIndex === -1) {
+      for (const item of decoded) this.emit(item);
+      return;
+    }
+    const terminal = decoded[terminalIndex];
+    const reason = terminal.t === 'turn.finished' ? terminal.reason : 'error';
+    this.finish(decoded.slice(0, terminalIndex), reason);
+  }
+
+  protected eofFailure(_exit: ExitInfo): { code: string; message: string } {
+    return { code: 'codex', message: 'Codex stream closed before the turn ended' };
+  }
+}
+
+export interface CodexRunnerOptions {
+  env?: NodeJS.ProcessEnv;
+  resolveBinary?: () => CodexBinary;
+  launch?: (spec: RunnerProcessSpec) => Promise<RunnerProcess>;
+  runCommand?: typeof runShortCommand;
+  killGraceMs?: number;
+  healthTtlMs?: number;
+}
+
+/** Codex's own login file under CODEX_HOME (default ~/.codex). */
+function codexAuthFile(env: NodeJS.ProcessEnv): string {
+  return join(env.CODEX_HOME ?? join(env.HOME ?? homedir(), '.codex'), 'auth.json');
 }
 
 export class CodexRunner implements AgentRunner {
   readonly id = 'codex' as const;
   readonly capabilities = CAPABILITIES;
+  readonly features = FEATURES;
+  private readonly env: NodeJS.ProcessEnv;
+  private readonly resolveBinary: () => CodexBinary;
+  private readonly launch: (spec: RunnerProcessSpec) => Promise<RunnerProcess>;
+  private readonly runCommand: typeof runShortCommand;
+  private health: { at: number; value: RunnerHealth } | null = null;
 
-  constructor(private readonly createSdk: () => Promise<CodexCtor> = loadCodexCtor) {}
+  constructor(private readonly options: CodexRunnerOptions = {}) {
+    this.env = options.env ?? process.env;
+    this.resolveBinary = options.resolveBinary ?? (() => resolveCodexBinary(this.env));
+    this.launch = options.launch ?? ((spec) => launchRunnerProcess(spec, { env: this.env }));
+    this.runCommand = options.runCommand ?? runShortCommand;
+  }
 
-  async healthCheck() {
+  async healthCheck(): Promise<RunnerHealth> {
+    const ttl = this.options.healthTtlMs ?? 60_000;
+    if (this.health && Date.now() - this.health.at < ttl) return this.health.value;
+    const value = await this.checkHealth();
+    this.health = { at: Date.now(), value };
+    return value;
+  }
+
+  private async checkHealth(): Promise<RunnerHealth> {
+    let binary: CodexBinary;
     try {
-      const Codex = await this.createSdk();
-      new Codex();
-      return { ok: true, detail: 'Codex SDK and CLI binary located; execution and authentication are not checked' };
+      binary = this.resolveBinary();
     } catch (err) {
       return { ok: false, detail: err instanceof Error ? err.message : 'codex unavailable' };
     }
+    const env = buildRunnerProcessEnv(this.env);
+    const version = await this.runCommand(binary.path, ['--version'], { env, timeoutMs: 10_000 });
+    const versionText = /codex-cli\s+(\S+)/.exec(version.stdout)?.[1];
+    if (version.code !== 0 || !versionText) {
+      return { ok: false, binary: binary.path, detail: `codex --version failed${version.timedOut ? ' (timed out)' : ''}` };
+    }
+    const auth = await this.authStatus(binary, env);
+    const sdkMatch = binary.version === null || binary.version === CODEX_SDK_VERSION;
+    return {
+      ok: auth.status === 'ok',
+      version: versionText,
+      binary: binary.path,
+      auth,
+      detail: [
+        `codex-cli ${versionText} (${binary.source}${sdkMatch ? '' : `, SDK types pinned to ${CODEX_SDK_VERSION}`})`,
+        auth.detail,
+        'Execution is not checked (no inference).',
+      ].filter(Boolean).join('; '),
+    };
+  }
+
+  /** `codex login status` on the host; only the method is kept (it prints a masked key). */
+  private async authStatus(binary: CodexBinary, env: Record<string, string>): Promise<RunnerAuthStatus> {
+    const status = await this.runCommand(binary.path, ['login', 'status'], { env, timeoutMs: 10_000 });
+    const first = `${status.stdout}\n${status.stderr}`.trim().split('\n')[0] ?? '';
+    let method: string | undefined;
+    if (/chatgpt/i.test(first)) method = 'chatgpt';
+    else if (/api key/i.test(first)) method = 'api-key';
+    else if (/access token/i.test(first)) method = 'access-token';
+    if (!method || /not logged in/i.test(first)) {
+      return { status: 'missing', detail: 'Codex is not logged in (run `codex login`), and no OPENAI_API_KEY is passed per run' };
+    }
+    let mode: 'enforce' | 'trusted-host' = 'enforce';
+    try {
+      mode = resolveSandboxMode(this.env).mode;
+    } catch {
+      mode = 'enforce';
+    }
+    if (mode === 'enforce' && !existsSync(codexAuthFile(this.env))) {
+      return {
+        status: 'unreachable-in-sandbox',
+        method,
+        detail: 'Codex is logged in, but not through CODEX_HOME/auth.json (e.g. a keyring), which the agent sandbox cannot read; pass OPENAI_API_KEY per run or use a trusted-host grant',
+      };
+    }
+    return { status: 'ok', method, detail: `logged in (${method})` };
   }
 
   async listModels(): Promise<ModelDescriptor[]> {
-    // This SDK has no model discovery API. Account-aware discovery belongs to another surface.
+    // `codex exec` has no model discovery; account-aware discovery belongs to another surface.
     return [];
   }
 
+  /**
+   * W07a run-engine hook: what `start` needs, checked without spawning —
+   * the CLI binary, and a credential the sandboxed CLI can reach (a per-run
+   * key, or Codex's own login file; a keyring login is unreachable under
+   * the enforced sandbox). Throws RUNNER_UNAVAILABLE (503) /
+   * RUNNER_AUTH_UNAVAILABLE (412).
+   */
+  async preflight(input: { env: Record<string, string> }): Promise<void> {
+    try {
+      this.resolveBinary();
+    } catch (err) {
+      throw new RunnerUnavailableError('codex', err instanceof Error ? err.message : 'The Codex CLI is unavailable');
+    }
+    if (input.env.OPENAI_API_KEY || input.env.CODEX_API_KEY) return;
+    let mode: 'enforce' | 'trusted-host' = 'enforce';
+    try {
+      mode = resolveSandboxMode(this.env).mode;
+    } catch {
+      mode = 'enforce';
+    }
+    if (mode === 'enforce' && !existsSync(codexAuthFile(this.env))) {
+      throw new RunnerAuthUnavailableError(
+        'codex',
+        'No Codex login file is available to the agent sandbox (a keyring login is not exposed). Run `codex login`, pass an OpenAI API key for the run, or run under an explicit trusted-host grant.',
+        { credentialsFile: codexAuthFile(this.env) },
+      );
+    }
+  }
+
+  /**
+   * W07a run-engine hook: whether `resume <threadId>` can continue a saved
+   * thread for `worktree` — its rollout file must exist under the CODEX_HOME
+   * a launch for that worktree uses.
+   */
+  canResume(threadId: string, worktree: string): boolean {
+    if (!/^[A-Za-z0-9][A-Za-z0-9-]{7,79}$/.test(threadId)) return false;
+    let mode: 'enforce' | 'trusted-host' = 'enforce';
+    try {
+      mode = resolveSandboxMode(this.env).mode;
+    } catch {
+      return false;
+    }
+    const home = mode === 'trusted-host'
+      ? (this.env.CODEX_HOME ?? join(this.env.HOME ?? homedir(), '.codex'))
+      : runnerRuntimeDir('codex', worktree, this.env);
+    if (!home) return false;
+    return findSessionFile(join(home, 'sessions'), (name) => name.endsWith('.jsonl') && name.includes(threadId), 4);
+  }
+
   async start(input: StartInput): Promise<AgentSession> {
-    const Codex = await this.createSdk();
-    const sdk = new Codex({ apiKey: input.env.OPENAI_API_KEY ?? process.env.OPENAI_API_KEY });
-    const thread = sdk.startThread({
-      workingDirectory: input.worktreePath,
+    const session = new CodexSession(input.runId, input.model, input.signal, this.options.killGraceMs);
+    if (input.signal.aborted) {
+      session.notStarted();
+      return session;
+    }
+    const proc = await this.launch(this.spec({
+      worktree: input.worktreePath,
       model: input.model?.id,
-      sandboxMode: 'workspace-write',
-      approvalPolicy: 'never',
-    });
-    return new CodexSession(
-      thread,
-      `${input.systemContract}\n\n${input.prompt}`,
-      input.signal,
-      input.runId,
-      input.model,
-    );
+      apiKey: input.env.OPENAI_API_KEY ?? input.env.CODEX_API_KEY,
+      threadId: null,
+    }));
+    session.begin(proc, `${input.systemContract}\n\n${input.prompt}`, null);
+    return session;
   }
 
   async resume(externalSessionId: string, input: ResumeInput): Promise<AgentSession> {
-    const Codex = await this.createSdk();
-    const sdk = new Codex({ apiKey: process.env.OPENAI_API_KEY });
-    const thread = sdk.resumeThread(externalSessionId, {
-      workingDirectory: input.worktreePath,
-      sandboxMode: 'workspace-write',
-      approvalPolicy: 'never',
-    });
-    return new CodexSession(
-      thread,
-      'Continue the interrupted task from the saved conversation and current repository state. Verify completed work before repeating any actions.',
-      input.signal,
-      externalSessionId,
-    );
+    const session = new CodexSession(externalSessionId, input.model, input.signal, this.options.killGraceMs);
+    if (input.signal.aborted) {
+      session.notStarted();
+      return session;
+    }
+    const proc = await this.launch(this.spec({
+      worktree: input.worktreePath,
+      model: input.model?.id,
+      apiKey: input.env?.OPENAI_API_KEY ?? input.env?.CODEX_API_KEY,
+      threadId: externalSessionId,
+    }));
+    session.begin(proc, input.prompt ?? RESUME_CONTINUATION_PROMPT, externalSessionId);
+    return session;
   }
-}
 
-async function loadCodexCtor(): Promise<CodexCtor> {
-  const mod = await import('@openai/codex-sdk');
-  return mod.Codex;
+  private spec(args: { worktree: string; model?: string; apiKey?: string; threadId: string | null }): RunnerProcessSpec {
+    const binary = this.resolveBinary();
+    const withPathDirs = (path: string | undefined) => [...binary.pathDirs, ...(path ? path.split(':') : [])].filter(Boolean).join(':');
+    return {
+      runner: 'codex',
+      worktree: args.worktree,
+      binary: binary.path,
+      argv: (mode) => buildCodexExecArgs({
+        model: args.model,
+        // Under the provider our sandbox is the boundary: Codex's own Seatbelt /
+        // Landlock cannot nest inside it. Trusted-host keeps Codex's sandbox.
+        sandboxMode: mode === 'enforce' ? 'danger-full-access' : 'workspace-write',
+        workingDirectory: args.worktree,
+        skipGitRepoCheck: true,
+        approvalPolicy: 'never',
+        threadId: args.threadId,
+      }),
+      enforceEnv: (dirs, context) => ({
+        PATH: withPathDirs(context.path),
+        CODEX_HOME: dirs.runtime,
+        CODEX_API_KEY: args.apiKey,
+      }),
+      hostEnv: () => {
+        const env = buildRunnerProcessEnv(this.env, { CODEX_API_KEY: args.apiKey });
+        env.PATH = withPathDirs(env.PATH);
+        return env;
+      },
+      readRoots: binary.readRoot ? [binary.readRoot] : [],
+      // The user's own Codex login, read-only, only when no key is passed.
+      loginFiles: args.apiKey ? [] : [{ source: codexAuthFile(this.env), linkName: 'auth.json' }],
+      egressProviders: ['openai'],
+    };
+  }
 }

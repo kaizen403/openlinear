@@ -33,11 +33,21 @@ vi.mock('@openlinear/db', () => ({
   },
 }));
 
-vi.mock('@openlinear/api/sse', () => ({
-  broadcastToTask: mocks.broadcastToTask,
-  broadcastToTaskById: mocks.broadcastToTaskById,
+// W03a: events are published through the sidecar publisher (local owner
+// streams + attempt relay). The stand-in keeps the previous call shape:
+// (type, { id }, payload) for execution events, (type, task) for task:updated.
+vi.mock('../../events/publisher', () => ({
+  publishTaskEvent: (taskId, type, payload) => (type === 'task:updated'
+    ? mocks.broadcastToTask(type, payload)
+    : mocks.broadcastToTask(type, { id: taskId }, payload)),
+  registerTaskOwnerResolver: vi.fn(),
+  attachAttemptRelay: vi.fn(),
+  detachAttemptRelay: vi.fn(),
 }));
-vi.mock('@openlinear/api/ownership', () => ({ assertTaskOwned: mocks.assertTaskOwned }));
+// Publication re-authorization is the control plane's decision.
+vi.mock('../../auth/task-access', () => ({
+  authorizeTaskAccess: (_credential, taskId) => mocks.assertTaskOwned(taskId, 'user-1'),
+}));
 
 vi.mock('../delta-buffer', () => ({
   appendTextDelta: mocks.appendTextDelta,
@@ -100,6 +110,10 @@ function makeExecution(overrides = {}) {
     cost: { input: 0, output: 0, total: 0 },
     tokens: { input: 0, output: 0 },
     messageUsage: new Map(),
+    // W03a: PR title/body and repository come from the immutable snapshot.
+    taskTitle: 'Fix execution',
+    taskDescription: 'Body',
+    publishRepository: { fullName: 'acme/repo', defaultBranch: 'main' },
     ...overrides,
   };
 }
@@ -383,32 +397,27 @@ describe('execution event workflow', () => {
     });
   });
 
-  it('fails completed sessions when repository metadata cannot be resolved', async () => {
-    mocks.repositoryFindUnique.mockResolvedValueOnce(null);
-    mocks.taskFindUnique
-      .mockResolvedValueOnce({ title: 'Fix execution' })
-      .mockResolvedValueOnce({ title: 'Fix execution', description: null, projectId: null });
-
+  it('fails completed sessions when the snapshot has no repository to publish to', async () => {
     const { execution } = await runEvents([
       { type: 'session.idle', properties: { sessionID: 'ses_1' } },
-    ]);
+    ], { publishRepository: null });
 
+    expect(mocks.repositoryFindUnique).not.toHaveBeenCalled();
     expect(mocks.projectFindUnique).not.toHaveBeenCalled();
     expect(mocks.finalizeAgentRun).toHaveBeenCalledWith(execution, 'failed', {
       errorMessage: 'Changes committed but no repository linked to create PR',
     });
   });
 
-  it('resolves repository metadata through the task project fallback', async () => {
-    mocks.repositoryFindUnique.mockResolvedValueOnce(null);
-    mocks.projectFindUnique.mockResolvedValueOnce({
-      repository: { fullName: 'fallback/repo', defaultBranch: 'trunk' },
-    });
-
+  it('publishes to the project repository captured in the start snapshot without a database read', async () => {
+    // W03a: the snapshot carries the task's project repository (the old
+    // repository-id / task-project fallback chain resolved the same value).
     await runEvents([
       { type: 'session.idle', properties: { sessionID: 'ses_1' } },
-    ]);
+    ], { publishRepository: { fullName: 'fallback/repo', defaultBranch: 'trunk' } });
 
+    expect(mocks.repositoryFindUnique).not.toHaveBeenCalled();
+    expect(mocks.taskFindUnique).not.toHaveBeenCalled();
     expect(mocks.createPullRequest).toHaveBeenCalledWith(
       'fallback/repo',
       'openlinear/task-1',
@@ -1165,16 +1174,10 @@ describe('execution event workflow', () => {
     });
   });
 
-  it('falls back when project metadata lookup returns no repository', async () => {
-    mocks.repositoryFindUnique.mockResolvedValueOnce(null);
-    mocks.taskFindUnique
-      .mockResolvedValueOnce({ title: 'Fix execution', description: 'Body', projectId: 'project-1' })
-      .mockResolvedValueOnce({ title: 'Fix execution', description: 'Body', projectId: 'project-1' });
-    mocks.projectFindUnique.mockResolvedValueOnce({ repository: null });
-
+  it('fails publication when the snapshot project carries no repository (local-path project)', async () => {
     const { execution } = await runEvents([
       { type: 'session.idle', properties: { sessionID: 'ses_1' } },
-    ]);
+    ], { projectId: 'project-1', publishRepository: undefined });
 
     expect(mocks.finalizeAgentRun).toHaveBeenCalledWith(execution, 'failed', {
       errorMessage: 'Changes committed but no repository linked to create PR',
@@ -1193,14 +1196,10 @@ describe('execution event workflow', () => {
     });
   });
 
-  it('uses generic task metadata when PR creation runs after a missing task lookup', async () => {
-    mocks.taskFindUnique
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce(null);
-
+  it('uses generic task metadata when the snapshot has no title or description', async () => {
     await runEvents([
       { type: 'session.idle', properties: { sessionID: 'ses_1' } },
-    ]);
+    ], { taskTitle: undefined, taskDescription: undefined });
 
     expect(mocks.commitAndPush).toHaveBeenCalledWith('/repo', 'openlinear/task-1', 'Task', 'token');
     expect(mocks.createPullRequest).toHaveBeenCalledWith(

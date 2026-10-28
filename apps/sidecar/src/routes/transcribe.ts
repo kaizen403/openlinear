@@ -1,7 +1,7 @@
 import express, { Router, Response } from 'express';
 import type { Router as IRouter } from 'express';
-import { AuthRequest, requireAuth } from '@openlinear/api/middleware';
-import { logger } from '@openlinear/api/logger';
+import { type AuthedRequest as AuthRequest, requireSidecarAuth as requireAuth } from '../auth/principal';
+import { logger } from '../lib/logger';
 
 const router: IRouter = Router();
 
@@ -33,6 +33,47 @@ function resolveCartesiaSttUrl(): string {
     '[transcribe] Ignoring CARTESIA_STT_URL override: must be an https URL on an allowlisted host',
   );
   return DEFAULT_CARTESIA_STT_URL;
+}
+
+const TRANSCRIPTION_PROVIDER = 'cartesia';
+const TRANSCRIPTION_MODEL = 'ink-whisper';
+
+/**
+ * Usage receipt for one transcription call (W15). The sidecar has no usage
+ * persistence path yet (sidecar persistence is being reworked), so the receipt
+ * is returned with the result and written to the structured log. Cartesia
+ * bills audio time, not tokens; with no configured price the cost is unknown
+ * and reported as null, never as zero.
+ */
+export interface TranscriptionUsage {
+  surface: 'transcription';
+  provider: string;
+  model: string;
+  status: 'succeeded' | 'failed';
+  audioBytes: number;
+  /** Duration the provider reported, in seconds; null when not reported. */
+  audioSeconds: number | null;
+  latencyMs: number;
+  costUsd: null;
+  costBasis: 'unknown';
+}
+
+function transcriptionUsage(input: { status: TranscriptionUsage['status']; audioBytes: number; audioSeconds: number | null; startedAt: number }): TranscriptionUsage {
+  return {
+    surface: 'transcription',
+    provider: TRANSCRIPTION_PROVIDER,
+    model: TRANSCRIPTION_MODEL,
+    status: input.status,
+    audioBytes: input.audioBytes,
+    audioSeconds: input.audioSeconds,
+    latencyMs: Date.now() - input.startedAt,
+    costUsd: null,
+    costBasis: 'unknown',
+  };
+}
+
+function reportedDuration(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null;
 }
 
 function baseContentType(contentType: string | undefined): string {
@@ -93,13 +134,15 @@ router.post(
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), OUTBOUND_TIMEOUT_MS);
+    const startedAt = Date.now();
+    const failedUsage = () => transcriptionUsage({ status: 'failed', audioBytes: audioBuffer.length, audioSeconds: null, startedAt });
 
     try {
       const extension = contentType.split('/')[1] || 'bin';
       const blob = new Blob([audioBuffer], { type: contentType });
       const form = new FormData();
       form.append('file', blob, `audio.${extension}`);
-      form.append('model', 'ink-whisper');
+      form.append('model', TRANSCRIPTION_MODEL);
       form.append('language', 'en');
 
       const response = await fetch(resolveCartesiaSttUrl(), {
@@ -115,17 +158,21 @@ router.post(
       if (!response.ok) {
         const errBody = await response.text();
         logger.error({ status: response.status, errBody }, '[transcribe] Cartesia error');
+        logger.info({ usage: failedUsage(), userId: req.userId }, '[usage] transcription');
         res.status(502).json({ error: 'Transcription failed' });
         return;
       }
 
-      const data = await response.json() as { text?: string };
-      res.json({ text: data.text?.trim() || '' });
+      const data = await response.json() as { text?: string; duration?: unknown };
+      const usage = transcriptionUsage({ status: 'succeeded', audioBytes: audioBuffer.length, audioSeconds: reportedDuration(data.duration), startedAt });
+      logger.info({ usage, userId: req.userId }, '[usage] transcription');
+      res.json({ text: data.text?.trim() || '', usage });
     } catch (err: unknown) {
       // Never surface err.message to the caller — it can include upstream
       // response bodies or internal details. Full detail goes to the
       // server-side log only (C6a F13/F16).
       logger.error({ err }, '[transcribe] error');
+      logger.info({ usage: failedUsage(), userId: req.userId }, '[usage] transcription');
       res.status(502).json({ error: 'Transcription failed' });
     } finally {
       clearTimeout(timeout);

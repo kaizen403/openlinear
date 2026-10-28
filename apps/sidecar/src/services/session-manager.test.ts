@@ -2,7 +2,6 @@ import { createOpencodeClient } from '@opencode-ai/sdk';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ExecutionState } from './execution/state';
 
-vi.mock('@openlinear/api/sse', () => ({ broadcastToTask: vi.fn(), broadcastToTaskById: vi.fn(async () => undefined) }));
 vi.mock('./batch/shared', () => ({
   emitBatchLog: vi.fn(), emitBatchLogs: vi.fn(), broadcastBatchProgress: vi.fn(),
   flushTaskBuffers: vi.fn(), cleanupTaskBuffers: vi.fn(),
