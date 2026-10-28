@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ExecutionState } from './state';
 import type { TaskSnapshot } from '../../persistence/store';
-import type { OwnedTask } from '@openlinear/api/ownership';
-import { HttpError } from '@openlinear/api/errors';
+import type { TaskAuthority as OwnedTask } from '../../auth/task-access';
+import { HttpError } from '../../lib/errors';
 import { requireLegacyRunner, resolveAgentId } from '../../engine/resolve-agent';
 
 const mocks = vi.hoisted(() => ({
@@ -14,20 +14,45 @@ const mocks = vi.hoisted(() => ({
   sessionCreate: vi.fn(), promptAsync: vi.fn(), sessionAbort: vi.fn(), cleanupExecution: vi.fn(),
   activeExecutions: new Map<string, ExecutionState>(), pendingExecutions: new Set<string>(),
   sessionToTask: new Map<string, string>(), pendingBatchTasks: new Set<string>(), taskHasActiveBatch: vi.fn(),
+  /** The `{ status, sessionId }` read that decides "already running" (W17a fix). */
+  heldState: { status: 'todo', sessionId: null as string | null },
 }));
 
 vi.mock('../opencode', () => ({ getClientForUser: mocks.getClientForUser }));
-vi.mock('@openlinear/api/ownership', () => ({ assertTaskOwned: mocks.assertTaskOwned }));
+// W03a: authorization is the control plane's decision (stubbed here with the
+// previous ownership contract); the real Prisma store runs the admission
+// checks against a stubbed Prisma client below.
+vi.mock('../../auth/task-access', () => ({
+  authorizeTaskAccess: (credential: { principal?: { userId?: string } } | null, taskId: string) =>
+    mocks.assertTaskOwned(taskId, credential?.principal?.userId ?? 'user-a'),
+}));
 vi.mock('../opencode-model', () => ({ ensureModelConfigured: mocks.ensureModelConfigured }));
 vi.mock('../execution-settings', () => ({ getExecutionSettings: mocks.getExecutionSettings }));
 vi.mock('../delta-buffer', () => ({ getOrCreateBuffer: vi.fn() }));
-vi.mock('../batch/shared', () => ({ pendingBatchTasks: mocks.pendingBatchTasks }));
-vi.mock('../batch/admission', () => ({ taskHasActiveBatch: mocks.taskHasActiveBatch }));
-vi.mock('../../persistence/store', () => ({
-  getSidecarStore: async () => ({
-    getTask: mocks.getTask, getScmToken: mocks.getScmToken,
-    updateTask: mocks.updateTask, getActiveRepository: mocks.getActiveRepository,
-  }),
+vi.mock('../batch/registry', () => ({ pendingBatchTasks: mocks.pendingBatchTasks, taskHasActiveBatch: mocks.taskHasActiveBatch }));
+vi.mock('@openlinear/db', () => ({
+  decryptToken: (value: string | null) => value,
+  Prisma: { Decimal: class {} },
+  prisma: {
+    task: {
+      // `select` reads are the activity-log scope lookup, not the snapshot read.
+      findUnique: ({ where, select }: { where: { id: string }; select?: Record<string, unknown> }) =>
+        (select ? Promise.resolve({ teamId: null, projectId: null, ...('sessionId' in select ? mocks.heldState : {}) }) : mocks.getTask(where.id)),
+      update: async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
+        if (data.status === 'in_progress') await mocks.updateTaskStatus(where.id, 'in_progress', data.sessionId, data);
+        else await mocks.updateTask(where.id, data);
+        return { id: where.id, labels: [] };
+      },
+    },
+    user: { findUnique: async ({ where }: { where: { id: string } }) => ({ accessToken: await mocks.getScmToken(where.id) }) },
+    // W17a: no blockers.
+    taskDependency: { findMany: async () => [] },
+    agentRun: {
+      create: async ({ data }: { data: { taskId: string; userId: string; agent: string; model: string } }) =>
+        ({ id: await mocks.createAgentRun({ taskId: data.taskId, userId: data.userId, agent: data.agent, model: data.model }) }),
+    },
+    activityLog: { create: vi.fn() },
+  },
 }));
 vi.mock('../../workspace/local-worktree', () => ({ releaseLocalWorktree: mocks.releaseLocalWorktree }));
 vi.mock('./git', () => ({ cloneRepository: mocks.cloneRepository, createBranch: mocks.createBranch }));
@@ -37,6 +62,7 @@ vi.mock('./events', () => ({
 }));
 vi.mock('./state', () => ({
   activeExecutions: mocks.activeExecutions, pendingExecutions: mocks.pendingExecutions,
+  pendingExecutionOwners: new Map<string, string>(),
   sessionToTask: mocks.sessionToTask, broadcastProgress: mocks.broadcastProgress,
   updateTaskStatus: mocks.updateTaskStatus, addLogEntry: vi.fn(), estimateProgress: vi.fn(),
   persistLogs: vi.fn(), cleanupExecution: mocks.cleanupExecution, TASK_TIMEOUT_MS: 60_000,
@@ -78,6 +104,7 @@ function noAgentOrRepositoryEffects() {
 
 beforeEach(() => {
   vi.resetAllMocks();
+  mocks.heldState = { status: 'todo', sessionId: null };
   mocks.activeExecutions.clear(); mocks.pendingExecutions.clear();
   mocks.pendingBatchTasks.clear(); mocks.sessionToTask.clear();
   mocks.getTask.mockResolvedValue(task());
@@ -146,7 +173,9 @@ describe('runner selection contract', () => {
 describe('single-task execution boundary', () => {
   it('denies an unauthorized task before repository or provider effects', async () => {
     mocks.assertTaskOwned.mockRejectedValueOnce(new HttpError(403, 'OWNERSHIP_REQUIRED', 'Forbidden'));
-    await expect(executeTask({ taskId: 'task-a', userId: 'user-a' })).resolves.toMatchObject({ success: false, code: 'OWNERSHIP_REQUIRED' });
+    // W03a: an authorization denial keeps its 403 for the route (it used to
+    // be decided by the route before executeTask ran).
+    await expect(executeTask({ taskId: 'task-a', userId: 'user-a' })).rejects.toMatchObject({ statusCode: 403, code: 'OWNERSHIP_REQUIRED' });
     expect(mocks.assertTaskOwned).toHaveBeenCalledWith('task-a', 'user-a');
     noAgentOrRepositoryEffects();
     expect(mocks.pendingExecutions.size).toBe(0);
@@ -347,10 +376,11 @@ describe('single-task execution boundary', () => {
   });
 
   it.each([
-    { archived: true, status: 'todo', code: 'TASK_ARCHIVED' },
-    { archived: false, status: 'in_progress', code: 'TASK_ALREADY_RUNNING' },
-  ])('rejects persisted $code before preparing a single task', async ({ archived, status, code }) => {
+    { archived: true, status: 'todo', sessionId: null, code: 'TASK_ARCHIVED' },
+    { archived: false, status: 'in_progress', sessionId: 'ses_running', code: 'TASK_ALREADY_RUNNING' },
+  ])('rejects persisted $code before preparing a single task', async ({ archived, status, sessionId, code }) => {
     mocks.assertTaskOwned.mockResolvedValueOnce({ ...task(), archived, status });
+    mocks.heldState = { status, sessionId };
     await expect(executeTask({ taskId: 'task-a', userId: 'user-a' })).resolves.toMatchObject({ success: false, code });
     expect(mocks.getTask).not.toHaveBeenCalled();
     noAgentOrRepositoryEffects();
