@@ -9,8 +9,8 @@ export default function ClaudeDesktopPage() {
     <div className="docs-prose max-w-3xl">
       <h1>Claude Desktop</h1>
       <p>
-        Add OpenLinear to Claude Desktop in under a minute. Claude reads its MCP configuration from
-        a single JSON file.
+        Claude Desktop&rsquo;s <code>claude_desktop_config.json</code> starts local (stdio) servers. To reach the remote
+        OpenLinear server with a personal access token, run the <code>mcp-remote</code> bridge from that file.
       </p>
 
       <h2>Config file location</h2>
@@ -24,34 +24,36 @@ export default function ClaudeDesktopPage() {
       <CodeBlock language="json" filename="claude_desktop_config.json">{`{
   "mcpServers": {
     "openlinear": {
-      "url": "https://mcp.openlinear.tech/mcp",
-      "headers": {
-        "Authorization": "Bearer ol_pat_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-remote",
+        "https://mcp.openlinear.tech/mcp",
+        "--header",
+        "Authorization:\${OPENLINEAR_AUTH}"
+      ],
+      "env": {
+        "OPENLINEAR_AUTH": "Bearer ol_pat_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
       }
     }
   }
 }`}</CodeBlock>
 
       <p>
-        Replace the token with your own from <a href="/authentication">Settings &rarr; Personal Access Tokens</a>.
-        Save the file and fully quit Claude Desktop (<kbd>Cmd+Q</kbd> on macOS) before reopening it.
+        Replace the token with your own from <a href="/authentication">Settings &rarr; Personal Access Tokens</a>. The
+        header value lives in <code>env</code> so the space after <code>Bearer</code> survives argument splitting on
+        every platform. Save the file and fully quit Claude Desktop (<kbd>Cmd+Q</kbd> on macOS) before reopening it.
+        The bridge needs Node.js.
       </p>
 
       <h2>Verify</h2>
-      <p>
-        Open a new conversation. Claude shows installed MCP servers in the prompt input area &mdash; you
-        should see <code>openlinear</code> with a green dot. Ask:
-      </p>
-      <blockquote>
-        &ldquo;List my OpenLinear workspaces.&rdquo;
-      </blockquote>
-      <p>
-        Claude should call <code>openlinear_list_workspaces</code> and show your workspaces in the result.
-      </p>
+      <p>Open a new conversation and ask:</p>
+      <blockquote>&ldquo;List my OpenLinear workspaces.&rdquo;</blockquote>
+      <p>Claude should call <code>openlinear_list_workspaces</code> and show your workspaces.</p>
 
       <Callout variant="tip" title="Combine with other MCP servers">
-        Claude Desktop supports multiple MCP servers at once. Pair OpenLinear with a filesystem server
-        and you can ask Claude to read your spec doc, then auto-create the matching plan.
+        Pair OpenLinear with a filesystem server and you can ask Claude to read your spec doc, then create the
+        matching plan.
       </Callout>
 
       <PageNav />

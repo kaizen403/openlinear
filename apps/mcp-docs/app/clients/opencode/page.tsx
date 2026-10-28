@@ -1,5 +1,6 @@
 import { CodeBlock } from '@/components/code-block'
 import { PageNav } from '@/components/page-nav'
+import { TOOL_COUNT } from '@/lib/tool-catalog'
 
 export const metadata = { title: 'OpenCode — OpenLinear MCP' }
 
@@ -27,7 +28,7 @@ export default function OpenCodePage() {
 
       <h2>Use it in a session</h2>
       <p>
-        Start an OpenCode session in any repository. The agent now has access to all 12 OpenLinear tools.
+        Start an OpenCode session in any repository. The agent now has access to all {TOOL_COUNT} OpenLinear tools.
         Try:
       </p>
       <blockquote>

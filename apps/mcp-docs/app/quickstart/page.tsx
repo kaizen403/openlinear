@@ -22,7 +22,8 @@ export default function QuickstartPage() {
           Go to <strong>Settings &rarr; Personal Access Tokens</strong>.
         </li>
         <li>
-          Click <strong>Generate token</strong>, name it (e.g. <em>Claude desktop</em>), and copy the value.
+          Click <strong>Generate token</strong>, name it (e.g. <em>Claude Code</em>), choose the{' '}
+          <code>write</code> scope (or <code>read</code> for a browse-only agent), and copy the value.
         </li>
       </ol>
 
@@ -38,8 +39,8 @@ export default function QuickstartPage() {
 
       <h2>2. Add OpenLinear to your MCP client</h2>
       <p>
-        Most clients accept a JSON config block. Use this for Claude Desktop, Cursor, or any other client
-        that supports remote MCP servers via HTTP:
+        Most clients accept a JSON config block. Use this for Cursor or any other client that supports remote MCP
+        servers over Streamable HTTP with custom headers:
       </p>
       <CodeBlock language="json" filename="mcp config">{`{
   "mcpServers": {
@@ -53,7 +54,9 @@ export default function QuickstartPage() {
 }`}</CodeBlock>
 
       <p>
-        See client-specific instructions in <a href="/clients/claude-desktop">Clients</a>.
+        Claude Code: <code>claude mcp add --transport http openlinear https://mcp.openlinear.tech/mcp --header
+        &quot;Authorization: Bearer ol_pat_…&quot;</code>. See <a href="/clients/claude-desktop">Claude Desktop</a> and{' '}
+        <a href="/clients/other">other clients</a> for the rest.
       </p>
 
       <h2>3. Verify the connection</h2>
@@ -64,8 +67,8 @@ export default function QuickstartPage() {
         &ldquo;List my OpenLinear workspaces.&rdquo;
       </blockquote>
       <p>
-        The model should call <code>openlinear_list_workspaces</code> and return your workspaces with member
-        and project counts. If it doesn&rsquo;t, see <a href="/guides/troubleshooting">Troubleshooting</a>.
+        The model should call <code>openlinear_list_workspaces</code> and return your workspaces with your role
+        and member and project counts. If it doesn&rsquo;t, see <a href="/guides/troubleshooting">Troubleshooting</a>.
       </p>
 
       <h2>4. Create your first plan</h2>

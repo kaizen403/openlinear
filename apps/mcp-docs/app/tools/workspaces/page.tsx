@@ -1,5 +1,6 @@
 import { CodeBlock } from '@/components/code-block'
 import { PageNav } from '@/components/page-nav'
+import { ToolReference } from '@/components/tool-reference'
 
 export const metadata = { title: 'Workspace tools — OpenLinear MCP' }
 
@@ -8,34 +9,28 @@ export default function WorkspacesPage() {
     <div className="docs-prose max-w-3xl">
       <h1>Workspace tools</h1>
       <p>
-        Workspaces are the top-level tenant boundary in OpenLinear. Every user has a default workspace
-        created on first login; projects always live inside one.
+        Workspaces are the top-level tenant boundary in OpenLinear. Projects always live inside one. A token created
+        for a single workspace only ever sees that workspace.
       </p>
 
-      <h2 id="list">openlinear_list_workspaces</h2>
-      <p>List every workspace your token can access. Useful for picking a target workspace before
-        creating a project.</p>
-
-      <h3>Input</h3>
-      <p><em>None.</em></p>
-
-      <h3>Returns</h3>
-      <CodeBlock language="json">{`{
-  "count": 2,
+      <ToolReference name="openlinear_list_workspaces">
+        <h3>Returns</h3>
+        <CodeBlock language="json">{`{
   "workspaces": [
     {
-      "id": "workspace-aeb35ae41ef68718e82d59f45ad0c447",
-      "name": "kaizen403's Workspace",
-      "slug": "kaizen403s-workspace",
+      "id": "0b6f3c1e-…",
+      "name": "Acme",
+      "slug": "acme",
       "plan": "free",
-      "memberCount": 1,
-      "projectCount": 0
+      "role": "owner",
+      "memberCount": 4,
+      "projectCount": 3
     }
   ]
 }`}</CodeBlock>
-
-      <h3>Example prompt</h3>
-      <blockquote>&ldquo;What OpenLinear workspaces do I have?&rdquo;</blockquote>
+        <h3>Example prompt</h3>
+        <blockquote>&ldquo;What OpenLinear workspaces do I have?&rdquo;</blockquote>
+      </ToolReference>
 
       <PageNav />
     </div>

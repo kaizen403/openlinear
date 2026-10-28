@@ -38,6 +38,7 @@ export default function PlanFromPromptPage() {
       <h2>3. Inspect the result</h2>
       <p>The tool returns a summary like:</p>
       <CodeBlock language="json">{`{
+  "status": "complete",
   "projectKey": "BILL",
   "totalTasks": 19,
   "phases": [

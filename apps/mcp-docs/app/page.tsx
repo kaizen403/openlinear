@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { ArrowRight, Zap, Layers, ShieldCheck, Bot } from 'lucide-react'
 import { CodeBlock } from '@/components/code-block'
 import { PageNav } from '@/components/page-nav'
+import { TOOL_COUNT } from '@/lib/tool-catalog'
 
 export default function HomePage() {
   return (
@@ -50,11 +51,11 @@ export default function HomePage() {
 
       <h2>What it does</h2>
       <p>
-        OpenLinear MCP exposes <strong>12 tools</strong> covering the full lifecycle of planning work in
-        OpenLinear &mdash; reading workspaces, creating projects and teams, defining phases as labels, and
-        creating individual issues or bulk plans. The headline tool, <code>openlinear_bulk_create_plan</code>,
+        OpenLinear MCP exposes <strong>{TOOL_COUNT} tools</strong> covering the full lifecycle of work in
+        OpenLinear &mdash; finding and reading issues, creating projects, teams and phases, and managing issues
+        (update, assign, label, move, comment). The headline tool, <code>openlinear_bulk_create_plan</code>,
         turns an entire AI-generated plan (project &rarr; phases &rarr; tasks) into a fully wired dashboard
-        in one round trip.
+        in one round trip, and is safe to repeat if a call fails halfway.
       </p>
 
       <h2>One call, one populated dashboard</h2>
@@ -82,16 +83,17 @@ export default function HomePage() {
 }`}</CodeBlock>
 
       <p>
-        OpenLinear MCP creates the project, auto-creates a team if you didn&rsquo;t pass one, builds a
-        <code>phase:N &mdash; Name</code> label per phase, and bulk-inserts all tasks against the right
-        labels. You walk away with a project URL and the IDs of every task it created.
+        OpenLinear MCP creates the project (with its own team), builds a <code>phase:N &mdash; Name</code> label per
+        phase, and bulk-inserts all tasks against the right labels. You get back the project and the IDs of every
+        task it created &mdash; or, if something failed, exactly what was created and what was not.
       </p>
 
       <h2>Architecture</h2>
       <p>
-        The server is a <strong>stateless Cloudflare Worker</strong> using the official MCP TypeScript SDK
-        over Streamable HTTP. Each request creates a fresh transport, validates your Personal Access Token,
-        and forwards calls to the OpenLinear REST API on your behalf. No queues, no databases, no state.
+        The server is a <strong>stateless Cloudflare Worker</strong> built on the official MCP TypeScript SDK (v2)
+        over Streamable HTTP. It speaks both the 2025 protocol revisions (with the <code>initialize</code>{' '}
+        handshake) and the stateless 2026-07-28 revision. Each request verifies your Personal Access Token and
+        forwards tool calls to the OpenLinear REST API on your behalf. No sessions, no databases, no state.
       </p>
 
       <p>
@@ -117,8 +119,8 @@ export default function HomePage() {
 
 const features = [
   { icon: Zap, title: 'Stateless & fast', desc: 'Cloudflare Worker. No cold starts, no sessions.' },
-  { icon: Layers, title: '12 typed tools', desc: 'Full CRUD over workspaces, projects, teams, labels, issues.' },
-  { icon: ShieldCheck, title: 'PAT-based auth', desc: 'Scoped Personal Access Tokens. Revoke any time.' },
+  { icon: Layers, title: `${TOOL_COUNT} typed tools`, desc: 'Read, plan and manage projects, phases and issues.' },
+  { icon: ShieldCheck, title: 'PAT-based auth', desc: 'Scoped, optionally workspace-bound tokens. Revoke any time.' },
   { icon: Bot, title: 'Built for agents', desc: 'Designed around plan &rarr; execute workflows.' },
 ]
 

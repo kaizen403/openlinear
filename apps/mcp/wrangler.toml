@@ -1,7 +1,9 @@
 name = "openlinear-mcp"
 main = "src/index.ts"
 compatibility_date = "2026-05-21"
-compatibility_flags = ["nodejs_compat", "enable_nodejs_http_server_modules"]
+# The MCP SDK v2 runs on web-standard APIs; nodejs_compat is kept only as a
+# safety net for transitive imports. The Express/node:http shim is gone.
+compatibility_flags = ["nodejs_compat"]
 workers_dev = true
 
 [[routes]]
@@ -10,3 +12,11 @@ custom_domain = true
 
 [vars]
 OPENLINEAR_API_URL = "https://api.openlinear.tech"
+# Browser Origin hostnames allowed to call /mcp (comma-separated). Empty: none.
+MCP_ALLOWED_ORIGINS = ""
+# OAuth authorization-server issuers for protected-resource metadata. Empty until one exists.
+MCP_AUTHORIZATION_SERVERS = ""
+
+# Structured error/warn lines from the worker (no tokens are logged).
+[observability]
+enabled = true

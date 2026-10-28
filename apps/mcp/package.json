@@ -1,25 +1,26 @@
 {
   "name": "@openlinear/mcp",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.test.json",
+    "test": "vitest run",
+    "lint": "biome check --error-on-warnings src test vitest.config.ts"
   },
   "dependencies": {
-    "@cfworker/json-schema": "^4.1.1",
-    "@modelcontextprotocol/node": "2.0.0-alpha.2",
-    "@modelcontextprotocol/server": "2.0.0-alpha.2",
-    "express": "^5.2.1",
-    "zod": "^4.1.13"
+    "@modelcontextprotocol/server": "2.4.0",
+    "zod": "4.4.3"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260521.1",
-    "@types/express": "^5.0.6",
+    "@modelcontextprotocol/client": "2.4.0",
+    "@modelcontextprotocol/sdk": "1.32.2",
     "@types/node": "^20.19.32",
     "typescript": "^5.9.3",
+    "vitest": "4.0.18",
     "wrangler": "^4.39.0"
   }
 }

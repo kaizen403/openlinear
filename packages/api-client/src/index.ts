@@ -1,62 +1,109 @@
-export class OpenLinearApiError extends Error {
-  constructor(
-    public readonly status: number,
-    public readonly responseText: string,
-  ) {
-    super(`OpenLinear API ${status}: ${responseText}`);
-    this.name = "OpenLinearApiError";
-  }
-}
+import type {
+  ExecutionLogEntry,
+  ExecutionPrincipal,
+  ExecutionTaskAccess,
+  StartedExecutionAttempt,
+} from "./executions";
+import { type HttpTransport, normalizeBaseUrl, type RequestOptions, sendJson, type TokenSource } from "./http";
+
+export { OpenLinearApiError, OpenLinearNetworkError, type RequestOptions, type TokenSource } from "./http";
+export * from "./executions";
 
 export interface OpenLinearClientOptions {
   baseUrl: string;
-  token: string | (() => string | Promise<string>);
+  token: TokenSource;
   fetch?: typeof fetch;
+  /** Default per-request deadline (ms). */
+  timeoutMs?: number;
 }
 
 /**
- * Typed HTTP client for the cloud API. Sidecar and MCP must go through this
- * (or a wrapper) instead of Prisma so Phase 2 can drop DATABASE_URL on the
- * sidecar.
+ * Typed HTTP client for the cloud API, authenticated as one principal (a
+ * session access token or a PAT). The sidecar builds one per request
+ * principal; attempt callbacks use `ExecutionAttemptClient` instead.
  */
 export class OpenLinearClient {
-  private readonly baseUrl: string;
-  private readonly token: string | (() => string | Promise<string>);
-  private readonly fetchImpl: typeof fetch;
+  private readonly transport: HttpTransport;
+  private readonly token: TokenSource;
 
   constructor(baseUrlOrOptions: string | OpenLinearClientOptions, token?: string) {
     if (typeof baseUrlOrOptions === "string") {
-      this.baseUrl = baseUrlOrOptions.replace(/\/$/, "");
+      this.transport = { baseUrl: normalizeBaseUrl(baseUrlOrOptions), fetchImpl: fetch };
       this.token = token ?? "";
-      this.fetchImpl = fetch;
     } else {
-      this.baseUrl = baseUrlOrOptions.baseUrl.replace(/\/$/, "");
+      this.transport = {
+        baseUrl: normalizeBaseUrl(baseUrlOrOptions.baseUrl),
+        fetchImpl: baseUrlOrOptions.fetch ?? fetch,
+        defaultTimeoutMs: baseUrlOrOptions.timeoutMs,
+      };
       this.token = baseUrlOrOptions.token;
-      this.fetchImpl = baseUrlOrOptions.fetch ?? fetch;
     }
   }
 
-  private async authHeader(): Promise<string> {
-    const value = typeof this.token === "function" ? await this.token() : this.token;
-    return `Bearer ${value}`;
+  request<T>(method: string, path: string, body?: unknown, options?: RequestOptions): Promise<T> {
+    return sendJson<T>(this.transport, this.token, method, path, body, options);
   }
 
-  async request<T>(method: string, path: string, body?: unknown): Promise<T> {
-    const res = await this.fetchImpl(`${this.baseUrl}${path}`, {
-      method,
-      headers: {
-        Authorization: await this.authHeader(),
-        "Content-Type": "application/json",
-      },
-      body: body === undefined ? undefined : JSON.stringify(body),
-    });
+  // --- W03a execution control (user-authenticated half) ---------------------
 
-    if (!res.ok) {
-      throw new OpenLinearApiError(res.status, await res.text());
-    }
-    if (res.status === 204) return undefined as T;
-    return (await res.json()) as T;
+  getExecutionPrincipal(options?: RequestOptions) {
+    return this.request<ExecutionPrincipal>("GET", "/api/executions/principal", undefined, options);
   }
+
+  getExecutionTaskAccess(taskId: string, options?: RequestOptions) {
+    return this.request<ExecutionTaskAccess>(
+      "GET",
+      `/api/executions/tasks/${encodeURIComponent(taskId)}/access`,
+      undefined,
+      options,
+    );
+  }
+
+  getExecutionTaskLogs(taskId: string, options?: RequestOptions) {
+    return this.request<{ logs: ExecutionLogEntry[] }>(
+      "GET",
+      `/api/executions/tasks/${encodeURIComponent(taskId)}/logs`,
+      undefined,
+      options,
+    );
+  }
+
+  requestExecutionCancellation(taskId: string, options?: RequestOptions) {
+    return this.request<{ attemptId: string; status: string; cancelRequestedAt: string }>(
+      "POST",
+      `/api/executions/tasks/${encodeURIComponent(taskId)}/cancellation`,
+      {},
+      options,
+    );
+  }
+
+  refreshExecutionPullRequest(taskId: string, options?: RequestOptions) {
+    return this.request<{ prUrl: string | null; refreshed: boolean; message?: string }>(
+      "POST",
+      `/api/executions/tasks/${encodeURIComponent(taskId)}/refresh-pr`,
+      {},
+      options,
+    );
+  }
+
+  /** `allowBlocked` (W17a): start although blockers are open; otherwise 409 TASK_BLOCKED. */
+  startExecutionAttempt(taskId: string, options?: RequestOptions & { allowBlocked?: boolean }) {
+    const { allowBlocked, ...requestOptions } = options ?? {};
+    return this.request<StartedExecutionAttempt>(
+      "POST",
+      "/api/executions/attempts",
+      allowBlocked ? { taskId, allowBlocked: true } : { taskId },
+      requestOptions,
+    );
+  }
+
+  /** W17a: "blocked by" edges among these tasks (all must be viewable). */
+  listDependencyEdges(taskIds: readonly string[], options?: RequestOptions) {
+    const qs = new URLSearchParams({ taskIds: taskIds.join(",") });
+    return this.request<{ edges: Array<{ taskId: string; dependsOnTaskId: string }> }>("GET", `/api/tasks/dependencies?${qs.toString()}`, undefined, options);
+  }
+
+  // --- Existing surface ------------------------------------------------------
 
   listWorkspaces() {
     return this.request("GET", "/api/workspaces");

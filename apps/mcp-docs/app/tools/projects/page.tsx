@@ -1,6 +1,7 @@
 import { CodeBlock } from '@/components/code-block'
 import { Callout } from '@/components/callout'
 import { PageNav } from '@/components/page-nav'
+import { ToolReference } from '@/components/tool-reference'
 
 export const metadata = { title: 'Project tools — OpenLinear MCP' }
 
@@ -9,77 +10,65 @@ export default function ProjectsPage() {
     <div className="docs-prose max-w-3xl">
       <h1>Project tools</h1>
       <p>
-        Projects are the unit of planning in OpenLinear. A project lives in a workspace, owns a team
-        (required, exactly one currently), and contains issues organised by phase labels.
+        Projects are the unit of planning. A project lives in a workspace, gets its own default team (which numbers its
+        issues, e.g. <code>BILL-12</code>) and default labels, and groups issues by phase labels.
       </p>
 
-      <h2 id="list">openlinear_list_projects</h2>
-      <p>List projects, optionally filtered.</p>
-
-      <h3>Input</h3>
-      <table>
-        <thead><tr><th>Field</th><th>Type</th><th>Notes</th></tr></thead>
-        <tbody>
-          <tr><td><code>workspaceId</code></td><td>string (optional)</td><td>Filter by workspace.</td></tr>
-          <tr><td><code>teamId</code></td><td>uuid (optional)</td><td>Filter by team.</td></tr>
-        </tbody>
-      </table>
-
-      <h3>Returns</h3>
-      <CodeBlock language="json">{`{
-  "count": 1,
+      <ToolReference name="openlinear_list_projects">
+        <h3>Returns</h3>
+        <CodeBlock language="json">{`{
   "projects": [
     {
-      "id": "...",
-      "key": "MAL",
-      "name": "Mobile App Launch",
-      "status": "in_progress",
-      "workspaceId": "...",
-      "createdAt": "2026-05-22T..."
+      "id": "…",
+      "key": "BILL",
+      "name": "Stripe Billing",
+      "description": null,
+      "status": "planned",
+      "workspaceId": "…",
+      "teams": [{ "id": "…", "key": "BILL", "name": "Stripe Billing Team" }],
+      "issueCount": 7,
+      "createdAt": "2026-10-25T09:00:00.000Z",
+      "updatedAt": "2026-10-25T09:00:00.000Z"
     }
-  ]
+  ],
+  "total": 1,
+  "truncated": false
 }`}</CodeBlock>
+      </ToolReference>
 
-      <h2 id="create">openlinear_create_project</h2>
-      <p>Create a new project. Defaults to your default workspace if you don&rsquo;t pass one.</p>
+      <ToolReference name="openlinear_get_project">
+        <p>
+          Returns the project plus its repository, workspace and every label (phase labels include a parsed{' '}
+          <code>phase</code>). List the project&rsquo;s issues with <code>openlinear_list_issues</code>.
+        </p>
+      </ToolReference>
 
-      <h3>Input</h3>
-      <table>
-        <thead><tr><th>Field</th><th>Type</th><th>Notes</th></tr></thead>
-        <tbody>
-          <tr><td><code>name</code></td><td>string (1&ndash;100)</td><td>Required.</td></tr>
-          <tr><td><code>description</code></td><td>string (max 1000)</td><td>Optional.</td></tr>
-          <tr><td><code>key</code></td><td>string</td><td>2&ndash;12 chars, must start with a letter; stored uppercase. Auto-generated if omitted.</td></tr>
-          <tr><td><code>workspaceId</code></td><td>string</td><td>Defaults to your default workspace.</td></tr>
-          <tr><td><code>teamIds</code></td><td>uuid[]</td><td>Exactly one team ID (max 1 currently).</td></tr>
-          <tr><td><code>status</code></td><td>enum</td><td><code>planned | in_progress | paused | completed | cancelled</code></td></tr>
-        </tbody>
-      </table>
-
-      <Callout variant="info" title="No team? No problem.">
-        For most workflows, just call <code>openlinear_bulk_create_plan</code> instead &mdash; it
-        auto-creates a team named <code>&lt;Project&gt; Team</code> when none is supplied.
-      </Callout>
-
-      <h3>Returns</h3>
-      <CodeBlock language="json">{`{
-  "id": "...",
-  "key": "MAL",
-  "name": "Mobile App Launch",
-  "status": "planned",
-  "workspaceId": "..."
-}`}</CodeBlock>
-
-      <h2 id="get">openlinear_get_project</h2>
-      <p>Fetch a single project by ID, including its teams and stats.</p>
-
-      <h3>Input</h3>
-      <table>
-        <thead><tr><th>Field</th><th>Type</th><th>Notes</th></tr></thead>
-        <tbody>
-          <tr><td><code>projectId</code></td><td>uuid</td><td>Required.</td></tr>
-        </tbody>
-      </table>
+      <ToolReference name="openlinear_create_project">
+        <Callout variant="info" title="Planning a whole project?">
+          Use <code>openlinear_bulk_create_plan</code> instead: it creates the project, phase labels and every task in
+          one call.
+        </Callout>
+        <p>
+          Retrying the same call within 24 hours returns the same project (<code>idempotency.replayed: true</code>)
+          instead of creating a second one.
+        </p>
+        <h3>Adopting an existing team</h3>
+        <p>
+          By default a new project gets its own team, which numbers its issues. <code>teamIds</code> (one team) moves
+          an existing team into the new project instead, together with its issue numbering and its issues that have
+          no project. The move is allowed when you are owner or admin of the team and it leaves nothing inconsistent;
+          otherwise nothing is created and the error lists a reason per team:
+        </p>
+        <table>
+          <thead><tr><th>Reason</th><th>Meaning</th></tr></thead>
+          <tbody>
+            <tr><td><code>OTHER_WORKSPACE</code></td><td>The team&rsquo;s current project is in another workspace.</td></tr>
+            <tr><td><code>LAST_TEAM_OF_PROJECT</code></td><td>Its current project would be left without a team.</td></tr>
+            <tr><td><code>TEAM_HAS_PROJECT_TASKS</code></td><td>The team still has issues in its current project.</td></tr>
+            <tr><td><code>TEAM_KEY_TAKEN</code></td><td>Another team of the project already uses its key.</td></tr>
+          </tbody>
+        </table>
+      </ToolReference>
 
       <PageNav />
     </div>
