@@ -2,27 +2,52 @@
 
 import { useState, useRef, useEffect, useCallback } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
-import { User, Users, Check, X, Rows3 } from "lucide-react"
+import { User, Users, Check, X, Rows3, Ban, CircleCheck, Play } from "lucide-react"
 import { useAuth } from "@/hooks/use-auth"
 import { useTeamMembers, TeamMemberOption } from "@/hooks/use-team-members"
+
+/** W17a: only tasks waiting on an unfinished task, or only open tasks nothing blocks. */
+export type DependencyFilter = "blocked" | "ready"
 
 export interface BoardFiltersState {
   assigneeIds: string[]
   groupByAssignee: boolean
+  dependency?: DependencyFilter | null
+}
+
+export function parseDependencyFilter(value: string | null): DependencyFilter | null {
+  return value === "blocked" || value === "ready" ? value : null
+}
+
+/** Whether a task passes the dependency filter (`blocked`: from the board's blocked set). */
+export function matchesDependencyFilter(task: { id: string; status: string }, filter: DependencyFilter | null | undefined, blocked: ReadonlySet<string>): boolean {
+  if (!filter) return true
+  if (filter === "blocked") return blocked.has(task.id)
+  return task.status !== "done" && task.status !== "cancelled" && !blocked.has(task.id)
 }
 
 interface BoardFiltersProps {
   value: BoardFiltersState
   onChange: (state: BoardFiltersState) => void
+  /** With the Ready filter on: run this many ready tasks as one batch (after a confirm). */
+  readyCount?: number
+  onRunReady?: () => void
 }
 
-export function useBoardFilters(): BoardFiltersState & { setAssigneeIds: (ids: string[]) => void; setGroupByAssignee: (v: boolean) => void } {
+export function useBoardFilters(): BoardFiltersState & {
+  setAssigneeIds: (ids: string[]) => void
+  setGroupByAssignee: (v: boolean) => void
+  setDependency: (v: DependencyFilter | null) => void
+  /** Every filter in one URL update (separate setters each start from the same URL and would undo each other). */
+  setFilters: (state: BoardFiltersState) => void
+} {
   const searchParams = useSearchParams()
   const router = useRouter()
 
   const assigneeParam = searchParams.get("assignee") || ""
   const assigneeIds = assigneeParam ? assigneeParam.split(",").filter(Boolean) : []
   const groupByAssignee = searchParams.get("groupBy") === "assignee"
+  const dependency = parseDependencyFilter(searchParams.get("deps"))
 
   const updateParams = useCallback((updates: Record<string, string | null>) => {
     const params = new URLSearchParams(searchParams.toString())
@@ -45,10 +70,23 @@ export function useBoardFilters(): BoardFiltersState & { setAssigneeIds: (ids: s
     updateParams({ groupBy: v ? "assignee" : null })
   }, [updateParams])
 
-  return { assigneeIds, groupByAssignee, setAssigneeIds, setGroupByAssignee }
+  const setDependency = useCallback((v: DependencyFilter | null) => {
+    updateParams({ deps: v })
+  }, [updateParams])
+
+  const setFilters = useCallback((state: BoardFiltersState) => {
+    updateParams({
+      assignee: state.assigneeIds.length > 0 ? state.assigneeIds.join(",") : null,
+      groupBy: state.groupByAssignee ? "assignee" : null,
+      deps: state.dependency ?? null,
+    })
+  }, [updateParams])
+
+  return { assigneeIds, groupByAssignee, dependency, setAssigneeIds, setGroupByAssignee, setDependency, setFilters }
 }
 
-export function BoardFilters({ value, onChange }: BoardFiltersProps) {
+export function BoardFilters({ value, onChange, readyCount = 0, onRunReady }: BoardFiltersProps) {
+  const [confirmRun, setConfirmRun] = useState(false)
   const { user } = useAuth()
   const { members } = useTeamMembers()
   const [dropdownOpen, setDropdownOpen] = useState(false)
@@ -170,6 +208,48 @@ export function BoardFilters({ value, onChange }: BoardFiltersProps) {
           </div>
         )}
       </div>
+
+      {(["blocked", "ready"] as const).map((kind) => {
+        const active = value.dependency === kind
+        const Icon = kind === "blocked" ? Ban : CircleCheck
+        return (
+          <button
+            key={kind}
+            type="button"
+            aria-pressed={active}
+            onClick={() => onChange({ ...value, dependency: active ? null : kind })}
+            title={kind === "blocked" ? "Tasks waiting on an unfinished task" : "Open tasks nothing is blocking"}
+            className={`flex items-center gap-1.5 h-7 px-2.5 rounded-sm text-xs font-medium transition-colors whitespace-nowrap ${
+              active
+                ? "bg-linear-accent/15 text-linear-accent border border-linear-accent/30"
+                : "text-linear-text-secondary hover:text-linear-text hover:bg-linear-bg-tertiary border border-transparent"
+            }`}
+          >
+            <Icon className="w-3 h-3" />
+            {kind === "blocked" ? "Blocked" : "Ready"}
+          </button>
+        )
+      })}
+
+      {value.dependency === "ready" && onRunReady && readyCount > 0 && (
+        confirmRun ? (
+          <span className="flex items-center gap-1.5 whitespace-nowrap">
+            <span className="text-xs text-linear-text-secondary">Run {readyCount} ready {readyCount === 1 ? "task" : "tasks"}?</span>
+            <button type="button" onClick={() => { setConfirmRun(false); onRunReady() }} className="h-7 px-2.5 rounded-sm text-xs font-medium bg-linear-accent text-white hover:bg-linear-accent/90">Run</button>
+            <button type="button" onClick={() => setConfirmRun(false)} className="h-7 px-2 rounded-sm text-xs text-linear-text-secondary hover:bg-linear-bg-tertiary">Cancel</button>
+          </span>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setConfirmRun(true)}
+            title="Run the open tasks nothing blocks as one batch (highest priority first, within your batch size)"
+            className="flex items-center gap-1.5 h-7 px-2.5 rounded-sm text-xs font-medium whitespace-nowrap text-linear-accent hover:bg-linear-accent/10 border border-linear-accent/30"
+          >
+            <Play className="w-3 h-3" />
+            Run {readyCount} ready
+          </button>
+        )
+      )}
 
       {hasFilters && (
         <button
