@@ -1,10 +1,9 @@
 import { prisma } from '@openlinear/db';
-import { broadcastToTask, broadcastToTaskById, broadcastToUser } from '@openlinear/api/sse';
-import { logger } from '@openlinear/api/logger';
+import { logger } from '../../lib/logger';
+import { publishTaskEvent, publishUserEvent } from '../../events/publisher';
 import {
   batchActivityId,
   batchIdFromActivityId,
-  getCompletedBatchTaskIds,
   completionKey,
 } from '@openlinear/execution-core';
 import type {
@@ -14,21 +13,38 @@ import type {
 } from '@openlinear/execution-core';
 import { cleanupDeltaBuffer, flushDeltaBuffer } from '../delta-buffer';
 import { broadcastProgress } from '../execution/state';
+import {
+  activeBatches,
+  batchCredentials,
+  batchHasInFlightWork,
+  batchTaskLogOwners,
+  batchTaskLogs,
+  type BatchLogEntry,
+  completingBatchTasks,
+  preparingBatchTasks,
+} from './registry';
 
-export const activeBatches = new Map<string, BatchState>();
-export const pendingBatchTasks = new Set<string>();
-export const preparingBatchTasks = new Set<string>();
+// In-memory batch state lives in the Prisma-free registry (W03a); re-exported
+// here so the batch engine keeps one import surface.
+export {
+  activeBatches,
+  pendingBatchTasks,
+  preparingBatchTasks,
+  completingBatchTasks,
+  completingCombinedBatches,
+  finalizingBatches,
+  cancellingBatches,
+  memberCancellationPromises,
+  batchHasPendingCancellation,
+  batchHasInFlightWork,
+  batchTaskLogs,
+  batchTaskLogOwners,
+  getBatchExecutionLogs,
+  type BatchLogEntry,
+} from './registry';
+
 export const sessionToBatch = new Map<string, { batchId: string; taskIds: string[] }>();
-export const completingBatchTasks = new Set<string>();
-export const completingCombinedBatches = new Set<string>();
-export const finalizingBatches = new Set<string>();
-export const cancellingBatches = new Set<string>();
 export const cancellationPromises = new Map<string, Promise<void>>();
-export const memberCancellationPromises = new Map<string, Promise<void>>();
-export function batchHasPendingCancellation(batch: BatchState): boolean {
-  return cancellingBatches.has(batch.id)
-    || batch.tasks.some((task) => memberCancellationPromises.has(completionKey(batch.id, task.taskId)));
-}
 export const batchSubscriptions = new Map<string, { close: () => void }>();
 export function closeBatchSubscription(activityId: string): void {
   batchSubscriptions.get(activityId)?.close();
@@ -39,22 +55,6 @@ export function batchRunningCount(batch: BatchState): number {
     || preparingBatchTasks.has(completionKey(batch.id, task.taskId))
     || completingBatchTasks.has(completionKey(batch.id, task.taskId))).length;
 }
-export function batchHasInFlightWork(batch: BatchState): boolean {
-  return batch.tasks.some((task) => task.cancelUnconfirmed)
-    || (batch.status === 'cancelled' && Boolean(batch.publication?.error))
-    || batchHasPendingCancellation(batch) || completingCombinedBatches.has(batch.id) || finalizingBatches.has(batch.id)
-    || batch.tasks.some((task) => preparingBatchTasks.has(completionKey(batch.id, task.taskId))
-      || completingBatchTasks.has(completionKey(batch.id, task.taskId)));
-}
-
-export interface BatchLogEntry {
-  timestamp: string;
-  type: 'info' | 'agent' | 'tool' | 'error' | 'success';
-  message: string;
-  details?: string;
-}
-export const batchTaskLogs = new Map<string, BatchLogEntry[]>();
-export const batchTaskLogOwners = new Map<string, string>();
 
 // T11 (H-12) — same ring-buffer bound as services/execution/state.ts's
 // execution logs, applied to the batch task log arrays.
@@ -90,6 +90,7 @@ export function scheduleBatchCleanup(batchId: string): void {
       return;
     }
     activeBatches.delete(batchId);
+    batchCredentials.delete(batchId);
     for (const activityId of [...batch.tasks.map((task) => task.taskId), batchActivityId(batchId)]) {
       if (batchTaskLogOwners.get(activityId) === batchId) {
         batchTaskLogs.delete(activityId);
@@ -106,7 +107,7 @@ export function broadcastBatchEvent(type: BatchEventType, batchId: string, data:
   const payload = { batchId, ...data, timestamp: new Date().toISOString() };
   if (batch?.userId) {
     try {
-      broadcastToUser(batch.userId, type, payload);
+      publishUserEvent(batch.userId, type, payload);
     } catch (error) {
       logger.error({ err: error, batchId }, `[Batch] Failed to broadcast ${type} for batch ${batchId.slice(0, 8)}`);
     }
@@ -125,7 +126,7 @@ export function broadcastBatchProgress(
       const batch = activeBatches.get(batchId);
       if (batch?.userId) {
         logger.info(`[Batch] ${batchId.slice(0, 8)} → ${status}: ${message}`);
-        broadcastToUser(batch.userId, 'execution:progress', { taskId, status, message, ...data });
+        publishUserEvent(batch.userId, 'execution:progress', { taskId, status, message, ...data });
       }
       continue;
     }
@@ -152,14 +153,12 @@ export function emitBatchLog(taskId: string, type: 'info' | 'agent' | 'tool' | '
   if (batchId) {
     const batch = activeBatches.get(batchId);
     if (batch?.userId) {
-      broadcastToUser(batch.userId, 'execution:log', { taskId, entry });
+      publishUserEvent(batch.userId, 'execution:log', { taskId, entry });
     }
     return;
   }
 
-  broadcastToTaskById(taskId, 'execution:log', { taskId, entry }).catch((error: unknown) => {
-    logger.error({ err: error, taskId }, `[Batch] Failed to broadcast log for task ${taskId.slice(0, 8)}`);
-  });
+  publishTaskEvent(taskId, 'execution:log', { taskId, entry });
 }
 
 export function emitBatchLogs(taskIds: string[], type: 'info' | 'agent' | 'tool' | 'error' | 'success', message: string, details?: string): void {
@@ -195,7 +194,7 @@ export async function updateTaskInDb(
       labels: (task.labels as Array<{ label: { id: string; name: string; color: string } }>).map(tl => tl.label),
     };
 
-    broadcastToTask('task:updated', flatTask);
+    publishTaskEvent(taskId, 'task:updated', flatTask);
   } catch (err) {
     logger.error({ err, taskId }, `[Batch] Failed to update task ${taskId} in DB`);
     throw err;
@@ -216,10 +215,6 @@ export async function persistBatchTaskLogs(taskId: string, expectedBatchId?: str
   } catch (err) {
     logger.error({ err, taskId }, `[Batch] Failed to persist logs for task ${taskId.slice(0, 8)}`);
   }
-}
-
-export function getBatchExecutionLogs(taskId: string): BatchLogEntry[] {
-  return batchTaskLogs.get(taskId) || [];
 }
 
 export function flushTaskBuffers(taskIds: string[]): void {

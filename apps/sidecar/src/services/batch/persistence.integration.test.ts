@@ -5,12 +5,15 @@ import { createBatchState } from '@openlinear/execution-core';
 import { createOpencodeClient } from '@opencode-ai/sdk';
 import type { ExecutionState } from '../execution/state';
 
-vi.mock('@openlinear/api/sse', () => ({
-  broadcastToTask: vi.fn(), broadcastToUser: vi.fn(), broadcastToTaskById: vi.fn(async () => undefined),
+// W03a: the sidecar publisher replaced the cloud API SSE module.
+vi.mock('../../events/publisher', () => ({
+  publishTaskEvent: vi.fn(), publishUserEvent: vi.fn(), publishGlobalEvent: vi.fn(),
+  registerTaskOwnerResolver: vi.fn(), attachAttemptRelay: vi.fn(), detachAttemptRelay: vi.fn(),
 }));
 const effects = vi.hoisted(() => ({ prepare: vi.fn(), receipt: vi.fn(), push: vi.fn(), publish: vi.fn() }));
-vi.mock('@openlinear/api/ownership', () => ({
-  assertTaskOwned: async (id: string) => prisma.task.findUniqueOrThrow({ where: { id } }),
+// Authorization is the control plane's decision; this stand-in reads the row.
+vi.mock('../../auth/task-access', () => ({
+  authorizeTaskAccess: async (_credential: unknown, id: string) => prisma.task.findUniqueOrThrow({ where: { id } }),
 }));
 vi.mock('../execution-settings', () => ({ getExecutionSettings: async () => ({ maxBatchSize: 2, queueAutoApprove: false, stopOnFailure: false, conflictBehavior: 'fail' }) }));
 vi.mock('../worktree', () => ({

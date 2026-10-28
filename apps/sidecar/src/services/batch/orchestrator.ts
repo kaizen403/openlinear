@@ -1,9 +1,11 @@
 import crypto from 'crypto';
 import type { OpencodeClient } from '@opencode-ai/sdk';
 import { prisma } from '@openlinear/db';
-import { logger } from '@openlinear/api/logger';
-import { HttpError } from '@openlinear/api/errors';
+import { logger } from '../../lib/logger';
+import { HttpError } from '../../lib/errors';
+import type { PrincipalCredential } from '../../auth/principal';
 import { validateBatchRequest, reserveBatchTasks, validateBatchSelection } from './admission';
+import { batchCredentials } from './registry';
 import { ensureModelConfigured } from '../opencode-model';
 import {
   batchActivityId,
@@ -80,11 +82,11 @@ async function resolveBatchTaskModel(
   return { override, label: resolved as string };
 }
 
-export async function createBatch(params: CreateBatchParams): Promise<BatchState> {
+export async function createBatch(params: CreateBatchParams, credential: PrincipalCredential | null = null): Promise<BatchState> {
   const taskIds = validateBatchRequest(params.taskIds, params.mode);
   const releaseReservation = reserveBatchTasks(taskIds);
   try {
-    const selected = await validateBatchSelection({ taskIds, userId: params.userId });
+    const selected = await validateBatchSelection({ taskIds, userId: params.userId, credential });
     if (params.mode === 'combined' && new Set(selected.tasks.map((task) => task.model)).size > 1) {
       throw new HttpError(400, 'BATCH_MODEL_MISMATCH', 'A combined session requires the same model selection for every member');
     }
@@ -112,6 +114,7 @@ export async function createBatch(params: CreateBatchParams): Promise<BatchState
     });
     batch.repository = { ...repository };
     batch.taskProjectIds = Object.fromEntries(selected.tasks.map((task) => [task.id, task.projectId!]));
+    if (credential) batchCredentials.set(batchId, credential);
 
     await writeBatchReceipt(batch, 'prepared');
 

@@ -1,10 +1,13 @@
 import { prisma, type Prisma } from '@openlinear/db';
-import { HttpError } from '@openlinear/api/errors';
-import { assertTaskOwned } from '@openlinear/api/ownership';
+import { HttpError } from '../../lib/errors';
+import { authorizeTaskAccess } from '../../auth/task-access';
+import type { PrincipalCredential } from '../../auth/principal';
 import type { BatchMode, BatchState } from '@openlinear/execution-core';
 import { requireLegacyRunner } from '../../engine/resolve-agent';
 import { activeExecutions, pendingExecutions } from '../execution/state';
-import { activeBatches, pendingBatchTasks, batchHasInFlightWork } from './shared';
+import { batchCredentials, pendingBatchTasks, taskHasActiveBatch } from './registry';
+
+export { taskHasActiveBatch } from './registry';
 
 const taskSelection = {
   id: true, title: true, description: true, model: true, agent: true,
@@ -32,12 +35,6 @@ export function validateBatchRequest(taskIds: string[], mode: BatchMode): string
   return ids;
 }
 
-export function taskHasActiveBatch(taskId: string, exceptBatchId?: string): boolean {
-  return [...activeBatches.values()].some((batch) => batch.id !== exceptBatchId
-    && (!['completed', 'failed', 'cancelled'].includes(batch.status) || batchHasInFlightWork(batch))
-    && batch.tasks.some((task) => task.taskId === taskId));
-}
-
 export function reserveBatchTasks(taskIds: string[]): () => void {
   if (taskIds.some((id) => pendingBatchTasks.has(id) || pendingExecutions.has(id) || activeExecutions.has(id) || taskHasActiveBatch(id))) {
     throw new HttpError(409, 'TASK_ALREADY_RUNNING', 'A selected task is already executing or reserved');
@@ -60,11 +57,13 @@ function repositoryMatches(actual: BatchRepositorySnapshot, expected: BatchRepos
 export async function validateBatchSelection(input: {
   taskIds: string[];
   userId: string | null;
+  /** The request credential; authorization is decided by the control plane. */
+  credential?: PrincipalCredential | null;
   expected?: BatchState;
 }): Promise<{ tasks: BatchMemberSnapshot[]; repository: BatchRepositorySnapshot }> {
   if (!input.userId) throw new HttpError(401, 'AUTH_REQUIRED', 'An authenticated user is required for batch execution');
-  const userId = input.userId;
-  const authorized = await Promise.all(input.taskIds.map((id) => assertTaskOwned(id, userId)));
+  const credential = input.credential ?? (input.expected ? batchCredentials.get(input.expected.id) : undefined) ?? null;
+  const authorized = await Promise.all(input.taskIds.map((id) => authorizeTaskAccess(credential, id, 'write')));
   const authorityById = new Map(authorized.map((task) => [task.id, task]));
   const records = await prisma.task.findMany({ where: { id: { in: input.taskIds } }, select: taskSelection });
   const byId = new Map(records.map((record) => [record.id, record]));

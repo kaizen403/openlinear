@@ -27,20 +27,26 @@ vi.mock('@openlinear/db', () => ({
 
 // Mirrors requireAuth's observable contract: no proof of identity, no access
 // at all — the fix for C6a F4 (this router previously used `optionalAuth`).
-vi.mock('@openlinear/api/middleware', () => ({
-  requireAuth: (req, res, next) => {
+// W03a: the principal is validated by the control plane; this stand-in
+// attaches the same credential shape.
+vi.mock('../auth/principal', () => ({
+  requireSidecarAuth: (req, res, next) => {
     const userId = req.get('x-user-id');
     if (!userId) {
       res.status(401).json({ error: 'Authentication required' });
       return;
     }
     req.userId = userId;
+    req.credential = { principal: { userId, authSource: 'session', scopes: [], workspaceRestriction: null, tokenHash: 'h' }, token: `token-${userId}` };
     next();
   },
+  credentialOf: (req) => req.credential,
 }));
 
-vi.mock('@openlinear/api/ownership', () => ({
-  assertTaskOwned: mocks.assertTaskOwned,
+// Authorization is the control plane's decision (stand-in keeps the old
+// ownership contract observable).
+vi.mock('../auth/task-access', () => ({
+  authorizeTaskAccess: (credential, taskId) => mocks.assertTaskOwned(taskId, credential?.principal?.userId),
 }));
 
 vi.mock('@openlinear/execution-core', () => ({
@@ -184,7 +190,7 @@ describe('batches routes', () => {
       projectId: '',
       userId: 'user-1',
       accessToken: 'decrypted:secret',
-    });
+    }, expect.objectContaining({ token: 'token-user-1' })); // W03a: credential kept for member re-authorization
     expect(mocks.startBatch).toHaveBeenCalledWith('batch-1');
   });
 
@@ -262,7 +268,7 @@ describe('batches routes', () => {
       body: { taskIds: ['task-1'], mode: 'queue' },
     })).resolves.toMatchObject({ status: 201 });
 
-    expect(mocks.createBatch).toHaveBeenCalledWith(expect.objectContaining({ accessToken: null }));
+    expect(mocks.createBatch).toHaveBeenCalledWith(expect.objectContaining({ accessToken: null }), expect.anything());
   });
 
   it('lists only batches owned by the caller', async () => {

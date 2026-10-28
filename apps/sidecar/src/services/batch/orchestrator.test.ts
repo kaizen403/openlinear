@@ -22,9 +22,14 @@ vi.mock('@openlinear/db', () => ({ prisma: {
   task: { findMany: mocks.taskFindMany, update: mocks.taskUpdate, updateMany: mocks.updateMany },
   repository: { findUnique: mocks.repository }, $transaction: mocks.transaction,
 } }));
-vi.mock('@openlinear/api/ownership', () => ({ assertTaskOwned: mocks.ownership }));
-vi.mock('@openlinear/api/sse', () => ({
-  broadcastToUser: mocks.notify, broadcastToTask: mocks.notify, broadcastToTaskById: vi.fn(async () => undefined),
+// W03a: authorization via the control plane; events via the sidecar publisher.
+vi.mock('../../auth/task-access', () => ({
+  authorizeTaskAccess: (credential: { principal?: { userId?: string } } | null, taskId: string) =>
+    mocks.ownership(taskId, credential?.principal?.userId ?? null),
+}));
+vi.mock('../../events/publisher', () => ({
+  publishUserEvent: mocks.notify, publishTaskEvent: mocks.notify, publishGlobalEvent: vi.fn(),
+  registerTaskOwnerResolver: vi.fn(), attachAttemptRelay: vi.fn(), detachAttemptRelay: vi.fn(),
 }));
 vi.mock('../execution/state', () => ({ activeExecutions: new Map(), pendingExecutions: new Set(), broadcastProgress: mocks.notify }));
 vi.mock('../execution-settings', () => ({ getExecutionSettings: mocks.settings }));

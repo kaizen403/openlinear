@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createBatchState, type BatchMode, type BatchState } from '@openlinear/execution-core';
-import { HttpError } from '@openlinear/api/errors';
-import type { OwnedTask } from '@openlinear/api/ownership';
+import { HttpError } from '../../lib/errors';
+import type { TaskAuthority as OwnedTask } from '../../auth/task-access';
 import type { BatchMemberSnapshot, BatchRepositorySnapshot } from './admission';
 
 const mocks = vi.hoisted(() => ({
@@ -16,7 +16,11 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@openlinear/db', () => ({
   prisma: { task: { findMany: mocks.findMany, updateMany: mocks.updateMany }, $transaction: mocks.transaction },
 }));
-vi.mock('@openlinear/api/ownership', () => ({ assertTaskOwned: mocks.assertTaskOwned }));
+// W03a: member authorization is the control plane's decision.
+vi.mock('../../auth/task-access', () => ({
+  authorizeTaskAccess: (credential: { principal?: { userId?: string } } | null, taskId: string) =>
+    mocks.assertTaskOwned(taskId, credential?.principal?.userId ?? 'user-a'),
+}));
 vi.mock('../execution/state', () => ({ activeExecutions: mocks.activeExecutions, pendingExecutions: mocks.pendingExecutions }));
 vi.mock('./shared', () => ({
   activeBatches: mocks.activeBatches, pendingBatchTasks: mocks.pendingBatchTasks,
@@ -42,6 +46,11 @@ vi.mock('./publication', async (importOriginal) => ({
 }));
 
 const { validateBatchRequest, validateBatchSelection, reserveBatchTasks, taskHasActiveBatch } = await import('./admission');
+// W03a: in-memory batch state lives in the Prisma-free registry; share its
+// instances with the mocked `./shared` surface the orchestrator imports.
+const registry = await import('./registry');
+mocks.activeBatches = registry.activeBatches;
+mocks.pendingBatchTasks = registry.pendingBatchTasks;
 const { createBatch } = await import('./orchestrator');
 let records: BatchMemberSnapshot[];
 
@@ -335,11 +344,14 @@ describe('reservation ownership and failed preparation', () => {
   });
 
   it('keeps a terminal batch blocking admission while its callbacks still own in-flight work', () => {
-    mocks.activeBatches.set('old', batch({ id: 'old', status: 'cancelled' }));
-    mocks.batchHasInFlightWork.mockReturnValue(true);
+    // W03a: the real registry predicate decides; an unconfirmed member stop
+    // is in-flight work.
+    const old = batch({ id: 'old', status: 'cancelled' });
+    mocks.activeBatches.set('old', old);
+    old.tasks[0]!.cancelUnconfirmed = true;
     expect(() => reserveBatchTasks(['task-a'])).toThrowError(expect.objectContaining({ code: 'TASK_ALREADY_RUNNING' }));
     expect(mocks.pendingBatchTasks.size).toBe(0);
-    mocks.batchHasInFlightWork.mockReturnValue(false);
+    old.tasks[0]!.cancelUnconfirmed = false;
     const release = reserveBatchTasks(['task-a']);
     expect(mocks.pendingBatchTasks.has('task-a')).toBe(true);
     release();
