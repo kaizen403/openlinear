@@ -1,6 +1,7 @@
 "use client"
 
-import { useState, useEffect, useCallback, useMemo } from "react"
+import { useState, useEffect, useCallback, useMemo, useRef } from "react"
+import { SimilarIssuesHint } from "@/components/similar-issues-hint"
 import { Loader2, FolderKanban, Users } from "lucide-react"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
@@ -63,8 +64,11 @@ interface TaskFormDialogProps {
   projects?: Project[]
 }
 
-import { apiFetch, ApiError } from "@/lib/api/fetch"
-import { toast } from "sonner"
+import { ApiError } from "@/lib/api/fetch"
+import { formatApiError, isApiErrorCode, toastApiError } from "@/lib/api/errors"
+import { IdempotencyIntent } from "@/lib/api/idempotency"
+import type { CreateTaskRequest } from "@/lib/api/task-commands"
+import { useCreateTask } from "@/hooks/use-create-task"
 import { STATUS_COLORS } from "@/lib/design-tokens"
 
 const statusLabels = {
@@ -83,11 +87,23 @@ export function TaskFormDialog({
   projects = [],
 }: TaskFormDialogProps) {
   const [isSubmitting, setIsSubmitting] = useState(false)
+  // One Idempotency-Key per draft: a double submit or a retry of the same
+  // values reuses it (the server replays instead of creating a duplicate);
+  // edited values get a new key; success or reopening starts a new draft.
+  const intentRef = useRef<IdempotencyIntent | null>(null)
+  const submittingRef = useRef(false)
+  const getIntent = () => {
+    if (!intentRef.current) intentRef.current = new IdempotencyIntent()
+    return intentRef.current
+  }
   const hasProjects = projects.length > 0
   const { teams } = useTeams()
   const { activeProject } = useProject()
   const { members } = useTeamMembers()
   const { user } = useAuth()
+  // Keyed create through the query layer: retries reuse the key, and the new
+  // task lands in every cached list it belongs to.
+  const createTask = useCreateTask()
 
   const effectiveProjectId = defaultProjectId || activeProject?.id || null
   const projectTeams = effectiveProjectId
@@ -109,10 +125,14 @@ export function TaskFormDialog({
     resolver: zodResolver(getFormSchema(hasProjects)),
     defaultValues: defaultFormValues,
   })
+  // FE-11: duplicate hints follow the typed title and chosen project.
+  const watchedTitle = form.watch("title")
+  const watchedProjectId = form.watch("projectId")
 
   useEffect(() => {
     if (open) {
       form.reset(defaultFormValues)
+      intentRef.current?.complete()
     }
   }, [defaultFormValues, form, open])
 
@@ -121,52 +141,55 @@ export function TaskFormDialog({
   }, [defaultFormValues, form])
 
   const onSubmit = useCallback(async (values: FormValues) => {
+    // ⌘+Enter bypasses the disabled submit button; never send twice at once.
+    if (submittingRef.current) return
+    submittingRef.current = true
+    const intent = getIntent()
     try {
       setIsSubmitting(true)
 
-      const created = await apiFetch<Task>('/api/tasks', {
-        method: "POST",
-        body: JSON.stringify({
-          title: values.title,
-          description: values.description || undefined,
-          status: values.status,
-          labelIds: values.labelIds.length > 0 ? values.labelIds : undefined,
-          assigneeIds: values.assigneeIds.length > 0 ? values.assigneeIds : undefined,
-          projectId: values.projectId || undefined,
-          teamId: values.teamId || undefined,
-          dueDate: values.dueDate ? new Date(values.dueDate).toISOString() : undefined,
-          model: values.model || undefined,
-        }),
-      })
+      const body: CreateTaskRequest = {
+        title: values.title,
+        description: values.description || undefined,
+        status: values.status,
+        labelIds: values.labelIds.length > 0 ? values.labelIds : undefined,
+        assigneeIds: values.assigneeIds.length > 0 ? values.assigneeIds : undefined,
+        projectId: values.projectId || undefined,
+        teamId: values.teamId || undefined,
+        dueDate: values.dueDate ? new Date(values.dueDate).toISOString() : undefined,
+        model: values.model || undefined,
+      }
+      const idempotencyKey = intent.keyFor(JSON.stringify(body))
+      const created: Task = await createTask({ body, idempotencyKey })
+      intent.complete()
 
       onOpenChange(false)
       resetAfterClose()
       onSuccess?.(created)
     } catch (error) {
-      if (error instanceof ApiError) {
-        toast.error(error.message)
-        const details = error.details as
-          | { fieldErrors?: Record<string, string[]> }
-          | undefined
-        if (details?.fieldErrors && typeof details.fieldErrors === "object") {
-          for (const [field, msgs] of Object.entries(details.fieldErrors)) {
-            if (Array.isArray(msgs) && msgs.length > 0 && typeof msgs[0] === "string") {
-              if (field === "title" || field === "description" || field === "status" || field === "projectId" || field === "dueDate") {
-                form.setError(field as keyof FormValues, { type: "server", message: msgs[0] })
-              }
+      // A conflict means this key already belongs to different values: start a
+      // new draft key so the next submit can go through.
+      if (isApiErrorCode(error, "IDEMPOTENCY_CONFLICT")) intent.complete()
+      toastApiError(error, { fallbackMessage: "Couldn't create the task." })
+      const details = error instanceof ApiError
+        ? (error.details as { fieldErrors?: Record<string, string[]> } | undefined)
+        : undefined
+      if (details?.fieldErrors && typeof details.fieldErrors === "object") {
+        for (const [field, msgs] of Object.entries(details.fieldErrors)) {
+          if (Array.isArray(msgs) && msgs.length > 0 && typeof msgs[0] === "string") {
+            if (field === "title" || field === "description" || field === "status" || field === "projectId" || field === "dueDate") {
+              form.setError(field as keyof FormValues, { type: "server", message: msgs[0] })
             }
           }
-        } else {
-          form.setError("root", { type: "server", message: error.message })
         }
       } else {
-        toast.error("Could not reach OpenLinear server. Check your connection and try again.")
-        form.setError("root", { type: "server", message: "Network error" })
+        form.setError("root", { type: "server", message: formatApiError(error, "Couldn't create the task.") })
       }
     } finally {
+      submittingRef.current = false
       setIsSubmitting(false)
     }
-  }, [form, onOpenChange, onSuccess, resetAfterClose])
+  }, [createTask, form, onOpenChange, onSuccess, resetAfterClose])
 
   // ⌘+Enter keyboard shortcut
   useEffect(() => {
@@ -220,10 +243,11 @@ export function TaskFormDialog({
                         {...field}
                       />
                     </FormControl>
-                    <FormMessage className="text-red-400 text-xs mt-1" />
+                    <FormMessage className="text-danger text-xs mt-1" />
                   </FormItem>
                 )}
               />
+              <SimilarIssuesHint projectId={watchedProjectId || effectiveProjectId} title={watchedTitle ?? ""} />
 
               <FormField
                 control={form.control}
@@ -239,7 +263,7 @@ export function TaskFormDialog({
                         {...field}
                       />
                     </FormControl>
-                    <FormMessage className="text-red-400 text-xs mt-1" />
+                    <FormMessage className="text-danger text-xs mt-1" />
                   </FormItem>
                 )}
               />
@@ -308,7 +332,7 @@ export function TaskFormDialog({
                         </SelectItem>
                       </SelectContent>
                     </Select>
-                    <FormMessage className="text-red-400 text-xs" />
+                    <FormMessage className="text-danger text-xs" />
                   </FormItem>
                 )}
               />
@@ -326,7 +350,7 @@ export function TaskFormDialog({
                         triggerClassName="h-7 w-auto px-2.5 text-xs rounded-sm bg-transparent border-none hover:bg-linear-bg-tertiary hover:border-none text-linear-text-secondary shadow-none"
                       />
                     </FormControl>
-                    <FormMessage className="text-red-400 text-xs" />
+                    <FormMessage className="text-danger text-xs" />
                   </FormItem>
                 )}
               />
@@ -342,7 +366,7 @@ export function TaskFormDialog({
                         onChange={field.onChange}
                       />
                     </FormControl>
-                    <FormMessage className="text-red-400 text-xs" />
+                    <FormMessage className="text-danger text-xs" />
                   </FormItem>
                 )}
               />
@@ -358,7 +382,7 @@ export function TaskFormDialog({
                         onChange={field.onChange}
                       />
                     </FormControl>
-                    <FormMessage className="text-red-400 text-xs" />
+                    <FormMessage className="text-danger text-xs" />
                   </FormItem>
                 )}
               />
@@ -376,7 +400,7 @@ export function TaskFormDialog({
                         currentUserId={user?.id}
                       />
                     </FormControl>
-                    <FormMessage className="text-red-400 text-xs" />
+                    <FormMessage className="text-danger text-xs" />
                   </FormItem>
                 )}
               />
@@ -421,7 +445,7 @@ export function TaskFormDialog({
                           ))}
                         </SelectContent>
                       </Select>
-                      <FormMessage className="text-red-400 text-xs" />
+                      <FormMessage className="text-danger text-xs" />
                     </FormItem>
                   )}
                 />
@@ -438,7 +462,7 @@ export function TaskFormDialog({
                         value={field.value || ""}
                       >
                         <FormControl>
-                          <SelectTrigger className="h-7 w-auto px-2.5 text-xs rounded-sm bg-transparent border-none hover:bg-linear-bg-tertiary text-linear-text-secondary gap-1.5 focus:ring-0 shadow-none data-[state=error]:border-red-500">
+                          <SelectTrigger className="h-7 w-auto px-2.5 text-xs rounded-sm bg-transparent border-none hover:bg-linear-bg-tertiary text-linear-text-secondary gap-1.5 focus:ring-0 shadow-none data-[state=error]:border-danger">
                             <div className="flex items-center gap-1.5">
                               <FolderKanban className="w-3 h-3 text-linear-text-tertiary" />
                               <SelectValue placeholder="Select project">
@@ -467,7 +491,7 @@ export function TaskFormDialog({
                           ))}
                         </SelectContent>
                       </Select>
-                      <FormMessage className="text-red-400 text-xs" />
+                      <FormMessage className="text-danger text-xs" />
                     </FormItem>
                   )}
                 />
@@ -477,7 +501,7 @@ export function TaskFormDialog({
             <div className="border-b border-linear-border" />
 
             {form.formState.errors.root?.message && (
-              <div className="px-4 sm:px-5 pt-2 text-xs text-red-400">
+              <div className="px-4 sm:px-5 pt-2 text-xs text-danger">
                 {form.formState.errors.root.message}
               </div>
             )}
